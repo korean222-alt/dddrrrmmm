@@ -316,3 +316,10 @@ input[type='range'] { width: 100%; accent-color: var(--grass); height: 28px; }
 .vs-score { font-size: 38px; font-variant-numeric: tabular-nums; }
 .res-tune { margin-top: 6px; }
 .credit { margin-top: 10px !important; font-size: 12px !important; }
+
+/* 결과 연출: 점수 → 별 → 등급 순서로 */
+.stars.seq svg.on, .stars.seq svg.on path { animation-delay: 0s !important; }
+.res-grade.pending, .res-star-hint.pending { visibility: hidden; animation: none !important; }
+.res-score.land { animation: scoreland 0.35s cubic-bezier(.2, 1.8, .4, 1); }
+@keyframes scoreland { 0% { transform: scale(1.35); color: var(--grass-dark); } 100% { transform: none; } }
+.res-vs .vs-result { animation-delay: 0s !important; }

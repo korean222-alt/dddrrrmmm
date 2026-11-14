@@ -78,7 +78,8 @@ export class Renderer {
       W, H, dpr, GW, GX, studio, n, laneW,
       cx: W / 2,
       topY: H * (studio ? 0.25 : 0.155),
-      strikeY: H * (studio ? 0.7 : 0.745),
+      // 판정선은 엄지에 안 가리게 조금 위로. 그 아래 빈 줄이 엄지 올려두는 자리
+      strikeY: H * (studio ? 0.64 : 0.655),
       laneX: [],
       laneHalf: laneW / 2,
     };
@@ -869,6 +870,17 @@ export class Renderer {
         ctx.fillText('NEW!', x, y - fs * 0.48);
       }
     });
+    // 판정선 아래 빈 자리: 엄지 올려두는 곳
+    const zt = '여기 눌러도 OK';
+    const zs = fitFont(ctx, zt, L.laneW * 0.86, Math.min(L.laneW * 0.16, L.GW * 0.042));
+    const zy = L.strikeY + L.instR * 1.55 + (L.H - L.strikeY - L.instR * 1.55) * 0.3;
+    for (const i of this.laneOrder) {
+      ctx.fillStyle = `rgba(255,255,255,${0.8 * fade})`;
+      ctx.font = `${Math.round(zs * 1.5)}px ${FONT}`;
+      ctx.fillText('👆', L.laneX[i], zy + Math.sin(rt * 6) * zs * 0.2);
+      ctx.font = `${zs}px ${FONT}`;
+      ctx.fillText(zt, L.laneX[i], zy + zs * 1.5);
+    }
     // 한 줄 안내
     const hs = Math.round(L.GW * 0.045);
     ctx.font = `${hs}px ${FONT}`;

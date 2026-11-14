@@ -214,3 +214,13 @@ test('1:1 도전장: 링크로 주고받기 + 위조/깨진 값 거부', async (
     assert.ok(a && b && a.id !== b.id);
   }
 });
+
+test('6단계 터키 행진곡: 같은 엄지로 16분음표 연타 없음 (사람이 깰 수 있게)', () => {
+  const lv = LEVELS[5];
+  const last = { L: -9, R: -9 };
+  for (const n of buildNotes(lv)) {
+    const h = n.lane === 0 || n.lane === CRASH ? 'L' : 'R';
+    if (n.step !== last[h]) assert.ok(n.step - last[h] >= 2, `${h} 엄지 ${n.step}칸`);
+    last[h] = n.step;
+  }
+});

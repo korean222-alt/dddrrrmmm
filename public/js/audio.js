@@ -406,6 +406,44 @@ export class AudioEngine {
     this._noise(t, 0.27, hp);
   }
 
+  /** 점수 올라가는 '따라라라' 한 알. p = 0~1 (갈수록 높아짐) */
+  tick(t, p = 0) {
+    const ctx = this.ctx;
+    if (!this._tickBus) {
+      this._tickBus = ctx.createGain();
+      this._tickBus.connect(this.sfxBus);
+    }
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'triangle';
+    o.frequency.value = 700 * Math.pow(2, p * 1.2);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.22, t + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.045);
+    o.connect(g).connect(this._tickBus);
+    o.start(t);
+    o.stop(t + 0.06);
+  }
+
+  /** 예약해 둔 '따라라라'를 바로 멈춤 (결과 연출 건너뛸 때) */
+  silenceTicks() {
+    if (!this._tickBus) return;
+    try {
+      this._tickBus.disconnect();
+    } catch {}
+    this._tickBus = null;
+  }
+
+  /** 점수 다 오르면 '딴!' (드럼 + 밝은 화음) */
+  land(t = this.ctx.currentTime) {
+    this.kick(t, 0.7);
+    this.snare(t, 0.5);
+    for (const m of [72, 79, 84]) {
+      if (this.piano) this.pianoNote(t, m, 0.5, 0.5, this.sfxBus);
+      else this.lead(t, m, 0.3, this.sfxBus);
+    }
+  }
+
   /** 별 3개 다 모으면 '짜잔' 화음 */
   fanfare(t = this.ctx.currentTime) {
     const notes = [72, 76, 79, 84];

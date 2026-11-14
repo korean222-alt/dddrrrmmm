@@ -398,10 +398,6 @@ function showResult(res) {
   const g = $('#res-grade');
   g.textContent = res.grade;
   g.style.color = gradeColor(res.grade);
-  g.style.animation = 'none';
-  void g.offsetWidth;
-  g.style.animation = '';
-  $('#res-stars').innerHTML = starsHTML(res.stars, 'big');
   const nextRule = STAR_RULES.slice().reverse().find((r) => r.stars > res.stars);
   $('#res-star-hint').innerHTML =
     res.stars === 3
@@ -413,7 +409,6 @@ function showResult(res) {
   const badge = $('#res-badge');
   badge.hidden = !res.fullCombo;
   badge.textContent = res.counts.perfect === res.total && !res.counts.wrong ? 'ALL PERFECT' : 'FULL COMBO';
-  $('#res-score').textContent = fmt(res.score);
   for (const k of ['perfect', 'great', 'good', 'miss', 'wrong']) $('#res-' + k).textContent = res.counts[k] || 0;
   const face = res.stars === 0 ? 'miss' : res.stars === 1 ? 'idle' : 'cheer';
   $('#res-mascots').innerHTML = mascotSVG('kong', face) + mascotSVG('jjak', face);
@@ -436,7 +431,6 @@ function showResult(res) {
   // 1:1 대결 결과
   const vs = !state.auto && state.vs && state.vs.levelId === res.levelId ? state.vs : null;
   const box = $('#res-vs');
-  box.hidden = !vs;
   let outcome = null;
   if (vs) {
     outcome = versusOutcome(res.score, vs.score);
@@ -447,20 +441,93 @@ function showResult(res) {
   } else $('#btn-vs').innerHTML = `${icon('swords')} 친구에게 1:1 도전장`;
   show('screen-result');
   renderLevels();
-  playResultSounds(res.stars, outcome);
+  animateResult(res, outcome);
 }
 
 const clampOffset = (ms) => Math.max(-200, Math.min(200, Math.round(ms / 5) * 5));
 
-/** 결과 화면 별이 하나씩 '띵! 띵! 띵!' (CSS 별 애니메이션과 같은 타이밍) */
-function playResultSounds(stars, outcome) {
-  if (!audio.ctx) return;
-  const t0 = audio.ctx.currentTime;
-  for (let i = 0; i < stars; i++) audio.starChime(t0 + 0.25 + i * 0.28 + 0.1, i);
-  if (stars === 3) audio.fanfare(t0 + 0.25 + 3 * 0.28 + 0.15);
-  if (stars === 0) audio.aww(t0 + 0.35);
-  if (outcome === 'win' && stars < 3) audio.fanfare(t0 + 1.0);
-  if (outcome === 'lose' && stars > 0) audio.aww(t0 + 1.0);
+/**
+ * 결과 연출: 점수가 0부터 '따라라라' 올라감 → '딴!' → 별이 하나씩 '띵! 띵! 띵!' → 등급 도장 (+ 1:1 승패)
+ * 화면을 누르면 바로 끝까지 건너뜀.
+ */
+const resultAnim = { id: 0, finish: null };
+function animateResult(res, outcome) {
+  const id = ++resultAnim.id;
+  const alive = () => resultAnim.id === id;
+  const scoreEl = $('#res-score');
+  const grade = $('#res-grade');
+  const vsBox = $('#res-vs');
+  const hint = $('#res-star-hint');
+  $('#res-stars').innerHTML = starsHTML(0, 'big seq');
+  const starEls = $$('#res-stars svg');
+  grade.classList.add('pending');
+  hint.classList.add('pending');
+  vsBox.hidden = true;
+  scoreEl.classList.remove('land');
+  scoreEl.textContent = '0';
+  const timers = [];
+  const later = (ms, fn) => timers.push(setTimeout(() => alive() && fn(), ms));
+
+  const ratio = Math.min(1, res.score / (res.maxScore || 1));
+  const startMs = 350;
+  const countMs = res.score > 0 ? Math.round(700 + 1100 * ratio) : 0;
+  const landMs = startMs + countMs;
+  const starGap = 420;
+  const gradeMs = landMs + 380 + Math.max(0, res.stars - 1) * starGap + 420;
+
+  // 1) 점수 올라가는 소리: AudioContext 시계로 미리 예약해서 고르게 '따라라라'
+  if (audio.running && countMs) {
+    const t0 = audio.ctx.currentTime + startMs / 1000;
+    const n = Math.floor(countMs / 55);
+    for (let k = 0; k < n; k++) audio.tick(t0 + k * 0.055, k / n);
+  }
+  let raf;
+  const t0 = performance.now() + startMs;
+  const step = () => {
+    if (!alive()) return;
+    const p = Math.min(1, Math.max(0, (performance.now() - t0) / (countMs || 1)));
+    scoreEl.textContent = fmt(Math.round(res.score * (1 - Math.pow(1 - p, 2))));
+    if (p < 1) raf = requestAnimationFrame(step);
+  };
+  raf = requestAnimationFrame(step);
+
+  // 2) 다 오르면 '딴!'
+  const land = (sound) => {
+    scoreEl.textContent = fmt(res.score);
+    scoreEl.classList.add('land');
+    if (sound && audio.running) audio.land();
+  };
+  later(landMs, () => land(true));
+  // 3) 별 하나씩 '띵!'
+  const starOn = (i, sound) => {
+    starEls[i].classList.add('on');
+    if (sound && audio.running) audio.starChime(audio.ctx.currentTime, i);
+  };
+  for (let i = 0; i < res.stars; i++) later(landMs + 380 + i * starGap, () => starOn(i, true));
+  // 4) 등급 도장 + 승패
+  const reveal = (sound) => {
+    grade.classList.remove('pending');
+    hint.classList.remove('pending');
+    grade.style.animation = 'none';
+    void grade.offsetWidth;
+    grade.style.animation = '';
+    vsBox.hidden = !outcome;
+    if (!sound || !audio.running) return;
+    const t = audio.ctx.currentTime + 0.05;
+    if (res.stars === 3 || outcome === 'win') audio.fanfare(t);
+    else if (res.stars === 0 || outcome === 'lose') audio.aww(t);
+  };
+  later(gradeMs, () => reveal(true));
+  resultAnim.finish = () => {
+    if (!alive()) return;
+    resultAnim.id++;
+    cancelAnimationFrame(raf);
+    timers.forEach(clearTimeout);
+    if (audio.running) audio.silenceTicks();
+    land(false);
+    starEls.forEach((el, i) => i < res.stars && el.classList.add('on'));
+    reveal(false);
+  };
 }
 
 // ---------------- 1:1 대결 (도전장 링크) ----------------
@@ -1224,6 +1291,8 @@ function bindActions() {
       m.hidden = true;
     })
   );
+  // 결과 연출 중 화면을 누르면 바로 끝까지
+  $('#screen-result').addEventListener('pointerdown', () => resultAnim.finish && resultAnim.finish());
   $('#calib-pad').addEventListener('pointerdown', (e) => {
     e.preventDefault();
     if (!audio.ctx) return;
