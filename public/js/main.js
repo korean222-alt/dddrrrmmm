@@ -89,6 +89,11 @@ const handle = () => state.cfg.instagramHandle || '';
 const atHandle = () => (handle() ? '@' + handle() : '우리 인스타 계정');
 const isInApp = () => /Instagram|FBAN|FBAV|KAKAOTALK|NAVER/i.test(navigator.userAgent);
 
+const isLocalDev = () => /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) || params.get('dev') === '1';
+/** 서버 없이 배포된 상태(정적 호스팅): 랭킹은 아직 안 열림 */
+const demoOnly = () => state.api && state.api.mode === 'mock' && !isLocalDev();
+const SOON = () => `랭킹은 곧 열려요! ${atHandle()} 팔로우하고 기다려 주세요`;
+
 function isLocked(level) {
   return !!level.gated && state.cfg.gateMode === 'follow' && !state.me.verified;
 }
@@ -313,6 +318,10 @@ function showResult(res) {
 async function submitRank() {
   const r = state.lastResult;
   if (!r || r.auto) return;
+  if (demoOnly()) {
+    toast(SOON(), 3000);
+    return;
+  }
   if (!state.me.verified) {
     openVerify('ranking', submitRank);
     return;
@@ -387,7 +396,7 @@ async function openVerify(purpose, onDone, level, existing) {
   f.textContent = atHandle();
   f.href = handle() ? `https://instagram.com/${handle()}` : '#';
   $('#verify-mascots').innerHTML = mascotSVG('kong', 'idle') + mascotSVG('jjak', 'idle');
-  $('#verify-dev').hidden = !state.cfg.devSimulate;
+  $('#verify-dev').hidden = !state.cfg.devSimulate || (demoOnly() && !params.has('gate'));
   openModal('modal-verify');
   if (existing) {
     state.verify.code = existing.code;
@@ -510,6 +519,11 @@ async function openRank(levelId) {
 
 async function loadRank() {
   const list = $('#rank-list');
+  if (demoOnly()) {
+    list.innerHTML = `<div class="rank-empty">${SOON()}<br><br>Lv.4 쿵쿵 폭주 점수를 미리 올려두세요 🥁</div>`;
+    $('#rank-foot').textContent = '';
+    return;
+  }
   list.innerHTML = '<div class="rank-empty"><span class="spinner" style="display:inline-block"></span></div>';
   try {
     const data = await state.api.leaderboard(state.rankLevel);
@@ -524,7 +538,7 @@ async function loadRank() {
         )
         .join('');
     const foot = [];
-    if (data.sample) foot.push('지금은 예시 데이터예요 (서버 연결 전).');
+    if (data.sample) foot.push('서버 없이 내 기록만 보여주는 테스트 모드예요.');
     if (!state.me.verified) foot.push('내 아이디를 올리려면 결과 화면에서 "랭킹 등록"을 누르세요.');
     else if (data.me) foot.push(`내 순위: ${data.me.rank}위`);
     $('#rank-foot').textContent = foot.join(' ');

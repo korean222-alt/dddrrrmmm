@@ -4,7 +4,7 @@
 //       checkFollow(igsid) → pollCode() 가 'verified' 를 받으면 쿠키로 기억
 
 import { load, save } from './storage.js';
-import { LEVELS, gradeFor } from './charts.js';
+import { gradeFor } from './charts.js';
 
 async function http(method, url, body) {
   const res = await fetch(url, {
@@ -48,11 +48,6 @@ const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 export async function mockCheckFollow(igsid) {
   return { following: true, username: 'demo_player', igsid };
 }
-
-const SAMPLE_BOARD = [
-  ['thumb_king', 0.99], ['kong_lover', 0.97], ['drum.mochi', 0.95], ['beat_bean', 0.93], ['jjak_jjak', 0.9],
-  ['leftthumb_99', 0.86], ['sprout.beat', 0.82], ['kick_rush', 0.78],
-];
 
 function mockApi(cfg) {
   const codes = new Map();
@@ -109,13 +104,7 @@ function mockApi(cfg) {
       return { best: improved ? score : prev.score, improved, rank: lb.me ? lb.me.rank : null };
     },
     async leaderboard(level) {
-      const lv = LEVELS.find((l) => l.id === Number(level));
-      const base = lv ? lv.bars.join('').replace(/\./g, '').length * 1300 : 50000;
-      const entries = SAMPLE_BOARD.map(([u, f], i) => ({
-        username: u,
-        score: Math.round(base * f * (1 - i * 0.004)),
-        grade: f >= 0.95 ? 'S' : f >= 0.88 ? 'A' : 'B',
-      }));
+      const entries = [];
       const mine = load('mockBoard', {})[level];
       if (mine) entries.push({ ...mine, me: true });
       entries.sort((a, b) => b.score - a.score);
