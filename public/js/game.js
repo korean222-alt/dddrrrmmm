@@ -56,6 +56,7 @@ export class Game {
   start() {
     const ctx = this.audio.ctx;
     this.audio.resetClock();
+    this.r.reset();
     this.startTime = ctx.currentTime + 0.35;
     this.player = new SongPlayer(this.audio, this.level, this.startTime, { autoChart: this.auto });
     this.player.start();
@@ -169,14 +170,14 @@ export class Game {
       }
     }
 
-    // 카운트인 표시
+    // 카운트인 표시 (+ 엄지 안내)
     let countIn = null;
     const ciEnd = COUNT_IN_BARS * barDur(this.level);
-    if (now >= 0 && now < ciEnd) {
-      const b = Math.floor(now / this.beat);
-      countIn = { label: COUNT_LABELS[Math.min(b, 3)], phase: (now / this.beat) % 1 };
-    } else if (now < 0) {
-      countIn = { label: COUNT_LABELS[0], phase: 0 };
+    if (now < ciEnd) {
+      const b = Math.max(0, Math.floor(now / this.beat));
+      countIn = { label: COUNT_LABELS[Math.min(b, 3)], phase: now < 0 ? 0 : (now / this.beat) % 1, fade: 1 };
+    } else if (now < ciEnd + this.beat * 2) {
+      countIn = { label: '', phase: 1, fade: 1 - (now - ciEnd) / (this.beat * 2) };
     }
 
     this.r.draw(
@@ -186,6 +187,7 @@ export class Game {
         approach: this.approach,
         beatDur: this.beat,
         combo: this.combo,
+        score: this.score,
         playing: true,
         countIn,
         finished: now > this.lastNoteTime + 0.3,

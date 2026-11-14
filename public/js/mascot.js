@@ -9,8 +9,10 @@ export const MASCOTS = {
 };
 
 export const DRUMS = {
-  kong: { body: '#FF7B54', bodyDark: '#C94A2C', stripe: '#FFE3A8', lug: '#FFF4E4', rim: '#ECE8F7', rimDark: '#A8A2C4', height: 96 },
-  jjak: { body: '#EAF6FF', bodyDark: '#A9C2D6', stripe: '#4FD6E0', lug: '#9FB2C9', rim: '#ECE8F7', rimDark: '#A8A2C4', height: 76 },
+  // 쿵(킥): 코랄 몸통 + 크림색 지그재그 끈
+  kong: { body: '#FF8E6B', bodyDark: '#D9603F', deco: '#FFF1D6', rim: '#FFFFFF', rimDark: '#C9B9A6', height: 92, style: 'rope' },
+  // 짝(스네어): 하늘색 몸통 + 흰 물방울 무늬
+  jjak: { body: '#7FC8FF', bodyDark: '#4A97D6', deco: '#FFFFFF', rim: '#FFFFFF', rimDark: '#B4C3D6', height: 74, style: 'dots' },
 };
 
 let uid = 0;
@@ -108,39 +110,56 @@ export function drumSVG(kind = 'kong', size = 240) {
   const L = cx - rx;
   const R = cx + rx;
   const yb = cy + h;
-  const s1 = cy + h * 0.38;
-  const s2 = cy + h * 0.62;
-  const lugs = [-0.78, -0.4, 0, 0.4, 0.78]
-    .map((f) => {
-      const x = cx + rx * f;
-      const front = ry * Math.sqrt(1 - f * f);
-      const w = 11 * Math.sqrt(1 - f * f) + 3;
-      const y1 = cy + front + h * 0.12;
-      const y2 = cy + front + h * 0.82;
-      return `<rect x="${(x - w / 2).toFixed(1)}" y="${y1.toFixed(1)}" width="${w.toFixed(1)}" height="${(y2 - y1).toFixed(1)}" rx="${(w / 2).toFixed(1)}" fill="${d.lug}" stroke="${OUTLINE}" stroke-width="3"/>`;
-    })
-    .join('');
+  const front = (x) => ry * Math.sqrt(Math.max(0, 1 - ((x - cx) / rx) ** 2));
+  let deco = '';
+  if (d.style === 'rope') {
+    // 지그재그 끈 (위 테두리와 아래 테두리 사이)
+    const pts = [];
+    const n = 9;
+    for (let i = 0; i <= n; i++) {
+      const x = L + 8 + ((R - L - 16) * i) / n;
+      const top = cy + front(x) + 12;
+      const bot = yb + front(x) - 16;
+      pts.push(`${x.toFixed(1)},${(i % 2 ? bot : top).toFixed(1)}`);
+    }
+    deco = `<polyline points="${pts.join(' ')}" fill="none" stroke="${OUTLINE}" stroke-width="9" stroke-linejoin="round" stroke-linecap="round"/>
+      <polyline points="${pts.join(' ')}" fill="none" stroke="${d.deco}" stroke-width="5" stroke-linejoin="round" stroke-linecap="round"/>`;
+  } else {
+    const dots = [];
+    [[-0.62, 0.35], [-0.2, 0.62], [0.25, 0.32], [0.65, 0.6], [-0.75, 0.75], [0.0, 0.2]].forEach(([fx, fy]) => {
+      const x = cx + rx * fx;
+      const y = cy + front(x) + (h - 6) * fy;
+      const r = 7 * Math.sqrt(1 - fx * fx) + 2;
+      dots.push(`<ellipse cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" rx="${r.toFixed(1)}" ry="${(r * 0.9).toFixed(1)}" fill="${d.deco}" opacity=".9"/>`);
+    });
+    deco = dots.join('');
+  }
   return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 200" width="${size}" height="${(size * 200) / 240}" aria-hidden="true">
   <defs>
     <linearGradient id="${id}b" x1="0" x2="1">
       <stop offset="0" stop-color="${d.bodyDark}"/>
-      <stop offset=".22" stop-color="${d.body}"/>
-      <stop offset=".6" stop-color="${d.body}"/>
+      <stop offset=".25" stop-color="${d.body}"/>
+      <stop offset=".65" stop-color="${d.body}"/>
       <stop offset="1" stop-color="${d.bodyDark}"/>
     </linearGradient>
-    <radialGradient id="${id}h" cx="45%" cy="40%" r="70%">
-      <stop offset="0" stop-color="#FFFDF8"/>
-      <stop offset="1" stop-color="#F1E8DA"/>
-    </radialGradient>
+    <clipPath id="${id}c"><path d="M${L} ${cy} L${L} ${yb} A${rx} ${ry} 0 0 0 ${R} ${yb} L${R} ${cy} Z"/></clipPath>
   </defs>
+  <ellipse cx="${cx}" cy="${yb + ry - 2}" rx="${rx * 0.95}" ry="${ry * 0.45}" fill="${OUTLINE}" opacity=".18"/>
   <path d="M${L} ${cy} L${L} ${yb} A${rx} ${ry} 0 0 0 ${R} ${yb} L${R} ${cy} Z" fill="url(#${id}b)" stroke="${OUTLINE}" stroke-width="5" stroke-linejoin="round"/>
-  <path d="M${L} ${s1} A${rx} ${ry} 0 0 0 ${R} ${s1} L${R} ${s2} A${rx} ${ry} 0 0 1 ${L} ${s2} Z" fill="${d.stripe}" opacity=".95"/>
-  ${lugs}
-  <path d="M${L} ${yb - 7} A${rx} ${ry} 0 0 0 ${R} ${yb - 7} L${R} ${yb} A${rx} ${ry} 0 0 1 ${L} ${yb} Z" fill="${d.rimDark}" stroke="${OUTLINE}" stroke-width="4" stroke-linejoin="round"/>
-  <ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="url(#${id}h)" stroke="${OUTLINE}" stroke-width="5"/>
-  <ellipse cx="${cx}" cy="${cy}" rx="${rx - 5}" ry="${ry - 3}" fill="none" stroke="${d.rim}" stroke-width="8"/>
-  <ellipse cx="${cx}" cy="${cy}" rx="${rx - 5}" ry="${ry - 3}" fill="none" stroke="${d.rimDark}" stroke-width="2" opacity=".6"/>
-  <ellipse cx="${cx - 30}" cy="${cy - 8}" rx="32" ry="8" fill="#fff" opacity=".55"/>
+  <g clip-path="url(#${id}c)">${deco}</g>
+  <path d="M${L} ${yb - 9} A${rx} ${ry} 0 0 0 ${R} ${yb - 9} L${R} ${yb} A${rx} ${ry} 0 0 1 ${L} ${yb} Z" fill="${d.rim}" stroke="${OUTLINE}" stroke-width="4" stroke-linejoin="round"/>
+  <ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="${d.rim}" stroke="${OUTLINE}" stroke-width="5"/>
+  <ellipse cx="${cx}" cy="${cy + 1}" rx="${rx - 11}" ry="${ry - 7}" fill="#FFFBF2" stroke="${d.rimDark}" stroke-width="2.5"/>
+  <ellipse cx="${cx - 28}" cy="${cy - 6}" rx="30" ry="7" fill="#fff" opacity=".9"/>
+</svg>`;
+}
+
+/** 드럼 스틱 (가로로 눕힌 상태, 손잡이가 왼쪽). viewBox 120x24 */
+export function stickSVG(size = 120) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 24" width="${size}" height="${(size * 24) / 120}" aria-hidden="true">
+  <path d="M6 12 L104 9.5 L104 14.5 Z" fill="#E9B97A" stroke="${OUTLINE}" stroke-width="3.5" stroke-linejoin="round"/>
+  <rect x="2" y="7" width="34" height="10" rx="5" fill="#C98E52" stroke="${OUTLINE}" stroke-width="3.5"/>
+  <circle cx="106" cy="12" r="8" fill="#FFF3DF" stroke="${OUTLINE}" stroke-width="3.5"/>
 </svg>`;
 }
 
@@ -175,6 +194,8 @@ export async function buildRasters(mascotPx, drumPx) {
     }
     jobs.push(rasterize(drumSVG(kind, drumPx), drumPx, (drumPx * 200) / 240).then((c) => (out.drum[kind] = c)));
   }
+  const sp = Math.round(drumPx * 0.9);
+  jobs.push(rasterize(stickSVG(sp), sp, (sp * 24) / 120).then((c) => (out.stick = c)));
   await Promise.all(jobs);
   return out;
 }

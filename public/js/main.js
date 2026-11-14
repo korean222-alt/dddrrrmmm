@@ -6,7 +6,7 @@ import { Renderer } from './render.js';
 import { Game } from './game.js';
 import { createApi } from './api.js';
 import { CONFIG } from './config.js';
-import { mascotSVG, drumSVG } from './mascot.js';
+import { mascotSVG, drumSVG, stickSVG } from './mascot.js';
 import { loadSettings, saveSettings, loadBests, saveBest, load, save, remove } from './storage.js';
 import { makeShareCard, gradeColor } from './sharecard.js';
 
@@ -25,6 +25,7 @@ const ICONS = {
   retry: '<path d="M4 12a8 8 0 108-8 8.2 8.2 0 00-5.7 2.3L4 8.5M4 4v4.5h4.5" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
   share: '<path d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 002 2h10a2 2 0 002-2v-6" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
   copy: '<rect x="8" y="8" width="12" height="12" rx="2.5" stroke="currentColor" stroke-width="2.2" fill="none"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" stroke="currentColor" stroke-width="2.2" fill="none"/>',
+  video: '<rect x="3" y="6" width="13" height="12" rx="3" stroke="currentColor" stroke-width="2.2" fill="none"/><path d="M16 10.5l5-3v9l-5-3z" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linejoin="round"/>',
   send: '<path d="M21 3L10 14M21 3l-7 18-4-7-7-4z" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linejoin="round" stroke-linecap="round"/>',
 };
 const icon = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`;
@@ -37,7 +38,8 @@ const state = {
   cfg: { ...CONFIG },
   me: { verified: false },
   settings: loadSettings(),
-  auto: params.get('auto') === '1',
+  auto: false,
+  studio: { level: 4, mode: 'auto', top: '엄지 두 개로 따라 쳐봐!', bottom: '프로필 링크에서 바로 해보기', file: false, active: false },
   levelId: 1,
   game: null,
   lastResult: null,
@@ -100,10 +102,12 @@ function isLocked(level) {
 
 // ---------------- 타이틀 ----------------
 function buildTitle() {
-  $$('#title-stage .stage-drum').forEach((el) => {
+  $$('#title-scene .scene-side').forEach((el) => {
     const kind = el.dataset.lane === '0' ? 'kong' : 'jjak';
-    el.querySelector('.stage-mascot').innerHTML = mascotSVG(kind, 'idle');
-    el.querySelector('.stage-drumimg').innerHTML = drumSVG(kind);
+    const m = el.querySelector('.scene-mascot');
+    m.innerHTML = mascotSVG(kind, 'idle');
+    el.querySelector('.scene-drum').innerHTML = drumSVG(kind);
+    el.querySelector('.scene-stick').innerHTML = stickSVG();
     el.addEventListener('pointerdown', async (e) => {
       e.preventDefault();
       await audio.unlock();
@@ -112,15 +116,17 @@ function buildTitle() {
       el.classList.remove('hit');
       void el.offsetWidth;
       el.classList.add('hit');
-      const m = el.querySelector('.stage-mascot');
       m.innerHTML = mascotSVG(kind, 'hit');
       clearTimeout(el._t);
-      el._t = setTimeout(() => (m.innerHTML = mascotSVG(kind, 'idle')), 220);
+      el._t = setTimeout(() => {
+        m.innerHTML = mascotSVG(kind, 'idle');
+        el.classList.remove('hit');
+      }, 160);
     });
   });
   const q = getLevel(params.get('level')) || getLevel(1);
   state.levelId = q.id;
-  $('[data-action="quickstart"]').innerHTML = `${icon('play')} 바로 시작 <small>Lv.${q.id}${state.auto ? ' · AUTO' : ''}</small>`;
+  $('[data-action="quickstart"]').innerHTML = `${icon('play')} 바로 시작 <small>${q.id}단계</small>`;
 }
 
 function refreshTitle() {
@@ -128,11 +134,11 @@ function refreshTitle() {
   $('.lock-ico').hidden = !isLocked(hot);
   const foot = $('#title-foot');
   if (state.cfg.gateMode === 'follow' && !state.me.verified) {
-    foot.innerHTML = `Lv.1~3은 바로 플레이! <b>${atHandle()}</b> 팔로우 인증하면 Lv.4~6과 랭킹이 열려요`;
+    foot.innerHTML = `1~3단계는 바로 플레이! <b>${atHandle()}</b> 팔로우 인증하면 4~6단계와 랭킹이 열려요`;
   } else if (state.me.verified) {
     foot.innerHTML = `<b>@${state.me.player?.username || ''}</b> 님, 오늘도 쿵짝!`;
   } else {
-    foot.innerHTML = handle() ? `만든 곳 <a href="https://instagram.com/${handle()}" target="_blank" rel="noopener">${atHandle()}</a> · 새 레벨 소식은 인스타에서!` : '릴스 보고 왔다면 Lv.4 쿵쿵 폭주부터!';
+    foot.innerHTML = handle() ? `만든 곳 <a href="https://instagram.com/${handle()}" target="_blank" rel="noopener">${atHandle()}</a> · 새 단계 소식은 인스타에서!` : '릴스 보고 왔다면 4단계 콩 소나기부터!';
   }
 }
 
@@ -148,16 +154,16 @@ function renderLevels() {
         ? `<span class="grade" style="color:${gradeColor(b.grade)}">${b.grade}</span><span>${fmt(b.score)}</span>`
         : `<span>NEW</span>`;
     return `<button class="level-card ${lv.hot ? 'hot' : ''} ${locked ? 'locked' : ''}" data-level="${lv.id}">
-      <div class="lv"><span><small>Lv.</small>${lv.id}</span></div>
+      <div class="lv"><span>${lv.id}<small>단계</small></span></div>
       <div><h4>${lv.name}</h4><p>${lv.tagline} · ${lv.bpm} BPM</p></div>
       <div class="meta">${meta}</div>
-      ${lv.hot ? '<span class="tag">릴스 그 레벨</span>' : ''}
+      ${lv.hot ? '<span class="tag">릴스 그 단계</span>' : ''}
     </button>`;
   }).join('');
   $('#levels-foot').innerHTML =
     state.cfg.gateMode === 'follow' && !state.me.verified
-      ? `Lv.1~3은 누구나 바로! Lv.4부터는 ${atHandle()} 팔로우 인증 한 번이면 열려요.`
-      : '왼쪽 엄지는 <b style="color:var(--kick)">쿵</b>, 오른쪽 엄지는 <b style="color:var(--snare)">짝</b>. 노트가 드럼에 닿을 때 눌러요!';
+      ? `1~3단계는 누구나 바로! 4단계부터는 ${atHandle()} 팔로우 인증 한 번이면 열려요.`
+      : '왼쪽 엄지는 <b style="color:var(--coral-dark)">쿵</b>, 오른쪽 엄지는 <b style="color:#2F86CF">짝</b>. 콩이 드럼에 닿을 때 콩!';
 }
 
 // ---------------- 게임 ----------------
@@ -185,13 +191,17 @@ async function startLevel(id) {
   if (state.game) state.game.stop();
   closeModal('modal-pause');
   show('screen-game');
-  $('#hud-lv').textContent = `Lv.${lv.id}`;
+  $('#hud-lv').textContent = `${lv.id}단계`;
   $('#hud-name').textContent = lv.name;
   $('#hud-score').textContent = '0';
   $('#hud-progress').style.width = '0%';
-  $('#auto-badge').hidden = !state.auto;
+  const st = state.studio;
+  $('#screen-game').classList.toggle('studio-mode', st.active);
+  renderer.studio = st.active ? { top: st.top, bottom: st.bottom, label: `${lv.id}단계 · ${lv.name}` } : null;
   await fontsReady();
-  await renderer.resize();
+  await new Promise((r) => requestAnimationFrame(r));
+  const cw = $('#game-canvas').clientWidth || window.innerWidth;
+  await renderer.resize(st.active ? Math.min(3, Math.max(2, 1080 / cw)) : 2);
   state.runToken = null;
   state.api
     .startRun(id)
@@ -218,13 +228,14 @@ async function startLevel(id) {
       if (p !== last.p) $('#hud-progress').style.width = p / 2 + '%';
       last = { score: h.score, p };
     },
-    onEnd: (res) => showResult(res),
+    onEnd: (res) => (state.studio.active ? studioFinish(res) : showResult(res)),
   });
   state.game.start();
 }
 
 function laneFromX(x) {
-  return x < window.innerWidth / 2 ? 0 : 1;
+  const r = $('#game-canvas').getBoundingClientRect();
+  return x < r.left + r.width / 2 ? 0 : 1;
 }
 
 function bindGameInput() {
@@ -288,7 +299,7 @@ function showResult(res) {
   state.lastResult = res;
   const lv = getLevel(res.levelId);
   const best = state.auto ? { isNew: false } : saveBest(res);
-  $('#res-level').textContent = `Lv.${lv.id} ${lv.name}`;
+  $('#res-level').textContent = `${lv.id}단계 · ${lv.name}`;
   const g = $('#res-grade');
   g.textContent = res.grade;
   g.style.color = gradeColor(res.grade);
@@ -309,7 +320,7 @@ function showResult(res) {
   const next = getLevel(lv.id + 1);
   const nb = $('#btn-next');
   nb.hidden = !next;
-  if (next) nb.innerHTML = `다음 Lv.${next.id} ${isLocked(next) ? icon('lock') : ''}`;
+  if (next) nb.innerHTML = `다음 ${next.id}단계 ${isLocked(next) ? icon('lock') : ''}`;
   $('#btn-rank').hidden = state.auto;
   show('screen-result');
   renderLevels();
@@ -356,7 +367,7 @@ async function shareResult() {
   toast('결과 카드 만드는 중…', 1200);
   const siteUrl = state.cfg.siteUrl || location.origin + location.pathname.replace(/index\.html$/, '');
   const canvas = await makeShareCard(r, { siteUrl, handle: handle() });
-  const text = `콩콩 드럼 Lv.${r.levelId} ${r.grade} ${fmt(r.score)}점! 너도 엄지로 쳐 봐 👉 ${siteUrl}`;
+  const text = `콩콩 드럼 ${r.levelId}단계 ${r.grade} ${fmt(r.score)}점! 너도 엄지로 쳐 봐 👉 ${siteUrl}`;
   try {
     const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
     const file = new File([blob], `kongkong-lv${r.levelId}.png`, { type: 'image/png' });
@@ -387,11 +398,11 @@ async function openVerify(purpose, onDone, level, existing) {
   stopPolling();
   state.verify = { purpose, onDone, code: null };
   const lv = level || getLevel(4);
-  $('#verify-title').textContent = purpose === 'ranking' ? '랭킹에 내 인스타 아이디 올리기' : `Lv.${lv.id}부터는 팔로워 전용!`;
+  $('#verify-title').textContent = purpose === 'ranking' ? '랭킹에 내 인스타 아이디 올리기' : `${lv.id}단계부터는 팔로워 전용!`;
   $('#verify-desc').textContent =
     purpose === 'ranking'
       ? '팔로우하고 아래 코드를 DM으로 보내면 인스타 아이디로 점수가 올라가요. 1위는 릴스에 소개될 수도!'
-      : '팔로우하고 아래 코드를 DM으로 보내면 바로 열려요. 딱 한 번만 하면 돼요.';
+      : '팔로우하고 아래 코드를 DM으로 보내면 바로 열려요. 딱 한 번이면 돼요.';
   const f = $('#verify-follow');
   f.textContent = atHandle();
   f.href = handle() ? `https://instagram.com/${handle()}` : '#';
@@ -495,7 +506,7 @@ async function restorePending() {
     if (r.status === 'verified') {
       remove('pendingCode');
       state.me = { verified: true, player: r.player };
-      toast(`팔로우 확인 완료! Lv.4~6이 열렸어요 🎉`, 3200);
+      toast(`팔로우 확인 완료! 4~6단계가 열렸어요 🎉`, 3200);
       renderLevels();
       refreshTitle();
     } else if (r.status === 'pending' || r.status === 'not_following') {
@@ -511,7 +522,7 @@ async function restorePending() {
 async function openRank(levelId) {
   state.rankLevel = levelId || state.rankLevel || 4;
   $('#rank-tabs').innerHTML = LEVELS.map(
-    (l) => `<button role="tab" data-rank="${l.id}" aria-selected="${l.id === state.rankLevel}">Lv.${l.id}</button>`
+    (l) => `<button role="tab" data-rank="${l.id}" aria-selected="${l.id === state.rankLevel}">${l.id}단계</button>`
   ).join('');
   openModal('modal-rank');
   await loadRank();
@@ -520,7 +531,7 @@ async function openRank(levelId) {
 async function loadRank() {
   const list = $('#rank-list');
   if (demoOnly()) {
-    list.innerHTML = `<div class="rank-empty">${SOON()}<br><br>Lv.4 쿵쿵 폭주 점수를 미리 올려두세요 🥁</div>`;
+    list.innerHTML = `<div class="rank-empty">${SOON()}<br><br>4단계 콩 소나기 점수를 미리 올려두세요 🥁</div>`;
     $('#rank-foot').textContent = '';
     return;
   }
@@ -562,7 +573,7 @@ function openSettings() {
   updateSettingLabels();
   $('#settings-account').innerHTML = state.me.verified
     ? `@${escapeHtml(state.me.player?.username)} 로 인증됨 · <button class="link" data-action="logout">인증 해제</button>`
-    : `팔로우 인증 전이에요. Lv.4 도전이나 랭킹 등록 때 인증할 수 있어요.`;
+    : `팔로우 인증 전이에요. 4단계 도전이나 랭킹 등록 때 인증할 수 있어요.`;
   openModal('modal-settings');
 }
 function updateSettingLabels() {
@@ -632,11 +643,190 @@ function finishCalibration() {
   $('#calib-result').textContent = `보정값 ${ms > 0 ? '+' : ''}${ms}ms 저장했어요`;
 }
 
+// ---------------- 영상 찍기 ----------------
+function pickMime() {
+  if (typeof MediaRecorder === 'undefined') return null;
+  for (const m of ['video/mp4;codecs=avc1.42E01E,mp4a.40.2', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']) {
+    try {
+      if (MediaRecorder.isTypeSupported(m)) return m;
+    } catch {}
+  }
+  return null;
+}
+const canRecordFile = () => !!pickMime() && !!HTMLCanvasElement.prototype.captureStream;
+
+function openStudio() {
+  if (state.game) state.game.stop();
+  const st = state.studio;
+  st.active = false;
+  $('#screen-game').classList.remove('studio-mode');
+  $('#studio-levels').innerHTML = LEVELS.map(
+    (l) => `<button data-studio-level="${l.id}" aria-pressed="${l.id === st.level}">${l.id}단계 ${l.name}</button>`
+  ).join('');
+  $$('#studio-mode button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.mode === st.mode));
+  $('#studio-top').value = st.top;
+  $('#studio-bottom').value = st.bottom;
+  const ok = canRecordFile();
+  $('#studio-file').disabled = !ok;
+  $('#studio-file').checked = ok && st.file;
+  $('#studio-file-hint').textContent = ok
+    ? '켜면 이 화면이 그대로 소리까지 영상 파일로 저장돼요. 끄면 폰 화면 녹화로 찍으면 돼요.'
+    : '이 브라우저는 바로 저장이 안 돼요. 폰 화면 녹화(제어센터)로 찍어주세요.';
+  closeModal('modal-studio-done');
+  show('screen-studio');
+}
+
+async function studioStart() {
+  const st = state.studio;
+  const lvCheck = getLevel(st.level);
+  if (isLocked(lvCheck)) {
+    openVerify('unlock', studioStart, lvCheck);
+    return;
+  }
+  st.top = $('#studio-top').value.trim();
+  st.bottom = $('#studio-bottom').value.trim();
+  st.file = $('#studio-file').checked;
+  save('studio', { level: st.level, mode: st.mode, top: st.top, bottom: st.bottom, file: st.file });
+  closeModal('modal-studio-done');
+  await audio.unlock();
+  st.active = true;
+  state.auto = st.mode === 'auto';
+  // 9:16 화면을 먼저 깔고 카운트다운
+  show('screen-game');
+  $('#screen-game').classList.add('studio-mode');
+  const lv = getLevel(st.level);
+  renderer.studio = { top: st.top, bottom: st.bottom, label: `${lv.id}단계 · ${lv.name}` };
+  await fontsReady();
+  await new Promise((r) => requestAnimationFrame(r));
+  await renderer.resize(Math.min(3, Math.max(2, 1080 / ($('#game-canvas').clientWidth || 390))));
+  renderer.draw({ now: -1, notes: [], approach: 1.5, beatDur: 60 / lv.bpm, combo: 0, score: 0, playing: false }, performance.now() / 1000);
+  const box = $('#studio-count');
+  box.hidden = false;
+  $('#studio-count-msg').textContent = st.file ? '녹화 준비 중… 화면 그대로 영상으로 저장돼요' : '폰 화면 녹화 켜셨나요? 곧 시작해요';
+  for (const n of ['3', '2', '1']) {
+    $('#studio-count-num').textContent = n;
+    await new Promise((r) => setTimeout(r, 800));
+    if (!st.active) {
+      box.hidden = true;
+      return;
+    }
+  }
+  box.hidden = true;
+  if (st.file) startRecorder();
+  await startLevel(st.level);
+}
+
+function startRecorder() {
+  const st = state.studio;
+  try {
+    const mime = pickMime();
+    const v = $('#game-canvas').captureStream(60);
+    const a = audio.captureStream();
+    const stream = new MediaStream([...v.getVideoTracks(), ...a.getAudioTracks()]);
+    const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
+    st.chunks = [];
+    st.mime = mime;
+    rec.ondataavailable = (e) => e.data && e.data.size && st.chunks.push(e.data);
+    rec.start(250);
+    st.recorder = rec;
+  } catch (e) {
+    st.recorder = null;
+    toast('영상 저장을 시작하지 못했어요. 화면 녹화로 찍어주세요.');
+  }
+}
+
+function stopRecorder() {
+  const st = state.studio;
+  const rec = st.recorder;
+  st.recorder = null;
+  if (!rec || rec.state === 'inactive') return Promise.resolve(null);
+  return new Promise((resolve) => {
+    rec.onstop = () => resolve(new Blob(st.chunks, { type: (st.mime || 'video/webm').split(';')[0] }));
+    rec.stop();
+  });
+}
+
+async function studioFinish(res) {
+  const st = state.studio;
+  // 마지막 장면(환호하는 마스코트)을 잠깐 더 담기
+  const g = state.game;
+  const t0 = performance.now();
+  await new Promise((resolve) => {
+    (function hold() {
+      const rt = performance.now() / 1000;
+      renderer.draw({ now: g.endTime, notes: [], approach: g.approach, beatDur: g.beat, combo: g.combo, score: res.score, playing: false, finished: true }, rt);
+      if (performance.now() - t0 < 1500) requestAnimationFrame(hold);
+      else resolve();
+    })();
+  });
+  const blob = await stopRecorder();
+  st.active = false;
+  state.auto = false;
+  const video = $('#studio-video');
+  if (st.blobUrl) URL.revokeObjectURL(st.blobUrl);
+  st.blob = blob;
+  if (blob && blob.size) {
+    st.blobUrl = URL.createObjectURL(blob);
+    video.src = st.blobUrl;
+    video.onloadedmetadata = () => {
+      try {
+        video.currentTime = 0.1;
+      } catch {}
+    };
+    video.hidden = false;
+    $('#btn-studio-save').hidden = false;
+    $('#studio-done-msg').textContent = '영상이 만들어졌어요. 저장해서 릴스에 올려보세요!';
+  } else {
+    video.hidden = true;
+    $('#btn-studio-save').hidden = true;
+    $('#studio-done-msg').textContent = '화면 녹화를 멈추고 사진 앱에서 확인하세요. 위아래를 9:16으로 잘라 쓰면 딱 맞아요.';
+  }
+  if (!res.auto) saveBest(res);
+  openModal('modal-studio-done');
+}
+
+async function studioSave() {
+  const st = state.studio;
+  if (!st.blob) return;
+  const ext = st.blob.type.includes('mp4') ? 'mp4' : 'webm';
+  const file = new File([st.blob], `kongkong-${st.level}단계.${ext}`, { type: st.blob.type });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file] });
+      return;
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+  }
+  const a = document.createElement('a');
+  a.href = st.blobUrl;
+  a.download = file.name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  if (ext === 'webm') toast('webm 파일이에요. 인스타에 안 올라가면 mp4로 변환해 주세요', 3500);
+}
+
+async function studioStop() {
+  const st = state.studio;
+  st.active = false;
+  $('#studio-count').hidden = true;
+  if (state.game) state.game.stop();
+  await stopRecorder();
+  state.auto = false;
+  $('#screen-game').classList.remove('studio-mode');
+  renderer.studio = null;
+  openStudio();
+}
+
 // ---------------- 이벤트 연결 ----------------
 const ACTIONS = {
   quickstart: () => tryStart(state.levelId),
   levels: () => {
     if (state.game) state.game.stop();
+    state.studio.active = false;
+    $('#screen-game').classList.remove('studio-mode');
+    renderer.studio = null;
     renderLevels();
     show('screen-levels');
   },
@@ -710,6 +900,17 @@ const ACTIONS = {
     refreshTitle();
     toast('인증을 해제했어요');
   },
+  studio: openStudio,
+  'studio-start': studioStart,
+  'studio-stop': studioStop,
+  'studio-again': studioStart,
+  'studio-save': studioSave,
+  'close-studio-done': () => {
+    closeModal('modal-studio-done');
+    $('#screen-game').classList.remove('studio-mode');
+    renderer.studio = null;
+    openStudio();
+  },
   'dismiss-inapp': () => {
     $('#inapp-note').hidden = true;
     save('inappDismissed', true);
@@ -721,6 +922,18 @@ function bindActions() {
     const lvBtn = e.target.closest('[data-level]');
     if (lvBtn) {
       tryStart(Number(lvBtn.dataset.level));
+      return;
+    }
+    const sl = e.target.closest('[data-studio-level]');
+    if (sl) {
+      state.studio.level = Number(sl.dataset.studioLevel);
+      $$('#studio-levels button').forEach((b) => b.setAttribute('aria-pressed', b === sl));
+      return;
+    }
+    const sm = e.target.closest('#studio-mode [data-mode]');
+    if (sm) {
+      state.studio.mode = sm.dataset.mode;
+      $$('#studio-mode button').forEach((b) => b.setAttribute('aria-pressed', b === sm));
       return;
     }
     const tab = e.target.closest('[data-rank]');
@@ -775,6 +988,7 @@ function bindActions() {
 // ---------------- 시작 ----------------
 async function boot() {
   $$('[data-icon]').forEach((el) => (el.innerHTML = icon(el.dataset.icon)));
+  Object.assign(state.studio, load('studio', {}), { active: false });
   buildTitle();
   bindActions();
   bindGameInput();

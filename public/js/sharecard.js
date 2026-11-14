@@ -15,52 +15,73 @@ export async function makeShareCard(result, { siteUrl, handle }) {
   const level = getLevel(result.levelId);
 
   const bg = g.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, '#2A2160');
-  bg.addColorStop(0.6, '#151034');
-  bg.addColorStop(1, '#0B0918');
+  bg.addColorStop(0, '#8FD3FF');
+  bg.addColorStop(0.5, '#D8F1FF');
+  bg.addColorStop(0.75, '#FFF6E3');
   g.fillStyle = bg;
   g.fillRect(0, 0, W, H);
-  const glow = g.createRadialGradient(W / 2, 700, 0, W / 2, 700, 700);
-  glow.addColorStop(0, 'rgba(255,216,77,0.28)');
-  glow.addColorStop(1, 'rgba(255,216,77,0)');
-  g.fillStyle = glow;
-  g.fillRect(0, 0, W, H);
+  // 구름
+  g.fillStyle = '#FFFFFF';
+  [[180, 470, 1], [900, 560, 0.8], [860, 120, 0.7]].forEach(([x, y, s]) => {
+    g.beginPath();
+    g.ellipse(x, y, 130 * s, 55 * s, 0, 0, Math.PI * 2);
+    g.ellipse(x - 70 * s, y + 10 * s, 70 * s, 45 * s, 0, 0, Math.PI * 2);
+    g.ellipse(x + 75 * s, y + 10 * s, 65 * s, 42 * s, 0, 0, Math.PI * 2);
+    g.ellipse(x - 10 * s, y - 35 * s, 70 * s, 55 * s, 0, 0, Math.PI * 2);
+    g.fill();
+  });
+  // 잔디
+  g.fillStyle = '#8ED46B';
+  g.beginPath();
+  g.moveTo(0, 1560);
+  g.quadraticCurveTo(W / 2, 1500, W, 1560);
+  g.lineTo(W, H);
+  g.lineTo(0, H);
+  g.fill();
 
   g.textAlign = 'center';
   g.textBaseline = 'middle';
-  g.fillStyle = '#FFF8EC';
-  g.font = `92px ${FONT}`;
+  g.lineJoin = 'round';
+  g.font = `110px ${FONT}`;
+  g.lineWidth = 22;
+  g.strokeStyle = '#3B2A4A';
+  g.strokeText('콩콩 드럼', W / 2, 200);
+  g.fillStyle = '#FFFFFF';
   g.fillText('콩콩 드럼', W / 2, 200);
 
-  // 레벨 필
-  const pill = `Lv.${level.id}  ${level.name}`;
+  const pill = `${level.id}단계 · ${level.name}`;
   g.font = `56px ${FONT}`;
   const pw = g.measureText(pill).width + 90;
-  g.fillStyle = '#FFD84D';
-  roundRect(g, (W - pw) / 2, 290, pw, 100, 50);
+  g.fillStyle = '#5DBB4A';
+  roundRect(g, (W - pw) / 2, 300, pw, 100, 50);
   g.fill();
-  g.fillStyle = '#2B1D3A';
-  g.fillText(pill, W / 2, 342);
+  g.lineWidth = 6;
+  g.stroke();
+  g.fillStyle = '#FFFFFF';
+  g.fillText(pill, W / 2, 352);
 
   // 등급
   g.font = `340px ${FONT}`;
   g.lineJoin = 'round';
   g.lineWidth = 34;
-  g.strokeStyle = '#2B1D3A';
+  g.strokeStyle = '#3B2A4A';
   g.strokeText(result.grade, W / 2, 640);
   g.fillStyle = gradeColor(result.grade);
   g.fillText(result.grade, W / 2, 640);
 
   g.font = `150px ${FONT}`;
-  g.fillStyle = '#FFFFFF';
+  g.lineWidth = 20;
+  g.strokeStyle = '#FFFFFF';
+  g.strokeText(result.score.toLocaleString('ko-KR'), W / 2, 900);
+  g.fillStyle = '#3B2A4A';
   g.fillText(result.score.toLocaleString('ko-KR'), W / 2, 900);
   g.font = `48px ${FONT}`;
-  g.fillStyle = 'rgba(255,248,236,0.7)';
+  g.fillStyle = '#5B4D6E';
   const tags = [`정확도 ${(result.accuracy * 100).toFixed(1)}%`, `최대 콤보 ${result.maxCombo}`];
   g.fillText(tags.join('   ·   '), W / 2, 1010);
   if (result.fullCombo) {
     g.font = `60px ${FONT}`;
-    g.fillStyle = '#7CF5B4';
+    g.fillStyle = '#25B865';
     g.fillText(result.counts.perfect === result.total ? 'ALL PERFECT!' : 'FULL COMBO!', W / 2, 1100);
   }
 
@@ -68,17 +89,22 @@ export async function makeShareCard(result, { siteUrl, handle }) {
   try {
     const r = await buildRasters(300, 400);
     const face = result.grade === 'D' || result.grade === 'C' ? 'miss' : 'cheer';
-    [['kong', W / 2 - 230], ['jjak', W / 2 + 230]].forEach(([k, x]) => {
-      g.drawImage(r.drum[k], x - 200, 1360, 400, 333);
-      g.drawImage(r[k][face], x - 150, 1190, 300, 300);
+    [['kong', -1], ['jjak', 1]].forEach(([k, side]) => {
+      const dx = W / 2 + side * 165;
+      const mx = W / 2 + side * 390;
+      g.drawImage(r.drum[k], dx - 160, 1380, 320, 267);
+      g.drawImage(r[k][face], mx - 150, 1330, 300, 300);
     });
   } catch {}
 
-  g.font = `52px ${FONT}`;
-  g.fillStyle = '#FFF8EC';
+  g.font = `56px ${FONT}`;
+  g.fillStyle = '#FFFFFF';
+  g.lineWidth = 12;
+  g.strokeStyle = '#3B2A4A';
+  g.strokeText('너도 엄지로 쳐 봐!', W / 2, 1770);
   g.fillText('너도 엄지로 쳐 봐!', W / 2, 1770);
-  g.font = `38px ${FONT}`;
-  g.fillStyle = 'rgba(255,248,236,0.65)';
+  g.font = `40px ${FONT}`;
+  g.fillStyle = '#2E5E24';
   const foot = [handle ? '@' + handle : '', siteUrl.replace(/^https?:\/\//, '')].filter(Boolean).join('  ·  ');
   g.fillText(foot, W / 2, 1840);
 
@@ -86,7 +112,7 @@ export async function makeShareCard(result, { siteUrl, handle }) {
 }
 
 export function gradeColor(grade) {
-  return { SS: '#FFE45C', S: '#FFD84D', A: '#7CF5B4', B: '#4FD6E0', C: '#C9B6FF', D: '#FF8FA8' }[grade] || '#fff';
+  return { SS: '#FF7A3D', S: '#FFB33D', A: '#25B865', B: '#3D8BFF', C: '#A889E8', D: '#9A94AE' }[grade] || '#3B2A4A';
 }
 
 function roundRect(g, x, y, w, h, r) {

@@ -55,6 +55,7 @@ export class AudioEngine {
     this.master = ctx.createGain();
     this.master.gain.value = 0.95;
     this.master.connect(comp).connect(ctx.destination);
+    this.out = comp;
     this.musicBus = ctx.createGain();
     this.musicBus.connect(this.master);
     this.sfxBus = ctx.createGain();
@@ -193,31 +194,48 @@ export class AudioEngine {
     o.stop(t + 0.14);
   }
 
+  /** 쉐이커 (드럼처럼 안 들리게 부드러운 소리) */
   hat(t, vel = 0.5, open = false, dest = this.musicBus) {
     const ctx = this.ctx;
-    const hp = ctx.createBiquadFilter();
-    hp.type = 'highpass';
-    hp.frequency.value = 7200;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 6500;
+    bp.Q.value = 0.9;
     const g = ctx.createGain();
-    const d = open ? 0.22 : 0.045;
+    const d = open ? 0.16 : 0.06;
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.35 * vel, t + 0.002);
+    g.gain.linearRampToValueAtTime(0.14 * vel, t + 0.012);
     g.gain.exponentialRampToValueAtTime(0.001, t + d);
-    hp.connect(g).connect(dest);
-    this._noise(t, d, hp);
+    bp.connect(g).connect(dest);
+    this._noise(t, d + 0.02, bp);
   }
 
+  /** 반짝 차임 (구간 시작 표시) */
   crash(t, dest = this.musicBus) {
     const ctx = this.ctx;
-    const hp = ctx.createBiquadFilter();
-    hp.type = 'highpass';
-    hp.frequency.value = 4500;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.4, t + 0.005);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 1.6);
-    hp.connect(g).connect(dest);
-    this._noise(t, 0.95, hp);
+    [84, 88, 91, 96].forEach((m, i) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = mtof(m);
+      const tt = t + i * 0.03;
+      g.gain.setValueAtTime(0.0001, tt);
+      g.gain.linearRampToValueAtTime(0.06, tt + 0.01);
+      g.gain.exponentialRampToValueAtTime(0.001, tt + 0.9);
+      o.connect(g).connect(dest);
+      o.start(tt);
+      o.stop(tt + 1);
+    });
+  }
+
+  /** 녹화용 오디오 스트림 (게임 소리 전체) */
+  captureStream() {
+    const ctx = this.ensure();
+    if (!this._streamDest) {
+      this._streamDest = ctx.createMediaStreamDestination();
+      this.out.connect(this._streamDest);
+    }
+    return this._streamDest.stream;
   }
 
   click(t, accent = false, dest = this.musicBus) {
@@ -234,20 +252,19 @@ export class AudioEngine {
     o.stop(t + 0.08);
   }
 
+  /** 둥글고 부드러운 베이스 (킥처럼 '쿵' 하고 들리지 않게 어택을 느리게) */
   bass(t, midi, dur, dest = this.musicBus) {
     const ctx = this.ctx;
     const o = ctx.createOscillator();
     const f = ctx.createBiquadFilter();
     const g = ctx.createGain();
-    o.type = 'sawtooth';
-    o.frequency.value = mtof(midi);
+    o.type = 'triangle';
+    o.frequency.value = mtof(midi + 12);
     f.type = 'lowpass';
-    f.Q.value = 6;
-    f.frequency.setValueAtTime(900, t);
-    f.frequency.exponentialRampToValueAtTime(220, t + Math.min(dur, 0.25));
+    f.frequency.value = 900;
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.55, t + 0.008);
-    g.gain.setValueAtTime(0.55, t + dur * 0.7);
+    g.gain.linearRampToValueAtTime(0.32, t + 0.03);
+    g.gain.setValueAtTime(0.3, t + dur * 0.6);
     g.gain.exponentialRampToValueAtTime(0.001, t + dur);
     o.connect(f).connect(g).connect(dest);
     o.start(t);

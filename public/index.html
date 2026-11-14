@@ -4,11 +4,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>콩콩 드럼</title>
-  <meta name="description" content="엄지 두 개로 쿵! 짝! 릴스에서 본 그 드럼 리듬게임, 설치 없이 바로 해보세요." />
-  <meta name="theme-color" content="#15122A" />
+  <meta name="description" content="엄지 두 개로 콩! 콩! 하늘에서 떨어지는 콩을 드럼으로 튕겨내는 리듬게임. 설치 없이 바로 플레이." />
+  <meta name="theme-color" content="#8FD3FF" />
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="콩콩 드럼 — 엄지로 쿵! 짝!" />
-  <meta property="og:description" content="릴스에서 본 그 게임, 설치·가입 없이 바로 플레이. Lv.4 쿵쿵 폭주 도전!" />
+  <meta property="og:title" content="콩콩 드럼 — 엄지로 콩! 콩!" />
+  <meta property="og:description" content="떨어지는 콩을 드럼으로 튕겨내는 엄지 리듬게임. 설치·가입 없이 바로! 4단계 콩 소나기 도전" />
   <meta property="og:image" content="assets/og.png" />
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
@@ -28,44 +28,79 @@
         <button class="icon-btn" data-action="ranking" aria-label="랭킹"><span data-icon="trophy"></span></button>
       </div>
       <div class="title-main">
-        <div class="pill pill-accent">엄지 두 개로 하는 리듬게임</div>
-        <h1 class="logo">콩콩 <span>드럼</span></h1>
-        <p class="logo-sub">쿵콩이랑 짝콩이 머리를 콩! 콩!</p>
-        <div class="stage" id="title-stage">
-          <button class="stage-drum" data-lane="0" aria-label="쿵 (킥) 쳐보기">
-            <span class="stage-mascot"></span><span class="stage-drumimg"></span>
-            <span class="stage-word">쿵!</span>
+        <h1 class="logo"><span class="logo-sprout"></span>콩콩 <em>드럼</em></h1>
+        <p class="logo-sub">하늘에서 떨어지는 콩을 엄지로 콩! 콩!</p>
+        <div class="scene" id="title-scene">
+          <button class="scene-side" data-lane="0" aria-label="쿵 쳐보기">
+            <span class="scene-drum"></span><span class="scene-mascot"></span><span class="scene-stick"></span>
           </button>
-          <button class="stage-drum" data-lane="1" aria-label="짝 (스네어) 쳐보기">
-            <span class="stage-mascot"></span><span class="stage-drumimg"></span>
-            <span class="stage-word">짝!</span>
+          <button class="scene-side" data-lane="1" aria-label="짝 쳐보기">
+            <span class="scene-drum"></span><span class="scene-mascot"></span><span class="scene-stick"></span>
           </button>
         </div>
-        <p class="stage-hint">↑ 눌러보세요! 소리가 나요</p>
+        <p class="scene-hint">드럼을 눌러보세요 · 소리가 나요</p>
       </div>
       <div class="title-actions">
-        <button class="btn btn-primary btn-big" data-action="quickstart"><span data-icon="play"></span> 바로 시작 <small>Lv.1</small></button>
-        <button class="btn btn-ghost" data-action="levels">레벨 고르기</button>
+        <button class="btn btn-primary btn-big" data-action="quickstart"><span data-icon="play"></span> 바로 시작 <small>1단계</small></button>
+        <div class="row2">
+          <button class="btn btn-ghost" data-action="levels">단계 고르기</button>
+          <button class="btn btn-ghost" data-action="studio"><span data-icon="video"></span> 영상 찍기</button>
+        </div>
         <button class="btn btn-hot" data-action="play-hot">
-          <span class="hot-tag">릴스 그 레벨</span> Lv.4 쿵쿵 폭주 도전 <span data-icon="lock" class="lock-ico"></span>
+          <span class="hot-tag">릴스 그 단계</span> 4단계 콩 소나기 도전 <span data-icon="lock" class="lock-ico"></span>
         </button>
       </div>
       <div class="inapp-note" id="inapp-note" hidden>
-        <b>인스타 앱 안에서 열었어요.</b> 소리가 안 나거나 터치가 밀리면 오른쪽 위 <b>···</b> → <b>외부 브라우저에서 열기</b>를 눌러주세요. 아이폰은 무음 모드를 꺼주세요.
+        <b>인스타 앱 안에서 열었어요.</b> 소리가 안 나거나 터치가 밀리면 오른쪽 위 <b>···</b> → <b>외부 브라우저에서 열기</b>. 아이폰은 무음 모드를 꺼주세요.
         <button class="link" data-action="dismiss-inapp">닫기</button>
       </div>
       <footer class="title-foot" id="title-foot"></footer>
     </section>
 
-    <!-- 레벨 선택 -->
-    <section id="screen-levels" class="screen" aria-label="레벨 선택">
+    <!-- 단계 선택 -->
+    <section id="screen-levels" class="screen" aria-label="단계 선택">
       <header class="bar">
         <button class="icon-btn" data-action="home" aria-label="뒤로"><span data-icon="back"></span></button>
-        <h2>레벨 고르기</h2>
+        <h2>단계 고르기</h2>
         <button class="icon-btn" data-action="ranking" aria-label="랭킹"><span data-icon="trophy"></span></button>
       </header>
       <div class="level-list" id="level-list"></div>
       <p class="levels-foot" id="levels-foot"></p>
+    </section>
+
+    <!-- 영상 찍기 -->
+    <section id="screen-studio" class="screen" aria-label="영상 찍기">
+      <header class="bar">
+        <button class="icon-btn" data-action="home" aria-label="뒤로"><span data-icon="back"></span></button>
+        <h2>영상 찍기</h2>
+        <span class="bar-spacer"></span>
+      </header>
+      <div class="studio">
+        <p class="studio-lead">릴스용 화면(9:16)으로 플레이 장면을 찍어요. 위아래에 문구가 들어가고, 버튼 같은 건 안 나와요.</p>
+        <div class="studio-block">
+          <h4>단계</h4>
+          <div class="chips" id="studio-levels"></div>
+        </div>
+        <div class="studio-block">
+          <h4>누가 칠까요?</h4>
+          <div class="seg" id="studio-mode">
+            <button data-mode="auto" aria-pressed="true"><b>자동 연주</b><small>완벽하게 쳐주는 시범 영상</small></button>
+            <button data-mode="self" aria-pressed="false"><b>내가 직접</b><small>실제로 치는 모습 그대로</small></button>
+          </div>
+        </div>
+        <div class="studio-block">
+          <h4>화면 문구</h4>
+          <label class="field"><span>위 (훅)</span><input type="text" id="studio-top" maxlength="26" /></label>
+          <label class="field"><span>아래 (유도)</span><input type="text" id="studio-bottom" maxlength="26" /></label>
+        </div>
+        <div class="studio-block">
+          <h4>저장 방법</h4>
+          <label class="field check"><input type="checkbox" id="studio-file" /><span>영상 파일로 바로 저장 (소리 포함)</span></label>
+          <p class="hint" id="studio-file-hint"></p>
+        </div>
+        <button class="btn btn-primary btn-big" data-action="studio-start"><span data-icon="video"></span> 녹화 시작</button>
+        <p class="hint">폰 화면 녹화로 찍을 땐: 녹화를 먼저 켜고 → "녹화 시작" → 3초 뒤 시작해요.</p>
+      </div>
     </section>
 
     <!-- 게임 -->
@@ -75,48 +110,63 @@
         <div class="hud-progress"><i id="hud-progress"></i></div>
         <div class="hud-row">
           <button class="icon-btn" data-action="pause" aria-label="일시정지"><span data-icon="pause"></span></button>
-          <div class="hud-level"><span class="pill pill-accent" id="hud-lv">Lv.1</span><b id="hud-name"></b></div>
-          <div class="hud-score"><small>SCORE</small><b id="hud-score">0</b></div>
+          <div class="hud-level"><b id="hud-lv">1단계</b><span id="hud-name"></span></div>
+          <div class="hud-score"><small>점수</small><b id="hud-score">0</b></div>
         </div>
       </div>
-      <div class="auto-badge" id="auto-badge" hidden>AUTO</div>
+      <button class="studio-stop" data-action="studio-stop" aria-label="녹화 그만"><span data-icon="close"></span></button>
+      <div class="studio-count" id="studio-count" hidden><b id="studio-count-num">3</b><span id="studio-count-msg"></span></div>
     </section>
 
     <!-- 결과 -->
     <section id="screen-result" class="screen" aria-label="결과">
       <div class="result-wrap">
-        <div class="pill pill-accent" id="res-level">Lv.1</div>
-        <div class="res-new" id="res-new" hidden>NEW BEST!</div>
+        <div class="res-level" id="res-level">1단계</div>
+        <div class="res-new" id="res-new" hidden>최고 기록!</div>
         <div class="res-grade" id="res-grade">S</div>
         <div class="res-badge" id="res-badge" hidden>FULL COMBO</div>
         <div class="res-score" id="res-score">0</div>
         <div class="res-mascots" id="res-mascots"></div>
         <div class="res-stats">
-          <div><small>PERFECT</small><b id="res-perfect" class="c-perfect">0</b></div>
-          <div><small>GREAT</small><b id="res-great" class="c-great">0</b></div>
-          <div><small>GOOD</small><b id="res-good" class="c-good">0</b></div>
-          <div><small>MISS</small><b id="res-miss" class="c-miss">0</b></div>
+          <div><small>완벽</small><b id="res-perfect" class="c-perfect">0</b></div>
+          <div><small>좋아</small><b id="res-great" class="c-great">0</b></div>
+          <div><small>괜찮아</small><b id="res-good" class="c-good">0</b></div>
+          <div><small>놓침</small><b id="res-miss" class="c-miss">0</b></div>
         </div>
         <div class="res-meta" id="res-meta"></div>
         <div class="res-actions">
           <button class="btn btn-primary" data-action="retry"><span data-icon="retry"></span> 다시 하기</button>
-          <button class="btn btn-hot" data-action="next" id="btn-next">다음 레벨</button>
+          <button class="btn btn-hot" data-action="next" id="btn-next">다음 단계</button>
           <button class="btn btn-ghost" data-action="submit-rank" id="btn-rank"><span data-icon="trophy"></span> 랭킹 등록</button>
           <button class="btn btn-ghost" data-action="share"><span data-icon="share"></span> 결과 공유</button>
         </div>
-        <button class="link" data-action="levels">레벨 목록으로</button>
+        <button class="link" data-action="levels">단계 목록으로</button>
       </div>
     </section>
   </div>
 
-  <!-- 모달들 -->
+  <!-- 모달 -->
   <div class="modal" id="modal-pause" hidden>
     <div class="sheet small">
-      <h3>잠깐 멈춤</h3>
+      <h3>잠깐 쉬어요</h3>
       <div class="stack">
         <button class="btn btn-primary" data-action="resume"><span data-icon="play"></span> 계속하기</button>
         <button class="btn btn-ghost" data-action="retry">처음부터</button>
-        <button class="btn btn-ghost" data-action="quit">레벨 목록</button>
+        <button class="btn btn-ghost" data-action="quit">단계 목록</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="modal-studio-done" hidden>
+    <div class="sheet">
+      <button class="icon-btn close" data-action="close-studio-done" aria-label="닫기"><span data-icon="close"></span></button>
+      <h3>촬영 끝!</h3>
+      <p class="muted" id="studio-done-msg"></p>
+      <video id="studio-video" playsinline controls hidden></video>
+      <div class="stack">
+        <button class="btn btn-primary" data-action="studio-save" id="btn-studio-save" hidden><span data-icon="share"></span> 영상 저장 / 공유</button>
+        <button class="btn btn-ghost" data-action="studio-again"><span data-icon="retry"></span> 다시 찍기</button>
+        <button class="btn btn-ghost" data-action="studio">설정 바꾸기</button>
       </div>
     </div>
   </div>
@@ -125,8 +175,8 @@
     <div class="sheet">
       <button class="icon-btn close" data-action="close-verify" aria-label="닫기"><span data-icon="close"></span></button>
       <div class="verify-mascots" id="verify-mascots"></div>
-      <h3 id="verify-title">Lv.4부터는 팔로워 전용!</h3>
-      <p class="muted" id="verify-desc">팔로우하고 아래 코드를 DM으로 보내면 바로 열려요. 한 번만 하면 돼요.</p>
+      <h3 id="verify-title">4단계부터는 팔로워 전용!</h3>
+      <p class="muted" id="verify-desc">팔로우하고 아래 코드를 DM으로 보내면 바로 열려요.</p>
       <ol class="steps">
         <li><b>1</b><span><a id="verify-follow" target="_blank" rel="noopener"></a> 팔로우</span></li>
         <li><b>2</b><span>아래 코드를 <b>DM</b>으로 보내기</span></li>
@@ -134,7 +184,7 @@
       </ol>
       <div class="code-box">
         <div class="code" id="verify-code">······</div>
-        <button class="btn btn-ghost btn-sm" data-action="copy-code"><span data-icon="copy"></span> 복사</button>
+        <button class="btn btn-sm btn-ink" data-action="copy-code"><span data-icon="copy"></span> 복사</button>
       </div>
       <button class="btn btn-insta" data-action="open-dm"><span data-icon="send"></span> 코드 복사하고 DM 열기</button>
       <div class="verify-status" id="verify-status" data-state="pending">
@@ -166,7 +216,7 @@
       <h3>설정</h3>
       <label class="field"><span>배경 음악</span><input type="range" min="0" max="1" step="0.05" id="set-music" /></label>
       <label class="field"><span>드럼 소리</span><input type="range" min="0" max="1" step="0.05" id="set-sfx" /></label>
-      <label class="field"><span>노트 속도 <b id="set-speed-val"></b></span><input type="range" min="0.7" max="1.6" step="0.1" id="set-speed" /></label>
+      <label class="field"><span>콩 떨어지는 속도 <b id="set-speed-val"></b></span><input type="range" min="0.7" max="1.6" step="0.1" id="set-speed" /></label>
       <label class="field"><span>싱크 보정 <b id="set-offset-val"></b></span><input type="range" min="-200" max="200" step="5" id="set-offset" /></label>
       <button class="btn btn-ghost btn-sm" data-action="calibrate">박자 맞춰서 자동 보정</button>
       <label class="field check"><input type="checkbox" id="set-vibrate" /><span>진동 (안드로이드)</span></label>
@@ -177,7 +227,7 @@
   <div class="modal" id="modal-calibrate" hidden>
     <div class="sheet small">
       <h3>싱크 보정</h3>
-      <p class="muted">"똑" 소리에 맞춰 아래 원을 탭하세요. (8번)</p>
+      <p class="muted">"똑" 소리에 맞춰 아래 콩을 탭하세요. (8번)</p>
       <button class="calib-pad" id="calib-pad" aria-label="박자에 맞춰 탭"><span id="calib-count">준비</span></button>
       <p class="calib-result" id="calib-result"></p>
       <div class="stack">
