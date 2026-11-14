@@ -4,11 +4,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>콩콩 드럼</title>
-  <meta name="description" content="엄지 두 개로 킥과 스네어를 치는 드럼 리듬게임. 설치·가입 없이 바로 플레이." />
+  <meta name="description" content="모두 아는 클래식 명곡에 맞춰 엄지 두 개로 킥과 스네어를 치는 드럼 리듬게임. 설치·가입 없이 바로 플레이." />
   <meta name="theme-color" content="#1B1240" />
   <meta property="og:type" content="website" />
   <meta property="og:title" content="콩콩 드럼 — 엄지로 쿵! 짝!" />
-  <meta property="og:description" content="왼쪽 엄지는 킥, 오른쪽 엄지는 스네어. 설치·가입 없이 바로! 4단계 더블 킥 도전" />
+  <meta property="og:description" content="환희의 송가·캉캉·터키 행진곡에 맞춰 엄지로 쿵! 짝! 설치·가입 없이 바로. 별 3개 도전" />
   <meta property="og:image" content="assets/og.png" />
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
@@ -29,7 +29,7 @@
       </div>
       <div class="title-main">
         <h1 class="logo">콩콩 <em>드럼</em></h1>
-        <p class="logo-sub">엄지 두 개로 치는 드럼 리듬게임</p>
+        <p class="logo-sub">클래식 명곡에 맞춰 엄지로 쿵! 짝!</p>
         <div class="scene" id="title-scene">
           <span class="kit-crash"></span>
           <span class="kit-drummer"></span>
@@ -46,7 +46,7 @@
           <button class="btn btn-ghost" data-action="studio"><span data-icon="video"></span> 영상 찍기</button>
         </div>
         <button class="btn btn-hot" data-action="play-hot">
-          <span class="hot-tag">릴스 그 단계</span> 4단계 더블 킥 도전 <span data-icon="lock" class="lock-ico"></span>
+          <span class="hot-tag">4단계부터 인스타 팔로우</span> <span id="hot-name">4단계 도전</span> <span data-icon="lock" class="lock-ico"></span>
         </button>
       </div>
       <div class="inapp-note" id="inapp-note" hidden>
@@ -122,15 +122,18 @@
       <div class="result-wrap">
         <div class="res-level" id="res-level">1단계</div>
         <div class="res-new" id="res-new" hidden>최고 기록!</div>
+        <div class="res-stars" id="res-stars"></div>
         <div class="res-grade" id="res-grade">S</div>
         <div class="res-badge" id="res-badge" hidden>FULL COMBO</div>
         <div class="res-score" id="res-score">0</div>
+        <div class="res-star-hint" id="res-star-hint"></div>
         <div class="res-mascots" id="res-mascots"></div>
         <div class="res-stats">
           <div><small>PERFECT</small><b id="res-perfect" class="c-perfect">0</b></div>
           <div><small>GREAT</small><b id="res-great" class="c-great">0</b></div>
           <div><small>GOOD</small><b id="res-good" class="c-good">0</b></div>
           <div><small>MISS</small><b id="res-miss" class="c-miss">0</b></div>
+          <div><small>헛침</small><b id="res-wrong" class="c-miss">0</b></div>
         </div>
         <div class="res-meta" id="res-meta"></div>
         <div class="res-actions">
@@ -167,6 +170,21 @@
         <button class="btn btn-ghost" data-action="studio-again"><span data-icon="retry"></span> 다시 찍기</button>
         <button class="btn btn-ghost" data-action="studio">설정 바꾸기</button>
       </div>
+    </div>
+  </div>
+
+  <div class="modal" id="modal-follow" hidden>
+    <div class="sheet">
+      <button class="icon-btn close" data-action="close-follow" aria-label="닫기"><span data-icon="close"></span></button>
+      <div class="verify-mascots" id="follow-mascots"></div>
+      <h3 id="follow-title">4단계부터는 인스타 팔로우!</h3>
+      <p class="muted" id="follow-desc"></p>
+      <div class="follow-level" id="follow-level"></div>
+      <div class="stack">
+        <button class="btn btn-insta" data-action="follow-go"><span data-icon="insta"></span> 인스타 팔로우하러 가기</button>
+        <button class="btn btn-primary" data-action="follow-done" id="follow-done" hidden><span data-icon="play"></span> 팔로우했어요! 시작하기</button>
+      </div>
+      <p class="muted small">팔로우하고 이 화면으로 돌아오면 바로 열려요.</p>
     </div>
   </div>
 

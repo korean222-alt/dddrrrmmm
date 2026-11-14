@@ -10,53 +10,86 @@ export const COUNT_IN_BARS = 1; // 시작 전 "3, 2, 1" 한 마디
 export const OUTRO_BARS = 1; // 끝난 뒤 여운 한 마디
 
 // 판정 범위(초). 인스타 인앱 브라우저 지연을 고려해 살짝 넉넉하게.
-export const JUDGE = { perfect: 0.055, great: 0.1, good: 0.15 };
+//   early: 노트보다 이만큼 먼저 누르면(GOOD 범위 밖) 그 노트는 MISS 처리 → 마구 연타 방지
+export const JUDGE = { perfect: 0.055, great: 0.1, good: 0.15, early: 0.26 };
 export const POINTS = { perfect: 1000, great: 700, good: 400 };
 export const ACC_WEIGHT = { perfect: 1, great: 0.7, good: 0.4, miss: 0 };
 
+// 별 3개 기준 (정확도 = 판정 점수 / (노트 수 + 헛침 수))
+export const STAR_RULES = [
+  { stars: 3, acc: 0.9, clean: true, text: '미스·헛침 없이 정확도 90% 이상' },
+  { stars: 2, acc: 0.75, text: '정확도 75% 이상' },
+  { stars: 1, acc: 0.5, text: '정확도 50% 이상' },
+];
+
+// 몇 단계부터 인스타 팔로우가 필요한지 (1로 바꾸면 처음부터 팔로우)
+export const GATE_FROM_LEVEL = 4;
+
+export const DIFFICULTY_WORDS = ['', '입문', '쉬움', '보통', '어려움', '지옥'];
+
+// ---------------------------------------------------------------
+// 반주 곡: 전부 작곡가 사후 70년이 지난 클래식(퍼블릭 도메인)을 직접 편곡·합성.
+//   melody: 마디별 문자열. "음이름:길이(16분음표 칸 수)" — 길이 생략하면 4(4분음표). "_" = 쉼
+//           예) 'E5 E5 F5 G5', 'E5:6 D5:2 D5:8'. 마디마다 길이 합이 16이어야 함.
+//   prog:   마디별 코드. 'D A' 처럼 두 개 쓰면 반 마디씩. 마디 수보다 짧으면 반복.
+//   melody 도 채보보다 짧으면 반복합니다.
+// ---------------------------------------------------------------
 export const LEVELS = [
   {
     id: 1,
-    name: '첫 비트',
+    name: '환희의 송가',
+    composer: '베토벤',
     tagline: '킥 · 스네어 기본기',
+    difficulty: 1,
     bpm: 84,
-    gated: false,
     song: {
-      root: 60,
-      prog: ['I', 'V', 'vi', 'IV'],
+      prog: ['C', 'G', 'C', 'G', 'C', 'G', 'C', 'G C', 'G C', 'G C', 'G', 'C G', 'C', 'G', 'C', 'G C'],
       hat: 'x...x...x...x...',
       bass: 'x.......x.......',
       chord: 'x.......x.......',
-      lead: 'x...x...x.x.....',
+      melody: [
+        'E5 E5 F5 G5', 'G5 F5 E5 D5', 'C5 C5 D5 E5', 'E5:6 D5:2 D5:8',
+        'E5 E5 F5 G5', 'G5 F5 E5 D5', 'C5 C5 D5 E5', 'D5:6 C5:2 C5:8',
+        'D5 D5 E5 C5', 'D5 E5:2 F5:2 E5 C5', 'D5 E5:2 F5:2 E5 D5', 'C5 D5 G4:8',
+        'E5 E5 F5 G5', 'G5 F5 E5 D5', 'C5 C5 D5 E5', 'D5:6 C5:2 C5:8',
+      ],
     },
     bars: [
       'K.......S.......',
       'K.......S.......',
       'K...S...K...S...',
+      'K...S...K.......',
       'K...S...K...S...',
+      'K...S...K...S...',
+      'K...K...S...S...',
+      'K...S...K.......',
       'K...S...K...S...',
       'K...K...S.......',
       'K...S...K...S...',
       'K...K...S...S...',
       'K...S...K...S...',
       'K...S...K...S...',
-      'K...K...S...K...',
-      'S...S...K.......',
+      'K...K...S...S...',
+      'K...S...K.......',
     ],
   },
   {
     id: 2,
-    name: '8비트 그루브',
-    tagline: '밴드 드럼의 기본',
+    name: '캐논',
+    composer: '파헬벨',
+    tagline: '8비트 그루브',
+    difficulty: 2,
     bpm: 92,
-    gated: false,
     song: {
-      root: 62,
-      prog: ['I', 'vi', 'IV', 'V'],
+      prog: ['D A', 'Bm F#m', 'G D', 'G A'],
       hat: 'x.x.x.x.x.x.x.x.',
       bass: 'x...x...x...x...',
-      chord: 'x.....x.....x...',
-      lead: 'x..x..x...x.x...',
+      chord: 'x.....x.x.....x.',
+      melody: [
+        'F#5:8 E5:8', 'D5:8 C#5:8', 'B4:8 A4:8', 'B4:8 C#5:8',
+        'D5:8 C#5:8', 'B4:8 A4:8', 'G4:8 F#4:8', 'G4:8 E4:8',
+        'D5 F#5 A5 G5', 'F#5 D5 F#5 E5', 'D5 B4 D5 A4', 'G4 B4 A4 G4',
+      ],
     },
     bars: [
       'K...S...K...S...',
@@ -71,23 +104,30 @@ export const LEVELS = [
       'K...S.K.K...S...',
       'K.K.S.K.K.K.S...',
       'K...S...K.K.S.S.',
+      'K.K.S...K.K.S...',
+      'K...S.K.K...S...',
       'K.K.S.K.K.K.S.S.',
       'K...S...K.......',
     ],
   },
   {
     id: 3,
-    name: '엇박 펑크',
-    tagline: '박자 사이를 노려라',
+    name: '아이네 클라이네',
+    composer: '모차르트',
+    tagline: '엇박 펑크 · 박자 사이를 노려라',
+    difficulty: 3,
     bpm: 98,
-    gated: false,
     song: {
-      root: 57,
-      prog: ['vi', 'IV', 'I', 'V'],
+      prog: ['G', 'G', 'D7', 'D7'],
       hat: 'x.x.x.xox.x.x.xo',
       bass: 'x..x..x.x..x..x.',
       chord: '..x...x...x...x.',
-      lead: 'x..x..x.x..x....',
+      melody: [
+        'G4:4 _:2 D4:2 G4:4 _:2 D4:2', 'G4:2 D4:2 G4:2 B4:2 D5:4 _:4',
+        'C5:4 _:2 A4:2 C5:4 _:2 A4:2', 'C5:2 A4:2 F#4:2 A4:2 D4:4 _:4',
+        'G5:4 _:2 D5:2 G5:4 _:2 D5:2', 'G5:2 D5:2 G5:2 B5:2 D6:4 _:4',
+        'C6:4 _:2 A5:2 C6:4 _:2 A5:2', 'C6:2 A5:2 F#5:2 A5:2 D5:4 _:4',
+      ],
     },
     bars: [
       'K...S...K...S...',
@@ -110,18 +150,29 @@ export const LEVELS = [
   },
   {
     id: 4,
-    name: '더블 킥',
-    tagline: '왼쪽 엄지 연타 구간',
+    name: '산왕의 궁전에서',
+    composer: '그리그',
+    tagline: '더블 킥 · 왼쪽 엄지 연타',
+    difficulty: 4,
     bpm: 100,
-    gated: true,
-    hot: true,
     song: {
-      root: 64,
-      prog: ['I', 'V', 'vi', 'IV'],
-      hat: 'xxxxxxxxxxxxxxxx',
+      prog: [
+        'Bm', 'C# C', 'Bm', 'D', 'Bm', 'C# C', 'Bm', 'D',
+        'F#m', 'G# G', 'F#m', 'A', 'Bm', 'C# C', 'Bm', 'D',
+      ],
+      hat: 'x.x.x.x.x.x.x.x.',
       bass: 'x.x.x.x.x.x.x.x.',
-      chord: 'x..x..x...x..x..',
-      lead: 'x.xx..x.x.x.x...',
+      chord: 'x.......x.......',
+      melody: [
+        'B4:2 C#5:2 D5:2 E5:2 F#5:2 D5:2 F#5:4', 'F5:2 C#5:2 F5:4 E5:2 C5:2 E5:4',
+        'B4:2 C#5:2 D5:2 E5:2 F#5:2 D5:2 F#5:2 B5:2', 'A5:2 F#5:2 D5:2 F#5:2 A5:8',
+        'B4:2 C#5:2 D5:2 E5:2 F#5:2 D5:2 F#5:4', 'F5:2 C#5:2 F5:4 E5:2 C5:2 E5:4',
+        'B4:2 C#5:2 D5:2 E5:2 F#5:2 D5:2 F#5:2 B5:2', 'A5:2 F#5:2 D5:2 F#5:2 A5:8',
+        'F#4:2 G#4:2 A4:2 B4:2 C#5:2 A4:2 C#5:4', 'C5:2 G#4:2 C5:4 B4:2 G4:2 B4:4',
+        'F#4:2 G#4:2 A4:2 B4:2 C#5:2 A4:2 C#5:2 F#5:2', 'E5:2 C#5:2 A4:2 C#5:2 E5:8',
+        'B4:2 C#5:2 D5:2 E5:2 F#5:2 D5:2 F#5:4', 'F5:2 C#5:2 F5:4 E5:2 C5:2 E5:4',
+        'B4:2 C#5:2 D5:2 E5:2 F#5:2 D5:2 F#5:2 B5:2', 'A5:2 F#5:2 D5:2 F#5:2 A5:8',
+      ],
     },
     bars: [
       'K.K.S...K.K.S...',
@@ -144,17 +195,22 @@ export const LEVELS = [
   },
   {
     id: 5,
-    name: '펀치 비트',
-    tagline: '킥+스네어 동시에 쾅!',
+    name: '캉캉',
+    composer: '오펜바흐',
+    tagline: '펀치 비트 · 둘 다 동시에 쾅!',
+    difficulty: 4,
     bpm: 108,
-    gated: true,
     song: {
-      root: 65,
-      prog: ['IV', 'V', 'iii', 'vi'],
+      prog: ['C', 'G7', 'C', 'G7 C'],
       hat: 'x.x.xox.x.x.xox.',
-      bass: 'x..x..x.x.x..x..',
-      chord: 'x...x...x...x...',
-      lead: 'x.x.x..xx...x...',
+      bass: 'x...x...x...x...',
+      chord: '..x...x...x...x.',
+      melody: [
+        'C5:4 D5:1 F5:1 E5:1 D5:1 G5:2 G5:2 G5:1 A5:1 E5:1 F5:1',
+        'D5:2 D5:2 D5:1 F5:1 E5:1 D5:1 C5:1 C6:1 B5:1 A5:1 G5:1 F5:1 E5:1 D5:1',
+        'C5:4 D5:1 F5:1 E5:1 D5:1 G5:2 G5:2 G5:1 A5:1 E5:1 F5:1',
+        'D5:2 D5:2 D5:1 F5:1 E5:1 D5:1 C5:2 G4:2 C5:4',
+      ],
     },
     bars: [
       'B.......B.......',
@@ -177,17 +233,22 @@ export const LEVELS = [
   },
   {
     id: 6,
-    name: '드럼 솔로',
-    tagline: '끝판왕. 여기까지 오면 인정',
+    name: '터키 행진곡',
+    composer: '모차르트',
+    tagline: '드럼 솔로 · 끝판왕',
+    difficulty: 5,
     bpm: 120,
-    gated: true,
     song: {
-      root: 62,
-      prog: ['vi', 'IV', 'I', 'V'],
+      prog: ['Am', 'Am', 'E Am', 'E'],
       hat: 'xxxxxxxxxxxxxxxx',
-      bass: 'x.xox.xox.xox.xo',
-      chord: 'x..x..x...x..x..',
-      lead: 'x.x.xx.x..x.x.x.',
+      bass: 'x...x...x...x...',
+      chord: '..x...x...x...x.',
+      melody: [
+        'C5:2 _:2 D5:1 C5:1 B4:1 C5:1 E5:2 _:2 F5:1 E5:1 D#5:1 E5:1',
+        'B5:1 A5:1 G#5:1 A5:1 B5:1 A5:1 G#5:1 A5:1 C6:4 A5:2 C6:2',
+        'B5:2 A5:2 G#5:2 A5:2 B5:2 A5:2 G#5:2 A5:2',
+        'B5:2 A5:2 G#5:2 F#5:2 E5:4 B4:1 A4:1 G#4:1 A4:1',
+      ],
     },
     bars: [
       'K...S...K...S...',
@@ -213,6 +274,58 @@ export const LEVELS = [
     ],
   },
 ];
+
+/** 이 단계가 팔로우 잠금 대상인지 */
+export function isGated(level, from = GATE_FROM_LEVEL) {
+  return !!level && level.id >= from;
+}
+
+// ---------- 음이름 / 코드 해석 ----------
+const PC = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+
+/** 'C#5' → 73 (C4 = 60) */
+export function noteToMidi(name) {
+  const m = /^([A-G])(#|b)?(\d)$/.exec(name);
+  if (!m) throw new Error(`음이름 오류: ${name}`);
+  return 12 * (Number(m[3]) + 1) + PC[m[1]] + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0);
+}
+
+/** 'F#m' → { root, notes } 뿌리음은 G3~F#4 근처 */
+export function parseChord(name) {
+  const m = /^([A-G])(#|b)?(m)?(7)?$/.exec(name);
+  if (!m) throw new Error(`코드 오류: ${name}`);
+  let pc = PC[m[1]] + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0);
+  pc = (pc + 12) % 12;
+  const root = 60 + (pc > 6 ? pc - 12 : pc);
+  const notes = [root, root + (m[3] ? 3 : 4), root + 7];
+  if (m[4]) notes.push(root + 10);
+  return { root, notes };
+}
+
+/** 본편 mb 번째 마디, s 번째 칸의 코드 */
+export function chordAt(song, mb, s) {
+  const entry = song.prog[((mb % song.prog.length) + song.prog.length) % song.prog.length];
+  const parts = entry.trim().split(/\s+/);
+  const idx = Math.min(parts.length - 1, Math.floor((s * parts.length) / STEPS_PER_BAR));
+  return parseChord(parts[idx]);
+}
+
+/** melody 문자열 → [{ bar, step, midi, len }] (bar 는 melody 안에서의 마디 번호) */
+export function parseMelody(melody) {
+  const out = [];
+  melody.forEach((line, bar) => {
+    let step = 0;
+    for (const tok of line.trim().split(/\s+/)) {
+      const [name, l] = tok.split(':');
+      const len = l === undefined ? 4 : Number(l);
+      if (!(len > 0)) throw new Error(`길이 오류: ${tok}`);
+      if (name !== '_') out.push({ bar, step, midi: noteToMidi(name), len });
+      step += len;
+    }
+    if (step !== STEPS_PER_BAR) throw new Error(`melody ${bar + 1}마디 길이 ${step}칸 (16칸이어야 함): ${line}`);
+  });
+  return out;
+}
 
 export function getLevel(id) {
   return LEVELS.find((l) => l.id === Number(id)) || null;
@@ -281,8 +394,13 @@ export function maxScore(level) {
   return s;
 }
 
+function judgedTotal(counts) {
+  return (counts.perfect || 0) + (counts.great || 0) + (counts.good || 0) + (counts.miss || 0);
+}
+
+/** 정확도. 헛침(노트 없는데 누름)도 분모에 들어가서 마구 누르면 떨어짐 */
 export function accuracy(counts) {
-  const total = (counts.perfect || 0) + (counts.great || 0) + (counts.good || 0) + (counts.miss || 0);
+  const total = judgedTotal(counts) + (counts.wrong || 0);
   if (!total) return 0;
   const w =
     (counts.perfect || 0) * ACC_WEIGHT.perfect +
@@ -292,8 +410,8 @@ export function accuracy(counts) {
 }
 
 export function gradeFor(counts) {
-  const total = (counts.perfect || 0) + (counts.great || 0) + (counts.good || 0) + (counts.miss || 0);
-  if (total && counts.perfect === total) return 'SS';
+  const total = judgedTotal(counts);
+  if (total && counts.perfect === total && !counts.wrong) return 'SS';
   const a = accuracy(counts);
   if (a >= 0.95) return 'S';
   if (a >= 0.88) return 'A';
@@ -302,8 +420,17 @@ export function gradeFor(counts) {
   return 'D';
 }
 
+/** 별 0~3개. 3개 = 미스·헛침 없이 정확도 90% 이상 */
+export function starsFor(counts) {
+  const a = accuracy(counts);
+  const clean = !counts.miss && !counts.wrong && judgedTotal(counts) > 0;
+  for (const r of STAR_RULES) if (a >= r.acc - 1e-9 && (!r.clean || clean)) return r.stars;
+  return 0;
+}
+
 /** 판정 개수로 가능한 점수 범위 (서버의 점수 검증용) */
 export function scoreBounds(counts) {
+  // 헛침은 점수를 주지도 깎지도 않음 (콤보만 끊김)
   const base =
     (counts.perfect || 0) * POINTS.perfect + (counts.great || 0) * POINTS.great + (counts.good || 0) * POINTS.good;
   return { min: Math.floor(base * 0.999), max: Math.ceil(base * comboMultiplier(Infinity)) };

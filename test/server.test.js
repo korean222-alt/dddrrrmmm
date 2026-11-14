@@ -123,7 +123,8 @@ test('전체 흐름: 잠금 → DM 웹훅 → 인증 → 점수 → 랭킹', asy
   assert.equal((await c('POST', '/api/scores', { runToken: run, level: 4, score: score + 10, maxCombo: n, counts: { perfect: n, great: 0, good: 0, miss: 0 } })).status, 400);
   assert.equal((await c('POST', '/api/scores', { runToken: run, level: 4, score, maxCombo: n, counts: { perfect: n - 1, great: 0, good: 0, miss: 0 } })).status, 400);
 
-  const ok = await c('POST', '/api/scores', { runToken: run, level: 4, score, maxCombo: n, counts: { perfect: n, great: 0, good: 0, miss: 0 } });
+  assert.equal((await c('POST', '/api/scores', { runToken: run, level: 4, score, maxCombo: n, counts: { perfect: n, great: 0, good: 0, miss: 0, wrong: -1 } })).status, 400);
+  const ok = await c('POST', '/api/scores', { runToken: run, level: 4, score, maxCombo: n, counts: { perfect: n, great: 0, good: 0, miss: 0, wrong: 0 } });
   assert.equal(ok.status, 200);
   assert.equal(ok.json.rank, 1);
   // 같은 판 재사용 불가

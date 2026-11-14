@@ -55,7 +55,7 @@ function mockApi(cfg) {
   return {
     mode: 'mock',
     async config() {
-      return { gateMode: cfg.gateMode, instagramHandle: cfg.instagramHandle, followCheckMode: 'fake', devSimulate: true, codePrefix: cfg.codePrefix };
+      return { gateMode: cfg.gateMode, gateFromLevel: cfg.gateFromLevel, instagramHandle: cfg.instagramHandle, followCheckMode: 'fake', devSimulate: true, codePrefix: cfg.codePrefix };
     },
     async me() {
       const p = getPlayer();

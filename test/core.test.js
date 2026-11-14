@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 
-import { LEVELS, buildNotes, noteCount, maxScore, gradeFor, scoreBounds, pointsFor } from '../public/js/charts.js';
+import { LEVELS, buildNotes, noteCount, maxScore, gradeFor, scoreBounds, pointsFor, isGated, parseMelody, parseChord, chordAt, noteToMidi, starsFor, accuracy } from '../public/js/charts.js';
 import { extractCodes, generateCode, isCode } from '../server/codes.js';
 import { verifySignature, createInstagram } from '../server/instagram.js';
 import { sign, unsign } from '../server/session.js';
@@ -13,13 +13,40 @@ test('채보: 모든 마디가 16칸, 허용 문자만', () => {
   LEVELS.forEach((lv, i) => {
     assert.equal(lv.id, i + 1);
     for (const bar of lv.bars) assert.match(bar, /^[KSB.]{16}$/, `Lv.${lv.id} ${bar}`);
-    for (const k of ['hat', 'bass', 'chord', 'lead']) assert.equal(lv.song[k].length, 16, `Lv.${lv.id} song.${k}`);
+    for (const k of ['hat', 'bass', 'chord']) assert.equal(lv.song[k].length, 16, `Lv.${lv.id} song.${k}`);
+    assert.ok(lv.name && lv.composer && lv.difficulty >= 1 && lv.difficulty <= 5, `Lv.${lv.id} 정보`);
   });
 });
 
-test('Lv.1~3 공개, Lv.4+ 잠금 대상', () => {
-  assert.deepEqual(LEVELS.filter((l) => !l.gated).map((l) => l.id), [1, 2, 3]);
-  assert.ok(LEVELS.find((l) => l.id === 4).gated);
+test('곡: 멜로디 마디 길이 16칸, 코드 이름 해석', () => {
+  for (const lv of LEVELS) {
+    const notes = parseMelody(lv.song.melody);
+    assert.ok(notes.length > 0);
+    for (const n of notes) assert.ok(n.midi >= 55 && n.midi <= 90, `Lv.${lv.id} 음역 ${n.midi}`);
+    for (let b = 0; b < lv.bars.length; b++) for (const s of [0, 8, 15]) assert.ok(chordAt(lv.song, b, s).notes.length >= 3);
+  }
+  assert.equal(noteToMidi('C4'), 60);
+  assert.equal(noteToMidi('F#5'), 78);
+  assert.equal(noteToMidi('Bb3'), 58);
+  assert.deepEqual(parseChord('F#m').notes, [66, 69, 73]);
+  assert.equal(parseChord('G7').notes.length, 4);
+  assert.throws(() => parseMelody(['C5 D5 E5']), /16칸/);
+});
+
+test('Lv.1~3 공개, Lv.4+ 잠금 대상 (기준 단계 바꾸기 가능)', () => {
+  assert.deepEqual(LEVELS.filter((l) => !isGated(l)).map((l) => l.id), [1, 2, 3]);
+  assert.ok(isGated(LEVELS.find((l) => l.id === 4)));
+  assert.equal(LEVELS.filter((l) => !isGated(l, 1)).length, 0);
+});
+
+test('별: 3개는 미스·헛침 없이 90%+, 헛침은 정확도 깎음', () => {
+  assert.equal(starsFor({ perfect: 10, great: 0, good: 0, miss: 0, wrong: 0 }), 3);
+  assert.equal(starsFor({ perfect: 10, great: 0, good: 0, miss: 0, wrong: 1 }), 2); // 헛침 1번이면 별 3개 불가
+  assert.equal(starsFor({ perfect: 9, great: 0, good: 0, miss: 1 }), 2);
+  assert.equal(starsFor({ perfect: 5, great: 2, good: 0, miss: 3 }), 1);
+  assert.equal(starsFor({ perfect: 2, great: 0, good: 3, miss: 5 }), 0);
+  assert.ok(accuracy({ perfect: 10, wrong: 10 }) === 0.5);
+  assert.notEqual(gradeFor({ perfect: 10, great: 0, good: 0, miss: 0, wrong: 2 }), 'SS');
 });
 
 test('노트 생성: 동시치기는 두 레인 같은 시각', () => {

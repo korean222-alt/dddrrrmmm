@@ -2,7 +2,7 @@
 // - 모든 박자 판정은 AudioContext 시계 기준 (setTimeout 보다 훨씬 정확)
 // - heardTime(): "지금 스피커에서 나오고 있는 소리"의 시각. 출력 지연까지 반영.
 
-import { STEPS_PER_BAR, COUNT_IN_BARS, OUTRO_BARS, stepDur } from './charts.js';
+import { STEPS_PER_BAR, COUNT_IN_BARS, OUTRO_BARS, stepDur, parseMelody, chordAt } from './charts.js';
 
 const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -346,82 +346,37 @@ export class AudioEngine {
     }
   }
 
+  /** 멜로디: 건반 느낌(때리면 밝고 금방 잦아드는 소리)으로 곡이 또렷하게 들리게 */
   lead(t, midi, dur, dest = this.musicBus) {
     const ctx = this.ctx;
-    const o = ctx.createOscillator();
     const f = ctx.createBiquadFilter();
-    const g = ctx.createGain();
-    o.type = 'square';
-    o.frequency.value = mtof(midi);
     f.type = 'lowpass';
-    f.frequency.value = 2400;
+    f.frequency.setValueAtTime(4200, t);
+    f.frequency.exponentialRampToValueAtTime(1400, t + Math.min(0.6, dur + 0.1));
+    const g = ctx.createGain();
+    const end = t + Math.max(0.08, dur);
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.11, t + 0.01);
-    g.gain.setValueAtTime(0.09, t + dur * 0.6);
-    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    o.connect(f).connect(g).connect(dest);
-    o.start(t);
-    o.stop(t + dur + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.2, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.09, t + 0.18);
+    g.gain.setTargetAtTime(0.05, t + 0.18, 0.4);
+    g.gain.setValueAtTime(0.05, end - 0.03);
+    g.gain.exponentialRampToValueAtTime(0.001, end + 0.08);
+    f.connect(g).connect(dest);
+    for (const [type, mult, amp] of [['triangle', 1, 1], ['square', 1, 0.28], ['sine', 2, 0.22]]) {
+      const o = ctx.createOscillator();
+      const og = ctx.createGain();
+      o.type = type;
+      o.frequency.value = mtof(midi) * mult;
+      og.gain.value = amp;
+      o.connect(og).connect(f);
+      o.start(t);
+      o.stop(end + 0.1);
+    }
   }
 }
 
-// ---------- 반주 생성 ----------
-const DEGREES = { I: [0, 'M'], ii: [2, 'm'], iii: [4, 'm'], IV: [5, 'M'], V: [7, 'M'], vi: [9, 'm'] };
-const PENTA = [0, 2, 4, 7, 9];
-
-function mulberry32(a) {
-  return function () {
-    a |= 0;
-    a = (a + 0x6d2b79f5) | 0;
-    let t = Math.imul(a ^ (a >>> 15), 1 | a);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-function chordNotes(root, deg) {
-  const [off, q] = DEGREES[deg] || DEGREES.I;
-  const r = root + off;
-  return { root: r, triad: [r, r + (q === 'M' ? 4 : 3), r + 7] };
-}
-
-/** 4마디 멜로디 모티브를 레벨마다 고정 시드로 생성 (매번 같은 곡) */
-function buildLead(level) {
-  const rng = mulberry32(level.id * 7919 + 13);
-  const root = level.song.root;
-  const pool = [];
-  for (let o = 12; o <= 24; o += 12) for (const p of PENTA) pool.push(root + o + p);
-  let idx = 3;
-  const motif = [];
-  for (let bar = 0; bar < 4; bar++) {
-    const ch = chordNotes(root, level.song.prog[bar % level.song.prog.length]);
-    const pat = level.song.lead;
-    const hits = [];
-    for (let s = 0; s < 16; s++) if (pat[s] === 'x') hits.push(s);
-    hits.forEach((s, i) => {
-      if (s % 4 === 0) {
-        // 강박: 화음 구성음에 가장 가까운 음
-        let best = idx;
-        let bd = 99;
-        pool.forEach((m, j) => {
-          const pc = (m - root + 120) % 12;
-          const isChord = ch.triad.some((c) => (c - root + 120) % 12 === pc);
-          const d = Math.abs(j - idx) + (isChord ? 0 : 3);
-          if (d < bd) {
-            bd = d;
-            best = j;
-          }
-        });
-        idx = best;
-      } else {
-        idx = Math.max(0, Math.min(pool.length - 1, idx + Math.round((rng() - 0.5) * 3)));
-      }
-      const next = hits[i + 1] ?? 16;
-      motif.push({ bar, step: s, midi: pool[idx], len: Math.min(next - s, 4) });
-    });
-  }
-  return motif;
-}
+// ---------- 반주 ----------
+// 곡 데이터(멜로디·코드)는 charts.js 의 level.song 에 있습니다.
 
 /**
  * 한 판의 반주 재생기. lookahead 스케줄러로 AudioContext 시각에 정확히 예약.
@@ -436,7 +391,8 @@ export class SongPlayer {
     this.sd = stepDur(level);
     this.totalSteps = (COUNT_IN_BARS + level.bars.length + OUTRO_BARS) * STEPS_PER_BAR;
     this.step = 0;
-    this.lead = buildLead(level);
+    this.melody = parseMelody(level.song.melody || []);
+    this.melodyBars = (level.song.melody || []).length;
     const ctx = audio.ctx;
     this.bus = ctx.createGain();
     this.bus.connect(audio.musicBus);
@@ -472,14 +428,17 @@ export class SongPlayer {
     }
     const mb = bar - COUNT_IN_BARS; // 본편 마디 번호
     const chartBars = this.level.bars.length;
-    const ch = chordNotes(song.root, song.prog[mb % song.prog.length]);
+    const ch = chordAt(song, mb, s);
 
     if (mb >= chartBars) {
-      // 아웃트로: 마지막 화음 한 방
+      // 아웃트로: 곡의 으뜸화음 한 방
       if (s === 0) {
+        const home = chordAt(song, 0, 0);
         a.crash(t, this.bus);
-        a.bass(t, ch.root - 24, this.sd * 12, this.bus);
-        a.pluck(t, ch.triad.map((m) => m), this.sd * 14, this.bus);
+        a.bass(t, home.root - 24, this.sd * 12, this.bus);
+        a.pluck(t, home.notes, this.sd * 14, this.bus);
+        const last = this.melody.filter((n) => n.bar === 0)[0];
+        if (last) a.lead(t, home.root + 12 * Math.round((last.midi - home.root) / 12), this.sd * 10, this.bus);
       }
       return;
     }
@@ -494,11 +453,11 @@ export class SongPlayer {
       a.bass(t, m, sd * 1.8, this.bus);
     }
     // 화음
-    if (song.chord[s] === 'x' && mb >= 1) a.pluck(t, ch.triad, sd * 3, this.bus);
-    // 멜로디 (처음 2마디는 쉬고 들어옴)
-    if (mb >= 2) {
-      const mbar = mb % 4;
-      for (const n of this.lead) if (n.bar === mbar && n.step === s) a.lead(t, n.midi, n.len * sd * 0.95, this.bus);
+    if (song.chord[s] === 'x') a.pluck(t, ch.notes, sd * 3, this.bus);
+    // 멜로디 (클래식 곡 주제 선율)
+    if (this.melodyBars) {
+      const mbar = mb % this.melodyBars;
+      for (const n of this.melody) if (n.bar === mbar && n.step === s) a.lead(t, n.midi, n.len * sd * 0.92, this.bus);
     }
     // 8마디마다 크래시
     if (s === 0 && mb > 0 && mb % 8 === 0) a.crash(t, this.bus);

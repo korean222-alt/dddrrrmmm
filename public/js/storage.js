@@ -38,17 +38,20 @@ export function saveSettings(s) {
   save('settings', s);
 }
 
-/** 레벨별 내 최고 기록 { [levelId]: {score, grade, accuracy, maxCombo, fullCombo, at} } */
+/** 레벨별 내 최고 기록 { [levelId]: {score, grade, stars, accuracy, maxCombo, fullCombo, at} }
+ *  별은 점수와 따로, 지금까지 받은 최고 개수를 기억합니다. */
 export function loadBests() {
   return load('bests', {});
 }
 export function saveBest(result) {
   const bests = loadBests();
   const prev = bests[result.levelId];
+  const stars = Math.max(result.stars || 0, (prev && prev.stars) || 0);
   if (!prev || result.score > prev.score) {
     bests[result.levelId] = {
       score: result.score,
       grade: result.grade,
+      stars,
       accuracy: result.accuracy,
       maxCombo: result.maxCombo,
       fullCombo: result.fullCombo,
@@ -56,6 +59,10 @@ export function saveBest(result) {
     };
     save('bests', bests);
     return { isNew: true, prev };
+  }
+  if (stars !== (prev.stars || 0)) {
+    prev.stars = stars;
+    save('bests', bests);
   }
   return { isNew: false, prev };
 }

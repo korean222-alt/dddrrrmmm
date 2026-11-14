@@ -15,6 +15,7 @@ export const JUDGE_STYLE = {
   great: { text: 'GREAT', color: '#7CF5B4' },
   good: { text: 'GOOD', color: '#9CC8FF' },
   miss: { text: 'MISS', color: '#FF6B8A' },
+  wrong: { text: '헛침!', color: '#FF6B8A' },
 };
 
 const INK = '#2B1D3A';
@@ -199,8 +200,8 @@ export class Renderer {
   onJudge(lane, judge, rt, early) {
     const L = this.L;
     const style = JUDGE_STYLE[judge];
-    this.fx.judges.push({ lane, text: style.text, color: style.color, t0: rt, sub: judge === 'perfect' || judge === 'miss' ? '' : early ? 'FAST' : 'SLOW' });
-    if (judge === 'miss') {
+    this.fx.judges.push({ lane, text: style.text, color: style.color, t0: rt, sub: judge === 'perfect' || judge === 'miss' || judge === 'wrong' ? '' : early ? 'FAST' : 'SLOW' });
+    if (judge === 'miss' || judge === 'wrong') {
       this.missAt[lane] = rt;
       return;
     }

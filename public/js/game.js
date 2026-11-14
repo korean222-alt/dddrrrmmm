@@ -2,7 +2,7 @@
 
 import {
   STEPS_PER_BAR, stepDur,
-  buildNotes, beatDur, barDur, JUDGE, pointsFor, accuracy, gradeFor,
+  buildNotes, beatDur, barDur, JUDGE, pointsFor, accuracy, gradeFor, starsFor,
   COUNT_IN_BARS, OUTRO_BARS, maxScore,
 } from './charts.js';
 import { SongPlayer } from './audio.js';
@@ -34,11 +34,12 @@ export class Game {
     this.score = 0;
     this.combo = 0;
     this.maxCombo = 0;
-    this.counts = { perfect: 0, great: 0, good: 0, miss: 0 };
+    this.counts = { perfect: 0, great: 0, good: 0, miss: 0, wrong: 0 };
     this.offsets = [];
     this.state = 'idle';
     this.beat = beatDur(level);
     this.approach = 1.5 / (settings.noteSpeed || 1);
+    this.firstNoteTime = this.notes.length ? this.notes[0].time : 0;
     this.lastNoteTime = this.notes.length ? this.notes[this.notes.length - 1].time : 0;
     this.endTime = this.lastNoteTime + barDur(level) * OUTRO_BARS + 0.4;
     this.maxScore = maxScore(level);
@@ -98,15 +99,32 @@ export class Game {
     if (this.state !== 'playing' || this.auto) return;
     const t = this.songTime(perfMs);
     const list = this.lanes[lane];
+    let ahead = null;
     for (let i = this.ptr[lane]; i < list.length; i++) {
       const n = list[i];
       if (n.judged) continue;
       const dt = t - n.time;
-      if (dt < -JUDGE.good) break; // 아직 먼 노트: 헛치기(벌점 없음)
       if (dt > JUDGE.good) continue;
+      if (dt < -JUDGE.good) {
+        ahead = n;
+        break;
+      }
       this._judge(n, dt, rt);
       return;
     }
+    // 너무 일찍 누름 → 그 노트는 MISS (마구 연타해서 점수 받는 것 방지)
+    if (ahead && t - ahead.time >= -JUDGE.early) {
+      this._miss(ahead, rt);
+      return;
+    }
+    // 노트 없는 곳을 누름 → 헛침: 점수 없음 + 콤보 끊김 (카운트인/끝난 뒤는 봐줌)
+    if (t > this.firstNoteTime - this.beat && t < this.lastNoteTime + JUDGE.good) this._wrong(lane, rt);
+  }
+
+  _wrong(lane, rt) {
+    this.counts.wrong++;
+    this.combo = 0;
+    this.r.onJudge(lane, 'wrong', rt);
   }
 
   _judge(n, dt, rt) {
@@ -262,7 +280,8 @@ export class Game {
       total,
       accuracy: accuracy(this.counts),
       grade: gradeFor(this.counts),
-      fullCombo: this.counts.miss === 0,
+      stars: starsFor(this.counts),
+      fullCombo: this.counts.miss === 0 && this.counts.wrong === 0,
       avgOffsetMs,
       auto: this.auto,
     });

@@ -53,7 +53,7 @@ export async function makeShareCard(result, { siteUrl, handle }) {
   g.fillStyle = '#FFFFFF';
   g.fillText('콩콩 드럼', W / 2, 200);
 
-  const pill = `${level.id}단계 · ${level.name}`;
+  const pill = `${level.id}단계 · ${level.composer} ${level.name}`;
   g.font = `56px ${FONT}`;
   const pw = g.measureText(pill).width + 90;
   g.fillStyle = '#FF8A4C';
@@ -64,35 +64,42 @@ export async function makeShareCard(result, { siteUrl, handle }) {
   g.fillStyle = '#FFFFFF';
   g.fillText(pill, W / 2, 352);
 
-  // 등급
-  g.font = `340px ${FONT}`;
-  g.lineJoin = 'round';
-  g.lineWidth = 34;
-  g.strokeStyle = '#3B2A4A';
-  g.strokeText(result.grade, W / 2, 640);
-  g.fillStyle = gradeColor(result.grade);
-  g.fillText(result.grade, W / 2, 640);
+  // 별 3개
+  const stars = result.stars || 0;
+  [-1, 0, 1].forEach((d, i) => {
+    const r = i === 1 ? 92 : 76;
+    drawStar(g, W / 2 + d * 200, i === 1 ? 500 : 520, r, i < stars);
+  });
 
-  g.font = `150px ${FONT}`;
+  // 등급
+  g.font = `220px ${FONT}`;
+  g.lineJoin = 'round';
+  g.lineWidth = 28;
+  g.strokeStyle = '#3B2A4A';
+  g.strokeText(result.grade, W / 2, 730);
+  g.fillStyle = gradeColor(result.grade);
+  g.fillText(result.grade, W / 2, 730);
+
+  g.font = `140px ${FONT}`;
   g.lineWidth = 20;
   g.strokeStyle = '#2B1D3A';
-  g.strokeText(result.score.toLocaleString('ko-KR'), W / 2, 900);
+  g.strokeText(result.score.toLocaleString('ko-KR'), W / 2, 920);
   g.fillStyle = '#FFFFFF';
-  g.fillText(result.score.toLocaleString('ko-KR'), W / 2, 900);
+  g.fillText(result.score.toLocaleString('ko-KR'), W / 2, 920);
   g.font = `48px ${FONT}`;
   g.fillStyle = 'rgba(255,255,255,0.75)';
   const tags = [`정확도 ${(result.accuracy * 100).toFixed(1)}%`, `최대 콤보 ${result.maxCombo}`];
-  g.fillText(tags.join('   ·   '), W / 2, 1010);
+  g.fillText(tags.join('   ·   '), W / 2, 1030);
   if (result.fullCombo) {
     g.font = `60px ${FONT}`;
     g.fillStyle = '#25B865';
-    g.fillText(result.counts.perfect === result.total ? 'ALL PERFECT!' : 'FULL COMBO!', W / 2, 1100);
+    g.fillText(result.counts.perfect === result.total ? 'ALL PERFECT!' : 'FULL COMBO!', W / 2, 1110);
   }
 
   // 마스코트 + 드럼
   try {
     const r = await buildRasters(340, 400);
-    const face = result.grade === 'D' || result.grade === 'C' ? 'miss' : 'cheer';
+    const face = (result.stars || 0) <= 1 ? 'miss' : 'cheer';
     g.drawImage(r.kong[face], W / 2 - 170, 1170, 340, 340);
     g.drawImage(r.bass, W / 2 - 400, 1300, 380, 399);
     g.drawImage(r.snare, W / 2 + 40, 1370, 360, 345);
@@ -124,4 +131,22 @@ function roundRect(g, x, y, w, h, r) {
   g.arcTo(x, y + h, x, y, r);
   g.arcTo(x, y, x + w, y, r);
   g.closePath();
+}
+
+function drawStar(g, cx, cy, r, on) {
+  g.save();
+  g.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    const rr = i % 2 ? r * 0.46 : r;
+    g.lineTo(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr);
+  }
+  g.closePath();
+  g.lineJoin = 'round';
+  g.lineWidth = 12;
+  g.strokeStyle = '#2B1D3A';
+  g.stroke();
+  g.fillStyle = on ? '#FFD24A' : 'rgba(255,255,255,0.22)';
+  g.fill();
+  g.restore();
 }

@@ -10,7 +10,7 @@ import { createInstagram, verifySignature } from './instagram.js';
 import { generateCode, displayCode, isCode } from './codes.js';
 import { sign, unsign, parseCookies, cookie, newId } from './session.js';
 import { messagesFromWebhook, processDm } from './verify.js';
-import { getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur } from '../public/js/charts.js';
+import { getLevel, isGated, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur } from '../public/js/charts.js';
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -116,6 +116,7 @@ export function createApp(cfg, { store, ig } = {}) {
     if (p === '/api/config' && m === 'GET') {
       return send(res, 200, {
         gateMode: cfg.gateMode,
+        gateFromLevel: cfg.gateFromLevel,
         instagramHandle: cfg.instagramHandle,
         followCheckMode: cfg.followCheckMode,
         devSimulate: cfg.devSimulate,
@@ -199,7 +200,7 @@ export function createApp(cfg, { store, ig } = {}) {
       const body = await readJson(req);
       const level = getLevel(body.level);
       if (!level) return send(res, 400, { error: 'bad_level' });
-      if (level.gated && cfg.gateMode === 'follow' && !getPlayer(req)) return send(res, 403, { error: 'follow_required' });
+      if (isGated(level, cfg.gateFromLevel) && cfg.gateMode === 'follow' && !getPlayer(req)) return send(res, 403, { error: 'follow_required' });
       const runToken = sign({ l: level.id, t: Date.now(), n: newId() }, cfg.sessionSecret);
       return send(res, 200, { runToken });
     }
@@ -366,6 +367,10 @@ export function validateScore(body, cfg, now = Date.now()) {
   }
   const total = counts.perfect + counts.great + counts.good + counts.miss;
   if (total !== noteCount(level)) return { ok: false, error: 'bad_counts' };
+  // 헛침(노트 없는 곳 누름): 예전 클라이언트는 안 보내므로 없으면 0
+  const w = c.wrong === undefined ? 0 : c.wrong;
+  if (!Number.isInteger(w) || w < 0 || w > 10000) return { ok: false, error: 'bad_counts' };
+  counts.wrong = w;
   const score = body.score;
   if (!Number.isInteger(score) || score < 0 || score > maxScore(level)) return { ok: false, error: 'bad_score' };
   const b = scoreBounds(counts);

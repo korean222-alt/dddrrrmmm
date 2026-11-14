@@ -24,8 +24,10 @@ export function loadConfig(env = process.env) {
     publicDir: path.join(ROOT, 'public'),
     dataFile: env.DATA_FILE || path.join(ROOT, 'data', 'db.json'),
     sessionSecret,
-    // open: Lv.4+ 누구나 / follow: 팔로우 인증 후
-    gateMode: env.GATE_MODE === 'follow' ? 'follow' : 'open',
+    // soft: "팔로우하고 오세요" 안내만 (기본) / follow: DM 코드로 진짜 팔로우 확인 / open: 잠금 없음
+    gateMode: ['follow', 'open'].includes(env.GATE_MODE) ? env.GATE_MODE : 'soft',
+    // 몇 단계부터 팔로우가 필요한지 (1 = 처음부터)
+    gateFromLevel: Math.max(1, Number(env.GATE_FROM_LEVEL) || 4),
     // fake: checkFollow 가 항상 "팔로우 중" / real: 인스타 API 로 진짜 확인
     followCheckMode: env.FOLLOW_CHECK_MODE === 'real' ? 'real' : 'fake',
     // 테스트용 "DM 보낸 척" API. 기본: 개발 환경에서만 켜짐

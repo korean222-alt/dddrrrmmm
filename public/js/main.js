@@ -1,6 +1,6 @@
 // 콩콩 드럼 — 화면 전환, 잠금(팔로우 인증), 랭킹, 설정을 묶는 앱 본체
 
-import { LEVELS, getLevel } from './charts.js';
+import { LEVELS, getLevel, isGated, GATE_FROM_LEVEL, DIFFICULTY_WORDS, STAR_RULES } from './charts.js';
 import { AudioEngine, playMetronome } from './audio.js';
 import { Renderer } from './render.js';
 import { Game } from './game.js';
@@ -27,7 +27,16 @@ const ICONS = {
   copy: '<rect x="8" y="8" width="12" height="12" rx="2.5" stroke="currentColor" stroke-width="2.2" fill="none"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" stroke="currentColor" stroke-width="2.2" fill="none"/>',
   video: '<rect x="3" y="6" width="13" height="12" rx="3" stroke="currentColor" stroke-width="2.2" fill="none"/><path d="M16 10.5l5-3v9l-5-3z" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linejoin="round"/>',
   send: '<path d="M21 3L10 14M21 3l-7 18-4-7-7-4z" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linejoin="round" stroke-linecap="round"/>',
+  insta: '<rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke="currentColor" stroke-width="2.2" fill="none"/><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2.2" fill="none"/><circle cx="17.2" cy="6.8" r="1.3" fill="currentColor"/>',
 };
+const STAR_PATH = 'M12 2.6l2.85 5.95 6.55.85-4.8 4.55 1.22 6.5L12 17.3l-5.82 3.15 1.22-6.5-4.8-4.55 6.55-.85z';
+/** 별 3개 (n개 채움) */
+const starsHTML = (n, cls = '') =>
+  `<span class="stars ${cls}" aria-label="별 ${n}개">${[0, 1, 2]
+    .map((i) => `<svg viewBox="0 0 24 24" class="${i < n ? 'on' : ''}" style="--i:${i}"><path d="${STAR_PATH}"/></svg>`)
+    .join('')}</span>`;
+const diffHTML = (d) =>
+  `<span class="diff" aria-label="난이도 ${d}/5"><span class="pips">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= d ? 'on' : ''}"></i>`).join('')}</span>${DIFFICULTY_WORDS[d] || ''}</span>`;
 const icon = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`;
 
 const audio = new AudioEngine();
@@ -89,6 +98,8 @@ async function copyText(text) {
 const fmt = (n) => Number(n || 0).toLocaleString('ko-KR');
 const handle = () => state.cfg.instagramHandle || '';
 const atHandle = () => (handle() ? '@' + handle() : '우리 인스타 계정');
+/** "@아이디 인스타" 또는 그냥 "인스타" */
+const igWho = () => (handle() ? `@${handle()} 인스타` : '인스타');
 const isInApp = () => /Instagram|FBAN|FBAV|KAKAOTALK|NAVER/i.test(navigator.userAgent);
 
 const isLocalDev = () => /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) || params.get('dev') === '1';
@@ -96,8 +107,22 @@ const isLocalDev = () => /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.host
 const demoOnly = () => state.api && state.api.mode === 'mock' && !isLocalDev();
 const SOON = () => `랭킹은 곧 열려요! ${atHandle()} 팔로우하고 기다려 주세요`;
 
+const gateFrom = () => Number(state.cfg.gateFromLevel) || GATE_FROM_LEVEL;
+/** 아직 팔로우 안 한 상태인지 (soft: 팔로우 버튼 눌렀는지 / follow: DM 인증했는지) */
+function needsFollow() {
+  const m = state.cfg.gateMode;
+  if (state.me.verified) return false;
+  if (m === 'follow') return true;
+  if (m === 'soft') return !load('softFollowed', false);
+  return false;
+}
 function isLocked(level) {
-  return !!level.gated && state.cfg.gateMode === 'follow' && !state.me.verified;
+  return isGated(level, gateFrom()) && needsFollow();
+}
+/** 잠긴 단계를 누르면: soft 는 팔로우 안내, follow 는 DM 인증 */
+function requireFollow(level, onDone) {
+  if (state.cfg.gateMode === 'follow') openVerify('unlock', onDone, level);
+  else openFollowGate(level, onDone);
 }
 
 // ---------------- 타이틀 ----------------
@@ -135,41 +160,59 @@ function buildTitle() {
   $('[data-action="quickstart"]').innerHTML = `${icon('play')} 바로 시작 <small>${q.id}단계</small>`;
 }
 
+/** "1~3단계는 누구나" 같은 문구용 */
+function freeRangeText() {
+  const f = gateFrom();
+  return f <= 1 ? '' : f === 2 ? '1단계는' : `1~${f - 1}단계는`;
+}
+
 function refreshTitle() {
-  const hot = getLevel(4);
+  const hot = getLevel(Math.max(4, gateFrom())) || getLevel(4);
+  const gated = state.cfg.gateMode !== 'open' && isGated(hot, gateFrom());
+  $('#hot-name').textContent = `${hot.id}단계 도전 · ${hot.name}`;
   $('.lock-ico').hidden = !isLocked(hot);
+  const tag = $('.hot-tag');
+  tag.hidden = !gated;
+  tag.textContent = `${gateFrom()}단계부터 인스타 팔로우`;
   const foot = $('#title-foot');
-  if (state.cfg.gateMode === 'follow' && !state.me.verified) {
-    foot.innerHTML = `1~3단계는 바로 플레이! <b>${atHandle()}</b> 팔로우 인증하면 4~6단계와 랭킹이 열려요`;
-  } else if (state.me.verified) {
-    foot.innerHTML = `<b>@${state.me.player?.username || ''}</b> 님, 오늘도 쿵짝!`;
+  const free = freeRangeText();
+  if (state.me.verified) {
+    foot.innerHTML = `<b>@${escapeHtml(state.me.player?.username || '')}</b> 님, 오늘도 쿵짝!`;
+  } else if (needsFollow()) {
+    foot.innerHTML = `${free ? free + ' 바로! ' : ''}<b>${gateFrom()}단계부터는 ${igWho()} 팔로우</b>하면 열려요`;
   } else {
-    foot.innerHTML = handle() ? `만든 곳 <a href="https://instagram.com/${handle()}" target="_blank" rel="noopener">${atHandle()}</a> · 새 단계 소식은 인스타에서!` : '릴스 보고 왔다면 4단계 더블 킥부터!';
+    foot.innerHTML = handle() ? `만든 곳 <a href="https://instagram.com/${handle()}" target="_blank" rel="noopener">${atHandle()}</a> · 새 곡 소식은 인스타에서!` : '모두 아는 클래식 명곡에 맞춰 드럼을 쳐 보세요!';
   }
 }
 
 // ---------------- 레벨 목록 ----------------
 function renderLevels() {
   const bests = loadBests();
+  let gateShown = false;
   $('#level-list').innerHTML = LEVELS.map((lv) => {
     const locked = isLocked(lv);
     const b = bests[lv.id];
     const meta = locked
-      ? `<span class="lockline">${icon('lock')} 팔로우 인증</span>`
+      ? `<span class="lockline">${icon('lock')} 인스타 팔로우</span>`
       : b
-        ? `<span class="grade" style="color:${gradeColor(b.grade)}">${b.grade}</span><span>${fmt(b.score)}</span>`
-        : `<span>NEW</span>`;
-    return `<button class="level-card ${lv.hot ? 'hot' : ''} ${locked ? 'locked' : ''}" data-level="${lv.id}">
+        ? `${starsHTML(b.stars || 0, 'sm')}<span>${fmt(b.score)}</span>`
+        : `${starsHTML(0, 'sm')}<span>NEW</span>`;
+    // 잠기는 첫 단계 위에 "여기부터 팔로우" 구분선
+    let divider = '';
+    if (!gateShown && state.cfg.gateMode !== 'open' && isGated(lv, gateFrom())) {
+      gateShown = true;
+      divider = `<div class="gate-divider">${icon('insta')} ${lv.id}단계부터는 ${igWho()} 팔로우하면 열려요</div>`;
+    }
+    return `${divider}<button class="level-card ${locked ? 'locked' : ''}" data-level="${lv.id}">
       <div class="lv"><span>${lv.id}<small>단계</small></span></div>
-      <div><h4>${lv.name}</h4><p>${lv.tagline} · ${lv.bpm} BPM</p></div>
+      <div class="info"><h4>${lv.name} <small>${lv.composer}</small></h4><p>${lv.tagline}</p>${diffHTML(lv.difficulty)}</div>
       <div class="meta">${meta}</div>
-      ${lv.hot ? '<span class="tag">릴스 그 단계</span>' : ''}
     </button>`;
   }).join('');
-  $('#levels-foot').innerHTML =
-    state.cfg.gateMode === 'follow' && !state.me.verified
-      ? `1~3단계는 누구나 바로! 4단계부터는 ${atHandle()} 팔로우 인증 한 번이면 열려요.`
-      : '왼쪽 엄지는 <b style="color:#D0581F">킥(쿵)</b>, 오른쪽 엄지는 <b style="color:#2F86CF">스네어(짝)</b>. 노트가 판정선에 닿을 때!';
+  const free = freeRangeText();
+  $('#levels-foot').innerHTML = needsFollow()
+    ? `${free ? free + ' 누구나 바로! ' : ''}${gateFrom()}단계부터는 ${igWho()} 팔로우하면 열려요.<br>별 3개: ${STAR_RULES[0].text}`
+    : `왼쪽 엄지는 <b style="color:#D0581F">킥(쿵)</b>, 오른쪽 엄지는 <b style="color:#2F86CF">스네어(짝)</b>. 별 3개: ${STAR_RULES[0].text}`;
 }
 
 // ---------------- 게임 ----------------
@@ -177,7 +220,7 @@ async function tryStart(id) {
   const lv = getLevel(id);
   if (!lv) return;
   if (isLocked(lv)) {
-    openVerify('unlock', () => startLevel(id), lv);
+    requireFollow(lv, () => startLevel(id));
     return;
   }
   startLevel(id);
@@ -198,12 +241,12 @@ async function startLevel(id) {
   closeModal('modal-pause');
   show('screen-game');
   $('#hud-lv').textContent = `${lv.id}단계`;
-  $('#hud-name').textContent = lv.name;
+  $('#hud-name').textContent = `${lv.name} · ${lv.composer}`;
   $('#hud-score').textContent = '0';
   $('#hud-progress').style.width = '0%';
   const st = state.studio;
   $('#screen-game').classList.toggle('studio-mode', st.active);
-  renderer.studio = st.active ? { top: st.top, bottom: st.bottom, label: `${lv.id}단계 · ${lv.name}` } : null;
+  renderer.studio = st.active ? { top: st.top, bottom: st.bottom, label: `${lv.id}단계 · ${lv.composer} ${lv.name}` } : null;
   await fontsReady();
   await new Promise((r) => requestAnimationFrame(r));
   const cw = $('#game-canvas').clientWidth || window.innerWidth;
@@ -218,7 +261,7 @@ async function startLevel(id) {
         state.me = { verified: false };
         show('screen-levels');
         renderLevels();
-        openVerify('unlock', () => startLevel(id), lv);
+        requireFollow(lv, () => startLevel(id));
       }
     });
   let last = { score: -1, p: -1 };
@@ -305,20 +348,28 @@ function showResult(res) {
   state.lastResult = res;
   const lv = getLevel(res.levelId);
   const best = state.auto ? { isNew: false } : saveBest(res);
-  $('#res-level').textContent = `${lv.id}단계 · ${lv.name}`;
+  $('#res-level').textContent = `${lv.id}단계 · ${lv.composer} ${lv.name}`;
   const g = $('#res-grade');
   g.textContent = res.grade;
   g.style.color = gradeColor(res.grade);
   g.style.animation = 'none';
   void g.offsetWidth;
   g.style.animation = '';
+  $('#res-stars').innerHTML = starsHTML(res.stars, 'big');
+  const nextRule = STAR_RULES.slice().reverse().find((r) => r.stars > res.stars);
+  $('#res-star-hint').innerHTML =
+    res.stars === 3
+      ? '완벽해요! 별 3개 달성 🎉'
+      : res.stars === 0
+        ? `아쉬워요! 별 1개: ${STAR_RULES[2].text}`
+        : `별 ${nextRule.stars}개: ${nextRule.text}`;
   $('#res-new').hidden = !best.isNew;
   const badge = $('#res-badge');
   badge.hidden = !res.fullCombo;
-  badge.textContent = res.counts.perfect === res.total ? 'ALL PERFECT' : 'FULL COMBO';
+  badge.textContent = res.counts.perfect === res.total && !res.counts.wrong ? 'ALL PERFECT' : 'FULL COMBO';
   $('#res-score').textContent = fmt(res.score);
-  for (const k of ['perfect', 'great', 'good', 'miss']) $('#res-' + k).textContent = res.counts[k];
-  const face = res.grade === 'D' ? 'miss' : res.grade === 'C' ? 'idle' : 'cheer';
+  for (const k of ['perfect', 'great', 'good', 'miss', 'wrong']) $('#res-' + k).textContent = res.counts[k] || 0;
+  const face = res.stars === 0 ? 'miss' : res.stars === 1 ? 'idle' : 'cheer';
   $('#res-mascots').innerHTML = mascotSVG('kong', face) + mascotSVG('jjak', face);
   const timing =
     Math.abs(res.avgOffsetMs) < 15 ? '타이밍 딱 좋아요' : res.avgOffsetMs < 0 ? `평균 ${-res.avgOffsetMs}ms 빨라요` : `평균 ${res.avgOffsetMs}ms 늦어요`;
@@ -393,6 +444,47 @@ async function shareResult() {
   }
 }
 
+// ---------------- 팔로우 안내 (soft: 팔로우 버튼 누르고 돌아오면 열림) ----------------
+function openFollowGate(level, onDone) {
+  state.follow = { onDone, pending: false };
+  const lv = level || getLevel(gateFrom());
+  const f = gateFrom();
+  $('#follow-title').textContent = f <= 1 ? '인스타 팔로우하고 시작해요!' : `${f}단계부터는 인스타 팔로우!`;
+  $('#follow-desc').innerHTML = `<b>${igWho()}</b> 팔로우하면 ${f <= 1 ? '모든 단계가' : `${f}~${LEVELS.length}단계가`} 바로 열려요. 새 곡도 인스타에 제일 먼저 올라와요!`;
+  $('#follow-level').textContent = `${lv.id}단계 · ${lv.composer} ${lv.name}`;
+  $('#follow-mascots').innerHTML = mascotSVG('kong', 'idle') + mascotSVG('jjak', 'idle');
+  $('#follow-done').hidden = true;
+  openModal('modal-follow');
+}
+
+function followGo() {
+  const url = handle() ? `https://www.instagram.com/${handle()}/` : 'https://www.instagram.com/';
+  if (state.follow) state.follow.pending = true;
+  save('softPending', { at: Date.now(), levelId: state.levelId });
+  const w = window.open(url, '_blank');
+  setTimeout(() => {
+    if (!w) location.href = url;
+  }, 50);
+  setTimeout(() => ($('#follow-done').hidden = false), 1200);
+}
+
+function completeFollow(silent) {
+  save('softFollowed', true);
+  remove('softPending');
+  const done = state.follow && state.follow.onDone;
+  state.follow = null;
+  renderLevels();
+  refreshTitle();
+  if (!$('#modal-follow').hidden) {
+    $('#follow-mascots').innerHTML = mascotSVG('kong', 'cheer') + mascotSVG('jjak', 'cheer');
+    setTimeout(() => {
+      closeModal('modal-follow');
+      if (done) done();
+    }, 700);
+  }
+  toast(silent ? `${gateFrom()}단계부터 열렸어요! 팔로우 고마워요 🎉` : `팔로우 고마워요! ${gateFrom()}단계부터 열렸어요 🎉`, 2600);
+}
+
 // ---------------- 팔로우 인증 (DM 코드) ----------------
 function setVerifyStatus(st, text) {
   const el = $('#verify-status');
@@ -403,8 +495,8 @@ function setVerifyStatus(st, text) {
 async function openVerify(purpose, onDone, level, existing) {
   stopPolling();
   state.verify = { purpose, onDone, code: null };
-  const lv = level || getLevel(4);
-  $('#verify-title').textContent = purpose === 'ranking' ? '랭킹에 내 인스타 아이디 올리기' : `${lv.id}단계부터는 팔로워 전용!`;
+  const lv = level || getLevel(gateFrom()) || getLevel(4);
+  $('#verify-title').textContent = purpose === 'ranking' ? '랭킹에 내 인스타 아이디 올리기' : `${gateFrom()}단계부터는 인스타 팔로우!`;
   $('#verify-desc').textContent =
     purpose === 'ranking'
       ? '팔로우하고 아래 코드를 DM으로 보내면 인스타 아이디로 점수가 올라가요. 1위는 릴스에 소개될 수도!'
@@ -579,7 +671,9 @@ function openSettings() {
   updateSettingLabels();
   $('#settings-account').innerHTML = state.me.verified
     ? `@${escapeHtml(state.me.player?.username)} 로 인증됨 · <button class="link" data-action="logout">인증 해제</button>`
-    : `팔로우 인증 전이에요. 4단계 도전이나 랭킹 등록 때 인증할 수 있어요.`;
+    : state.cfg.gateMode === 'soft' && load('softFollowed', false)
+      ? `팔로우 고마워요! 랭킹 등록 때 DM 인증을 한 번 더 해요.`
+      : `팔로우 인증 전이에요. ${gateFrom()}단계 도전이나 랭킹 등록 때 인증할 수 있어요.`;
   openModal('modal-settings');
 }
 function updateSettingLabels() {
@@ -667,7 +761,7 @@ function openStudio() {
   st.active = false;
   $('#screen-game').classList.remove('studio-mode');
   $('#studio-levels').innerHTML = LEVELS.map(
-    (l) => `<button data-studio-level="${l.id}" aria-pressed="${l.id === st.level}">${l.id}단계 ${l.name}</button>`
+    (l) => `<button data-studio-level="${l.id}" aria-pressed="${l.id === st.level}">${l.id}. ${l.name}</button>`
   ).join('');
   $$('#studio-mode button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.mode === st.mode));
   $('#studio-top').value = st.top;
@@ -686,7 +780,7 @@ async function studioStart() {
   const st = state.studio;
   const lvCheck = getLevel(st.level);
   if (isLocked(lvCheck)) {
-    openVerify('unlock', studioStart, lvCheck);
+    requireFollow(lvCheck, studioStart);
     return;
   }
   st.top = $('#studio-top').value.trim();
@@ -701,7 +795,7 @@ async function studioStart() {
   show('screen-game');
   $('#screen-game').classList.add('studio-mode');
   const lv = getLevel(st.level);
-  renderer.studio = { top: st.top, bottom: st.bottom, label: `${lv.id}단계 · ${lv.name}` };
+  renderer.studio = { top: st.top, bottom: st.bottom, label: `${lv.id}단계 · ${lv.composer} ${lv.name}` };
   await fontsReady();
   await new Promise((r) => requestAnimationFrame(r));
   await renderer.resize(Math.min(3, Math.max(2, 1080 / ($('#game-canvas').clientWidth || 390))));
@@ -840,7 +934,13 @@ const ACTIONS = {
     refreshTitle();
     show('screen-title');
   },
-  'play-hot': () => tryStart(4),
+  'play-hot': () => tryStart(Math.max(4, gateFrom())),
+  'follow-go': followGo,
+  'follow-done': () => completeFollow(),
+  'close-follow': () => {
+    state.follow = null;
+    closeModal('modal-follow');
+  },
   ranking: () => openRank(state.lastResult ? state.lastResult.levelId : 4),
   settings: openSettings,
   pause: togglePause,
@@ -960,6 +1060,7 @@ function bindActions() {
     m.addEventListener('click', (e) => {
       if (e.target !== m || m.id === 'modal-pause') return;
       if (m.id === 'modal-verify') stopPolling();
+      if (m.id === 'modal-follow') state.follow = null;
       m.hidden = true;
     })
   );
@@ -980,7 +1081,11 @@ function bindActions() {
         state.game.pause();
         openModal('modal-pause');
       }
-    } else if (state.verify && state.verify.code) pollVerify();
+    } else {
+      if (state.verify && state.verify.code) pollVerify();
+      // 인스타에서 팔로우하고 돌아옴
+      if (state.follow && state.follow.pending) completeFollow();
+    }
   });
   let rz;
   window.addEventListener('resize', () => {
@@ -1006,12 +1111,13 @@ async function boot() {
   state.api = await createApi(CONFIG);
   try {
     const sc = await state.api.config();
-    for (const k of ['gateMode', 'instagramHandle', 'devSimulate', 'codePrefix', 'siteUrl']) {
+    for (const k of ['gateMode', 'gateFromLevel', 'instagramHandle', 'devSimulate', 'codePrefix', 'siteUrl']) {
       if (sc[k] !== undefined && sc[k] !== '' && sc[k] !== null) state.cfg[k] = sc[k];
     }
   } catch {}
   const g = params.get('gate');
-  if (g === 'follow' || g === 'open') state.cfg.gateMode = g;
+  if (g === 'follow' || g === 'open' || g === 'soft') state.cfg.gateMode = g;
+  if (params.get('gatefrom')) state.cfg.gateFromLevel = Number(params.get('gatefrom'));
   try {
     state.me = await state.api.me();
   } catch {
@@ -1020,6 +1126,12 @@ async function boot() {
   refreshTitle();
   renderLevels();
   restorePending();
+  // 팔로우하러 인스타로 갔다가 페이지가 새로 열린 경우
+  const sp = load('softPending', null);
+  if (sp && state.cfg.gateMode === 'soft') {
+    if (Date.now() - sp.at < 30 * 60 * 1000) completeFollow(true);
+    else remove('softPending');
+  }
   if (params.get('screen') === 'levels') show('screen-levels');
   document.documentElement.dataset.api = state.api.mode;
   if (params.get('debug') === '1') window.__kk = { state, audio, renderer };
