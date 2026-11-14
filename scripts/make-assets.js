@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { ROOT } from '../server/config.js';
-import { mascotSVG, drumSVG } from '../public/js/mascot.js';
+import { mascotSVG, bassDrumSVG, snareSVG } from '../public/js/mascot.js';
 
 const require = createRequire(import.meta.url);
 const { chromium } = require('playwright');
@@ -15,35 +15,30 @@ fs.mkdirSync(out, { recursive: true });
 fs.writeFileSync(path.join(out, 'favicon.svg'), mascotSVG('kong', 'idle', 64));
 
 const font = '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap">';
-const base = `*{margin:0;box-sizing:border-box}body{font-family:Jua,sans-serif;background:linear-gradient(180deg,#8fd3ff,#d8f1ff 60%,#fff6e3);overflow:hidden;color:#3b2a4a}`;
+const base = `*{margin:0;box-sizing:border-box}body{font-family:Jua,sans-serif;background:linear-gradient(200deg,rgba(255,95,162,.25),transparent 40%),linear-gradient(160deg,rgba(95,211,255,.22),transparent 40%),linear-gradient(180deg,#160f38,#33186a 60%,#5b2167);overflow:hidden;color:#3b2a4a}`;
 
 function iconHtml(size) {
-  return `${font}<style>${base}body{width:${size}px;height:${size}px;display:grid;place-items:center;background:linear-gradient(180deg,#8fd3ff,#d8f1ff)}</style>
+  return `${font}<style>${base}body{width:${size}px;height:${size}px;display:grid;place-items:center;background:linear-gradient(180deg,#33186a,#5b2167)}</style>
   <div style="width:${size * 0.86}px">${mascotSVG('kong', 'hit', size * 0.86)}</div>`;
 }
 
 const ogHtml = `${font}<style>${base}
 body{width:1200px;height:630px;position:relative}
-.grass{position:absolute;left:-50px;right:-50px;bottom:-120px;height:260px;background:#8ed46b;border-radius:50%}
+.floor{position:absolute;left:0;right:0;bottom:0;height:70px;background:linear-gradient(#8a5236,#3e2218)}
 .cloud{position:absolute;background:#fff;border-radius:99px}
 h1{position:absolute;left:70px;top:110px;font-size:140px;font-weight:400;color:#fff;-webkit-text-stroke:6px #3b2a4a;paint-order:stroke fill;text-shadow:0 8px 0 #3b2a4a}
 h1 span{color:#ff8e6b}
 p{position:absolute;left:76px;top:300px;font-size:42px;background:#fff;border:4px solid #3b2a4a;border-radius:99px;padding:8px 26px}
-.pill{position:absolute;left:76px;top:400px;background:#5dbb4a;color:#fff;font-size:36px;padding:10px 28px;border-radius:99px;border:4px solid #3b2a4a}
+.pill{position:absolute;left:76px;top:400px;background:#ff8a4c;color:#fff;font-size:36px;padding:10px 28px;border-radius:99px;border:4px solid #3b2a4a}
 .a{position:absolute}
 </style>
-<div class="cloud" style="left:60px;top:40px;width:160px;height:50px"></div>
-<div class="cloud" style="left:980px;top:70px;width:180px;height:56px"></div>
-<div class="grass"></div>
+<div class="floor"></div>
 <h1>콩콩 <span>드럼</span></h1>
-<p>떨어지는 콩을 엄지로 콩! 콩!</p>
+<p>엄지 두 개로 치는 드럼 리듬게임</p>
 <div class="pill">설치·가입 없이 바로 플레이</div>
-<div class="a" style="left:735px;top:330px;width:190px">${drumSVG('kong', 190)}</div>
-<div class="a" style="left:925px;top:345px;width:190px">${drumSVG('jjak', 190)}</div>
-<div class="a" style="left:600px;top:300px;width:180px">${mascotSVG('kong', 'hit', 180)}</div>
-<div class="a" style="left:1060px;top:310px;width:170px">${mascotSVG('jjak', 'cheer', 170)}</div>
-<div class="a" style="left:800px;top:130px;width:90px;transform:rotate(-15deg)">${beanSVG('#FF9466','#FFD2B5')}</div>
-<div class="a" style="left:990px;top:190px;width:90px;transform:rotate(12deg)">${beanSVG('#5DBBFF','#C6E9FF')}</div>`;
+<div class="a" style="left:770px;top:190px;width:230px">${mascotSVG('kong', 'hit', 230)}</div>
+<div class="a" style="left:640px;top:300px;width:270px">${bassDrumSVG(270)}</div>
+<div class="a" style="left:900px;top:350px;width:270px">${snareSVG(270)}</div>`;
 
 function beanSVG(c, l) {
   return `<svg viewBox="0 0 100 70" width="100%"><defs><linearGradient id="g${c.slice(1)}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${l}"/><stop offset="1" stop-color="${c}"/></linearGradient></defs>

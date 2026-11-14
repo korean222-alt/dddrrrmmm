@@ -6,7 +6,7 @@ import { Renderer } from './render.js';
 import { Game } from './game.js';
 import { createApi } from './api.js';
 import { CONFIG } from './config.js';
-import { mascotSVG, drumSVG, stickSVG } from './mascot.js';
+import { mascotSVG, stickSVG, bassDrumSVG, snareSVG } from './mascot.js';
 import { loadSettings, saveSettings, loadBests, saveBest, load, save, remove } from './storage.js';
 import { makeShareCard, gradeColor } from './sharecard.js';
 
@@ -102,26 +102,32 @@ function isLocked(level) {
 
 // ---------------- 타이틀 ----------------
 function buildTitle() {
-  $$('#title-scene .scene-side').forEach((el) => {
-    const kind = el.dataset.lane === '0' ? 'kong' : 'jjak';
-    const m = el.querySelector('.scene-mascot');
-    m.innerHTML = mascotSVG(kind, 'idle');
-    el.querySelector('.scene-drum').innerHTML = drumSVG(kind);
-    el.querySelector('.scene-stick').innerHTML = stickSVG();
+  const scene = $('#title-scene');
+  const drummer = scene.querySelector('.kit-drummer');
+  drummer.innerHTML = mascotSVG('kong', 'idle');
+  scene.querySelector('.kit-stick').innerHTML = stickSVG();
+  scene.querySelector('.kit-bass').innerHTML = bassDrumSVG();
+  scene.querySelector('.kit-snare').innerHTML = snareSVG();
+  scene.querySelector('.kit-crash').innerHTML =
+    '<svg viewBox="0 0 120 120"><path d="M60 30 L60 120" stroke="#2B1D3A" stroke-width="7"/><path d="M60 30 L60 120" stroke="#D9D6E6" stroke-width="3"/><ellipse cx="60" cy="28" rx="56" ry="12" fill="#F4C84A" stroke="#2B1D3A" stroke-width="4" transform="rotate(-12 60 28)"/></svg>';
+  let t;
+  scene.querySelectorAll('[data-lane]').forEach((el) => {
     el.addEventListener('pointerdown', async (e) => {
       e.preventDefault();
       await audio.unlock();
-      if (el.dataset.lane === '0') audio.kick();
+      const kick = el.dataset.lane === '0';
+      if (kick) audio.kick();
       else audio.snare();
-      el.classList.remove('hit');
-      void el.offsetWidth;
-      el.classList.add('hit');
-      m.innerHTML = mascotSVG(kind, 'hit');
-      clearTimeout(el._t);
-      el._t = setTimeout(() => {
-        m.innerHTML = mascotSVG(kind, 'idle');
-        el.classList.remove('hit');
-      }, 160);
+      const cls = kick ? 'hit-kick' : 'hit-snare';
+      scene.classList.remove(cls);
+      void scene.offsetWidth;
+      scene.classList.add(cls);
+      drummer.innerHTML = mascotSVG('kong', 'hit');
+      clearTimeout(t);
+      t = setTimeout(() => {
+        drummer.innerHTML = mascotSVG('kong', 'idle');
+        scene.classList.remove('hit-kick', 'hit-snare');
+      }, 170);
     });
   });
   const q = getLevel(params.get('level')) || getLevel(1);
@@ -138,7 +144,7 @@ function refreshTitle() {
   } else if (state.me.verified) {
     foot.innerHTML = `<b>@${state.me.player?.username || ''}</b> 님, 오늘도 쿵짝!`;
   } else {
-    foot.innerHTML = handle() ? `만든 곳 <a href="https://instagram.com/${handle()}" target="_blank" rel="noopener">${atHandle()}</a> · 새 단계 소식은 인스타에서!` : '릴스 보고 왔다면 4단계 콩 소나기부터!';
+    foot.innerHTML = handle() ? `만든 곳 <a href="https://instagram.com/${handle()}" target="_blank" rel="noopener">${atHandle()}</a> · 새 단계 소식은 인스타에서!` : '릴스 보고 왔다면 4단계 더블 킥부터!';
   }
 }
 
@@ -163,7 +169,7 @@ function renderLevels() {
   $('#levels-foot').innerHTML =
     state.cfg.gateMode === 'follow' && !state.me.verified
       ? `1~3단계는 누구나 바로! 4단계부터는 ${atHandle()} 팔로우 인증 한 번이면 열려요.`
-      : '왼쪽 엄지는 <b style="color:var(--coral-dark)">쿵</b>, 오른쪽 엄지는 <b style="color:#2F86CF">짝</b>. 콩이 드럼에 닿을 때 콩!';
+      : '왼쪽 엄지는 <b style="color:#D0581F">킥(쿵)</b>, 오른쪽 엄지는 <b style="color:#2F86CF">스네어(짝)</b>. 노트가 판정선에 닿을 때!';
 }
 
 // ---------------- 게임 ----------------
@@ -531,7 +537,7 @@ async function openRank(levelId) {
 async function loadRank() {
   const list = $('#rank-list');
   if (demoOnly()) {
-    list.innerHTML = `<div class="rank-empty">${SOON()}<br><br>4단계 콩 소나기 점수를 미리 올려두세요 🥁</div>`;
+    list.innerHTML = `<div class="rank-empty">${SOON()}<br><br>4단계 더블 킥 점수를 미리 올려두세요 🥁</div>`;
     $('#rank-foot').textContent = '';
     return;
   }

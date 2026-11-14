@@ -17,8 +17,8 @@ export const ACC_WEIGHT = { perfect: 1, great: 0.7, good: 0.4, miss: 0 };
 export const LEVELS = [
   {
     id: 1,
-    name: '새싹 박자',
-    tagline: '쿵 · 짝 기본기',
+    name: '첫 비트',
+    tagline: '킥 · 스네어 기본기',
     bpm: 84,
     gated: false,
     song: {
@@ -46,8 +46,8 @@ export const LEVELS = [
   },
   {
     id: 2,
-    name: '떡잎 리듬',
-    tagline: '8비트 맛보기',
+    name: '8비트 그루브',
+    tagline: '밴드 드럼의 기본',
     bpm: 92,
     gated: false,
     song: {
@@ -77,7 +77,7 @@ export const LEVELS = [
   },
   {
     id: 3,
-    name: '엇박 덩굴',
+    name: '엇박 펑크',
     tagline: '박자 사이를 노려라',
     bpm: 98,
     gated: false,
@@ -110,7 +110,7 @@ export const LEVELS = [
   },
   {
     id: 4,
-    name: '콩 소나기',
+    name: '더블 킥',
     tagline: '왼쪽 엄지 연타 구간',
     bpm: 100,
     gated: true,
@@ -144,8 +144,8 @@ export const LEVELS = [
   },
   {
     id: 5,
-    name: '쌍둥이 콩',
-    tagline: '양손 동시에 콩!',
+    name: '펀치 비트',
+    tagline: '킥+스네어 동시에 쾅!',
     bpm: 108,
     gated: true,
     song: {
@@ -177,7 +177,7 @@ export const LEVELS = [
   },
   {
     id: 6,
-    name: '콩나무 꼭대기',
+    name: '드럼 솔로',
     tagline: '끝판왕. 여기까지 오면 인정',
     bpm: 120,
     gated: true,

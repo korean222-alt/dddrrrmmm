@@ -4,11 +4,11 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
   <title>콩콩 드럼</title>
-  <meta name="description" content="엄지 두 개로 콩! 콩! 하늘에서 떨어지는 콩을 드럼으로 튕겨내는 리듬게임. 설치 없이 바로 플레이." />
-  <meta name="theme-color" content="#8FD3FF" />
+  <meta name="description" content="엄지 두 개로 킥과 스네어를 치는 드럼 리듬게임. 설치·가입 없이 바로 플레이." />
+  <meta name="theme-color" content="#1B1240" />
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="콩콩 드럼 — 엄지로 콩! 콩!" />
-  <meta property="og:description" content="떨어지는 콩을 드럼으로 튕겨내는 엄지 리듬게임. 설치·가입 없이 바로! 4단계 콩 소나기 도전" />
+  <meta property="og:title" content="콩콩 드럼 — 엄지로 쿵! 짝!" />
+  <meta property="og:description" content="왼쪽 엄지는 킥, 오른쪽 엄지는 스네어. 설치·가입 없이 바로! 4단계 더블 킥 도전" />
   <meta property="og:image" content="assets/og.png" />
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
@@ -28,17 +28,16 @@
         <button class="icon-btn" data-action="ranking" aria-label="랭킹"><span data-icon="trophy"></span></button>
       </div>
       <div class="title-main">
-        <h1 class="logo"><span class="logo-sprout"></span>콩콩 <em>드럼</em></h1>
-        <p class="logo-sub">하늘에서 떨어지는 콩을 엄지로 콩! 콩!</p>
+        <h1 class="logo">콩콩 <em>드럼</em></h1>
+        <p class="logo-sub">엄지 두 개로 치는 드럼 리듬게임</p>
         <div class="scene" id="title-scene">
-          <button class="scene-side" data-lane="0" aria-label="쿵 쳐보기">
-            <span class="scene-drum"></span><span class="scene-mascot"></span><span class="scene-stick"></span>
-          </button>
-          <button class="scene-side" data-lane="1" aria-label="짝 쳐보기">
-            <span class="scene-drum"></span><span class="scene-mascot"></span><span class="scene-stick"></span>
-          </button>
+          <span class="kit-crash"></span>
+          <span class="kit-drummer"></span>
+          <span class="kit-stick"></span>
+          <button class="kit-bass" data-lane="0" aria-label="킥 쳐보기"></button>
+          <button class="kit-snare" data-lane="1" aria-label="스네어 쳐보기"></button>
         </div>
-        <p class="scene-hint">드럼을 눌러보세요 · 소리가 나요</p>
+        <p class="scene-hint">왼쪽 = 킥 · 오른쪽 = 스네어 · 눌러보세요!</p>
       </div>
       <div class="title-actions">
         <button class="btn btn-primary btn-big" data-action="quickstart"><span data-icon="play"></span> 바로 시작 <small>1단계</small></button>
@@ -47,7 +46,7 @@
           <button class="btn btn-ghost" data-action="studio"><span data-icon="video"></span> 영상 찍기</button>
         </div>
         <button class="btn btn-hot" data-action="play-hot">
-          <span class="hot-tag">릴스 그 단계</span> 4단계 콩 소나기 도전 <span data-icon="lock" class="lock-ico"></span>
+          <span class="hot-tag">릴스 그 단계</span> 4단계 더블 킥 도전 <span data-icon="lock" class="lock-ico"></span>
         </button>
       </div>
       <div class="inapp-note" id="inapp-note" hidden>
@@ -128,10 +127,10 @@
         <div class="res-score" id="res-score">0</div>
         <div class="res-mascots" id="res-mascots"></div>
         <div class="res-stats">
-          <div><small>완벽</small><b id="res-perfect" class="c-perfect">0</b></div>
-          <div><small>좋아</small><b id="res-great" class="c-great">0</b></div>
-          <div><small>괜찮아</small><b id="res-good" class="c-good">0</b></div>
-          <div><small>놓침</small><b id="res-miss" class="c-miss">0</b></div>
+          <div><small>PERFECT</small><b id="res-perfect" class="c-perfect">0</b></div>
+          <div><small>GREAT</small><b id="res-great" class="c-great">0</b></div>
+          <div><small>GOOD</small><b id="res-good" class="c-good">0</b></div>
+          <div><small>MISS</small><b id="res-miss" class="c-miss">0</b></div>
         </div>
         <div class="res-meta" id="res-meta"></div>
         <div class="res-actions">
@@ -227,7 +226,7 @@
   <div class="modal" id="modal-calibrate" hidden>
     <div class="sheet small">
       <h3>싱크 보정</h3>
-      <p class="muted">"똑" 소리에 맞춰 아래 콩을 탭하세요. (8번)</p>
+      <p class="muted">"똑" 소리에 맞춰 아래 드럼을 탭하세요. (8번)</p>
       <button class="calib-pad" id="calib-pad" aria-label="박자에 맞춰 탭"><span id="calib-count">준비</span></button>
       <p class="calib-result" id="calib-result"></p>
       <div class="stack">

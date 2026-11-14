@@ -1,24 +1,33 @@
 // 게임 화면 그리기 (Canvas 2D)
-// 콘셉트: 낮 하늘 정원. 구름에서 콩이 떨어지고, 드럼 옆에 선 쿵콩이·짝콩이가 스틱으로 쳐서 콩을 튕겨냄.
+// 콘셉트: 공연 무대 위 드럼 세트. 마스코트 드러머가 직접 치고, 노트는 드럼 게임 관례대로
+//   킥 = 레인을 가로지르는 가로 막대 (페달 밟는 느낌), 스네어 = 둥근 드럼 헤드 패드.
+// 타격감: 킥은 화면 전체가 '쿵' 하고 눌리고(펀치), 스네어는 '짝' 하고 옆으로 튀며 불꽃.
 
-import { buildRasters, DRUM_VIEW, DRUMS } from './mascot.js';
+import { buildRasters, SNARE_VIEW } from './mascot.js';
 
 export const LANE = [
-  { key: 'kong', bean: '#FF9466', beanLight: '#FFD2B5', beanDark: '#D8643A', rgb: '255,148,102', thumb: '왼쪽 엄지', word: '쿵' },
-  { key: 'jjak', bean: '#5DBBFF', beanLight: '#C6E9FF', beanDark: '#2F86CF', rgb: '93,187,255', thumb: '오른쪽 엄지', word: '짝' },
+  { key: 'kick', main: '#FF8A4C', light: '#FFC08F', dark: '#C9532A', rgb: '255,138,76', thumb: '왼쪽 엄지', word: '킥 (쿵)' },
+  { key: 'snare', main: '#62C8FF', light: '#D7F1FF', dark: '#2F86CF', rgb: '98,200,255', thumb: '오른쪽 엄지', word: '스네어 (짝)' },
 ];
 
 export const JUDGE_STYLE = {
-  perfect: { text: '완벽!', color: '#FF7A3D' },
-  great: { text: '좋아!', color: '#25B865' },
-  good: { text: '괜찮아', color: '#3D8BFF' },
-  miss: { text: '앗!', color: '#9A94AE' },
+  perfect: { text: 'PERFECT', color: '#FFE45C' },
+  great: { text: 'GREAT', color: '#7CF5B4' },
+  good: { text: 'GOOD', color: '#9CC8FF' },
+  miss: { text: 'MISS', color: '#FF6B8A' },
 };
 
-const INK = '#3B2A4A';
+const INK = '#2B1D3A';
 const FONT = '"Jua", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif';
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const easeOut = (t) => 1 - Math.pow(1 - t, 3);
+const SPOT_COLORS = ['255,95,162', '255,210,74', '95,211,255', '155,123,255'];
+
+function rr(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  if (ctx.roundRect) ctx.roundRect(x, y, w, h, r);
+  else ctx.rect(x, y, w, h);
+}
 
 export class Renderer {
   constructor(canvas) {
@@ -26,14 +35,17 @@ export class Renderer {
     this.ctx = canvas.getContext('2d', { alpha: false });
     this.bg = document.createElement('canvas');
     this.rasters = null;
-    this.studio = null; // 영상 찍기 모드: { top, bottom, label }
+    this.studio = null; // 영상 찍기: { top, bottom, label }
     this.reset();
   }
 
   reset() {
-    this.fx = { judges: [], particles: [], bouncers: [], banners: [], ripples: [] };
+    this.fx = { judges: [], sparks: [], bursts: [], booms: [], banners: [] };
     this.hitAt = [-9, -9];
     this.missAt = [-9, -9];
+    this.punchAt = -9;
+    this.punchPow = 0;
+    this.crackAt = -9;
     this.comboPopAt = -9;
     this.cheerUntil = -9;
   }
@@ -50,60 +62,55 @@ export class Renderer {
     const L = {
       W, H, dpr, GW, GX, studio,
       cx: W / 2,
-      topY: H * (studio ? 0.27 : 0.19),
-      hitY: H * 0.7,
-      laneX: [GX + GW * 0.37, GX + GW * 0.63],
-      laneHalf: GW * 0.105,
-      headRx: GW * 0.125,
-      beanW: GW * 0.145,
-      mascotW: GW * 0.27,
-      mascotX: [GX + GW * 0.135, GX + GW * 0.865],
+      topY: H * (studio ? 0.25 : 0.155),
+      strikeY: H * 0.585,
+      laneX: [GX + GW * 0.3, GX + GW * 0.7],
+      laneHalf: GW * 0.14,
+      floorY: H * 0.865,
+      drummerX: GX + GW * 0.5,
+      drummerBase: H * 0.8,
+      drummerW: GW * 0.38,
+      bassX: GX + GW * 0.29,
+      bassY: H * 0.795,
+      bassW: GW * 0.4,
+      snareX: GX + GW * 0.705,
+      snareY: H * 0.772,
+      snareW: GW * 0.36,
+      hatX: GX + GW * 0.95,
+      hatY: H * 0.69,
+      hatR: GW * 0.12,
+      crashX: GX + GW * 0.07,
+      crashY: H * 0.635,
+      crashR: GW * 0.14,
     };
-    L.drumScale = L.headRx / DRUM_VIEW.rx;
-    L.headRy = DRUM_VIEW.ry * L.drumScale;
-    L.drumW = DRUM_VIEW.w * L.drumScale;
-    L.groundY = L.hitY + (DRUMS.kong.height + DRUM_VIEW.ry * 0.6) * L.drumScale;
-    L.mascotBase = [0, 1].map((i) => L.hitY + (DRUMS[LANE[i].key].height + DRUM_VIEW.ry * 0.9) * L.drumScale);
+    L.barW = L.laneHalf * 1.72;
+    L.barH = GW * 0.046;
+    L.padR = GW * 0.066;
+    L.snareScale = L.snareW / SNARE_VIEW.w;
     this.L = L;
-    const key = `${Math.round(L.mascotW * dpr)}x${Math.round(L.drumW * dpr)}`;
+    const key = `${Math.round(L.drummerW * dpr)}x${Math.round(L.bassW * dpr)}`;
     if (this._rasterKey !== key) {
-      this.rasters = await buildRasters(Math.round(L.mascotW * dpr), Math.round(L.drumW * dpr));
+      this.rasters = await buildRasters(Math.round(L.drummerW * dpr), Math.round(L.bassW * dpr));
       this._rasterKey = key;
     }
     this._sticks();
     this._drawStatic();
   }
 
-  /** 스틱 기준점(손)과 내려칠 각도 계산 */
+  /** 드러머 양손 스틱: 화면 오른쪽 손 = 스네어, 왼쪽 손 = 크래시 */
   _sticks() {
     const L = this.L;
-    this.stick = [0, 1].map((i) => {
-      const w = L.mascotW;
-      const top = L.mascotBase[i] - w * 0.945;
-      const handX = i === 0 ? 168 : 32;
-      const px = L.mascotX[i] - w / 2 + (handX / 200) * w;
-      const py = top + (166 / 200) * w;
-      const tx = L.laneX[i] + (i === 0 ? -1 : 1) * L.headRx * 0.15;
-      const ty = L.hitY - L.headRy * 0.15;
-      const hit = Math.atan2(ty - py, tx - px);
-      const dir = i === 0 ? 1 : -1;
-      const dist = Math.hypot(tx - px, ty - py);
-      return { px, py, hit, rest: hit - 0.7 * dir, len: (dist * 120) / 92 };
-    });
-  }
-
-  _cloud(g, x, y, s, alpha = 1) {
-    g.save();
-    g.globalAlpha = alpha;
-    g.fillStyle = '#FFFFFF';
-    g.beginPath();
-    g.ellipse(x, y, s * 0.9, s * 0.42, 0, 0, Math.PI * 2);
-    g.ellipse(x - s * 0.45, y + s * 0.05, s * 0.45, s * 0.33, 0, 0, Math.PI * 2);
-    g.ellipse(x + s * 0.5, y + s * 0.06, s * 0.42, s * 0.3, 0, 0, Math.PI * 2);
-    g.ellipse(x - s * 0.1, y - s * 0.25, s * 0.45, s * 0.38, 0, 0, Math.PI * 2);
-    g.ellipse(x + s * 0.28, y - s * 0.18, s * 0.33, s * 0.3, 0, 0, Math.PI * 2);
-    g.fill();
-    g.restore();
+    const w = L.drummerW;
+    const top = L.drummerBase - w * 0.945;
+    const hand = (hx) => ({ px: L.drummerX - w / 2 + (hx / 200) * w, py: top + (160 / 200) * w });
+    const mk = (h, tx, ty, dir, lift) => {
+      const hit = Math.atan2(ty - h.py, tx - h.px);
+      const dist = Math.hypot(tx - h.px, ty - h.py);
+      return { ...h, hit, rest: hit + lift * dir, len: (dist * 120) / 92, dir };
+    };
+    const sy = L.snareY - SNARE_VIEW.ry * L.snareScale * 0.1;
+    this.stickR = mk(hand(172), L.snareX - L.GW * 0.02, sy, 1, -0.75);
+    this.stickL = mk(hand(28), L.crashX + L.crashR * 0.35, L.crashY + L.crashR * 0.05, -1, -0.22);
   }
 
   _drawStatic() {
@@ -113,140 +120,120 @@ export class Renderer {
     c.height = this.canvas.height;
     const g = c.getContext('2d');
     g.setTransform(L.dpr, 0, 0, L.dpr, 0, 0);
-    // 하늘
-    const sky = g.createLinearGradient(0, 0, 0, L.H);
-    sky.addColorStop(0, '#8FD3FF');
-    sky.addColorStop(0.45, '#CDEEFF');
-    sky.addColorStop(0.72, '#FFF4DA');
-    g.fillStyle = sky;
+    const bg = g.createLinearGradient(0, 0, 0, L.H);
+    bg.addColorStop(0, '#160F38');
+    bg.addColorStop(0.55, '#33186A');
+    bg.addColorStop(0.86, '#5B2167');
+    g.fillStyle = bg;
     g.fillRect(0, 0, L.W, L.H);
-    // 해
-    const sx = L.GX + L.GW * 0.9;
-    const sy = L.H * 0.06;
-    const sun = g.createRadialGradient(sx, sy, 0, sx, sy, L.GW * 0.32);
-    sun.addColorStop(0, 'rgba(255,240,170,0.95)');
-    sun.addColorStop(0.3, 'rgba(255,230,150,0.5)');
-    sun.addColorStop(1, 'rgba(255,230,150,0)');
-    g.fillStyle = sun;
-    g.fillRect(0, 0, L.W, L.H * 0.4);
-    // 먼 언덕
-    g.fillStyle = '#BFE7A2';
-    g.beginPath();
-    g.moveTo(0, L.groundY - L.GW * 0.06);
-    for (let x = 0; x <= L.W; x += 10) g.lineTo(x, L.groundY - L.GW * 0.08 - Math.sin(x / (L.GW * 0.22)) * L.GW * 0.035);
-    g.lineTo(L.W, L.H);
-    g.lineTo(0, L.H);
-    g.fill();
-    // 앞 잔디
-    const grass = g.createLinearGradient(0, L.groundY, 0, L.H);
-    grass.addColorStop(0, '#8ED46B');
-    grass.addColorStop(1, '#6DBA55');
-    g.fillStyle = grass;
-    g.beginPath();
-    g.moveTo(0, L.groundY);
-    for (let x = 0; x <= L.W; x += 8) g.lineTo(x, L.groundY - Math.sin(x / (L.GW * 0.09)) * L.GW * 0.008);
-    g.lineTo(L.W, L.H);
-    g.lineTo(0, L.H);
-    g.fill();
-    // 꽃
-    let seed = 11;
-    const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
-    for (let i = 0; i < 26; i++) {
-      const x = rnd() * L.W;
-      const y = L.groundY + L.GW * 0.03 + rnd() * (L.H - L.groundY - L.GW * 0.04);
-      const r = L.GW * (0.006 + rnd() * 0.006);
-      g.fillStyle = ['#FFFFFF', '#FFE27A', '#FFB3C7'][i % 3];
-      for (let k = 0; k < 5; k++) {
+    // LED 벽
+    const step = L.GW * 0.045;
+    g.fillStyle = 'rgba(255,255,255,0.06)';
+    for (let y = step; y < L.floorY - step; y += step)
+      for (let x = (L.W % step) / 2; x < L.W; x += step) {
         g.beginPath();
-        g.arc(x + Math.cos((k * Math.PI * 2) / 5) * r, y + Math.sin((k * Math.PI * 2) / 5) * r, r * 0.8, 0, Math.PI * 2);
+        g.arc(x, y, 1.4, 0, Math.PI * 2);
         g.fill();
       }
-      g.fillStyle = '#FFB547';
+    // 조명 트러스
+    g.fillStyle = '#0E0A24';
+    g.fillRect(0, 0, L.W, L.H * 0.022);
+    // 무대 바닥 (나무)
+    const fl = g.createLinearGradient(0, L.floorY, 0, L.H);
+    fl.addColorStop(0, '#8A5236');
+    fl.addColorStop(1, '#3E2218');
+    g.fillStyle = fl;
+    g.fillRect(0, L.floorY, L.W, L.H - L.floorY);
+    g.fillStyle = 'rgba(255,220,180,0.35)';
+    g.fillRect(0, L.floorY, L.W, 2);
+    g.strokeStyle = 'rgba(0,0,0,0.18)';
+    g.lineWidth = 1;
+    for (let k = 1; k < 6; k++) {
+      const y = L.floorY + (L.H - L.floorY) * (k / 6) ** 1.4;
       g.beginPath();
-      g.arc(x, y, r * 0.7, 0, Math.PI * 2);
-      g.fill();
+      g.moveTo(0, y);
+      g.lineTo(L.W, y);
+      g.stroke();
     }
-    // 콩이 떨어지는 길 (반투명 유리관)
+    // 노트 하이웨이 (드럼 악보판)
+    const x0 = L.laneX[0] - L.laneHalf;
+    const x1 = L.laneX[1] + L.laneHalf;
+    const y0 = L.topY;
+    const y1 = L.strikeY + L.GW * 0.07;
+    rr(g, x0 - 6, y0, x1 - x0 + 12, y1 - y0, L.GW * 0.04);
+    g.fillStyle = 'rgba(10,6,28,0.66)';
+    g.fill();
+    g.lineWidth = 3;
+    g.strokeStyle = 'rgba(255,255,255,0.14)';
+    g.stroke();
     [0, 1].forEach((i) => {
-      const x = L.laneX[i] - L.laneHalf;
-      const w = L.laneHalf * 2;
-      const y = L.topY;
-      const h = L.hitY - L.topY;
-      const lg = g.createLinearGradient(0, y, 0, y + h);
-      lg.addColorStop(0, 'rgba(255,255,255,0.15)');
-      lg.addColorStop(1, `rgba(${LANE[i].rgb},0.28)`);
+      const lg = g.createLinearGradient(0, y0, 0, y1);
+      lg.addColorStop(0, `rgba(${LANE[i].rgb},0)`);
+      lg.addColorStop(1, `rgba(${LANE[i].rgb},0.2)`);
       g.fillStyle = lg;
-      g.beginPath();
-      g.roundRect ? g.roundRect(x, y, w, h, w / 2) : g.rect(x, y, w, h);
-      g.fill();
-      g.strokeStyle = 'rgba(255,255,255,0.85)';
-      g.lineWidth = 2.5;
-      g.stroke();
-      g.setLineDash([3, 9]);
-      g.lineCap = 'round';
-      g.strokeStyle = 'rgba(255,255,255,0.9)';
-      g.lineWidth = 3;
-      g.beginPath();
-      g.moveTo(L.laneX[i], y + w * 0.6);
-      g.lineTo(L.laneX[i], y + h - L.headRy * 1.2);
-      g.stroke();
-      g.setLineDash([]);
-      // 구름(콩이 나오는 곳)
-      this._cloud(g, L.laneX[i], L.topY + L.GW * 0.005, L.GW * 0.14);
+      g.fillRect(L.laneX[i] - L.laneHalf, y0 + 8, L.laneHalf * 2, y1 - y0 - 16);
+      for (const side of [-1, 1]) {
+        const x = L.laneX[i] + side * L.laneHalf;
+        const rg = g.createLinearGradient(0, y0, 0, y1);
+        rg.addColorStop(0, `rgba(${LANE[i].rgb},0)`);
+        rg.addColorStop(1, `rgba(${LANE[i].rgb},0.85)`);
+        g.strokeStyle = rg;
+        g.lineWidth = 2;
+        g.beginPath();
+        g.moveTo(x, y0 + 10);
+        g.lineTo(x, y1 - 10);
+        g.stroke();
+      }
     });
   }
 
   // ---------- 이벤트 ----------
   onTap(lane, rt) {
     this.hitAt[lane] = rt;
+    if (lane === 0) {
+      this.punchAt = rt;
+      this.punchPow = 0.6;
+    } else this.crackAt = rt;
   }
 
   onJudge(lane, judge, rt, early) {
     const L = this.L;
     const style = JUDGE_STYLE[judge];
-    this.fx.judges.push({ lane, text: style.text, color: style.color, t0: rt, sub: judge === 'perfect' || judge === 'miss' ? '' : early ? '빨라' : '늦어' });
+    this.fx.judges.push({ lane, text: style.text, color: style.color, t0: rt, sub: judge === 'perfect' || judge === 'miss' ? '' : early ? 'FAST' : 'SLOW' });
     if (judge === 'miss') {
       this.missAt[lane] = rt;
       return;
     }
-    const x = L.laneX[lane];
-    const out = lane === 0 ? 1 : -1; // 콩은 화면 바깥쪽 반대로(가운데로) 튕김
-    const power = judge === 'perfect' ? 1 : judge === 'great' ? 0.8 : 0.6;
-    this.fx.bouncers.push({
-      lane,
-      x,
-      y: L.hitY - L.headRy * 0.4,
-      vx: out * L.GW * (0.25 + Math.random() * 0.25),
-      vy: -L.GW * (1.5 + Math.random() * 0.4) * power,
-      spin: (Math.random() - 0.5) * 14,
-      t0: rt,
-    });
-    this.fx.ripples.push({ lane, t0: rt, big: judge === 'perfect' });
-    const n = judge === 'perfect' ? 12 : 7;
-    for (let i = 0; i < n; i++) {
-      const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.2;
-      const sp = L.GW * (0.35 + Math.random() * 0.7);
-      const kind = Math.random();
-      this.fx.particles.push({
-        x: x + (Math.random() - 0.5) * L.headRx,
-        y: L.hitY,
-        vx: Math.cos(a) * sp,
-        vy: Math.sin(a) * sp,
-        t0: rt,
-        life: 0.5 + Math.random() * 0.4,
-        r: L.GW * (0.012 + Math.random() * 0.01),
-        rot: Math.random() * 6,
-        kind: kind < 0.45 ? 'leaf' : kind < 0.75 ? 'note' : 'star',
-        color: kind < 0.45 ? (Math.random() < 0.5 ? '#7BD66A' : '#A8E58F') : kind < 0.75 ? LANE[lane].beanDark : '#FFD447',
-      });
+    const pow = judge === 'perfect' ? 1 : judge === 'great' ? 0.8 : 0.55;
+    this.fx.bursts.push({ lane, t0: rt, pow });
+    if (lane === 0) {
+      this.punchAt = rt;
+      this.punchPow = pow;
+      this.fx.booms.push({ t0: rt, pow });
+    } else {
+      this.crackAt = rt;
+      const n = judge === 'perfect' ? 12 : 7;
+      for (let i = 0; i < n; i++) {
+        const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.4;
+        this.fx.sparks.push({
+          x: L.snareX,
+          y: L.snareY - L.GW * 0.01,
+          a,
+          sp: L.GW * (0.5 + Math.random() * 0.8),
+          t0: rt,
+          life: 0.22 + Math.random() * 0.18,
+          len: L.GW * (0.03 + Math.random() * 0.04),
+          color: Math.random() < 0.5 ? '#FFFFFF' : Math.random() < 0.5 ? '#FFE45C' : LANE[1].light,
+        });
+      }
     }
   }
 
   onCombo(combo, rt) {
     this.comboPopAt = rt;
     if (combo > 0 && combo % 25 === 0) {
-      this.fx.banners.push({ text: `${combo} 콤보!`, t0: rt });
-      this.cheerUntil = rt + 0.9;
+      this.fx.banners.push({ text: `${combo} COMBO!`, t0: rt });
+      this.cheerUntil = rt + 1.0;
     }
   }
 
@@ -255,230 +242,398 @@ export class Renderer {
     const ctx = this.ctx;
     const L = this.L;
     if (!L) return;
+    const pe = Math.exp(-(rt - this.punchAt) * 22) * this.punchPow; // 킥 펀치
+    const ce = Math.exp(-(rt - this.crackAt) * 30); // 스네어 크랙
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(this.bg, 0, 0);
     ctx.setTransform(L.dpr, 0, 0, L.dpr, 0, 0);
+    const fever = st.combo >= 30;
 
-    this._drawDriftClouds(rt);
-    this._drawBeatDots(st);
-    [0, 1].forEach((i) => this._drawDrum(i, st, rt));
-    [0, 1].forEach((i) => this._drawTarget(i, st, rt));
-    this._drawNotes(st, rt);
-    [0, 1].forEach((i) => this._drawMascot(i, st, rt));
-    this._drawFx(rt);
+    this._drawSpots(st, rt, pe, fever);
+    ctx.save();
+    const sc = 1 + pe * 0.014;
+    ctx.translate(L.cx, L.H * 0.6);
+    ctx.scale(sc, sc);
+    ctx.translate(-L.cx + (Math.random() - 0.5) * ce * 3, -L.H * 0.6 + pe * 4);
+
+    this._drawBeatLines(st);
     this._drawCombo(st, rt);
+    this._drawTargets(st, rt);
+    this._drawNotes(st);
+    this._drawBursts(rt);
+    this._drawKit(st, rt, pe);
+    this._drawJudges(rt);
+    ctx.restore();
+
+    this._drawCrowd(st, rt, fever);
+    this._drawBanners(rt);
     this._drawCountIn(st);
     if (this.studio) this._drawStudio(st);
   }
 
-  _drawDriftClouds(rt) {
+  _drawSpots(st, rt, pe, fever) {
+    const ctx = this.ctx;
     const L = this.L;
-    const span = L.W + L.GW * 0.6;
-    [[0.08, 0.16, 0.12, 9], [0.22, 0.1, 0.09, 14], [0.42, 0.13, 0.08, 11]].forEach(([y, s, a, sp], k) => {
-      const x = ((rt * L.GW * (0.01 * sp) + k * span * 0.37) % span) - L.GW * 0.3;
-      this._cloud(this.ctx, x, L.H * y + (L.studio ? L.H * 0.05 : 0), L.GW * s, 0.55 + a);
+    const phase = st.beatDur ? ((st.now / st.beatDur) % 1 + 1) % 1 : 0;
+    const beatGlow = st.playing ? Math.pow(1 - phase, 4) : 0;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const speed = fever ? 1.6 : 0.6;
+    [0.08, 0.34, 0.66, 0.92].forEach((fx, k) => {
+      const x = L.GX + L.GW * fx;
+      const ang = Math.sin(rt * speed + k * 1.7) * 0.35 + (fx - 0.5) * -0.5;
+      const len = L.H * 0.95;
+      const spread = L.GW * 0.16;
+      const tx = x + Math.sin(ang) * len;
+      const ty = L.H * 0.02 + Math.cos(ang) * len;
+      const a = 0.07 + beatGlow * 0.05 + pe * 0.12 + (fever ? 0.05 : 0);
+      const gr = ctx.createLinearGradient(x, 0, tx, ty);
+      gr.addColorStop(0, `rgba(${SPOT_COLORS[k]},${a * 2})`);
+      gr.addColorStop(1, `rgba(${SPOT_COLORS[k]},0)`);
+      ctx.fillStyle = gr;
+      ctx.beginPath();
+      ctx.moveTo(x - 4, L.H * 0.02);
+      ctx.lineTo(tx - spread * Math.cos(ang), ty + spread * Math.sin(ang));
+      ctx.lineTo(tx + spread * Math.cos(ang), ty - spread * Math.sin(ang));
+      ctx.lineTo(x + 4, L.H * 0.02);
+      ctx.fill();
+      ctx.fillStyle = `rgba(${SPOT_COLORS[k]},0.9)`;
+      ctx.beginPath();
+      ctx.arc(x, L.H * 0.022, L.GW * 0.018, 0, Math.PI * 2);
+      ctx.fill();
     });
+    ctx.restore();
   }
 
-  _yAt(dt, approach) {
+  _y(dt, approach) {
     const L = this.L;
-    return L.hitY - (dt / approach) * (L.hitY - L.topY);
+    return L.strikeY - (dt / approach) * (L.strikeY - L.topY);
   }
 
-  _drawBeatDots(st) {
+  _drawBeatLines(st) {
     const ctx = this.ctx;
     const L = this.L;
     if (!st.beatDur) return;
-    const first = Math.ceil(st.now / st.beatDur);
+    const sub = st.beatDur / 2;
+    const first = Math.ceil(st.now / sub);
     for (let b = first; ; b++) {
-      const dt = b * st.beatDur - st.now;
+      const dt = b * sub - st.now;
       if (dt > st.approach) break;
-      const y = this._yAt(dt, st.approach);
-      const bar = b % 4 === 0;
+      const y = this._y(dt, st.approach);
+      if (y < L.topY + 10) continue;
+      const bar = b % 8 === 0;
+      const beat = b % 2 === 0;
+      ctx.strokeStyle = bar ? 'rgba(255,255,255,0.4)' : beat ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.06)';
+      ctx.lineWidth = bar ? 2.5 : 1.2;
       for (const i of [0, 1]) {
-        ctx.fillStyle = bar ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.6)';
-        const r = bar ? 3.2 : 2;
         ctx.beginPath();
-        ctx.arc(L.laneX[i] - L.laneHalf * 0.78, y, r, 0, Math.PI * 2);
-        ctx.arc(L.laneX[i] + L.laneHalf * 0.78, y, r, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.moveTo(L.laneX[i] - L.laneHalf + 4, y);
+        ctx.lineTo(L.laneX[i] + L.laneHalf - 4, y);
+        ctx.stroke();
       }
     }
   }
 
-  /** 콩 한 알 */
-  _bean(x, y, w, lane, rot, alpha = 1, grey = false) {
+  _drawTargets(st, rt) {
     const ctx = this.ctx;
-    const c = LANE[lane];
-    const rx = w / 2;
-    const ry = w * 0.36;
+    const L = this.L;
+    const phase = st.beatDur ? ((st.now / st.beatDur) % 1 + 1) % 1 : 0;
+    const pulse = st.playing ? Math.pow(1 - phase, 3) : 0;
+    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(L.laneX[0] - L.laneHalf, L.strikeY);
+    ctx.lineTo(L.laneX[1] + L.laneHalf, L.strikeY);
+    ctx.stroke();
+    const k = 1 + pulse * 0.05;
+    const hk = rt - this.hitAt[0] < 0.1;
+    rr(ctx, L.laneX[0] - (L.barW * k) / 2, L.strikeY - (L.barH * k) / 2, L.barW * k, L.barH * k, (L.barH * k) / 2);
+    ctx.fillStyle = hk ? 'rgba(255,138,76,0.55)' : 'rgba(255,138,76,0.12)';
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.strokeStyle = `rgba(255,170,120,${0.6 + 0.4 * pulse})`;
+    ctx.stroke();
+    const hs = rt - this.hitAt[1] < 0.1;
+    ctx.beginPath();
+    ctx.arc(L.laneX[1], L.strikeY, L.padR * k, 0, Math.PI * 2);
+    ctx.fillStyle = hs ? 'rgba(98,200,255,0.55)' : 'rgba(98,200,255,0.12)';
+    ctx.fill();
+    ctx.strokeStyle = `rgba(180,230,255,${0.6 + 0.4 * pulse})`;
+    ctx.stroke();
+  }
+
+  _kickBar(x, y, alpha, grey) {
+    const ctx = this.ctx;
+    const L = this.L;
+    const w = L.barW;
+    const h = L.barH;
     ctx.save();
     ctx.globalAlpha = alpha;
-    ctx.translate(x, y);
-    ctx.rotate(rot);
-    // 강낭콩 모양: 아래쪽이 살짝 들어간 타원
-    const path = new Path2D();
-    path.moveTo(-rx, 0);
-    path.bezierCurveTo(-rx, -ry * 1.35, rx, -ry * 1.35, rx, 0);
-    path.bezierCurveTo(rx, ry * 1.1, rx * 0.35, ry * 1.05, 0, ry * 0.62);
-    path.bezierCurveTo(-rx * 0.35, ry * 1.05, -rx, ry * 1.1, -rx, 0);
-    path.closePath();
-    const gr = ctx.createLinearGradient(0, -ry, 0, ry);
-    gr.addColorStop(0, grey ? '#E4E1EA' : c.beanLight);
-    gr.addColorStop(1, grey ? '#B9B4C4' : c.bean);
+    rr(ctx, x - w / 2, y - h / 2 + h * 0.3, w, h, h / 2);
+    ctx.fillStyle = grey ? '#6E6880' : LANE[0].dark;
+    ctx.fill();
+    rr(ctx, x - w / 2, y - h / 2, w, h, h / 2);
+    const gr = ctx.createLinearGradient(0, y - h / 2, 0, y + h / 2);
+    gr.addColorStop(0, grey ? '#C9C4D6' : LANE[0].light);
+    gr.addColorStop(1, grey ? '#9A94AE' : LANE[0].main);
     ctx.fillStyle = gr;
-    ctx.fill(path);
-    ctx.lineWidth = Math.max(2, w * 0.06);
+    ctx.fill();
+    ctx.lineWidth = 2.5;
     ctx.strokeStyle = INK;
-    ctx.lineJoin = 'round';
-    ctx.stroke(path);
-    // 배꼽 + 반짝
-    ctx.strokeStyle = grey ? '#9F99AE' : c.beanDark;
-    ctx.lineWidth = Math.max(1.5, w * 0.04);
-    ctx.lineCap = 'round';
-    ctx.beginPath();
-    ctx.moveTo(-rx * 0.12, ry * 0.42);
-    ctx.quadraticCurveTo(0, ry * 0.2, rx * 0.12, ry * 0.42);
     ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    ctx.beginPath();
-    ctx.ellipse(-rx * 0.38, -ry * 0.45, rx * 0.22, ry * 0.2, -0.3, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    rr(ctx, x - w / 2 + h * 0.5, y - h * 0.32, w * 0.45, h * 0.18, h * 0.09);
     ctx.fill();
     ctx.restore();
   }
 
-  _drawNotes(st, rt) {
+  _snarePad(x, y, alpha, grey) {
+    const ctx = this.ctx;
+    const r = this.L.padR;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = grey ? '#6E6880' : '#4C6E9E';
+    ctx.beginPath();
+    ctx.arc(x, y + r * 0.2, r, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = grey ? '#C9C4D6' : '#E8E6F0';
+    ctx.fill();
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = INK;
+    ctx.stroke();
+    const gr = ctx.createRadialGradient(x - r * 0.25, y - r * 0.3, 0, x, y, r * 0.78);
+    gr.addColorStop(0, '#FFFFFF');
+    gr.addColorStop(1, grey ? '#B9B4C4' : LANE[1].light);
+    ctx.fillStyle = gr;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.76, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.strokeStyle = grey ? '#8C86A0' : LANE[1].main;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.fillStyle = grey ? '#8C86A0' : LANE[1].dark;
+    ctx.beginPath();
+    ctx.arc(x, y, r * 0.16, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  _drawNotes(st) {
     const ctx = this.ctx;
     const L = this.L;
-    const visible = [];
+    const vis = [];
     for (const n of st.notes) {
       const dt = n.time - st.now;
       if (dt > st.approach) break;
       if (n.judged && n.result !== 'miss') continue;
-      if (dt < -0.3) continue;
-      visible.push(n);
+      if (dt < -0.25) continue;
+      vis.push(n);
     }
-    // 동시치기: 덩굴로 연결
-    const pairs = new Map();
-    for (const n of visible) if (n.pair >= 0 && !n.judged) (pairs.get(n.pair) || pairs.set(n.pair, []).get(n.pair)).push(n);
-    for (const [, ps] of pairs) {
-      if (ps.length !== 2) continue;
-      const y = this._yAt(ps[0].time - st.now, st.approach);
-      if (y > L.hitY) continue;
-      ctx.strokeStyle = '#5DBB4A';
-      ctx.lineWidth = Math.max(3, L.GW * 0.012);
-      ctx.lineCap = 'round';
-      ctx.beginPath();
-      ctx.moveTo(L.laneX[0], y);
-      ctx.quadraticCurveTo(L.cx, y + L.GW * 0.04, L.laneX[1], y);
-      ctx.stroke();
-      ctx.fillStyle = '#7BD66A';
-      ctx.beginPath();
-      ctx.ellipse(L.cx, y + L.GW * 0.02, L.GW * 0.022, L.GW * 0.011, -0.5, 0, Math.PI * 2);
-      ctx.fill();
+    const seen = new Set();
+    for (const n of vis) {
+      if (n.pair < 0 || n.judged) continue;
+      if (seen.has(n.pair)) {
+        const y = this._y(n.time - st.now, st.approach);
+        ctx.strokeStyle = 'rgba(255,228,92,0.85)';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([6, 5]);
+        ctx.beginPath();
+        ctx.moveTo(L.laneX[0] + L.barW / 2, y);
+        ctx.lineTo(L.laneX[1] - L.padR, y);
+        ctx.stroke();
+        ctx.setLineDash([]);
+      } else seen.add(n.pair);
     }
-    for (let k = visible.length - 1; k >= 0; k--) {
-      const n = visible[k];
+    for (let k = vis.length - 1; k >= 0; k--) {
+      const n = vis[k];
       const dt = n.time - st.now;
-      const y = this._yAt(dt, st.approach);
-      const p = dt / st.approach;
-      let alpha = clamp((1 - p) / 0.08, 0, 1);
-      const grey = n.judged; // 놓친 콩
-      if (dt < 0) alpha *= clamp(1 + dt * 4, 0, 1);
-      const scale = 0.75 + 0.25 * clamp(1 - p, 0, 1);
-      const wob = Math.sin(rt * 4 + n.id * 1.7) * 0.18;
-      this._bean(L.laneX[n.lane], y, L.beanW * scale, n.lane, wob, alpha * (grey ? 0.6 : 1), grey);
+      const y = this._y(dt, st.approach);
+      let a = clamp((1 - dt / st.approach) / 0.08, 0, 1);
+      if (dt < 0) a *= clamp(1 + dt * 5, 0, 1);
+      if (n.judged) a *= 0.55;
+      if (n.lane === 0) this._kickBar(L.laneX[0], y, a, n.judged);
+      else this._snarePad(L.laneX[1], y, a, n.judged);
     }
   }
 
-  _drawDrum(i, st, rt) {
+  _drawBursts(rt) {
     const ctx = this.ctx;
     const L = this.L;
-    const img = this.rasters.drum[LANE[i].key];
-    const t = rt - this.hitAt[i];
-    const squash = t < 0.3 ? Math.exp(-t * 18) * 0.06 : 0;
-    const w = L.drumW * (1 + squash);
-    const h = L.drumW * (DRUM_VIEW.h / DRUM_VIEW.w) * (1 - squash);
-    ctx.drawImage(img, L.laneX[i] - w / 2, L.hitY - DRUM_VIEW.cy * L.drumScale * (1 - squash) + squash * L.headRy, w, h);
-    if (t < 0.18) {
-      ctx.fillStyle = `rgba(255,255,255,${0.8 * (1 - t / 0.18)})`;
-      ctx.beginPath();
-      ctx.ellipse(L.laneX[i], L.hitY + squash * L.headRy, L.headRx * 0.9, L.headRy * 0.8, 0, 0, Math.PI * 2);
-      ctx.fill();
+    this.fx.bursts = this.fx.bursts.filter((b) => rt - b.t0 < 0.3);
+    for (const b of this.fx.bursts) {
+      const p = (rt - b.t0) / 0.3;
+      const e = easeOut(p);
+      ctx.save();
+      ctx.globalAlpha = (1 - p) * b.pow;
+      ctx.globalCompositeOperation = 'lighter';
+      if (b.lane === 0) {
+        const w = L.barW * (1 + e * 0.6);
+        const h = L.barH * (1 + e * 2.2);
+        rr(ctx, L.laneX[0] - w / 2, L.strikeY - h / 2, w, h, h / 2);
+        ctx.fillStyle = 'rgba(255,170,100,0.8)';
+        ctx.fill();
+      } else {
+        ctx.beginPath();
+        ctx.arc(L.laneX[1], L.strikeY, L.padR * (1 + e * 1.3), 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(160,225,255,0.8)';
+        ctx.fill();
+      }
+      ctx.restore();
     }
   }
 
-  _drawTarget(i, st, rt) {
+  _cymbal(x, y, r, tilt, wob) {
     const ctx = this.ctx;
-    const L = this.L;
-    const phase = st.beatDur ? ((st.now / st.beatDur) % 1 + 1) % 1 : 0;
-    const pulse = Math.pow(1 - phase, 3);
     ctx.save();
-    ctx.setLineDash([6, 6]);
-    ctx.lineDashOffset = -rt * 20;
-    ctx.strokeStyle = `rgba(${LANE[i].rgb},${0.55 + 0.4 * pulse})`;
-    ctx.lineWidth = 3 + 2 * pulse;
+    ctx.translate(x, y);
+    ctx.rotate(tilt + wob);
     ctx.beginPath();
-    ctx.ellipse(L.laneX[i], L.hitY - L.headRy * 0.4, L.beanW * 0.62 * (1 + 0.08 * pulse), L.beanW * 0.3 * (1 + 0.08 * pulse), 0, 0, Math.PI * 2);
+    ctx.ellipse(0, 0, r, r * 0.22, 0, 0, Math.PI * 2);
+    const gr = ctx.createLinearGradient(-r, 0, r, 0);
+    gr.addColorStop(0, '#C7922A');
+    gr.addColorStop(0.45, '#FFE59A');
+    gr.addColorStop(1, '#F4C84A');
+    ctx.fillStyle = gr;
+    ctx.fill();
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = INK;
     ctx.stroke();
-    ctx.restore();
-    // 퍼지는 링
-    this.fx.ripples = this.fx.ripples.filter((r) => rt - r.t0 < 0.4);
-    for (const r of this.fx.ripples) {
-      if (r.lane !== i) continue;
-      const p = (rt - r.t0) / 0.4;
-      const sc = 1 + easeOut(p) * (r.big ? 0.9 : 0.6);
-      ctx.strokeStyle = `rgba(255,255,255,${1 - p})`;
-      ctx.lineWidth = (r.big ? 6 : 4) * (1 - p) + 1;
+    ctx.strokeStyle = 'rgba(140,90,20,0.45)';
+    ctx.lineWidth = 1;
+    for (const f of [0.35, 0.65]) {
       ctx.beginPath();
-      ctx.ellipse(L.laneX[i], L.hitY, L.headRx * sc, L.headRy * sc, 0, 0, Math.PI * 2);
+      ctx.ellipse(0, 0, r * f, r * 0.22 * f, 0, 0, Math.PI * 2);
       ctx.stroke();
     }
+    ctx.fillStyle = '#8C6418';
+    ctx.beginPath();
+    ctx.ellipse(0, -r * 0.03, r * 0.1, r * 0.05, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   }
 
-  _drawMascot(i, st, rt) {
+  _stand(x, y1, y2) {
+    const ctx = this.ctx;
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 6;
+    ctx.beginPath();
+    ctx.moveTo(x, y1);
+    ctx.lineTo(x, y2);
+    ctx.stroke();
+    ctx.strokeStyle = '#D9D6E6';
+    ctx.lineWidth = 2.5;
+    ctx.stroke();
+  }
+
+  _drawKit(st, rt, pe) {
     const ctx = this.ctx;
     const L = this.L;
-    const set = this.rasters[LANE[i].key];
-    const th = rt - this.hitAt[i];
-    const tm = rt - this.missAt[i];
-    let img = set.idle;
-    if (th < 0.18) img = set.hit;
-    else if (tm < 0.45) img = set.miss;
-    else if (rt < this.cheerUntil || st.finished) img = set.cheer;
+    const R = this.rasters;
+    // 크래시: 크래시 칠 때 흔들림
+    const ca = st.crashAge ?? 9;
+    const cw = ca < 1.5 ? Math.sin(ca * 18) * Math.exp(-ca * 3) * 0.25 : 0;
+    this._stand(L.crashX, L.crashY, L.floorY);
+    this._cymbal(L.crashX, L.crashY, L.crashR, -0.22, cw);
+    // 하이햇: 반주 하이햇에 맞춰 닫힘
+    const ha = st.hatAge ?? 9;
+    const close = ha < 0.08 ? 1 - ha / 0.08 : 0;
+    this._stand(L.hatX, L.hatY, L.floorY);
+    this._cymbal(L.hatX, L.hatY + L.hatR * 0.12, L.hatR, 0.05, 0);
+    this._cymbal(L.hatX, L.hatY - L.hatR * (0.1 - close * 0.08), L.hatR, 0.05, 0);
 
+    // 드러머
+    const th = Math.min(rt - this.hitAt[0], rt - this.hitAt[1]);
+    const tm = Math.min(rt - this.missAt[0], rt - this.missAt[1]);
+    const set = R.kong;
+    let face = set.idle;
+    if (th < 0.16) face = set.hit;
+    else if (tm < 0.45) face = set.miss;
+    else if (rt < this.cheerUntil || st.finished) face = set.cheer;
     const phase = st.beatDur ? ((st.now / st.beatDur) % 1 + 1) % 1 : 0;
     const bob = st.playing ? Math.pow(1 - phase, 3) : 0;
-    const spring = th < 0.6 ? Math.exp(-th * 12) * Math.cos(th * 28) : 0;
-    const sy = 1 - bob * 0.04 - spring * 0.12;
-    const sx = 1 + bob * 0.025 + spring * 0.08;
-    const w = L.mascotW;
-    const base = L.mascotBase[i];
-    // 그림자
-    ctx.fillStyle = 'rgba(59,42,74,0.18)';
-    ctx.beginPath();
-    ctx.ellipse(L.mascotX[i], base - w * 0.02, w * 0.4, w * 0.07, 0, 0, Math.PI * 2);
-    ctx.fill();
+    const tk = rt - this.hitAt[0];
+    const kickSquash = tk < 0.5 ? Math.exp(-tk * 14) * Math.cos(tk * 30) : 0;
+    const w = L.drummerW;
+    const sy = 1 - bob * 0.045 - kickSquash * 0.1;
+    const sx = 1 + bob * 0.03 + kickSquash * 0.07;
+    ctx.drawImage(face, L.drummerX - (w * sx) / 2, L.drummerBase - w * sy * 0.945, w * sx, w * sy);
 
-    const dw = w * sx;
-    const dh = w * sy;
-    ctx.drawImage(img, L.mascotX[i] - dw / 2, base - dh * 0.945, dw, dh);
-    // 스틱 (앞발로 쥐고 드럼을 침)
-    const s = this.stick[i];
-    let p;
-    if (th < 0.05) p = th / 0.05;
-    else if (th < 0.3) p = 1 - easeOut((th - 0.05) / 0.25);
-    else p = 0;
-    const idle = st.playing ? -bob * 0.12 * (i === 0 ? 1 : -1) : Math.sin(rt * 2 + i) * 0.06;
-    const ang = s.rest + (s.hit - s.rest) * p + (p === 0 ? idle : 0);
-    const stick = this.rasters.stick;
-    const sh = (s.len * 24 * 1.25) / 120;
+    const counting = !!(st.countIn && st.countIn.label);
+    this._drawStick(this.stickL, st, counting ? 'count' : 'hit', bob, ca);
+    this._drawStick(this.stickR, st, counting ? 'count' : 'hit', bob, rt - this.hitAt[1]);
+
+    // 베이스드럼: 킥에 헤드가 '쿵' 부풀어 오름
+    const bw = L.bassW * (1 + pe * 0.06);
+    const bh = bw * 1.05;
+    ctx.drawImage(R.bass, L.bassX - bw / 2, L.bassY - bh * (100 / 210), bw, bh);
+    const kt = rt - this.hitAt[0];
+    if (kt < 0.18) {
+      ctx.fillStyle = `rgba(255,240,220,${0.6 * (1 - kt / 0.18)})`;
+      ctx.beginPath();
+      ctx.arc(L.bassX, L.bassY, bw * 0.39, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    this.fx.booms = this.fx.booms.filter((b) => rt - b.t0 < 0.45);
+    for (const b of this.fx.booms) {
+      const p = (rt - b.t0) / 0.45;
+      ctx.strokeStyle = `rgba(255,170,110,${(1 - p) * b.pow})`;
+      ctx.lineWidth = 6 * (1 - p) + 1;
+      ctx.beginPath();
+      ctx.arc(L.bassX, L.bassY, L.bassW * (0.48 + easeOut(p) * 0.45), 0, Math.PI * 2);
+      ctx.stroke();
+    }
+
+    // 스네어
+    const stt = rt - this.hitAt[1];
+    const sq = stt < 0.25 ? Math.exp(-stt * 25) * 0.05 : 0;
+    const swd = L.snareW * (1 + sq);
+    const shg = swd * (230 / 240) * (1 - sq);
+    ctx.drawImage(R.snare, L.snareX - swd / 2, L.snareY - SNARE_VIEW.cy * L.snareScale * (1 - sq), swd, shg);
+    if (stt < 0.14) {
+      ctx.fillStyle = `rgba(255,255,255,${0.85 * (1 - stt / 0.14)})`;
+      ctx.beginPath();
+      ctx.ellipse(L.snareX, L.snareY, SNARE_VIEW.rx * L.snareScale * 0.9, SNARE_VIEW.ry * L.snareScale * 0.8, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    this.fx.sparks = this.fx.sparks.filter((s) => rt - s.t0 < s.life);
+    ctx.lineCap = 'round';
+    for (const s of this.fx.sparks) {
+      const t = rt - s.t0;
+      const d = s.sp * t;
+      const x = s.x + Math.cos(s.a) * d;
+      const y = s.y + Math.sin(s.a) * d;
+      ctx.strokeStyle = s.color;
+      ctx.globalAlpha = 1 - t / s.life;
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(x, y);
+      ctx.lineTo(x - Math.cos(s.a) * s.len, y - Math.sin(s.a) * s.len);
+      ctx.stroke();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  _drawStick(s, st, mode, bob, age) {
+    const ctx = this.ctx;
+    let p = 0;
+    if (age < 0.045) p = age / 0.045;
+    else if (age < 0.28) p = 1 - easeOut((age - 0.045) / 0.235);
+    let ang = s.rest + (s.hit - s.rest) * p;
+    if (p === 0) ang -= bob * 0.12 * s.dir;
+    if (mode === 'count') {
+      // 카운트: 스틱을 머리 위로 들어 '딱딱' 부딪힘
+      const ph = st.countIn ? st.countIn.phase : 0;
+      ang = -Math.PI / 2 + s.dir * (ph < 0.12 ? 0.12 : 0.32);
+    }
+    const sh = (s.len * 24 * 1.3) / 120;
     ctx.save();
-    ctx.translate(s.px, s.py - spring * w * 0.05);
+    ctx.translate(s.px, s.py);
     ctx.rotate(ang);
-    ctx.drawImage(stick, -(s.len * 14) / 120, -sh / 2, s.len, sh);
+    ctx.drawImage(this.rasters.stick, -(s.len * 14) / 120, -sh / 2, s.len, sh);
     ctx.restore();
-
   }
 
   _drawCombo(st, rt) {
@@ -486,41 +641,125 @@ export class Renderer {
     const ctx = this.ctx;
     const L = this.L;
     const p = clamp((rt - this.comboPopAt) / 0.15, 0, 1);
-    const sc = 1 + (1 - easeOut(p)) * 0.2;
-    const y = L.studio ? L.H * 0.4 : L.H * 0.4;
-    const size = L.GW * 0.11 * sc;
-    const x = L.GX + L.GW * 0.135;
-    const x2 = L.GX + L.GW * 0.865;
+    const sc = 1 + (1 - easeOut(p)) * 0.22;
+    const y = L.topY + (L.strikeY - L.topY) * 0.24;
+    const size = L.GW * 0.14 * sc;
     ctx.save();
+    ctx.globalAlpha = 0.92;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.lineJoin = 'round';
-    // 왼쪽 하늘에 콤보, 오른쪽엔 콤보 라벨 대신 박자 별
     ctx.font = `${Math.round(size)}px ${FONT}`;
-    ctx.lineWidth = size * 0.2;
-    ctx.strokeStyle = '#FFFFFF';
-    ctx.strokeText(String(st.combo), x, y);
-    ctx.fillStyle = st.combo >= 50 ? '#FF7A3D' : INK;
-    ctx.fillText(String(st.combo), x, y);
-    ctx.font = `${Math.round(L.GW * 0.036)}px ${FONT}`;
-    ctx.lineWidth = L.GW * 0.012;
-    ctx.strokeText('콤보', x, y + size * 0.7);
-    ctx.fillStyle = INK;
-    ctx.fillText('콤보', x, y + size * 0.7);
-    // 오른쪽: 콤보 배율 게이지 (콩이 쌓임)
-    const filled = Math.min(5, Math.floor(st.combo / 10));
-    for (let k = 0; k < 5; k++) {
-      const by = y + size * 0.5 - k * L.GW * 0.045;
-      if (k < filled) this._bean(x2, by, L.GW * 0.06, k % 2, 0.1 * (k % 2 ? 1 : -1));
-      else {
-        ctx.strokeStyle = 'rgba(59,42,74,0.25)';
-        ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = size * 0.14;
+    ctx.strokeStyle = INK;
+    ctx.strokeText(String(st.combo), L.cx, y);
+    ctx.fillStyle = st.combo >= 30 ? '#FFE45C' : '#FFFFFF';
+    ctx.fillText(String(st.combo), L.cx, y);
+    ctx.font = `${Math.round(L.GW * 0.038)}px ${FONT}`;
+    ctx.fillStyle = 'rgba(255,255,255,0.75)';
+    ctx.fillText(st.combo >= 30 ? 'GROOVE!' : 'COMBO', L.cx, y + size * 0.62);
+    ctx.restore();
+  }
+
+  _drawJudges(rt) {
+    const ctx = this.ctx;
+    const L = this.L;
+    this.fx.judges = this.fx.judges.filter((j) => rt - j.t0 < 0.45);
+    const latest = [null, null];
+    for (const j of this.fx.judges) latest[j.lane] = j;
+    for (const j of latest) {
+      if (!j) continue;
+      const t = (rt - j.t0) / 0.45;
+      const sc = t < 0.12 ? 1.3 - (t / 0.12) * 0.3 : 1;
+      const x = L.laneX[j.lane];
+      const y = L.strikeY - L.GW * 0.11 - t * L.GW * 0.02;
+      const size = L.GW * 0.055 * sc;
+      ctx.save();
+      ctx.globalAlpha = t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4;
+      ctx.font = `${Math.round(size)}px ${FONT}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = size * 0.22;
+      ctx.strokeStyle = INK;
+      ctx.strokeText(j.text, x, y);
+      ctx.fillStyle = j.color;
+      ctx.fillText(j.text, x, y);
+      if (j.sub) {
+        ctx.font = `${Math.round(size * 0.55)}px ${FONT}`;
+        ctx.lineWidth = size * 0.12;
+        ctx.strokeText(j.sub, x, y + size * 0.8);
+        ctx.fillStyle = j.sub === 'FAST' ? '#9CC8FF' : '#FFB08A';
+        ctx.fillText(j.sub, x, y + size * 0.8);
+      }
+      ctx.restore();
+    }
+  }
+
+  _drawCrowd(st, rt, fever) {
+    const ctx = this.ctx;
+    const L = this.L;
+    const phase = st.beatDur ? ((st.now / st.beatDur) % 1 + 1) % 1 : 0;
+    const bob = st.playing ? Math.pow(1 - phase, 2) : 0;
+    const n = 11;
+    const baseY = L.H * 0.985;
+    const r = L.GW * 0.06;
+    ctx.fillStyle = '#120B26';
+    for (let k = 0; k < n; k++) {
+      const x = L.GX + (L.GW * (k + 0.5)) / n + (k % 2 ? 4 : -4);
+      const jump = (k % 3 === 0 ? bob : bob * 0.5) * L.GW * 0.012;
+      const y = baseY - (k % 2 ? r * 0.3 : 0) - jump;
+      ctx.beginPath();
+      ctx.arc(x, y - r * 0.6, r * 0.62, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.beginPath();
+      ctx.ellipse(x, y + r * 0.6, r * 1.05, r * 0.8, 0, 0, Math.PI * 2);
+      ctx.fill();
+      if ((fever && k % 2 === 0) || (rt < this.cheerUntil && k % 3 !== 1)) {
+        ctx.save();
+        ctx.strokeStyle = '#120B26';
+        ctx.lineWidth = r * 0.28;
+        ctx.lineCap = 'round';
+        const sway = Math.sin(rt * 6 + k) * r * 0.3;
         ctx.beginPath();
-        ctx.ellipse(x2, by, L.GW * 0.03, L.GW * 0.018, 0, 0, Math.PI * 2);
+        ctx.moveTo(x - r * 0.5, y);
+        ctx.lineTo(x - r * 0.75 + sway, y - r * 1.9);
+        ctx.moveTo(x + r * 0.5, y);
+        ctx.lineTo(x + r * 0.75 + sway, y - r * 1.9);
         ctx.stroke();
+        ctx.restore();
       }
     }
-    ctx.restore();
+  }
+
+  _drawBanners(rt) {
+    const ctx = this.ctx;
+    const L = this.L;
+    this.fx.banners = this.fx.banners.filter((b) => rt - b.t0 < 1.1);
+    for (const b of this.fx.banners) {
+      const t = (rt - b.t0) / 1.1;
+      const size = L.GW * 0.09;
+      const pop = t < 0.15 ? easeOut(t / 0.15) : t > 0.8 ? 1 - easeOut((t - 0.8) / 0.2) : 1;
+      const y = L.topY + (L.strikeY - L.topY) * 0.55;
+      ctx.save();
+      ctx.translate(L.cx, y);
+      ctx.scale(pop, pop);
+      ctx.rotate(-0.05);
+      const w = L.GW * 0.7;
+      const h = size * 1.4;
+      rr(ctx, -w / 2, -h / 2, w, h, h / 2);
+      ctx.fillStyle = '#FF5FA2';
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = INK;
+      ctx.stroke();
+      ctx.font = `${Math.round(size)}px ${FONT}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillText(b.text, 0, size * 0.05);
+      ctx.restore();
+    }
   }
 
   _drawCountIn(st) {
@@ -529,43 +768,39 @@ export class Renderer {
     const L = this.L;
     const { label, phase, fade } = st.countIn;
     ctx.save();
-    // 엄지 안내 (카운트인 동안)
     ctx.globalAlpha = fade;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.lineJoin = 'round';
     [0, 1].forEach((i) => {
-      const fs = L.GW * 0.04;
+      const fs = L.GW * 0.038;
       ctx.font = `${Math.round(fs)}px ${FONT}`;
-      const text = `${LANE[i].thumb} · ${LANE[i].word}`;
-      const tw = ctx.measureText(text).width + fs * 1.2;
-      const ax = L.mascotX[i];
-      const x = clamp(ax, L.GX + tw / 2 + 6, L.GX + L.GW - tw / 2 - 6);
-      const y = L.mascotBase[i] - L.mascotW * 1.15;
-      ctx.fillStyle = 'rgba(255,255,255,0.95)';
-      ctx.beginPath();
-      ctx.roundRect ? ctx.roundRect(x - tw / 2, y - fs * 0.9, tw, fs * 1.8, fs * 0.9) : ctx.rect(x - tw / 2, y - fs * 0.9, tw, fs * 1.8);
+      const t1 = LANE[i].thumb;
+      const t2 = LANE[i].word;
+      const tw = Math.max(ctx.measureText(t1).width, ctx.measureText(t2).width) + fs * 1.4;
+      const x = L.laneX[i];
+      const y = L.strikeY + L.GW * 0.03;
+      rr(ctx, x - tw / 2, y, tw, fs * 2.8, fs * 0.8);
+      ctx.fillStyle = 'rgba(255,255,255,0.96)';
       ctx.fill();
-      ctx.beginPath();
-      ctx.moveTo(ax - fs * 0.4, y + fs * 0.85);
-      ctx.lineTo(ax + fs * 0.4, y + fs * 0.85);
-      ctx.lineTo(ax, y + fs * 1.35);
-      ctx.fill();
-      ctx.fillStyle = LANE[i].beanDark;
-      ctx.fillText(text, x, y + fs * 0.05);
+      ctx.fillStyle = INK;
+      ctx.fillText(t1, x, y + fs * 0.85);
+      ctx.fillStyle = LANE[i].dark;
+      ctx.fillText(t2, x, y + fs * 2);
     });
-    // 숫자
-    const a = 1 - phase;
-    const sc = 1 + (1 - easeOut(Math.min(1, phase * 4))) * 0.35;
-    const size = L.GW * (label.length > 1 ? 0.13 : 0.22) * sc;
-    ctx.globalAlpha = clamp(a * 1.4, 0, 1);
-    ctx.font = `${Math.round(size)}px ${FONT}`;
-    ctx.lineWidth = size * 0.16;
-    ctx.strokeStyle = '#FFFFFF';
-    const y = L.topY + (L.hitY - L.topY) * 0.38;
-    ctx.strokeText(label, L.cx, y);
-    ctx.fillStyle = '#FF7A3D';
-    ctx.fillText(label, L.cx, y);
+    if (label) {
+      const a = 1 - phase;
+      const sc = 1 + (1 - easeOut(Math.min(1, phase * 4))) * 0.35;
+      const size = L.GW * 0.2 * sc;
+      ctx.globalAlpha = clamp(a * 1.5, 0, 1);
+      ctx.font = `${Math.round(size)}px ${FONT}`;
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = size * 0.14;
+      ctx.strokeStyle = INK;
+      const y = L.topY + (L.strikeY - L.topY) * 0.42;
+      ctx.strokeText(label, L.cx, y);
+      ctx.fillStyle = '#FFE45C';
+      ctx.fillText(label, L.cx, y);
+    }
     ctx.restore();
   }
 
@@ -576,14 +811,12 @@ export class Renderer {
     ctx.save();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    // 상단 자막 카드
     const cw = L.GW * 0.9;
     const ch = L.H * 0.12;
     const cx = L.cx - cw / 2;
-    const cy = L.H * 0.035;
-    ctx.fillStyle = 'rgba(255,255,255,0.94)';
-    ctx.beginPath();
-    ctx.roundRect ? ctx.roundRect(cx, cy, cw, ch, L.GW * 0.05) : ctx.rect(cx, cy, cw, ch);
+    const cy = L.H * 0.04;
+    rr(ctx, cx, cy, cw, ch, L.GW * 0.05);
+    ctx.fillStyle = 'rgba(255,255,255,0.96)';
     ctx.fill();
     ctx.lineWidth = 3;
     ctx.strokeStyle = INK;
@@ -593,143 +826,31 @@ export class Renderer {
     ctx.fillStyle = INK;
     ctx.fillText(s.top, L.cx, cy + ch * 0.38);
     ctx.font = `${Math.round(L.GW * 0.042)}px ${FONT}`;
-    ctx.fillStyle = '#25A35A';
+    ctx.fillStyle = '#E2541F';
     ctx.fillText(s.label, L.cx, cy + ch * 0.76);
-    // 점수 + 하단 문구
     ctx.font = `${Math.round(L.GW * 0.05)}px ${FONT}`;
     ctx.lineJoin = 'round';
     ctx.lineWidth = L.GW * 0.016;
-    ctx.strokeStyle = '#FFFFFF';
+    ctx.strokeStyle = INK;
     const scoreText = `${(st.score || 0).toLocaleString('ko-KR')}점`;
-    ctx.strokeText(scoreText, L.cx, cy + ch + L.H * 0.03);
-    ctx.fillStyle = INK;
-    ctx.fillText(scoreText, L.cx, cy + ch + L.H * 0.03);
+    ctx.strokeText(scoreText, L.cx, cy + ch + L.H * 0.028);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText(scoreText, L.cx, cy + ch + L.H * 0.028);
     if (s.bottom) {
       const bfs = fitFont(ctx, s.bottom, L.GW * 0.85, L.GW * 0.048);
       ctx.font = `${bfs}px ${FONT}`;
       const tw = ctx.measureText(s.bottom).width + bfs * 1.4;
-      const by = L.groundY + (L.H - L.groundY) * 0.42;
-      ctx.fillStyle = '#FF7A3D';
-      ctx.beginPath();
-      ctx.roundRect ? ctx.roundRect(L.cx - tw / 2, by - bfs, tw, bfs * 2, bfs) : ctx.rect(L.cx - tw / 2, by - bfs, tw, bfs * 2);
+      const by = L.floorY + (L.H - L.floorY) * 0.42;
+      rr(ctx, L.cx - tw / 2, by - bfs, tw, bfs * 2, bfs);
+      ctx.fillStyle = '#FF8A4C';
       ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = INK;
+      ctx.stroke();
       ctx.fillStyle = '#FFFFFF';
       ctx.fillText(s.bottom, L.cx, by + bfs * 0.05);
     }
     ctx.restore();
-  }
-
-  _drawFx(rt) {
-    const ctx = this.ctx;
-    const L = this.L;
-    const fx = this.fx;
-    const grav = L.GW * 4.2;
-    // 튕겨나가는 콩
-    fx.bouncers = fx.bouncers.filter((b) => rt - b.t0 < 0.75);
-    for (const b of fx.bouncers) {
-      const t = rt - b.t0;
-      const x = b.x + b.vx * t;
-      const y = b.y + b.vy * t + 0.5 * grav * t * t;
-      this._bean(x, y, L.beanW * (1 - t * 0.3), b.lane, b.spin * t, t < 0.45 ? 1 : 1 - (t - 0.45) / 0.3);
-    }
-    // 파티클
-    fx.particles = fx.particles.filter((p) => rt - p.t0 < p.life);
-    for (const p of fx.particles) {
-      const t = rt - p.t0;
-      const x = p.x + p.vx * t;
-      const y = p.y + p.vy * t + 0.5 * grav * 0.6 * t * t;
-      ctx.save();
-      ctx.globalAlpha = 1 - t / p.life;
-      ctx.translate(x, y);
-      ctx.rotate(p.rot + t * 5);
-      ctx.fillStyle = p.color;
-      if (p.kind === 'leaf') {
-        ctx.beginPath();
-        ctx.ellipse(0, 0, p.r * 1.3, p.r * 0.6, 0, 0, Math.PI * 2);
-        ctx.fill();
-      } else if (p.kind === 'note') {
-        ctx.rotate(-(p.rot + t * 5));
-        ctx.font = `${Math.round(p.r * 3)}px ${FONT}`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText('♪', 0, 0);
-      } else {
-        const r = p.r * 1.4;
-        ctx.beginPath();
-        for (let k = 0; k < 10; k++) {
-          const rr = k % 2 ? r * 0.45 : r;
-          const a = (k * Math.PI) / 5;
-          ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr);
-        }
-        ctx.closePath();
-        ctx.fill();
-      }
-      ctx.restore();
-    }
-    // 판정 글자 (레인별 최신)
-    fx.judges = fx.judges.filter((j) => rt - j.t0 < 0.5);
-    const latest = [null, null];
-    for (const j of fx.judges) latest[j.lane] = j;
-    for (const j of latest) {
-      if (!j) continue;
-      const t = (rt - j.t0) / 0.5;
-      const sc = t < 0.12 ? 1.35 - (t / 0.12) * 0.35 : 1;
-      const x = L.laneX[j.lane];
-      const y = L.hitY - L.GW * 0.2 - t * L.GW * 0.03;
-      const size = L.GW * 0.062 * sc;
-      ctx.save();
-      ctx.globalAlpha = t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4;
-      ctx.font = `${Math.round(size)}px ${FONT}`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.lineJoin = 'round';
-      ctx.lineWidth = size * 0.24;
-      ctx.strokeStyle = '#FFFFFF';
-      ctx.strokeText(j.text, x, y);
-      ctx.fillStyle = j.color;
-      ctx.fillText(j.text, x, y);
-      if (j.sub) {
-        ctx.font = `${Math.round(size * 0.55)}px ${FONT}`;
-        ctx.lineWidth = size * 0.14;
-        ctx.strokeText(j.sub, x, y + size * 0.85);
-        ctx.fillStyle = INK;
-        ctx.fillText(j.sub, x, y + size * 0.85);
-      }
-      ctx.restore();
-    }
-    // 콤보 배너 (잎사귀 리본)
-    fx.banners = fx.banners.filter((b) => rt - b.t0 < 1.1);
-    for (const b of fx.banners) {
-      const t = (rt - b.t0) / 1.1;
-      const size = L.GW * 0.085;
-      const pop = t < 0.15 ? easeOut(t / 0.15) : t > 0.8 ? 1 - easeOut((t - 0.8) / 0.2) : 1;
-      const y = L.topY + (L.hitY - L.topY) * 0.5;
-      ctx.save();
-      ctx.translate(L.cx, y);
-      ctx.scale(pop, pop);
-      ctx.rotate(-0.05);
-      const w = L.GW * 0.62;
-      const h = size * 1.5;
-      ctx.fillStyle = '#5DBB4A';
-      ctx.strokeStyle = INK;
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(-w / 2, 0);
-      ctx.quadraticCurveTo(-w / 2 + h * 0.3, -h / 2, -w / 2 + h, -h / 2);
-      ctx.lineTo(w / 2 - h, -h / 2);
-      ctx.quadraticCurveTo(w / 2 - h * 0.3, -h / 2, w / 2, 0);
-      ctx.quadraticCurveTo(w / 2 - h * 0.3, h / 2, w / 2 - h, h / 2);
-      ctx.lineTo(-w / 2 + h, h / 2);
-      ctx.quadraticCurveTo(-w / 2 + h * 0.3, h / 2, -w / 2, 0);
-      ctx.fill();
-      ctx.stroke();
-      ctx.font = `${Math.round(size)}px ${FONT}`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillText(b.text, 0, size * 0.05);
-      ctx.restore();
-    }
   }
 }
 

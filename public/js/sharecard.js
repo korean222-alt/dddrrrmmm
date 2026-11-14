@@ -15,29 +15,33 @@ export async function makeShareCard(result, { siteUrl, handle }) {
   const level = getLevel(result.levelId);
 
   const bg = g.createLinearGradient(0, 0, 0, H);
-  bg.addColorStop(0, '#8FD3FF');
-  bg.addColorStop(0.5, '#D8F1FF');
-  bg.addColorStop(0.75, '#FFF6E3');
+  bg.addColorStop(0, '#160F38');
+  bg.addColorStop(0.6, '#33186A');
+  bg.addColorStop(1, '#5B2167');
   g.fillStyle = bg;
   g.fillRect(0, 0, W, H);
-  // 구름
-  g.fillStyle = '#FFFFFF';
-  [[180, 470, 1], [900, 560, 0.8], [860, 120, 0.7]].forEach(([x, y, s]) => {
+  // 조명
+  g.save();
+  g.globalCompositeOperation = 'lighter';
+  [['255,95,162', 120, 0.5], ['255,210,74', 540, 0], ['95,211,255', 960, -0.5]].forEach(([c, x, ang]) => {
+    const gr = g.createLinearGradient(x, 0, x - ang * 900, 1500);
+    gr.addColorStop(0, `rgba(${c},0.35)`);
+    gr.addColorStop(1, `rgba(${c},0)`);
+    g.fillStyle = gr;
     g.beginPath();
-    g.ellipse(x, y, 130 * s, 55 * s, 0, 0, Math.PI * 2);
-    g.ellipse(x - 70 * s, y + 10 * s, 70 * s, 45 * s, 0, 0, Math.PI * 2);
-    g.ellipse(x + 75 * s, y + 10 * s, 65 * s, 42 * s, 0, 0, Math.PI * 2);
-    g.ellipse(x - 10 * s, y - 35 * s, 70 * s, 55 * s, 0, 0, Math.PI * 2);
+    g.moveTo(x - 10, 0);
+    g.lineTo(x - ang * 900 - 260, 1500);
+    g.lineTo(x - ang * 900 + 260, 1500);
+    g.lineTo(x + 10, 0);
     g.fill();
   });
-  // 잔디
-  g.fillStyle = '#8ED46B';
-  g.beginPath();
-  g.moveTo(0, 1560);
-  g.quadraticCurveTo(W / 2, 1500, W, 1560);
-  g.lineTo(W, H);
-  g.lineTo(0, H);
-  g.fill();
+  g.restore();
+  // 무대 바닥
+  const fl = g.createLinearGradient(0, 1620, 0, H);
+  fl.addColorStop(0, '#8A5236');
+  fl.addColorStop(1, '#3E2218');
+  g.fillStyle = fl;
+  g.fillRect(0, 1620, W, H - 1620);
 
   g.textAlign = 'center';
   g.textBaseline = 'middle';
@@ -52,7 +56,7 @@ export async function makeShareCard(result, { siteUrl, handle }) {
   const pill = `${level.id}단계 · ${level.name}`;
   g.font = `56px ${FONT}`;
   const pw = g.measureText(pill).width + 90;
-  g.fillStyle = '#5DBB4A';
+  g.fillStyle = '#FF8A4C';
   roundRect(g, (W - pw) / 2, 300, pw, 100, 50);
   g.fill();
   g.lineWidth = 6;
@@ -71,12 +75,12 @@ export async function makeShareCard(result, { siteUrl, handle }) {
 
   g.font = `150px ${FONT}`;
   g.lineWidth = 20;
-  g.strokeStyle = '#FFFFFF';
+  g.strokeStyle = '#2B1D3A';
   g.strokeText(result.score.toLocaleString('ko-KR'), W / 2, 900);
-  g.fillStyle = '#3B2A4A';
+  g.fillStyle = '#FFFFFF';
   g.fillText(result.score.toLocaleString('ko-KR'), W / 2, 900);
   g.font = `48px ${FONT}`;
-  g.fillStyle = '#5B4D6E';
+  g.fillStyle = 'rgba(255,255,255,0.75)';
   const tags = [`정확도 ${(result.accuracy * 100).toFixed(1)}%`, `최대 콤보 ${result.maxCombo}`];
   g.fillText(tags.join('   ·   '), W / 2, 1010);
   if (result.fullCombo) {
@@ -87,14 +91,11 @@ export async function makeShareCard(result, { siteUrl, handle }) {
 
   // 마스코트 + 드럼
   try {
-    const r = await buildRasters(300, 400);
+    const r = await buildRasters(340, 400);
     const face = result.grade === 'D' || result.grade === 'C' ? 'miss' : 'cheer';
-    [['kong', -1], ['jjak', 1]].forEach(([k, side]) => {
-      const dx = W / 2 + side * 165;
-      const mx = W / 2 + side * 390;
-      g.drawImage(r.drum[k], dx - 160, 1380, 320, 267);
-      g.drawImage(r[k][face], mx - 150, 1330, 300, 300);
-    });
+    g.drawImage(r.kong[face], W / 2 - 170, 1170, 340, 340);
+    g.drawImage(r.bass, W / 2 - 400, 1300, 380, 399);
+    g.drawImage(r.snare, W / 2 + 40, 1370, 360, 345);
   } catch {}
 
   g.font = `56px ${FONT}`;
@@ -104,7 +105,7 @@ export async function makeShareCard(result, { siteUrl, handle }) {
   g.strokeText('너도 엄지로 쳐 봐!', W / 2, 1770);
   g.fillText('너도 엄지로 쳐 봐!', W / 2, 1770);
   g.font = `40px ${FONT}`;
-  g.fillStyle = '#2E5E24';
+  g.fillStyle = 'rgba(255,240,220,0.85)';
   const foot = [handle ? '@' + handle : '', siteUrl.replace(/^https?:\/\//, '')].filter(Boolean).join('  ·  ');
   g.fillText(foot, W / 2, 1840);
 

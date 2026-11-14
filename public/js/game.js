@@ -1,12 +1,13 @@
 // 한 판의 게임 진행: 시간 관리, 입력 판정, 점수/콤보.
 
 import {
+  STEPS_PER_BAR, stepDur,
   buildNotes, beatDur, barDur, JUDGE, pointsFor, accuracy, gradeFor,
   COUNT_IN_BARS, OUTRO_BARS, maxScore,
 } from './charts.js';
 import { SongPlayer } from './audio.js';
 
-const COUNT_LABELS = ['3', '2', '1', '시작!'];
+const COUNT_LABELS = ['1', '2', '3', '4!'];
 
 export class Game {
   /**
@@ -120,6 +121,10 @@ export class Game {
     this.offsets.push(dt);
     this.r.onJudge(n.lane, res, rt, dt < 0);
     this.r.onCombo(this.combo, rt);
+    if (this.combo % 25 === 0) {
+      this.audio.crash(undefined, this.audio.sfxBus, 0.5);
+      this.milestoneAt = this.songTime();
+    }
     if (this.settings.vibrate && navigator.vibrate) {
       try {
         navigator.vibrate(res === 'perfect' ? 12 : 8);
@@ -180,8 +185,12 @@ export class Game {
       countIn = { label: '', phase: 1, fade: 1 - (now - ciEnd) / (this.beat * 2) };
     }
 
+    const { hatAge, crashAge } = this._kitAges(now);
+
     this.r.draw(
       {
+        hatAge,
+        crashAge,
         now,
         notes: this.notes,
         approach: this.approach,
@@ -206,6 +215,35 @@ export class Game {
       return;
     }
     this._raf = requestAnimationFrame(this._loop);
+  }
+
+  /** 반주 하이햇/크래시가 마지막으로 울린 뒤 지난 시간 (드럼 세트 애니메이션용) */
+  _kitAges(now) {
+    const sd = stepDur(this.level);
+    const idx = Math.floor(now / sd);
+    const song = this.level.song;
+    let hatAge = 9;
+    for (let i = idx; i > idx - 16 && i >= 0; i--) {
+      const bar = Math.floor(i / STEPS_PER_BAR);
+      const s = i % STEPS_PER_BAR;
+      const mb = bar - COUNT_IN_BARS;
+      const c = mb < 0 ? (s % 4 === 0 ? 'x' : '.') : mb < this.level.bars.length ? song.hat[s] : '.';
+      if (c === 'x' || c === 'o') {
+        hatAge = now - i * sd;
+        break;
+      }
+    }
+    const barLen = sd * STEPS_PER_BAR;
+    const mbNow = Math.floor(now / barLen) - COUNT_IN_BARS;
+    let crashAge = 9;
+    for (let mb = mbNow; mb >= Math.max(0, mbNow - 2); mb--) {
+      if ((mb > 0 && mb % 8 === 0) || mb === this.level.bars.length) {
+        crashAge = now - (mb + COUNT_IN_BARS) * barLen;
+        break;
+      }
+    }
+    if (this.milestoneAt !== undefined) crashAge = Math.min(crashAge, now - this.milestoneAt);
+    return { hatAge, crashAge };
   }
 
   _finish() {

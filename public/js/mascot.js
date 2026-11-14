@@ -163,6 +163,72 @@ export function stickSVG(size = 120) {
 </svg>`;
 }
 
+/** 베이스드럼(킥) 정면. viewBox 200x210, 중심 (100,100) r=92 */
+export function bassDrumSVG(size = 200) {
+  const id = `bd${++uid}`;
+  const lugs = [];
+  for (let k = 0; k < 10; k++) {
+    const a = (k / 10) * Math.PI * 2 + Math.PI / 10;
+    const x = 100 + Math.cos(a) * 86;
+    const y = 100 + Math.sin(a) * 86;
+    lugs.push(`<rect x="${(x - 4).toFixed(1)}" y="${(y - 7).toFixed(1)}" width="8" height="14" rx="3" fill="#E8E6F0" stroke="${OUTLINE}" stroke-width="2.5" transform="rotate(${((a * 180) / Math.PI + 90).toFixed(1)} ${x.toFixed(1)} ${y.toFixed(1)})"/>`);
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 210" width="${size}" height="${(size * 210) / 200}" aria-hidden="true">
+  <defs>
+    <radialGradient id="${id}h" cx="42%" cy="38%" r="70%"><stop offset="0" stop-color="#FFFDF7"/><stop offset="1" stop-color="#EFE4D2"/></radialGradient>
+    <linearGradient id="${id}r" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FF8A5C"/><stop offset="1" stop-color="#D84E2E"/></linearGradient>
+  </defs>
+  <path d="M46 168 L22 206 M154 168 L178 206" stroke="${OUTLINE}" stroke-width="9" stroke-linecap="round"/>
+  <path d="M46 168 L22 206 M154 168 L178 206" stroke="#D9D6E6" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="100" cy="100" r="94" fill="url(#${id}r)" stroke="${OUTLINE}" stroke-width="6"/>
+  ${lugs.join('')}
+  <circle cx="100" cy="100" r="78" fill="url(#${id}h)" stroke="${OUTLINE}" stroke-width="5"/>
+  <circle cx="100" cy="100" r="54" fill="none" stroke="#FF8A5C" stroke-width="7"/>
+  <circle cx="100" cy="100" r="54" fill="none" stroke="${OUTLINE}" stroke-width="2" opacity=".35"/>
+  <path d="M100 118 C 99 106 100 98 103 90" stroke="${OUTLINE}" stroke-width="8" fill="none" stroke-linecap="round"/>
+  <path d="M100 118 C 99 106 100 98 103 90" stroke="#4FA845" stroke-width="4" fill="none" stroke-linecap="round"/>
+  <path d="M103 92 C 112 78 130 79 135 86 C 128 97 112 100 103 92 Z" fill="#7BD66A" stroke="${OUTLINE}" stroke-width="4"/>
+  <path d="M100 95 C 91 82 73 82 68 89 C 75 100 91 103 100 95 Z" fill="#7BD66A" stroke="${OUTLINE}" stroke-width="4"/>
+  <circle cx="138" cy="140" r="11" fill="${OUTLINE}" opacity=".85"/>
+  <ellipse cx="70" cy="60" rx="22" ry="9" fill="#fff" opacity=".8" transform="rotate(-30 70 60)"/>
+</svg>`;
+}
+
+/** 스네어(옆에서 살짝 위) + 스탠드. viewBox 240x230, 헤드 중심 (120,52) rx104 ry30 */
+export const SNARE_VIEW = { w: 240, h: 230, cx: 120, cy: 52, rx: 104, ry: 30 };
+export function snareSVG(size = 240) {
+  const { cx, cy, rx, ry } = SNARE_VIEW;
+  const h = 58;
+  const L = cx - rx;
+  const R = cx + rx;
+  const yb = cy + h;
+  const id = `sn${++uid}`;
+  const front = (x) => ry * Math.sqrt(Math.max(0, 1 - ((x - cx) / rx) ** 2));
+  const lugs = [-0.75, -0.37, 0, 0.37, 0.75]
+    .map((f) => {
+      const x = cx + rx * f;
+      const w = 10 * Math.sqrt(1 - f * f) + 3;
+      const y1 = cy + front(x) + 10;
+      return `<rect x="${(x - w / 2).toFixed(1)}" y="${y1.toFixed(1)}" width="${w.toFixed(1)}" height="${h - 20}" rx="${(w / 2).toFixed(1)}" fill="#F4F2FA" stroke="${OUTLINE}" stroke-width="2.5"/>`;
+    })
+    .join('');
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 230" width="${size}" height="${(size * 230) / 240}" aria-hidden="true">
+  <defs>
+    <linearGradient id="${id}b" x1="0" x2="1">
+      <stop offset="0" stop-color="#2F86CF"/><stop offset=".25" stop-color="#6CC6FF"/><stop offset=".45" stop-color="#C9ECFF"/><stop offset=".6" stop-color="#6CC6FF"/><stop offset="1" stop-color="#2F86CF"/>
+    </linearGradient>
+  </defs>
+  <path d="M120 ${yb + ry} L120 200 M120 196 L72 226 M120 196 L168 226 M120 196 L120 228" stroke="${OUTLINE}" stroke-width="9" stroke-linecap="round"/>
+  <path d="M120 ${yb + ry} L120 200 M120 196 L72 226 M120 196 L168 226 M120 196 L120 228" stroke="#D9D6E6" stroke-width="4" stroke-linecap="round"/>
+  <path d="M${L} ${cy} L${L} ${yb} A${rx} ${ry} 0 0 0 ${R} ${yb} L${R} ${cy} Z" fill="url(#${id}b)" stroke="${OUTLINE}" stroke-width="5" stroke-linejoin="round"/>
+  ${lugs}
+  <path d="M${L} ${yb - 7} A${rx} ${ry} 0 0 0 ${R} ${yb - 7} L${R} ${yb} A${rx} ${ry} 0 0 1 ${L} ${yb} Z" fill="#E8E6F0" stroke="${OUTLINE}" stroke-width="4" stroke-linejoin="round"/>
+  <ellipse cx="${cx}" cy="${cy}" rx="${rx}" ry="${ry}" fill="#E8E6F0" stroke="${OUTLINE}" stroke-width="5"/>
+  <ellipse cx="${cx}" cy="${cy + 1}" rx="${rx - 10}" ry="${ry - 6}" fill="#FFFCF5" stroke="#B9B4C8" stroke-width="2"/>
+  <ellipse cx="${cx - 26}" cy="${cy - 5}" rx="28" ry="6" fill="#fff"/>
+</svg>`;
+}
+
 function svgToImage(svg) {
   return new Promise((resolve, reject) => {
     const img = new Image();
@@ -194,6 +260,8 @@ export async function buildRasters(mascotPx, drumPx) {
     }
     jobs.push(rasterize(drumSVG(kind, drumPx), drumPx, (drumPx * 200) / 240).then((c) => (out.drum[kind] = c)));
   }
+  jobs.push(rasterize(bassDrumSVG(drumPx), drumPx, (drumPx * 210) / 200).then((c) => (out.bass = c)));
+  jobs.push(rasterize(snareSVG(drumPx), drumPx, (drumPx * 230) / 240).then((c) => (out.snare = c)));
   const sp = Math.round(drumPx * 0.9);
   jobs.push(rasterize(stickSVG(sp), sp, (sp * 24) / 120).then((c) => (out.stick = c)));
   await Promise.all(jobs);

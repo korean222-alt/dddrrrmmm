@@ -60,6 +60,26 @@ export class AudioEngine {
     this.musicBus.connect(this.master);
     this.sfxBus = ctx.createGain();
     this.sfxBus.connect(this.master);
+    // 작은 방 울림(리버브): 드럼이 '방 안에서' 울리는 느낌
+    try {
+      const len = Math.floor(ctx.sampleRate * 1.1);
+      const ir = ctx.createBuffer(2, len, ctx.sampleRate);
+      for (let ch = 0; ch < 2; ch++) {
+        const d = ir.getChannelData(ch);
+        for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2);
+      }
+      const verb = ctx.createConvolver();
+      verb.buffer = ir;
+      const wet = ctx.createGain();
+      wet.gain.value = 0.16;
+      verb.connect(wet).connect(this.master);
+      const sendS = ctx.createGain();
+      sendS.gain.value = 0.55;
+      this.sfxBus.connect(sendS).connect(verb);
+      const sendM = ctx.createGain();
+      sendM.gain.value = 0.6;
+      this.musicBus.connect(sendM).connect(verb);
+    } catch {}
     this.applyVolumes();
     const len = ctx.sampleRate;
     const nb = ctx.createBuffer(1, len, ctx.sampleRate);
@@ -145,87 +165,120 @@ export class AudioEngine {
     return s;
   }
 
+  /** 킥: 서브(낮은 둥) + 펀치 + 비터 클릭 */
   kick(t = this.ctx.currentTime, vel = 1, dest = this.sfxBus) {
     const ctx = this.ctx;
     const o = ctx.createOscillator();
     const g = ctx.createGain();
     o.type = 'sine';
-    o.frequency.setValueAtTime(170, t);
-    o.frequency.exponentialRampToValueAtTime(48, t + 0.11);
-    o.frequency.exponentialRampToValueAtTime(38, t + 0.4);
+    o.frequency.setValueAtTime(190, t);
+    o.frequency.exponentialRampToValueAtTime(52, t + 0.07);
+    o.frequency.exponentialRampToValueAtTime(42, t + 0.45);
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(1.0 * vel, t + 0.004);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.42);
+    g.gain.exponentialRampToValueAtTime(1.1 * vel, t + 0.003);
+    g.gain.setValueAtTime(1.0 * vel, t + 0.04);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
     o.connect(g).connect(dest);
     o.start(t);
-    o.stop(t + 0.45);
-    // 비터 클릭
-    const cg = ctx.createGain();
+    o.stop(t + 0.52);
+    if (!this._sat) {
+      this._sat = ctx.createWaveShaper();
+      const c = new Float32Array(1024);
+      for (let i = 0; i < 1024; i++) c[i] = Math.tanh((i / 512 - 1) * 2.2);
+      this._sat.curve = c;
+      this._sat.connect(this.sfxBus);
+    }
+    const p = ctx.createOscillator();
+    const pg = ctx.createGain();
+    p.type = 'triangle';
+    p.frequency.setValueAtTime(260, t);
+    p.frequency.exponentialRampToValueAtTime(90, t + 0.04);
+    pg.gain.setValueAtTime(0.5 * vel, t);
+    pg.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+    p.connect(pg).connect(dest === this.sfxBus ? this._sat : dest);
+    p.start(t);
+    p.stop(t + 0.07);
     const f = ctx.createBiquadFilter();
     f.type = 'bandpass';
-    f.frequency.value = 3500;
-    cg.gain.setValueAtTime(0.35 * vel, t);
-    cg.gain.exponentialRampToValueAtTime(0.001, t + 0.025);
+    f.frequency.value = 3200;
+    f.Q.value = 0.8;
+    const cg = ctx.createGain();
+    cg.gain.setValueAtTime(0.45 * vel, t);
+    cg.gain.exponentialRampToValueAtTime(0.001, t + 0.02);
     f.connect(cg).connect(dest);
     this._noise(t, 0.03, f);
   }
 
+  /** 스네어: 통 울림(두 톤) + 스냅(밝은 노이즈) + 스네어 줄 떨림 */
   snare(t = this.ctx.currentTime, vel = 1, dest = this.sfxBus) {
+    const ctx = this.ctx;
+    for (const [fr, amp] of [[185, 0.5], [330, 0.28]]) {
+      const o = ctx.createOscillator();
+      const og = ctx.createGain();
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(fr * 1.25, t);
+      o.frequency.exponentialRampToValueAtTime(fr, t + 0.03);
+      og.gain.setValueAtTime(0.0001, t);
+      og.gain.exponentialRampToValueAtTime(amp * vel, t + 0.002);
+      og.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+      o.connect(og).connect(dest);
+      o.start(t);
+      o.stop(t + 0.15);
+    }
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 2600;
+    bp.Q.value = 0.7;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, t);
+    ng.gain.exponentialRampToValueAtTime(0.9 * vel, t + 0.002);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+    bp.connect(ng).connect(dest);
+    this._noise(t, 0.14, bp);
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 4500;
+    const rg = ctx.createGain();
+    rg.gain.setValueAtTime(0.0001, t);
+    rg.gain.exponentialRampToValueAtTime(0.35 * vel, t + 0.005);
+    rg.gain.exponentialRampToValueAtTime(0.001, t + 0.26);
+    hp.connect(rg).connect(dest);
+    this._noise(t, 0.28, hp);
+  }
+
+  /** 하이햇 (밴드가 쳐줌. 금속성 고음) */
+  hat(t, vel = 0.5, open = false, dest = this.musicBus) {
     const ctx = this.ctx;
     const hp = ctx.createBiquadFilter();
     hp.type = 'highpass';
-    hp.frequency.value = 1100;
-    const ng = ctx.createGain();
-    ng.gain.setValueAtTime(0.0001, t);
-    ng.gain.exponentialRampToValueAtTime(0.75 * vel, t + 0.003);
-    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
-    hp.connect(ng).connect(dest);
-    this._noise(t, 0.22, hp);
-    const o = ctx.createOscillator();
-    const og = ctx.createGain();
-    o.type = 'triangle';
-    o.frequency.setValueAtTime(240, t);
-    o.frequency.exponentialRampToValueAtTime(170, t + 0.08);
-    og.gain.setValueAtTime(0.0001, t);
-    og.gain.exponentialRampToValueAtTime(0.55 * vel, t + 0.003);
-    og.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
-    o.connect(og).connect(dest);
-    o.start(t);
-    o.stop(t + 0.14);
-  }
-
-  /** 쉐이커 (드럼처럼 안 들리게 부드러운 소리) */
-  hat(t, vel = 0.5, open = false, dest = this.musicBus) {
-    const ctx = this.ctx;
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.frequency.value = 6500;
-    bp.Q.value = 0.9;
+    hp.frequency.value = 7500;
+    const pk = ctx.createBiquadFilter();
+    pk.type = 'peaking';
+    pk.frequency.value = 10000;
+    pk.gain.value = 6;
     const g = ctx.createGain();
-    const d = open ? 0.16 : 0.06;
+    const d = open ? 0.3 : 0.05;
     g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(0.14 * vel, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.3 * vel, t + 0.002);
     g.gain.exponentialRampToValueAtTime(0.001, t + d);
-    bp.connect(g).connect(dest);
-    this._noise(t, d + 0.02, bp);
+    hp.connect(pk).connect(g).connect(dest);
+    this._noise(t, d + 0.02, hp);
   }
 
-  /** 반짝 차임 (구간 시작 표시) */
-  crash(t, dest = this.musicBus) {
+  /** 크래시 심벌 */
+  crash(t = this.ctx.currentTime, dest = this.musicBus, vol = 0.5) {
     const ctx = this.ctx;
-    [84, 88, 91, 96].forEach((m, i) => {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = 'sine';
-      o.frequency.value = mtof(m);
-      const tt = t + i * 0.03;
-      g.gain.setValueAtTime(0.0001, tt);
-      g.gain.linearRampToValueAtTime(0.06, tt + 0.01);
-      g.gain.exponentialRampToValueAtTime(0.001, tt + 0.9);
-      o.connect(g).connect(dest);
-      o.start(tt);
-      o.stop(tt + 1);
-    });
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 3800;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(vol * 0.35, t + 0.25);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 1.6);
+    hp.connect(g).connect(dest);
+    this._noise(t, 0.9, hp);
+    this._noise(t + 0.85, 0.8, hp);
   }
 
   /** 녹화용 오디오 스트림 (게임 소리 전체) */
