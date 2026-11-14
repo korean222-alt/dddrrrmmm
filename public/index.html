@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>콩콩 드럼</title>
+  <meta name="description" content="엄지 두 개로 쿵! 짝! 릴스에서 본 그 드럼 리듬게임, 설치 없이 바로 해보세요." />
+  <meta name="theme-color" content="#15122A" />
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="콩콩 드럼 — 엄지로 쿵! 짝!" />
+  <meta property="og:description" content="릴스에서 본 그 게임, 설치·가입 없이 바로 플레이. Lv.4 쿵쿵 폭주 도전!" />
+  <meta property="og:image" content="assets/og.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png" />
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body>
+  <div id="app">
+    <!-- 타이틀 -->
+    <section id="screen-title" class="screen active" aria-label="시작 화면">
+      <div class="title-top">
+        <button class="icon-btn" data-action="settings" aria-label="설정"><span data-icon="gear"></span></button>
+        <button class="icon-btn" data-action="ranking" aria-label="랭킹"><span data-icon="trophy"></span></button>
+      </div>
+      <div class="title-main">
+        <div class="pill pill-accent">엄지 두 개로 하는 리듬게임</div>
+        <h1 class="logo">콩콩 <span>드럼</span></h1>
+        <p class="logo-sub">쿵콩이랑 짝콩이 머리를 콩! 콩!</p>
+        <div class="stage" id="title-stage">
+          <button class="stage-drum" data-lane="0" aria-label="쿵 (킥) 쳐보기">
+            <span class="stage-mascot"></span><span class="stage-drumimg"></span>
+            <span class="stage-word">쿵!</span>
+          </button>
+          <button class="stage-drum" data-lane="1" aria-label="짝 (스네어) 쳐보기">
+            <span class="stage-mascot"></span><span class="stage-drumimg"></span>
+            <span class="stage-word">짝!</span>
+          </button>
+        </div>
+        <p class="stage-hint">↑ 눌러보세요! 소리가 나요</p>
+      </div>
+      <div class="title-actions">
+        <button class="btn btn-primary btn-big" data-action="quickstart"><span data-icon="play"></span> 바로 시작 <small>Lv.1</small></button>
+        <button class="btn btn-ghost" data-action="levels">레벨 고르기</button>
+        <button class="btn btn-hot" data-action="play-hot">
+          <span class="hot-tag">릴스 그 레벨</span> Lv.4 쿵쿵 폭주 도전 <span data-icon="lock" class="lock-ico"></span>
+        </button>
+      </div>
+      <div class="inapp-note" id="inapp-note" hidden>
+        <b>인스타 앱 안에서 열었어요.</b> 소리가 안 나거나 터치가 밀리면 오른쪽 위 <b>···</b> → <b>외부 브라우저에서 열기</b>를 눌러주세요. 아이폰은 무음 모드를 꺼주세요.
+        <button class="link" data-action="dismiss-inapp">닫기</button>
+      </div>
+      <footer class="title-foot" id="title-foot"></footer>
+    </section>
+
+    <!-- 레벨 선택 -->
+    <section id="screen-levels" class="screen" aria-label="레벨 선택">
+      <header class="bar">
+        <button class="icon-btn" data-action="home" aria-label="뒤로"><span data-icon="back"></span></button>
+        <h2>레벨 고르기</h2>
+        <button class="icon-btn" data-action="ranking" aria-label="랭킹"><span data-icon="trophy"></span></button>
+      </header>
+      <div class="level-list" id="level-list"></div>
+      <p class="levels-foot" id="levels-foot"></p>
+    </section>
+
+    <!-- 게임 -->
+    <section id="screen-game" class="screen" aria-label="게임">
+      <canvas id="game-canvas"></canvas>
+      <div class="hud">
+        <div class="hud-progress"><i id="hud-progress"></i></div>
+        <div class="hud-row">
+          <button class="icon-btn" data-action="pause" aria-label="일시정지"><span data-icon="pause"></span></button>
+          <div class="hud-level"><span class="pill pill-accent" id="hud-lv">Lv.1</span><b id="hud-name"></b></div>
+          <div class="hud-score"><small>SCORE</small><b id="hud-score">0</b></div>
+        </div>
+      </div>
+      <div class="auto-badge" id="auto-badge" hidden>AUTO</div>
+    </section>
+
+    <!-- 결과 -->
+    <section id="screen-result" class="screen" aria-label="결과">
+      <div class="result-wrap">
+        <div class="pill pill-accent" id="res-level">Lv.1</div>
+        <div class="res-new" id="res-new" hidden>NEW BEST!</div>
+        <div class="res-grade" id="res-grade">S</div>
+        <div class="res-badge" id="res-badge" hidden>FULL COMBO</div>
+        <div class="res-score" id="res-score">0</div>
+        <div class="res-mascots" id="res-mascots"></div>
+        <div class="res-stats">
+          <div><small>PERFECT</small><b id="res-perfect" class="c-perfect">0</b></div>
+          <div><small>GREAT</small><b id="res-great" class="c-great">0</b></div>
+          <div><small>GOOD</small><b id="res-good" class="c-good">0</b></div>
+          <div><small>MISS</small><b id="res-miss" class="c-miss">0</b></div>
+        </div>
+        <div class="res-meta" id="res-meta"></div>
+        <div class="res-actions">
+          <button class="btn btn-primary" data-action="retry"><span data-icon="retry"></span> 다시 하기</button>
+          <button class="btn btn-hot" data-action="next" id="btn-next">다음 레벨</button>
+          <button class="btn btn-ghost" data-action="submit-rank" id="btn-rank"><span data-icon="trophy"></span> 랭킹 등록</button>
+          <button class="btn btn-ghost" data-action="share"><span data-icon="share"></span> 결과 공유</button>
+        </div>
+        <button class="link" data-action="levels">레벨 목록으로</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- 모달들 -->
+  <div class="modal" id="modal-pause" hidden>
+    <div class="sheet small">
+      <h3>잠깐 멈춤</h3>
+      <div class="stack">
+        <button class="btn btn-primary" data-action="resume"><span data-icon="play"></span> 계속하기</button>
+        <button class="btn btn-ghost" data-action="retry">처음부터</button>
+        <button class="btn btn-ghost" data-action="quit">레벨 목록</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="modal-verify" hidden>
+    <div class="sheet">
+      <button class="icon-btn close" data-action="close-verify" aria-label="닫기"><span data-icon="close"></span></button>
+      <div class="verify-mascots" id="verify-mascots"></div>
+      <h3 id="verify-title">Lv.4부터는 팔로워 전용!</h3>
+      <p class="muted" id="verify-desc">팔로우하고 아래 코드를 DM으로 보내면 바로 열려요. 한 번만 하면 돼요.</p>
+      <ol class="steps">
+        <li><b>1</b><span><a id="verify-follow" target="_blank" rel="noopener"></a> 팔로우</span></li>
+        <li><b>2</b><span>아래 코드를 <b>DM</b>으로 보내기</span></li>
+        <li><b>3</b><span>이 화면으로 돌아오면 자동으로 열려요</span></li>
+      </ol>
+      <div class="code-box">
+        <div class="code" id="verify-code">······</div>
+        <button class="btn btn-ghost btn-sm" data-action="copy-code"><span data-icon="copy"></span> 복사</button>
+      </div>
+      <button class="btn btn-insta" data-action="open-dm"><span data-icon="send"></span> 코드 복사하고 DM 열기</button>
+      <div class="verify-status" id="verify-status" data-state="pending">
+        <span class="spinner"></span><span id="verify-status-text">DM 기다리는 중…</span>
+      </div>
+      <div class="dev-tools" id="verify-dev" hidden>
+        <small>테스트용 (서버 FAKE 모드)</small>
+        <div class="row">
+          <button class="btn btn-ghost btn-sm" data-action="sim-follow">DM 보낸 걸로 처리</button>
+          <button class="btn btn-ghost btn-sm" data-action="sim-nofollow">팔로우 안 한 경우</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="modal-rank" hidden>
+    <div class="sheet tall">
+      <button class="icon-btn close" data-action="close-rank" aria-label="닫기"><span data-icon="close"></span></button>
+      <h3>랭킹</h3>
+      <div class="tabs" id="rank-tabs" role="tablist"></div>
+      <div class="rank-list" id="rank-list"></div>
+      <p class="muted small" id="rank-foot"></p>
+    </div>
+  </div>
+
+  <div class="modal" id="modal-settings" hidden>
+    <div class="sheet">
+      <button class="icon-btn close" data-action="close-settings" aria-label="닫기"><span data-icon="close"></span></button>
+      <h3>설정</h3>
+      <label class="field"><span>배경 음악</span><input type="range" min="0" max="1" step="0.05" id="set-music" /></label>
+      <label class="field"><span>드럼 소리</span><input type="range" min="0" max="1" step="0.05" id="set-sfx" /></label>
+      <label class="field"><span>노트 속도 <b id="set-speed-val"></b></span><input type="range" min="0.7" max="1.6" step="0.1" id="set-speed" /></label>
+      <label class="field"><span>싱크 보정 <b id="set-offset-val"></b></span><input type="range" min="-200" max="200" step="5" id="set-offset" /></label>
+      <button class="btn btn-ghost btn-sm" data-action="calibrate">박자 맞춰서 자동 보정</button>
+      <label class="field check"><input type="checkbox" id="set-vibrate" /><span>진동 (안드로이드)</span></label>
+      <div class="account" id="settings-account"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="modal-calibrate" hidden>
+    <div class="sheet small">
+      <h3>싱크 보정</h3>
+      <p class="muted">"똑" 소리에 맞춰 아래 원을 탭하세요. (8번)</p>
+      <button class="calib-pad" id="calib-pad" aria-label="박자에 맞춰 탭"><span id="calib-count">준비</span></button>
+      <p class="calib-result" id="calib-result"></p>
+      <div class="stack">
+        <button class="btn btn-primary" data-action="calib-start">시작</button>
+        <button class="btn btn-ghost" data-action="close-calibrate">닫기</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="modal-share" hidden>
+    <div class="sheet">
+      <button class="icon-btn close" data-action="close-share" aria-label="닫기"><span data-icon="close"></span></button>
+      <h3>결과 카드</h3>
+      <p class="muted">이미지를 길게 눌러 저장하고 스토리에 올려보세요!</p>
+      <img id="share-img" alt="결과 카드" />
+    </div>
+  </div>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

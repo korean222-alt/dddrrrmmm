@@ -1,0 +1,15 @@
+{
+  "name": "kongkong-drum",
+  "version": "0.1.0",
+  "private": true,
+  "description": "콩콩 드럼 — 엄지 두 개로 하는 인스타 릴스 연계 리듬게임",
+  "type": "module",
+  "engines": { "node": ">=20.12" },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test test/*.test.js",
+    "ig:profile": "node scripts/ig-profile.js",
+    "assets": "node scripts/make-assets.js"
+  }
+}
