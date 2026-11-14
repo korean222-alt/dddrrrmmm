@@ -2,7 +2,7 @@
 // - 모든 박자 판정은 AudioContext 시계 기준 (setTimeout 보다 훨씬 정확)
 // - heardTime(): "지금 스피커에서 나오고 있는 소리"의 시각. 출력 지연까지 반영.
 
-import { STEPS_PER_BAR, COUNT_IN_BARS, OUTRO_BARS, stepDur, parseMelody, chordAt } from './charts.js';
+import { STEPS_PER_BAR, COUNT_IN_BARS, OUTRO_BARS, stepDur, parseMelody, chordAt, levelLanes, CHAR_LANES, KICK, SNARE, HAT, CRASH } from './charts.js';
 
 const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -281,6 +281,14 @@ export class AudioEngine {
     this._noise(t + 0.85, 0.8, hp);
   }
 
+  /** 플레이어가 누른 악기 소리 (t 를 주면 그 시각에 예약) */
+  playLane(lane, t = this.ctx.currentTime, dest = this.sfxBus) {
+    if (lane === KICK) this.kick(t, 1, dest);
+    else if (lane === SNARE) this.snare(t, 1, dest);
+    else if (lane === HAT) this.hat(t, 1.6, false, dest);
+    else if (lane === CRASH) this.crash(t, dest, 0.42);
+  }
+
   /** 녹화용 오디오 스트림 (게임 소리 전체) */
   captureStream() {
     const ctx = this.ensure();
@@ -393,6 +401,8 @@ export class SongPlayer {
     this.step = 0;
     this.melody = parseMelody(level.song.melody || []);
     this.melodyBars = (level.song.melody || []).length;
+    const lanes = levelLanes(level);
+    this.mineCrash = lanes.includes(CRASH); // 크래시를 내가 치면 반주 크래시는 쉼
     const ctx = audio.ctx;
     this.bus = ctx.createGain();
     this.bus.connect(audio.musicBus);
@@ -460,12 +470,10 @@ export class SongPlayer {
       for (const n of this.melody) if (n.bar === mbar && n.step === s) a.lead(t, n.midi, n.len * sd * 0.92, this.bus);
     }
     // 8마디마다 크래시
-    if (s === 0 && mb > 0 && mb % 8 === 0) a.crash(t, this.bus);
+    if (s === 0 && mb > 0 && mb % 8 === 0 && !this.mineCrash) a.crash(t, this.bus);
     // 자동 연주(데모/릴스 녹화용)
     if (this.autoChart) {
-      const c = this.level.bars[mb][s];
-      if (c === 'K' || c === 'B') a.kick(t, 1, this.drumBus);
-      if (c === 'S' || c === 'B') a.snare(t, 1, this.drumBus);
+      for (const lane of CHAR_LANES[this.level.bars[mb][s]] || []) a.playLane(lane, t, this.drumBus);
     }
   }
 

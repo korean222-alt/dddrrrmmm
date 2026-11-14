@@ -1,6 +1,6 @@
 // 콩콩 드럼 — 화면 전환, 잠금(팔로우 인증), 랭킹, 설정을 묶는 앱 본체
 
-import { LEVELS, getLevel, isGated, GATE_FROM_LEVEL, DIFFICULTY_WORDS, STAR_RULES } from './charts.js';
+import { LEVELS, getLevel, levelLanes, isGated, GATE_FROM_LEVEL, DIFFICULTY_WORDS, STAR_RULES } from './charts.js';
 import { AudioEngine, playMetronome } from './audio.js';
 import { Renderer } from './render.js';
 import { Game } from './game.js';
@@ -247,6 +247,7 @@ async function startLevel(id) {
   const st = state.studio;
   $('#screen-game').classList.toggle('studio-mode', st.active);
   renderer.studio = st.active ? { top: st.top, bottom: st.bottom, label: `${lv.id}단계 · ${lv.composer} ${lv.name}` } : null;
+  setKit(lv);
   await fontsReady();
   await new Promise((r) => requestAnimationFrame(r));
   const cw = $('#game-canvas').clientWidth || window.innerWidth;
@@ -282,10 +283,26 @@ async function startLevel(id) {
   state.game.start();
 }
 
+/** 단계에 맞게 화면 레인(악기) 세팅 */
+function setKit(lv) {
+  renderer.laneOrder = levelLanes(lv);
+  renderer.newLane = lv.newInstrument ?? -1;
+}
+
+/** 화면을 레인 수만큼 세로로 나눠서 누른 칸의 악기 */
 function laneFromX(x) {
   const r = $('#game-canvas').getBoundingClientRect();
-  return x < r.left + r.width / 2 ? 0 : 1;
+  const order = state.game ? state.game.laneOrder : [0, 1];
+  const i = Math.floor(((x - r.left) / r.width) * order.length);
+  return order[Math.max(0, Math.min(order.length - 1, i))];
 }
+
+// 키보드: 레인 수에 따라 왼쪽부터 키 배정
+const KEYMAP = {
+  2: [['KeyF', 'KeyD', 'KeyA', 'ArrowLeft'], ['KeyJ', 'KeyK', 'KeyL', 'ArrowRight']],
+  3: [['KeyF', 'KeyD', 'ArrowLeft'], ['KeyJ', 'ArrowDown'], ['KeyK', 'KeyL', 'ArrowRight']],
+  4: [['KeyD', 'KeyS'], ['KeyF', 'ArrowLeft'], ['KeyJ', 'ArrowRight'], ['KeyK', 'KeyL']],
+};
 
 function bindGameInput() {
   const canvas = $('#game-canvas');
@@ -301,8 +318,6 @@ function bindGameInput() {
   ['touchstart', 'touchmove', 'gesturestart', 'dblclick', 'contextmenu'].forEach((ev) =>
     canvas.addEventListener(ev, (e) => e.preventDefault(), { passive: false })
   );
-  const KICK = ['KeyF', 'KeyD', 'KeyA', 'ArrowLeft'];
-  const SNARE = ['KeyJ', 'KeyK', 'KeyL', 'ArrowRight'];
   window.addEventListener('keydown', (e) => {
     if (!$('#screen-game').classList.contains('active') || !state.game) return;
     if (e.code === 'Escape' || e.code === 'KeyP') {
@@ -310,8 +325,9 @@ function bindGameInput() {
       return;
     }
     if (e.repeat) return;
-    if (KICK.includes(e.code)) state.game.input(0, e.timeStamp);
-    else if (SNARE.includes(e.code)) state.game.input(1, e.timeStamp);
+    const order = state.game.laneOrder;
+    const idx = (KEYMAP[order.length] || KEYMAP[2]).findIndex((keys) => keys.includes(e.code));
+    if (idx >= 0) state.game.input(order[idx], e.timeStamp);
     else if (e.code === 'Space') {
       state.game.input(0, e.timeStamp);
       state.game.input(1, e.timeStamp);
@@ -796,6 +812,7 @@ async function studioStart() {
   $('#screen-game').classList.add('studio-mode');
   const lv = getLevel(st.level);
   renderer.studio = { top: st.top, bottom: st.bottom, label: `${lv.id}단계 · ${lv.composer} ${lv.name}` };
+  setKit(lv);
   await fontsReady();
   await new Promise((r) => requestAnimationFrame(r));
   await renderer.resize(Math.min(3, Math.max(2, 1080 / ($('#game-canvas').clientWidth || 390))));

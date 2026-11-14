@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 
-import { LEVELS, buildNotes, noteCount, maxScore, gradeFor, scoreBounds, pointsFor, isGated, parseMelody, parseChord, chordAt, noteToMidi, starsFor, accuracy } from '../public/js/charts.js';
+import { LEVELS, levelLanes, HAT, CRASH, buildNotes, noteCount, maxScore, gradeFor, scoreBounds, pointsFor, isGated, parseMelody, parseChord, chordAt, noteToMidi, starsFor, accuracy } from '../public/js/charts.js';
 import { extractCodes, generateCode, isCode } from '../server/codes.js';
 import { verifySignature, createInstagram } from '../server/instagram.js';
 import { sign, unsign } from '../server/session.js';
@@ -12,7 +12,7 @@ import { JsonStore } from '../server/store.js';
 test('채보: 모든 마디가 16칸, 허용 문자만', () => {
   LEVELS.forEach((lv, i) => {
     assert.equal(lv.id, i + 1);
-    for (const bar of lv.bars) assert.match(bar, /^[KSB.]{16}$/, `Lv.${lv.id} ${bar}`);
+    for (const bar of lv.bars) assert.match(bar, /^[KSHCBJX.]{16}$/, `Lv.${lv.id} ${bar}`);
     for (const k of ['hat', 'bass', 'chord']) assert.equal(lv.song[k].length, 16, `Lv.${lv.id} song.${k}`);
     assert.ok(lv.name && lv.composer && lv.difficulty >= 1 && lv.difficulty <= 5, `Lv.${lv.id} 정보`);
   });
@@ -31,6 +31,22 @@ test('곡: 멜로디 마디 길이 16칸, 코드 이름 해석', () => {
   assert.deepEqual(parseChord('F#m').notes, [66, 69, 73]);
   assert.equal(parseChord('G7').notes.length, 4);
   assert.throws(() => parseMelody(['C5 D5 E5']), /16칸/);
+});
+
+test('악기: 1~4단계 킥·스네어, 5단계 +하이햇, 6단계 +크래시', () => {
+  assert.deepEqual(levelLanes(LEVELS[0]), [0, 1]);
+  assert.deepEqual(levelLanes(LEVELS[3]), [0, 1]);
+  assert.deepEqual(levelLanes(LEVELS[4]), [0, 1, HAT]);
+  assert.deepEqual(levelLanes(LEVELS[5]), [CRASH, 0, 1, HAT]);
+  // 같은 엄지 레인(킥/크래시, 스네어/하이햇)에 동시 노트가 없어야 함
+  for (const lv of LEVELS) {
+    const byTime = new Map();
+    for (const n of buildNotes(lv)) byTime.set(n.time, [...(byTime.get(n.time) || []), n.lane]);
+    for (const lanes of byTime.values()) {
+      assert.ok(!(lanes.includes(0) && lanes.includes(CRASH)), `Lv.${lv.id} 왼손 겹침`);
+      assert.ok(!(lanes.includes(1) && lanes.includes(HAT)), `Lv.${lv.id} 오른손 겹침`);
+    }
+  }
 });
 
 test('Lv.1~3 공개, Lv.4+ 잠금 대상 (기준 단계 바꾸기 가능)', () => {

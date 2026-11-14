@@ -3,7 +3,7 @@
 import {
   STEPS_PER_BAR, stepDur,
   buildNotes, beatDur, barDur, JUDGE, pointsFor, accuracy, gradeFor, starsFor,
-  COUNT_IN_BARS, OUTRO_BARS, maxScore,
+  COUNT_IN_BARS, OUTRO_BARS, maxScore, levelLanes, INSTRUMENTS, KICK, SNARE, HAT, CRASH,
 } from './charts.js';
 import { SongPlayer } from './audio.js';
 
@@ -24,13 +24,15 @@ export class Game {
     this.onHud = onHud || (() => {});
     this.onEnd = onEnd || (() => {});
     this.notes = buildNotes(level);
-    this.lanes = [[], []];
+    /** 화면 왼쪽부터 레인(악기) 순서 */
+    this.laneOrder = levelLanes(level);
+    this.lanes = INSTRUMENTS.map(() => []);
     for (const n of this.notes) {
       n.judged = false;
       n.result = null;
       this.lanes[n.lane].push(n);
     }
-    this.ptr = [0, 0];
+    this.ptr = INSTRUMENTS.map(() => 0);
     this.score = 0;
     this.combo = 0;
     this.maxCombo = 0;
@@ -59,6 +61,7 @@ export class Game {
     const ctx = this.audio.ctx;
     this.audio.resetClock();
     this.r.reset();
+    this.r.laneOrder = this.laneOrder;
     this.startTime = ctx.currentTime + 0.35;
     this.player = new SongPlayer(this.audio, this.level, this.startTime, { autoChart: this.auto });
     this.player.start();
@@ -88,13 +91,11 @@ export class Game {
     if (this.audio.ctx && this.audio.ctx.state === 'suspended') this.audio.ctx.resume().catch(() => {});
   }
 
-  /** 엄지 입력. lane 0=쿵, 1=짝. perfMs = event.timeStamp */
+  /** 엄지 입력. lane = 악기 번호(charts.js KICK/SNARE/HAT/CRASH). perfMs = event.timeStamp */
   input(lane, perfMs) {
     const rt = performance.now() / 1000;
-    if (!this.auto) {
-      if (lane === 0) this.audio.kick();
-      else this.audio.snare();
-    }
+    if (!this.laneOrder.includes(lane)) return;
+    if (!this.auto) this.audio.playLane(lane);
     this.r.onTap(lane, rt);
     if (this.state !== 'playing' || this.auto) return;
     const t = this.songTime(perfMs);
@@ -164,7 +165,7 @@ export class Game {
     const now = this.songTime();
 
     if (this.auto) {
-      for (const lane of [0, 1]) {
+      for (const lane of this.laneOrder) {
         const list = this.lanes[lane];
         while (this.ptr[lane] < list.length && list[this.ptr[lane]].time <= now) {
           const n = list[this.ptr[lane]];
@@ -176,7 +177,7 @@ export class Game {
     }
 
     // 지나간 노트 → MISS
-    for (const lane of [0, 1]) {
+    for (const lane of this.laneOrder) {
       const list = this.lanes[lane];
       while (this.ptr[lane] < list.length) {
         const n = list[this.ptr[lane]];
@@ -241,7 +242,10 @@ export class Game {
     const idx = Math.floor(now / sd);
     const song = this.level.song;
     let hatAge = 9;
-    for (let i = idx; i > idx - 16 && i >= 0; i--) {
+    // 하이햇/크래시를 내가 치는 단계에선 반주가 안 침 (화면도 내 타격에만 반응)
+    const mineHat = this.laneOrder.includes(HAT);
+    const mineCrash = this.laneOrder.includes(CRASH);
+    for (let i = idx; i > idx - 16 && i >= 0 && !mineHat; i--) {
       const bar = Math.floor(i / STEPS_PER_BAR);
       const s = i % STEPS_PER_BAR;
       const mb = bar - COUNT_IN_BARS;
@@ -254,7 +258,7 @@ export class Game {
     const barLen = sd * STEPS_PER_BAR;
     const mbNow = Math.floor(now / barLen) - COUNT_IN_BARS;
     let crashAge = 9;
-    for (let mb = mbNow; mb >= Math.max(0, mbNow - 2); mb--) {
+    for (let mb = mbNow; mb >= Math.max(0, mbNow - 2) && !mineCrash; mb--) {
       if ((mb > 0 && mb % 8 === 0) || mb === this.level.bars.length) {
         crashAge = now - (mb + COUNT_IN_BARS) * barLen;
         break;

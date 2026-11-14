@@ -1,11 +1,28 @@
 // 콩콩 드럼 — 레벨/채보 정의 (브라우저와 서버가 같이 씁니다)
 //
 // 채보 표기: 한 마디 = 16칸(16분음표)
-//   K = 쿵 (킥, 왼쪽 엄지)   S = 짝 (스네어, 오른쪽 엄지)
-//   B = 동시 (쿵+짝 한 번에)  . = 쉼
+//   K = 킥 (왼쪽 엄지)        S = 스네어 (오른쪽 엄지)
+//   H = 하이햇 (오른쪽 엄지, 5단계부터)   C = 크래시 (왼쪽 엄지, 6단계부터)
+//   B = 킥+스네어 동시   J = 킥+하이햇 동시   X = 크래시+스네어 동시   . = 쉼
+//   같은 엄지끼리(킥+크래시, 스네어+하이햇)는 동시에 못 누르니 그런 조합은 없음
 // 새 레벨을 추가하려면 LEVELS 배열에 객체를 하나 더 넣으면 됩니다.
 
 export const STEPS_PER_BAR = 16;
+
+// 악기(레인) 번호. 화면에는 왼쪽부터 크래시 · 킥 · 스네어 · 하이햇 순서로 나옵니다.
+export const KICK = 0;
+export const SNARE = 1;
+export const HAT = 2;
+export const CRASH = 3;
+export const INSTRUMENTS = [
+  { id: KICK, name: '킥', hand: 'left' },
+  { id: SNARE, name: '스네어', hand: 'right' },
+  { id: HAT, name: '하이햇', hand: 'right' },
+  { id: CRASH, name: '크래시', hand: 'left' },
+];
+const SCREEN_ORDER = [CRASH, KICK, SNARE, HAT];
+/** 채보 글자 → 누를 레인들 */
+export const CHAR_LANES = { K: [KICK], S: [SNARE], H: [HAT], C: [CRASH], B: [KICK, SNARE], J: [KICK, HAT], X: [CRASH, SNARE] };
 export const COUNT_IN_BARS = 1; // 시작 전 "3, 2, 1" 한 마디
 export const OUTRO_BARS = 1; // 끝난 뒤 여운 한 마디
 
@@ -197,12 +214,13 @@ export const LEVELS = [
     id: 5,
     name: '캉캉',
     composer: '오펜바흐',
-    tagline: '펀치 비트 · 둘 다 동시에 쾅!',
+    tagline: '하이햇 등장! · 펀치 비트',
+    newInstrument: HAT,
     difficulty: 4,
     bpm: 108,
     song: {
       prog: ['C', 'G7', 'C', 'G7 C'],
-      hat: 'x.x.xox.x.x.xox.',
+      hat: '................',
       bass: 'x...x...x...x...',
       chord: '..x...x...x...x.',
       melody: [
@@ -215,19 +233,19 @@ export const LEVELS = [
     bars: [
       'B.......B.......',
       'B...S...B...S...',
-      'B...S...K.K.B...',
-      'K.S.B...K.S.B...',
-      'B...S.K.B...S...',
-      'B.K.S.K.B.K.S...',
-      'K.S.K.S.B...B...',
+      'K.H.S...K.H.S...',
+      'K.H.S...K.H.S.H.',
+      'K.H.S.H.K.H.S.H.',
+      'K.H.S.H.K.K.S...',
+      'J...S...J...S...',
       'B.B.S...B.B.S...',
-      'B...S..KB...S...',
-      'K.K.B...K.K.B...',
-      'B.KKS...B.KKS...',
-      'K.S.K.S.B.B.B...',
-      'B...S.K.B.K.S...',
-      'KKS.B...KKS.B...',
-      'B.K.S.K.B.K.S.S.',
+      'K.H.S.H.K.H.S.H.',
+      'J.H.S.H.J.H.S.H.',
+      'K.HKS.H.K.HKS.H.',
+      'B...S.H.B...S.H.',
+      'J.H.S.H.J.H.S.H.',
+      'K.HKS.H.KKH.S.H.',
+      'B.H.B.H.B.H.B.H.',
       'B.B.B.B.B.......',
     ],
   },
@@ -235,12 +253,13 @@ export const LEVELS = [
     id: 6,
     name: '터키 행진곡',
     composer: '모차르트',
-    tagline: '드럼 솔로 · 끝판왕',
+    tagline: '크래시 등장! · 드럼 솔로 끝판왕',
+    newInstrument: CRASH,
     difficulty: 5,
     bpm: 120,
     song: {
       prog: ['Am', 'Am', 'E Am', 'E'],
-      hat: 'xxxxxxxxxxxxxxxx',
+      hat: '................',
       bass: 'x...x...x...x...',
       chord: '..x...x...x...x.',
       melody: [
@@ -251,26 +270,26 @@ export const LEVELS = [
       ],
     },
     bars: [
-      'K...S...K...S...',
-      'K.K.S...K.KKS...',
-      'K..KS..KK..KS...',
-      'KKKKS...KKKKS...',
-      'B...S.K.B.K.S...',
-      'K.S.K.S.KSKS....',
-      'KSKSKSKSB...B...',
-      'K..KS.SSK..KS.SS',
-      'KKK.S.SSKKK.S.SS',
-      'B.KKS.K.B.KKS...',
-      'KSKSKSKSKSKSB...',
-      'K.KKS..KK.KKS.S.',
-      'B..KS.K.B..KS.S.',
-      'KKKKSSSSKKKKSSSS',
+      'C...S...K...S...',
+      'K.K.S.H.K.KKS.H.',
+      'K..KS.H.K..KS.H.',
+      'KKKKS.H.KKKKS...',
+      'X...H.K.B.K.S.H.',
+      'K.S.K.S.KSKSH...',
+      'KSKSKSKSX...X...',
+      'K..KS.HSK..KS.HS',
+      'C...S.H.KKK.S.HS',
+      'J.KKS.K.J.KKS.H.',
+      'KSKSKSKSKSKSX...',
+      'K.KKS.HKK.KKS.S.',
+      'C..KS.K.B..KS.H.',
+      'KKKKS.H.KKKKS.H.',
       'K.S.K.S.KSKSKSKS',
-      'B.KKS.KKB.KKS.SS',
-      'KKK.S..KB..KS.SS',
-      'KSKSKSKSKKKKSSSS',
-      'B.B.KSKSB.B.KSKS',
-      'B.......B.......',
+      'X.KKS.KKJ.KKS.HS',
+      'C..KS..KB..KS.HS',
+      'KKKKSSSSKKKKS.H.',
+      'X.B.KSKSX.B.KSKS',
+      'X.......B.......',
     ],
   },
 ];
@@ -346,9 +365,16 @@ export function levelDuration(level) {
   return (COUNT_IN_BARS + level.bars.length + OUTRO_BARS) * barDur(level);
 }
 
+/** 이 단계에서 쓰는 악기들 (화면 왼쪽부터 순서) */
+export function levelLanes(level) {
+  const used = new Set([KICK, SNARE]);
+  for (const bar of level.bars) for (const c of bar) for (const l of CHAR_LANES[c] || []) used.add(l);
+  return SCREEN_ORDER.filter((l) => used.has(l));
+}
+
 /**
  * 채보 → 노트 목록. time 은 곡 시작(카운트인 첫 박) 기준 초.
- * B(동시)는 두 레인에 같은 시각의 노트 두 개 + 같은 pair 번호.
+ * 동시치기(B/J/X)는 레인마다 같은 시각의 노트 + 같은 pair 번호.
  */
 export function buildNotes(level) {
   const notes = [];
@@ -356,13 +382,12 @@ export function buildNotes(level) {
   let pair = 0;
   level.bars.forEach((bar, b) => {
     for (let s = 0; s < STEPS_PER_BAR; s++) {
-      const c = bar[s];
-      if (c === '.' || c === undefined) continue;
+      const lanes = CHAR_LANES[bar[s]];
+      if (!lanes) continue;
       const step = (COUNT_IN_BARS + b) * STEPS_PER_BAR + s;
       const time = step * sd;
-      if (c === 'K' || c === 'B') notes.push({ time, lane: 0, step, pair: c === 'B' ? pair : -1 });
-      if (c === 'S' || c === 'B') notes.push({ time, lane: 1, step, pair: c === 'B' ? pair : -1 });
-      if (c === 'B') pair++;
+      const p = lanes.length > 1 ? pair++ : -1;
+      for (const lane of lanes) notes.push({ time, lane, step, pair: p });
     }
   });
   notes.sort((a, b) => a.time - b.time || a.lane - b.lane);
@@ -372,7 +397,7 @@ export function buildNotes(level) {
 
 export function noteCount(level) {
   let n = 0;
-  for (const bar of level.bars) for (const c of bar) n += c === 'B' ? 2 : c === 'K' || c === 'S' ? 1 : 0;
+  for (const bar of level.bars) for (const c of bar) n += (CHAR_LANES[c] || []).length;
   return n;
 }
 

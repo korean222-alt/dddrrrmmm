@@ -8,7 +8,19 @@ import { buildRasters, SNARE_VIEW } from './mascot.js';
 export const LANE = [
   { key: 'kick', main: '#FF8A4C', light: '#FFC08F', dark: '#C9532A', rgb: '255,138,76', thumb: '왼쪽 엄지', word: '킥 (쿵)' },
   { key: 'snare', main: '#62C8FF', light: '#D7F1FF', dark: '#2F86CF', rgb: '98,200,255', thumb: '오른쪽 엄지', word: '스네어 (짝)' },
+  { key: 'hat', main: '#FFD24A', light: '#FFF2B8', dark: '#B9821C', rgb: '255,210,74', thumb: '오른쪽 엄지', word: '하이햇 (츠)' },
+  { key: 'crash', main: '#C38BFF', light: '#EBDDFF', dark: '#7F4CCF', rgb: '195,139,255', thumb: '왼쪽 엄지', word: '크래시 (챙)' },
 ];
+const KICK = 0;
+const SNARE = 1;
+const HAT = 2;
+const CRASH = 3;
+/** 레인 개수별 화면 위치 (게임 폭 비율) */
+const LANE_LAYOUT = {
+  2: { xs: [0.3, 0.7], half: 0.14 },
+  3: { xs: [0.2, 0.5, 0.8], half: 0.125 },
+  4: { xs: [0.135, 0.378, 0.622, 0.865], half: 0.108 },
+};
 
 export const JUDGE_STYLE = {
   perfect: { text: 'PERFECT', color: '#FFE45C' },
@@ -37,13 +49,15 @@ export class Renderer {
     this.bg = document.createElement('canvas');
     this.rasters = null;
     this.studio = null; // 영상 찍기: { top, bottom, label }
+    this.laneOrder = [KICK, SNARE]; // 화면 왼쪽부터 악기 순서
+    this.newLane = -1; // 이번 단계에 새로 나온 악기 (카운트인 때 NEW 표시)
     this.reset();
   }
 
   reset() {
     this.fx = { judges: [], sparks: [], bursts: [], booms: [], banners: [] };
-    this.hitAt = [-9, -9];
-    this.missAt = [-9, -9];
+    this.hitAt = [-9, -9, -9, -9];
+    this.missAt = [-9, -9, -9, -9];
     this.punchAt = -9;
     this.punchPow = 0;
     this.crackAt = -9;
@@ -65,8 +79,8 @@ export class Renderer {
       cx: W / 2,
       topY: H * (studio ? 0.25 : 0.155),
       strikeY: H * 0.585,
-      laneX: [GX + GW * 0.3, GX + GW * 0.7],
-      laneHalf: GW * 0.14,
+      laneX: [],
+      laneHalf: 0,
       floorY: H * 0.865,
       drummerX: GX + GW * 0.5,
       drummerBase: H * 0.8,
@@ -84,9 +98,14 @@ export class Renderer {
       crashY: H * 0.635,
       crashR: GW * 0.14,
     };
+    const lay = LANE_LAYOUT[this.laneOrder.length] || LANE_LAYOUT[2];
+    this.laneOrder.forEach((lane, i) => (L.laneX[lane] = GX + GW * lay.xs[i]));
+    L.laneHalf = GW * lay.half;
+    L.x0 = L.laneX[this.laneOrder[0]] - L.laneHalf;
+    L.x1 = L.laneX[this.laneOrder[this.laneOrder.length - 1]] + L.laneHalf;
     L.barW = L.laneHalf * 1.72;
     L.barH = GW * 0.046;
-    L.padR = GW * 0.066;
+    L.padR = Math.min(GW * 0.066, L.laneHalf * 0.6);
     L.snareScale = L.snareW / SNARE_VIEW.w;
     this.L = L;
     const key = `${Math.round(L.drummerW * dpr)}x${Math.round(L.bassW * dpr)}`;
@@ -112,6 +131,8 @@ export class Renderer {
     const sy = L.snareY - SNARE_VIEW.ry * L.snareScale * 0.1;
     this.stickR = mk(hand(172), L.snareX - L.GW * 0.02, sy, 1, -0.75);
     this.stickL = mk(hand(28), L.crashX + L.crashR * 0.35, L.crashY + L.crashR * 0.05, -1, -0.22);
+    // 하이햇 칠 때 오른손 스틱은 하이햇 쪽으로
+    this.stickRH = mk(hand(172), L.hatX - L.hatR * 0.3, L.hatY - L.hatR * 0.05, 1, -0.55);
   }
 
   _drawStatic() {
@@ -157,8 +178,8 @@ export class Renderer {
       g.stroke();
     }
     // 노트 하이웨이 (드럼 악보판)
-    const x0 = L.laneX[0] - L.laneHalf;
-    const x1 = L.laneX[1] + L.laneHalf;
+    const x0 = L.x0;
+    const x1 = L.x1;
     const y0 = L.topY;
     const y1 = L.strikeY + L.GW * 0.07;
     rr(g, x0 - 6, y0, x1 - x0 + 12, y1 - y0, L.GW * 0.04);
@@ -167,7 +188,7 @@ export class Renderer {
     g.lineWidth = 3;
     g.strokeStyle = 'rgba(255,255,255,0.14)';
     g.stroke();
-    [0, 1].forEach((i) => {
+    this.laneOrder.forEach((i) => {
       const lg = g.createLinearGradient(0, y0, 0, y1);
       lg.addColorStop(0, `rgba(${LANE[i].rgb},0)`);
       lg.addColorStop(1, `rgba(${LANE[i].rgb},0.2)`);
@@ -191,10 +212,10 @@ export class Renderer {
   // ---------- 이벤트 ----------
   onTap(lane, rt) {
     this.hitAt[lane] = rt;
-    if (lane === 0) {
+    if (lane === KICK) {
       this.punchAt = rt;
       this.punchPow = 0.6;
-    } else this.crackAt = rt;
+    } else if (lane === SNARE) this.crackAt = rt;
   }
 
   onJudge(lane, judge, rt, early) {
@@ -207,24 +228,25 @@ export class Renderer {
     }
     const pow = judge === 'perfect' ? 1 : judge === 'great' ? 0.8 : 0.55;
     this.fx.bursts.push({ lane, t0: rt, pow });
-    if (lane === 0) {
+    if (lane === KICK) {
       this.punchAt = rt;
       this.punchPow = pow;
       this.fx.booms.push({ t0: rt, pow });
     } else {
-      this.crackAt = rt;
+      if (lane === SNARE) this.crackAt = rt;
+      const at = lane === HAT ? [L.hatX, L.hatY] : lane === CRASH ? [L.crashX, L.crashY] : [L.snareX, L.snareY - L.GW * 0.01];
       const n = judge === 'perfect' ? 12 : 7;
       for (let i = 0; i < n; i++) {
         const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.4;
         this.fx.sparks.push({
-          x: L.snareX,
-          y: L.snareY - L.GW * 0.01,
+          x: at[0],
+          y: at[1],
           a,
           sp: L.GW * (0.5 + Math.random() * 0.8),
           t0: rt,
           life: 0.22 + Math.random() * 0.18,
           len: L.GW * (0.03 + Math.random() * 0.04),
-          color: Math.random() < 0.5 ? '#FFFFFF' : Math.random() < 0.5 ? '#FFE45C' : LANE[1].light,
+          color: Math.random() < 0.5 ? '#FFFFFF' : Math.random() < 0.5 ? '#FFE45C' : LANE[lane].light,
         });
       }
     }
@@ -326,7 +348,7 @@ export class Renderer {
       const beat = b % 2 === 0;
       ctx.strokeStyle = bar ? 'rgba(255,255,255,0.4)' : beat ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.06)';
       ctx.lineWidth = bar ? 2.5 : 1.2;
-      for (const i of [0, 1]) {
+      for (const i of this.laneOrder) {
         ctx.beginPath();
         ctx.moveTo(L.laneX[i] - L.laneHalf + 4, y);
         ctx.lineTo(L.laneX[i] + L.laneHalf - 4, y);
@@ -343,24 +365,76 @@ export class Renderer {
     ctx.strokeStyle = 'rgba(255,255,255,0.35)';
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.moveTo(L.laneX[0] - L.laneHalf, L.strikeY);
-    ctx.lineTo(L.laneX[1] + L.laneHalf, L.strikeY);
+    ctx.moveTo(L.x0, L.strikeY);
+    ctx.lineTo(L.x1, L.strikeY);
     ctx.stroke();
     const k = 1 + pulse * 0.05;
-    const hk = rt - this.hitAt[0] < 0.1;
-    rr(ctx, L.laneX[0] - (L.barW * k) / 2, L.strikeY - (L.barH * k) / 2, L.barW * k, L.barH * k, (L.barH * k) / 2);
-    ctx.fillStyle = hk ? 'rgba(255,138,76,0.55)' : 'rgba(255,138,76,0.12)';
-    ctx.fill();
-    ctx.lineWidth = 3;
-    ctx.strokeStyle = `rgba(255,170,120,${0.6 + 0.4 * pulse})`;
-    ctx.stroke();
-    const hs = rt - this.hitAt[1] < 0.1;
+    for (const lane of this.laneOrder) {
+      const x = L.laneX[lane];
+      const lit = rt - this.hitAt[lane] < 0.1;
+      const c = LANE[lane].rgb;
+      if (lane === KICK) rr(ctx, x - (L.barW * k) / 2, L.strikeY - (L.barH * k) / 2, L.barW * k, L.barH * k, (L.barH * k) / 2);
+      else if (lane === SNARE) {
+        ctx.beginPath();
+        ctx.arc(x, L.strikeY, L.padR * k, 0, Math.PI * 2);
+      } else {
+        const rx = this._cymR(lane) * k;
+        ctx.beginPath();
+        ctx.ellipse(x, L.strikeY, rx, rx * 0.36, 0, 0, Math.PI * 2);
+      }
+      ctx.fillStyle = `rgba(${c},${lit ? 0.55 : 0.12})`;
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = `rgba(255,255,255,${0.45 + 0.4 * pulse})`;
+      ctx.stroke();
+    }
+  }
+
+  _cymR(lane) {
+    return this.L.laneHalf * (lane === CRASH ? 0.92 : 0.78);
+  }
+
+  /** 하이햇/크래시 노트: 납작한 심벌 모양 */
+  _cymbalNote(lane, x, y, alpha, grey) {
+    const ctx = this.ctx;
+    const r = this._cymR(lane);
+    const C = LANE[lane];
+    ctx.save();
+    ctx.globalAlpha = alpha;
     ctx.beginPath();
-    ctx.arc(L.laneX[1], L.strikeY, L.padR * k, 0, Math.PI * 2);
-    ctx.fillStyle = hs ? 'rgba(98,200,255,0.55)' : 'rgba(98,200,255,0.12)';
+    ctx.ellipse(x, y + r * 0.1, r, r * 0.36, 0, 0, Math.PI * 2);
+    ctx.fillStyle = grey ? '#6E6880' : C.dark;
     ctx.fill();
-    ctx.strokeStyle = `rgba(180,230,255,${0.6 + 0.4 * pulse})`;
+    ctx.beginPath();
+    ctx.ellipse(x, y, r, r * 0.36, 0, 0, Math.PI * 2);
+    const gr = ctx.createLinearGradient(x - r, 0, x + r, 0);
+    gr.addColorStop(0, grey ? '#9A94AE' : C.main);
+    gr.addColorStop(0.45, grey ? '#D9D4E3' : C.light);
+    gr.addColorStop(1, grey ? '#9A94AE' : C.main);
+    ctx.fillStyle = gr;
+    ctx.fill();
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = INK;
     ctx.stroke();
+    ctx.strokeStyle = 'rgba(59,42,74,0.35)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.ellipse(x, y, r * 0.55, r * 0.2, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = grey ? '#6E6880' : C.dark;
+    ctx.beginPath();
+    ctx.ellipse(x, y - r * 0.02, r * 0.16, r * 0.08, 0, 0, Math.PI * 2);
+    ctx.fill();
+    if (lane === CRASH && !grey) {
+      // 크래시는 반짝이 표시로 하이햇과 구분
+      ctx.fillStyle = '#FFFFFF';
+      for (const sx of [-0.55, 0.55]) {
+        ctx.beginPath();
+        ctx.arc(x + r * sx, y - r * 0.05, r * 0.07, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    ctx.restore();
   }
 
   _kickBar(x, y, alpha, grey) {
@@ -432,20 +506,23 @@ export class Renderer {
       if (dt < -0.25) continue;
       vis.push(n);
     }
-    const seen = new Set();
+    // 동시치기: 두 노트를 점선으로 잇기
+    const seen = new Map();
     for (const n of vis) {
       if (n.pair < 0 || n.judged) continue;
-      if (seen.has(n.pair)) {
+      const o = seen.get(n.pair);
+      if (o) {
         const y = this._y(n.time - st.now, st.approach);
+        const [a, b] = [o, n].sort((p, q) => L.laneX[p.lane] - L.laneX[q.lane]);
         ctx.strokeStyle = 'rgba(255,228,92,0.85)';
         ctx.lineWidth = 3;
         ctx.setLineDash([6, 5]);
         ctx.beginPath();
-        ctx.moveTo(L.laneX[0] + L.barW / 2, y);
-        ctx.lineTo(L.laneX[1] - L.padR, y);
+        ctx.moveTo(L.laneX[a.lane] + L.laneHalf * 0.8, y);
+        ctx.lineTo(L.laneX[b.lane] - L.laneHalf * 0.8, y);
         ctx.stroke();
         ctx.setLineDash([]);
-      } else seen.add(n.pair);
+      } else seen.set(n.pair, n);
     }
     for (let k = vis.length - 1; k >= 0; k--) {
       const n = vis[k];
@@ -454,8 +531,9 @@ export class Renderer {
       let a = clamp((1 - dt / st.approach) / 0.08, 0, 1);
       if (dt < 0) a *= clamp(1 + dt * 5, 0, 1);
       if (n.judged) a *= 0.55;
-      if (n.lane === 0) this._kickBar(L.laneX[0], y, a, n.judged);
-      else this._snarePad(L.laneX[1], y, a, n.judged);
+      if (n.lane === KICK) this._kickBar(L.laneX[KICK], y, a, n.judged);
+      else if (n.lane === SNARE) this._snarePad(L.laneX[SNARE], y, a, n.judged);
+      else this._cymbalNote(n.lane, L.laneX[n.lane], y, a, n.judged);
     }
   }
 
@@ -469,16 +547,22 @@ export class Renderer {
       ctx.save();
       ctx.globalAlpha = (1 - p) * b.pow;
       ctx.globalCompositeOperation = 'lighter';
-      if (b.lane === 0) {
+      if (b.lane === KICK) {
         const w = L.barW * (1 + e * 0.6);
         const h = L.barH * (1 + e * 2.2);
-        rr(ctx, L.laneX[0] - w / 2, L.strikeY - h / 2, w, h, h / 2);
+        rr(ctx, L.laneX[KICK] - w / 2, L.strikeY - h / 2, w, h, h / 2);
         ctx.fillStyle = 'rgba(255,170,100,0.8)';
         ctx.fill();
-      } else {
+      } else if (b.lane === SNARE) {
         ctx.beginPath();
-        ctx.arc(L.laneX[1], L.strikeY, L.padR * (1 + e * 1.3), 0, Math.PI * 2);
+        ctx.arc(L.laneX[SNARE], L.strikeY, L.padR * (1 + e * 1.3), 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(160,225,255,0.8)';
+        ctx.fill();
+      } else {
+        const rx = this._cymR(b.lane) * (1 + e * 0.9);
+        ctx.beginPath();
+        ctx.ellipse(L.laneX[b.lane], L.strikeY, rx, rx * 0.45, 0, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(${LANE[b.lane].rgb},0.85)`;
         ctx.fill();
       }
       ctx.restore();
@@ -534,20 +618,20 @@ export class Renderer {
     const L = this.L;
     const R = this.rasters;
     // 크래시: 크래시 칠 때 흔들림
-    const ca = st.crashAge ?? 9;
+    const ca = Math.min(st.crashAge ?? 9, rt - this.hitAt[CRASH]);
     const cw = ca < 1.5 ? Math.sin(ca * 18) * Math.exp(-ca * 3) * 0.25 : 0;
     this._stand(L.crashX, L.crashY, L.floorY);
     this._cymbal(L.crashX, L.crashY, L.crashR, -0.22, cw);
     // 하이햇: 반주 하이햇에 맞춰 닫힘
-    const ha = st.hatAge ?? 9;
+    const ha = Math.min(st.hatAge ?? 9, rt - this.hitAt[HAT]);
     const close = ha < 0.08 ? 1 - ha / 0.08 : 0;
     this._stand(L.hatX, L.hatY, L.floorY);
     this._cymbal(L.hatX, L.hatY + L.hatR * 0.12, L.hatR, 0.05, 0);
     this._cymbal(L.hatX, L.hatY - L.hatR * (0.1 - close * 0.08), L.hatR, 0.05, 0);
 
     // 드러머
-    const th = Math.min(rt - this.hitAt[0], rt - this.hitAt[1]);
-    const tm = Math.min(rt - this.missAt[0], rt - this.missAt[1]);
+    const th = rt - Math.max(...this.hitAt);
+    const tm = rt - Math.max(...this.missAt);
     const set = R.kong;
     let face = set.idle;
     if (th < 0.16) face = set.hit;
@@ -564,7 +648,8 @@ export class Renderer {
 
     const counting = !!(st.countIn && st.countIn.label);
     this._drawStick(this.stickL, st, counting ? 'count' : 'hit', bob, ca);
-    this._drawStick(this.stickR, st, counting ? 'count' : 'hit', bob, rt - this.hitAt[1]);
+    const hatLast = this.hitAt[HAT] > this.hitAt[SNARE];
+    this._drawStick(hatLast ? this.stickRH : this.stickR, st, counting ? 'count' : 'hit', bob, rt - Math.max(this.hitAt[SNARE], this.hitAt[HAT]));
 
     // 베이스드럼: 킥에 헤드가 '쿵' 부풀어 오름
     const bw = L.bassW * (1 + pe * 0.06);
@@ -666,7 +751,7 @@ export class Renderer {
     const ctx = this.ctx;
     const L = this.L;
     this.fx.judges = this.fx.judges.filter((j) => rt - j.t0 < 0.45);
-    const latest = [null, null];
+    const latest = [null, null, null, null];
     for (const j of this.fx.judges) latest[j.lane] = j;
     for (const j of latest) {
       if (!j) continue;
@@ -772,8 +857,8 @@ export class Renderer {
     ctx.globalAlpha = fade;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    [0, 1].forEach((i) => {
-      const fs = L.GW * 0.038;
+    this.laneOrder.forEach((i) => {
+      const fs = L.GW * (this.laneOrder.length > 2 ? 0.032 : 0.038);
       ctx.font = `${Math.round(fs)}px ${FONT}`;
       const t1 = LANE[i].thumb;
       const t2 = LANE[i].word;
@@ -787,6 +872,18 @@ export class Renderer {
       ctx.fillText(t1, x, y + fs * 0.85);
       ctx.fillStyle = LANE[i].dark;
       ctx.fillText(t2, x, y + fs * 2);
+      if (i === this.newLane) {
+        // 새 악기 표시
+        const bw = fs * 3.2;
+        rr(ctx, x - bw / 2, y - fs * 1.15, bw, fs * 1.3, fs * 0.65);
+        ctx.fillStyle = '#FF5FA2';
+        ctx.fill();
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = INK;
+        ctx.stroke();
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText('NEW!', x, y - fs * 0.48);
+      }
     });
     if (label) {
       const a = 1 - phase;
