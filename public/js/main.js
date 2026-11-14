@@ -9,6 +9,7 @@ import { CONFIG } from './config.js';
 import { mascotSVG, stickSVG, bassDrumSVG, snareSVG } from './mascot.js';
 import { loadSettings, saveSettings, loadBests, saveBest, load, save, remove } from './storage.js';
 import { makeShareCard, gradeColor } from './sharecard.js';
+import { todayLevel, encodeChallenge, decodeChallenge, opponentScoreAt, versusOutcome, cleanName } from './versus.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
@@ -27,6 +28,7 @@ const ICONS = {
   copy: '<rect x="8" y="8" width="12" height="12" rx="2.5" stroke="currentColor" stroke-width="2.2" fill="none"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" stroke="currentColor" stroke-width="2.2" fill="none"/>',
   video: '<rect x="3" y="6" width="13" height="12" rx="3" stroke="currentColor" stroke-width="2.2" fill="none"/><path d="M16 10.5l5-3v9l-5-3z" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linejoin="round"/>',
   send: '<path d="M21 3L10 14M21 3l-7 18-4-7-7-4z" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linejoin="round" stroke-linecap="round"/>',
+  swords: '<path d="M4 4l9.5 9.5M4 4v3.5M4 4h3.5M20 4l-9.5 9.5M20 4v3.5M20 4h-3.5M7 14l3 3M5.5 18.5l2-2M17 14l-3 3M18.5 18.5l-2-2" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/>',
   insta: '<rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke="currentColor" stroke-width="2.2" fill="none"/><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2.2" fill="none"/><circle cx="17.2" cy="6.8" r="1.3" fill="currentColor"/>',
 };
 const STAR_PATH = 'M12 2.6l2.85 5.95 6.55.85-4.8 4.55 1.22 6.5L12 17.3l-5.82 3.15 1.22-6.5-4.8-4.55 6.55-.85z';
@@ -55,6 +57,7 @@ const state = {
   runToken: null,
   verify: null,
   rankLevel: 4,
+  vs: null, // 받은 도전장 { name, levelId, score, stars, grade, accuracy, timeline }
 };
 
 // ---------------- 유틸 ----------------
@@ -166,7 +169,15 @@ function freeRangeText() {
   return f <= 1 ? '' : f === 2 ? '1단계는' : `1~${f - 1}단계는`;
 }
 
+function refreshToday() {
+  const lv = todayLevel();
+  const best = loadBests()[lv.id];
+  $('#today-name').textContent = `${lv.name} · ${lv.composer}`;
+  $('#today-sub').textContent = best ? `내 최고 ${fmt(best.score)}점 · 친구에게 1:1 도전장 ⚔️` : `${lv.id}단계 · 점수 내고 친구에게 1:1 도전장 ⚔️`;
+}
+
 function refreshTitle() {
+  refreshToday();
   const hot = getLevel(Math.max(4, gateFrom())) || getLevel(4);
   const gated = state.cfg.gateMode !== 'open' && isGated(hot, gateFrom());
   $('#hot-name').textContent = `${hot.id}단계 도전 · ${hot.name}`;
@@ -245,6 +256,16 @@ async function startLevel(id) {
   $('#hud-score').textContent = '0';
   $('#hud-progress').style.width = '0%';
   const st = state.studio;
+  const vs = !st.active && state.vs && state.vs.levelId === id ? state.vs : null;
+  $('#hud-vs').hidden = !vs;
+  if (vs) {
+    $('#vs-name').textContent = vs.name;
+    $('#vs-me').textContent = '0';
+    $('#vs-op').textContent = '0';
+    $('#vs-fill').style.width = '50%';
+  }
+  // 피아노 샘플이 아직이면 잠깐 기다림 (최대 2.5초, 안 되면 합성음으로)
+  await Promise.race([audio.loadPiano(), new Promise((r) => setTimeout(r, 2500))]);
   $('#screen-game').classList.toggle('studio-mode', st.active);
   renderer.studio = st.active ? { top: st.top, bottom: st.bottom, label: `${lv.id}단계 · ${lv.composer} ${lv.name}` } : null;
   setKit(lv);
@@ -265,7 +286,7 @@ async function startLevel(id) {
         requireFollow(lv, () => startLevel(id));
       }
     });
-  let last = { score: -1, p: -1 };
+  const last = { score: -1, p: -1, op: -1 };
   state.game = new Game({
     audio,
     renderer,
@@ -276,7 +297,18 @@ async function startLevel(id) {
       if (h.score !== last.score) $('#hud-score').textContent = fmt(h.score);
       const p = Math.round(h.progress * 200);
       if (p !== last.p) $('#hud-progress').style.width = p / 2 + '%';
-      last = { score: h.score, p };
+      if (vs) {
+        const op = opponentScoreAt(vs.timeline, h.barPos);
+        if (op !== last.op || h.score !== last.score) {
+          $('#vs-me').textContent = fmt(h.score);
+          $('#vs-op').textContent = fmt(op);
+          const tot = h.score + op;
+          $('#vs-fill').style.width = (tot ? (h.score / tot) * 100 : 50).toFixed(1) + '%';
+        }
+        last.op = op;
+      }
+      last.score = h.score;
+      last.p = p;
     },
     onEnd: (res) => (state.studio.active ? studioFinish(res) : showResult(res)),
   });
@@ -289,12 +321,10 @@ function setKit(lv) {
   renderer.newLane = lv.newInstrument ?? -1;
 }
 
-/** 화면을 레인 수만큼 세로로 나눠서 누른 칸의 악기 */
+/** 피아노 타일처럼 세로 줄: 누른 줄의 악기 (악기 그림을 정확히 안 눌러도 됨) */
 function laneFromX(x) {
   const r = $('#game-canvas').getBoundingClientRect();
-  const order = state.game ? state.game.laneOrder : [0, 1];
-  const i = Math.floor(((x - r.left) / r.width) * order.length);
-  return order[Math.max(0, Math.min(order.length - 1, i))];
+  return renderer.laneAt(x - r.left);
 }
 
 // 키보드: 레인 수에 따라 왼쪽부터 키 배정
@@ -395,8 +425,88 @@ function showResult(res) {
   nb.hidden = !next;
   if (next) nb.innerHTML = `다음 ${next.id}단계 ${isLocked(next) ? icon('lock') : ''}`;
   $('#btn-rank').hidden = state.auto;
+  $('#btn-vs').hidden = state.auto;
+  // 박자가 계속 한쪽으로 밀리면 (블루투스 이어폰 등) 한 번에 맞추기
+  const hits = (res.counts.perfect || 0) + (res.counts.great || 0) + (res.counts.good || 0);
+  if (!state.auto && hits >= 8 && Math.abs(res.avgOffsetMs) >= 40) {
+    const nextOffset = clampOffset(state.settings.offsetMs + res.avgOffsetMs);
+    if (nextOffset !== state.settings.offsetMs)
+      $('#res-meta').innerHTML += `<br><button class="btn btn-sm btn-ghost res-tune" data-action="tune-sync" data-offset="${nextOffset}">박자가 안 맞나요? 내 손에 맞게 자동 보정</button>`;
+  }
+  // 1:1 대결 결과
+  const vs = !state.auto && state.vs && state.vs.levelId === res.levelId ? state.vs : null;
+  const box = $('#res-vs');
+  box.hidden = !vs;
+  let outcome = null;
+  if (vs) {
+    outcome = versusOutcome(res.score, vs.score);
+    const word = { win: '승리! 🎉', lose: '아쉽게 패배…', draw: '무승부!' }[outcome];
+    box.innerHTML = `<div class="vs-result ${outcome}">${word}</div>
+      <div class="vs-row"><span>나<b>${fmt(res.score)}</b></span><span class="vs-x">VS</span><span>${escapeHtml(vs.name)}<b>${fmt(vs.score)}</b></span></div>`;
+    $('#btn-vs').innerHTML = `${icon('swords')} ${outcome === 'win' ? '이겼다고 도전장 보내기' : '다시 도전장 보내기'}`;
+  } else $('#btn-vs').innerHTML = `${icon('swords')} 친구에게 1:1 도전장`;
   show('screen-result');
   renderLevels();
+  playResultSounds(res.stars, outcome);
+}
+
+const clampOffset = (ms) => Math.max(-200, Math.min(200, Math.round(ms / 5) * 5));
+
+/** 결과 화면 별이 하나씩 '띵! 띵! 띵!' (CSS 별 애니메이션과 같은 타이밍) */
+function playResultSounds(stars, outcome) {
+  if (!audio.ctx) return;
+  const t0 = audio.ctx.currentTime;
+  for (let i = 0; i < stars; i++) audio.starChime(t0 + 0.25 + i * 0.28 + 0.1, i);
+  if (stars === 3) audio.fanfare(t0 + 0.25 + 3 * 0.28 + 0.15);
+  if (stars === 0) audio.aww(t0 + 0.35);
+  if (outcome === 'win' && stars < 3) audio.fanfare(t0 + 1.0);
+  if (outcome === 'lose' && stars > 0) audio.aww(t0 + 1.0);
+}
+
+// ---------------- 1:1 대결 (도전장 링크) ----------------
+function siteUrl() {
+  return state.cfg.siteUrl || location.origin + location.pathname.replace(/index\.html$/, '');
+}
+
+function sendChallenge() {
+  const r = state.lastResult;
+  if (!r || r.auto) return;
+  const nick = load('nick', '');
+  if (!nick) {
+    $('#nick-input').value = '';
+    openModal('modal-nick');
+    setTimeout(() => $('#nick-input').focus(), 50);
+    return;
+  }
+  shareChallenge(nick);
+}
+
+async function shareChallenge(nick) {
+  const r = state.lastResult;
+  const lv = getLevel(r.levelId);
+  const code = encodeChallenge({ name: nick, levelId: r.levelId, score: r.score, stars: r.stars, grade: r.grade, accuracy: r.accuracy, timeline: r.timeline });
+  const url = `${siteUrl()}?vs=${code}`;
+  const text = `⚔️ ${nick}의 1:1 도전장! 콩콩 드럼 ${lv.name}(${lv.composer}) ${fmt(r.score)}점. 이길 수 있어?`;
+  try {
+    if (navigator.share) {
+      await navigator.share({ title: '콩콩 드럼 1:1 도전장', text, url });
+      return;
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+  }
+  const ok = await copyText(`${text} ${url}`);
+  toast(ok ? '도전장 링크를 복사했어요! 카톡·DM에 붙여넣어 보내세요' : '링크를 복사하지 못했어요', 3200);
+}
+
+function openIncomingVs(ch) {
+  const lv = getLevel(ch.levelId);
+  state.vsIncoming = ch;
+  $('#vs-in-name').textContent = ch.name;
+  $('#vs-in-level').textContent = `${lv.id}단계 · ${lv.composer} ${lv.name}`;
+  $('#vs-in-score').textContent = `${fmt(ch.score)}점`;
+  $('#vs-in-stars').innerHTML = starsHTML(ch.stars);
+  openModal('modal-vs');
 }
 
 async function submitRank() {
@@ -438,9 +548,9 @@ async function shareResult() {
   const r = state.lastResult;
   if (!r) return;
   toast('결과 카드 만드는 중…', 1200);
-  const siteUrl = state.cfg.siteUrl || location.origin + location.pathname.replace(/index\.html$/, '');
-  const canvas = await makeShareCard(r, { siteUrl, handle: handle() });
-  const text = `콩콩 드럼 ${r.levelId}단계 ${r.grade} ${fmt(r.score)}점! 너도 엄지로 쳐 봐 👉 ${siteUrl}`;
+  const url = siteUrl();
+  const canvas = await makeShareCard(r, { siteUrl: url, handle: handle() });
+  const text = `콩콩 드럼 ${r.levelId}단계 ${r.grade} ${fmt(r.score)}점! 너도 엄지로 쳐 봐 👉 ${url}`;
   try {
     const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
     const file = new File([blob], `kongkong-lv${r.levelId}.png`, { type: 'image/png' });
@@ -951,6 +1061,39 @@ const ACTIONS = {
     refreshTitle();
     show('screen-title');
   },
+  today: () => tryStart(todayLevel().id),
+  'send-vs': sendChallenge,
+  'close-vs': () => {
+    state.vsIncoming = null;
+    closeModal('modal-vs');
+  },
+  'accept-vs': () => {
+    const ch = state.vsIncoming;
+    closeModal('modal-vs');
+    if (!ch) return;
+    state.vs = ch;
+    state.vsIncoming = null;
+    tryStart(ch.levelId);
+  },
+  'close-nick': () => closeModal('modal-nick'),
+  'save-nick': () => {
+    const nick = cleanName($('#nick-input').value);
+    if (!nick) {
+      toast('이름을 한 글자 이상 써 주세요');
+      return;
+    }
+    save('nick', nick);
+    closeModal('modal-nick');
+    shareChallenge(nick);
+  },
+  'tune-sync': () => {
+    const b = $('.res-tune');
+    if (!b) return;
+    state.settings.offsetMs = clampOffset(Number(b.dataset.offset));
+    saveSettings(state.settings);
+    b.remove();
+    toast(`박자 보정 ${state.settings.offsetMs > 0 ? '+' : ''}${state.settings.offsetMs}ms 저장! 다시 해 보세요`, 2800);
+  },
   'play-hot': () => tryStart(Math.max(4, gateFrom())),
   'follow-go': followGo,
   'follow-done': () => completeFollow(),
@@ -1088,7 +1231,7 @@ function bindActions() {
     if (calib.active) calib.taps.push(audio.heardTime(e.timeStamp));
   });
   // 오디오는 첫 터치에서 깨움 (iOS / 인앱 브라우저)
-  const wake = () => audio.unlock();
+  const wake = () => audio.unlock().then(() => audio.loadPiano());
   window.addEventListener('pointerdown', wake, { once: true, capture: true });
   window.addEventListener('keydown', wake, { once: true, capture: true });
 
@@ -1122,6 +1265,8 @@ async function boot() {
   bindGameInput();
   bindSettings();
   audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx });
+  audio.prefetchPiano();
+  refreshToday();
 
   if (isInApp() && !load('inappDismissed', false)) $('#inapp-note').hidden = false;
 
@@ -1150,6 +1295,17 @@ async function boot() {
     else remove('softPending');
   }
   if (params.get('screen') === 'levels') show('screen-levels');
+  // 친구가 보낸 1:1 도전장 링크로 들어옴
+  if (params.get('vs')) {
+    const ch = decodeChallenge(params.get('vs'));
+    try {
+      const u = new URL(location.href);
+      u.searchParams.delete('vs');
+      history.replaceState(null, '', u.pathname + u.search + u.hash);
+    } catch {}
+    if (ch) openIncomingVs(ch);
+    else toast('도전장 링크가 깨졌어요. 다시 받아 주세요!', 3000);
+  }
   document.documentElement.dataset.api = state.api.mode;
   if (params.get('debug') === '1') window.__kk = { state, audio, renderer };
 }

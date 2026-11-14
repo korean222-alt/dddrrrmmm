@@ -1,4 +1,6 @@
-// 오디오 엔진: 음원 파일 없이 Web Audio 로 드럼/반주를 합성합니다.
+// 오디오 엔진: 드럼은 Web Audio 합성, 곡(멜로디·화음·베이스)은 진짜 그랜드 피아노 샘플로 연주합니다.
+//   피아노 샘플: Salamander Grand Piano V3 (Alexander Holm, CC BY 3.0) — public/audio/piano/
+//   샘플을 못 불러오면 예전 합성음으로 대신 연주합니다.
 // - 모든 박자 판정은 AudioContext 시계 기준 (setTimeout 보다 훨씬 정확)
 // - heardTime(): "지금 스피커에서 나오고 있는 소리"의 시각. 출력 지연까지 반영.
 
@@ -29,11 +31,94 @@ function makeSilentWavUrl() {
   return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
 }
 
+// 피아노 샘플: C · D# · F# · A (단3도 간격) → 가장 가까운 샘플을 최대 ±1.5음 올리고 내려서 씀
+const PIANO_BASE = 'audio/piano/';
+const PIANO_NOTES = [];
+for (let o = 2; o <= 6; o++) for (const [n, pc] of [['C', 0], ['Ds', 3], ['Fs', 6], ['A', 9]]) PIANO_NOTES.push({ file: `${n}${o}.mp3`, midi: 12 * (o + 1) + pc });
+PIANO_NOTES.push({ file: 'C7.mp3', midi: 96 });
+const PIANO_GAIN = 1.9; // 샘플이 합성음보다 작게 녹음돼 있어서 키움 (곡이 드럼에 묻히지 않게)
+
+/** 샘플 앞의 무음 길이(초): 음이 실제로 시작하는 지점부터 틀어야 박자가 정확함 */
+function onsetOf(buf) {
+  const d = buf.getChannelData(0);
+  const n = Math.min(d.length, Math.floor(buf.sampleRate * 0.2));
+  let peak = 0;
+  for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(d[i]));
+  const th = peak * 0.05;
+  for (let i = 0; i < n; i++) if (Math.abs(d[i]) > th) return Math.max(0, i / buf.sampleRate - 0.002);
+  return 0;
+}
+
 export class AudioEngine {
   constructor() {
     this.ctx = null;
     this.volumes = { music: 0.8, sfx: 1 };
     this._clock = null;
+    this.piano = null; // [{ midi, buf, offset }] 불러오면 채워짐
+    this._pianoRaw = null;
+    this._pianoLoading = null;
+  }
+
+  /** 피아노 샘플 파일 미리 받기 (AudioContext 없이도 가능 → 페이지 열자마자 호출) */
+  prefetchPiano(base = PIANO_BASE) {
+    if (this._pianoRaw) return this._pianoRaw;
+    this._pianoRaw = Promise.all(
+      PIANO_NOTES.map((n) =>
+        fetch(base + n.file)
+          .then((r) => (r.ok ? r.arrayBuffer() : null))
+          .catch(() => null)
+      )
+    );
+    return this._pianoRaw;
+  }
+
+  /** 피아노 샘플 디코딩. 실패해도 에러 없이 false (합성음으로 대신 연주) */
+  loadPiano() {
+    if (this.piano) return Promise.resolve(true);
+    if (this._pianoLoading) return this._pianoLoading;
+    const ctx = this.ensure();
+    this._pianoLoading = this.prefetchPiano().then(async (raws) => {
+      const out = [];
+      await Promise.all(
+        raws.map(async (ab, i) => {
+          if (!ab) return;
+          try {
+            const buf = await new Promise((res, rej) => {
+              const p = ctx.decodeAudioData(ab, res, rej);
+              if (p && p.then) p.then(res, rej);
+            });
+            out.push({ midi: PIANO_NOTES[i].midi, buf, offset: onsetOf(buf) });
+          } catch {}
+        })
+      );
+      if (out.length < PIANO_NOTES.length * 0.8) {
+        this._pianoLoading = null;
+        return false;
+      }
+      out.sort((a, b) => a.midi - b.midi);
+      this.piano = out;
+      return true;
+    });
+    return this._pianoLoading;
+  }
+
+  /** 피아노 한 음. vel 0~1, dur 초 뒤에 건반을 뗌(댐퍼) */
+  pianoNote(t, midi, dur, vel = 0.8, dest = this.musicBus) {
+    const ctx = this.ctx;
+    let s = this.piano[0];
+    for (const p of this.piano) if (Math.abs(p.midi - midi) < Math.abs(s.midi - midi)) s = p;
+    const src = ctx.createBufferSource();
+    src.buffer = s.buf;
+    src.playbackRate.value = Math.pow(2, (midi - s.midi) / 12);
+    const g = ctx.createGain();
+    const rel = t + Math.max(0.08, dur);
+    const v = vel * PIANO_GAIN;
+    g.gain.setValueAtTime(v, t);
+    g.gain.setValueAtTime(v, rel);
+    g.gain.setTargetAtTime(0, rel, 0.08);
+    src.connect(g).connect(dest);
+    src.start(Math.max(t, ctx.currentTime), s.offset);
+    src.stop(rel + 0.6);
   }
 
   ensure() {
@@ -289,6 +374,56 @@ export class AudioEngine {
     else if (lane === CRASH) this.crash(t, dest, 0.42);
   }
 
+  /** 결과 화면 별 하나 '띵!' (i = 0,1,2 갈수록 높아짐) */
+  starChime(t = this.ctx.currentTime, i = 0) {
+    const ctx = this.ctx;
+    const base = [1046.5, 1318.5, 1568][Math.min(2, i)];
+    const out = ctx.createGain();
+    out.gain.value = 0.55;
+    out.connect(this.sfxBus);
+    for (const [mult, amp, decay] of [[1, 0.5, 0.9], [2, 0.18, 0.5], [3.01, 0.1, 0.3], [4.2, 0.06, 0.18]]) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(base * mult * 0.985, t);
+      o.frequency.exponentialRampToValueAtTime(base * mult, t + 0.03);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(amp, t + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0005, t + decay);
+      o.connect(g).connect(out);
+      o.start(t);
+      o.stop(t + decay + 0.05);
+    }
+    // 반짝이 (짧고 밝은 노이즈)
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 7000;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, t);
+    ng.gain.exponentialRampToValueAtTime(0.12, t + 0.003);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+    hp.connect(ng).connect(out);
+    this._noise(t, 0.27, hp);
+  }
+
+  /** 별 3개 다 모으면 '짜잔' 화음 */
+  fanfare(t = this.ctx.currentTime) {
+    const notes = [72, 76, 79, 84];
+    if (this.piano) {
+      notes.forEach((m, k) => this.pianoNote(t + k * 0.06, m, 1.2, 0.7, this.sfxBus));
+      return;
+    }
+    notes.forEach((m, k) => this.lead(t + k * 0.06, m, 1, this.sfxBus));
+  }
+
+  /** 별 0개 / 대결 패배: '띠로리' */
+  aww(t = this.ctx.currentTime) {
+    [[67, 0], [63, 0.22], [60, 0.44]].forEach(([m, d]) => {
+      if (this.piano) this.pianoNote(t + d, m, 0.3, 0.55, this.sfxBus);
+      else this.lead(t + d, m, 0.25, this.sfxBus);
+    });
+  }
+
   /** 녹화용 오디오 스트림 (게임 소리 전체) */
   captureStream() {
     const ctx = this.ensure();
@@ -315,6 +450,7 @@ export class AudioEngine {
 
   /** 둥글고 부드러운 베이스 (킥처럼 '쿵' 하고 들리지 않게 어택을 느리게) */
   bass(t, midi, dur, dest = this.musicBus) {
+    if (this.piano) return this.pianoNote(t, midi + 12, dur, 0.62, dest);
     const ctx = this.ctx;
     const o = ctx.createOscillator();
     const f = ctx.createBiquadFilter();
@@ -333,6 +469,10 @@ export class AudioEngine {
   }
 
   pluck(t, midis, dur, dest = this.musicBus) {
+    if (this.piano) {
+      for (const m of midis) this.pianoNote(t, m, dur, 0.3, dest);
+      return;
+    }
     const ctx = this.ctx;
     const f = ctx.createBiquadFilter();
     f.type = 'lowpass';
@@ -356,6 +496,7 @@ export class AudioEngine {
 
   /** 멜로디: 건반 느낌(때리면 밝고 금방 잦아드는 소리)으로 곡이 또렷하게 들리게 */
   lead(t, midi, dur, dest = this.musicBus) {
+    if (this.piano) return this.pianoNote(t, midi, dur, 1, dest);
     const ctx = this.ctx;
     const f = ctx.createBiquadFilter();
     f.type = 'lowpass';

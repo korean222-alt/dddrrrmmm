@@ -178,3 +178,39 @@ test('checkFollow: fake 는 항상 확인됨, real 은 is_user_follow_business �
   const real2 = createInstagram({ ...base, followCheckMode: 'real', ig: { ...base.ig, accessToken: 't' } }, fetchMissing);
   await assert.rejects(real2.checkFollow('1'), /is_user_follow_business/);
 });
+
+test('1:1 도전장: 링크로 주고받기 + 위조/깨진 값 거부', async () => {
+  const { encodeChallenge, decodeChallenge, opponentScoreAt, versusOutcome, todayLevel, kstDateKey, cleanName } = await import('../public/js/versus.js');
+  const lv = LEVELS[5];
+  const timeline = lv.bars.map((_, i) => (i + 1) * 1000);
+  const r = { name: '쿵짝왕<script>', levelId: lv.id, score: timeline.at(-1), stars: 2, grade: 'A', accuracy: 0.912, timeline };
+  const code = encodeChallenge(r);
+  assert.match(code, /^[A-Za-z0-9_-]+$/);
+  const back = decodeChallenge(code);
+  assert.equal(back.name, '쿵짝왕script');
+  assert.equal(back.levelId, lv.id);
+  assert.equal(back.score, r.score);
+  assert.deepEqual(back.timeline, timeline);
+  assert.equal(back.accuracy, 0.912);
+  // 만점보다 큰 점수, 마디 수 다름, 깨진 문자열은 거부
+  assert.equal(decodeChallenge(encodeChallenge({ ...r, score: maxScore(lv) + 1, timeline: [...timeline.slice(0, -1), maxScore(lv) + 1] })), null);
+  assert.equal(decodeChallenge(encodeChallenge({ ...r, timeline: timeline.slice(1) })), null);
+  assert.equal(decodeChallenge('%%%'), null);
+  assert.equal(decodeChallenge(''), null);
+  // 실시간 상대 점수: 마디 사이는 보간
+  assert.equal(opponentScoreAt(timeline, -1), 0);
+  assert.equal(opponentScoreAt(timeline, 0.5), 500);
+  assert.equal(opponentScoreAt(timeline, 1), 1000);
+  assert.equal(opponentScoreAt(timeline, 99), timeline.at(-1));
+  assert.equal(versusOutcome(10, 5), 'win');
+  assert.equal(versusOutcome(5, 10), 'lose');
+  assert.equal(versusOutcome(5, 5), 'draw');
+  assert.equal(cleanName('  가나다라마바사아자차카  '), '가나다라마바사아자차');
+  // 오늘의 노래: 한국 시간 자정에 바뀌고 이틀 연속 같은 곡 없음
+  assert.equal(kstDateKey(new Date('2026-11-14T15:30:00Z')), '2026-11-15');
+  for (let d = 0; d < 14; d++) {
+    const a = todayLevel(new Date(Date.UTC(2026, 10, 1 + d, 3)));
+    const b = todayLevel(new Date(Date.UTC(2026, 10, 2 + d, 3)));
+    assert.ok(a && b && a.id !== b.id);
+  }
+});

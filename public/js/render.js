@@ -1,26 +1,20 @@
 // 게임 화면 그리기 (Canvas 2D)
-// 콘셉트: 공연 무대 위 드럼 세트. 마스코트 드러머가 직접 치고, 노트는 드럼 게임 관례대로
-//   킥 = 레인을 가로지르는 가로 막대 (페달 밟는 느낌), 스네어 = 둥근 드럼 헤드 패드.
+// 콘셉트: 공연 무대 + 피아노 타일식 세로 줄. 줄 맨 아래에 악기가 놓여 있고, 줄 어디를 눌러도 그 악기가 울림.
+//   노트는 드럼 게임 관례대로 킥 = 가로 막대, 스네어 = 둥근 드럼 헤드 패드, 하이햇/크래시 = 심벌.
 // 타격감: 킥은 화면 전체가 '쿵' 하고 눌리고(펀치), 스네어는 '짝' 하고 옆으로 튀며 불꽃.
 
 import { buildRasters, SNARE_VIEW } from './mascot.js';
 
 export const LANE = [
-  { key: 'kick', main: '#FF8A4C', light: '#FFC08F', dark: '#C9532A', rgb: '255,138,76', thumb: '왼쪽 엄지', word: '킥 (쿵)' },
-  { key: 'snare', main: '#62C8FF', light: '#D7F1FF', dark: '#2F86CF', rgb: '98,200,255', thumb: '오른쪽 엄지', word: '스네어 (짝)' },
-  { key: 'hat', main: '#FFD24A', light: '#FFF2B8', dark: '#B9821C', rgb: '255,210,74', thumb: '오른쪽 엄지', word: '하이햇 (츠)' },
-  { key: 'crash', main: '#C38BFF', light: '#EBDDFF', dark: '#7F4CCF', rgb: '195,139,255', thumb: '왼쪽 엄지', word: '크래시 (챙)' },
+  { key: 'kick', main: '#FF8A4C', light: '#FFC08F', dark: '#C9532A', rgb: '255,138,76', thumb: '왼쪽 엄지', word: '킥 (쿵)', short: '쿵' },
+  { key: 'snare', main: '#62C8FF', light: '#D7F1FF', dark: '#2F86CF', rgb: '98,200,255', thumb: '오른쪽 엄지', word: '스네어 (짝)', short: '짝' },
+  { key: 'hat', main: '#FFD24A', light: '#FFF2B8', dark: '#B9821C', rgb: '255,210,74', thumb: '오른쪽 엄지', word: '하이햇 (츠)', short: '츠' },
+  { key: 'crash', main: '#C38BFF', light: '#EBDDFF', dark: '#7F4CCF', rgb: '195,139,255', thumb: '왼쪽 엄지', word: '크래시 (챙)', short: '챙' },
 ];
 const KICK = 0;
 const SNARE = 1;
 const HAT = 2;
 const CRASH = 3;
-/** 레인 개수별 화면 위치 (게임 폭 비율) */
-const LANE_LAYOUT = {
-  2: { xs: [0.3, 0.7], half: 0.14 },
-  3: { xs: [0.2, 0.5, 0.8], half: 0.125 },
-  4: { xs: [0.135, 0.378, 0.622, 0.865], half: 0.108 },
-};
 
 export const JUDGE_STYLE = {
   perfect: { text: 'PERFECT', color: '#FFE45C' },
@@ -65,74 +59,57 @@ export class Renderer {
     this.cheerUntil = -9;
   }
 
+  /**
+   * 피아노 타일처럼: 화면을 레인 수만큼 세로 줄로 나누고, 줄 맨 아래에 그 줄의 악기가 놓임.
+   * 줄 아무 데나 누르면 그 악기가 울림 (악기를 정확히 안 눌러도 됨).
+   */
   async resize(maxDpr = 2) {
     const dpr = this.studio ? maxDpr : Math.min(window.devicePixelRatio || 1, maxDpr);
     const W = this.canvas.clientWidth || window.innerWidth;
     const H = this.canvas.clientHeight || window.innerHeight;
     this.canvas.width = Math.round(W * dpr);
     this.canvas.height = Math.round(H * dpr);
-    const GW = Math.min(W, H * 0.6);
+    const GW = Math.min(W, H * 0.62);
     const GX = (W - GW) / 2;
     const studio = !!this.studio;
+    const n = this.laneOrder.length;
+    const laneW = GW / n;
     const L = {
-      W, H, dpr, GW, GX, studio,
+      W, H, dpr, GW, GX, studio, n, laneW,
       cx: W / 2,
       topY: H * (studio ? 0.25 : 0.155),
-      strikeY: H * 0.585,
+      strikeY: H * (studio ? 0.7 : 0.745),
       laneX: [],
-      laneHalf: 0,
-      floorY: H * 0.865,
-      drummerX: GX + GW * 0.5,
-      drummerBase: H * 0.8,
-      drummerW: GW * 0.38,
-      bassX: GX + GW * 0.29,
-      bassY: H * 0.795,
-      bassW: GW * 0.4,
-      snareX: GX + GW * 0.705,
-      snareY: H * 0.772,
-      snareW: GW * 0.36,
-      hatX: GX + GW * 0.95,
-      hatY: H * 0.69,
-      hatR: GW * 0.12,
-      crashX: GX + GW * 0.07,
-      crashY: H * 0.635,
-      crashR: GW * 0.14,
+      laneHalf: laneW / 2,
     };
-    const lay = LANE_LAYOUT[this.laneOrder.length] || LANE_LAYOUT[2];
-    this.laneOrder.forEach((lane, i) => (L.laneX[lane] = GX + GW * lay.xs[i]));
-    L.laneHalf = GW * lay.half;
-    L.x0 = L.laneX[this.laneOrder[0]] - L.laneHalf;
-    L.x1 = L.laneX[this.laneOrder[this.laneOrder.length - 1]] + L.laneHalf;
-    L.barW = L.laneHalf * 1.72;
+    this.laneOrder.forEach((lane, i) => (L.laneX[lane] = GX + laneW * (i + 0.5)));
+    L.x0 = GX;
+    L.x1 = GX + GW;
+    // 줄 맨 아래 악기 크기 (판정선 위치에 악기 중심)
+    L.instR = Math.min(laneW * 0.36, H * 0.07, GW * 0.17);
+    L.barW = Math.min(laneW * 0.8, GW * 0.34);
     L.barH = GW * 0.046;
-    L.padR = Math.min(GW * 0.066, L.laneHalf * 0.6);
-    L.snareScale = L.snareW / SNARE_VIEW.w;
+    L.padR = Math.min(laneW * 0.3, GW * 0.085);
+    L.cymR = Math.min(laneW * 0.4, GW * 0.13);
+    L.mascotW = GW * 0.17;
+    L.mascotBase = H - 4;
     this.L = L;
-    const key = `${Math.round(L.drummerW * dpr)}x${Math.round(L.bassW * dpr)}`;
+    const drumPx = Math.round(L.instR * 2.7 * dpr);
+    const key = `${Math.round(L.mascotW * dpr)}x${drumPx}`;
     if (this._rasterKey !== key) {
-      this.rasters = await buildRasters(Math.round(L.drummerW * dpr), Math.round(L.bassW * dpr));
+      this.rasters = await buildRasters(Math.round(L.mascotW * dpr), drumPx);
       this._rasterKey = key;
     }
-    this._sticks();
     this._drawStatic();
   }
 
-  /** 드러머 양손 스틱: 화면 오른쪽 손 = 스네어, 왼쪽 손 = 크래시 */
-  _sticks() {
+  /** 화면 x 좌표(캔버스 기준) → 그 줄의 악기. 게임판 밖이면 가까운 줄 */
+  laneAt(x) {
     const L = this.L;
-    const w = L.drummerW;
-    const top = L.drummerBase - w * 0.945;
-    const hand = (hx) => ({ px: L.drummerX - w / 2 + (hx / 200) * w, py: top + (160 / 200) * w });
-    const mk = (h, tx, ty, dir, lift) => {
-      const hit = Math.atan2(ty - h.py, tx - h.px);
-      const dist = Math.hypot(tx - h.px, ty - h.py);
-      return { ...h, hit, rest: hit + lift * dir, len: (dist * 120) / 92, dir };
-    };
-    const sy = L.snareY - SNARE_VIEW.ry * L.snareScale * 0.1;
-    this.stickR = mk(hand(172), L.snareX - L.GW * 0.02, sy, 1, -0.75);
-    this.stickL = mk(hand(28), L.crashX + L.crashR * 0.35, L.crashY + L.crashR * 0.05, -1, -0.22);
-    // 하이햇 칠 때 오른손 스틱은 하이햇 쪽으로
-    this.stickRH = mk(hand(172), L.hatX - L.hatR * 0.3, L.hatY - L.hatR * 0.05, 1, -0.55);
+    const order = this.laneOrder;
+    if (!L) return order[0];
+    const i = Math.floor((x - L.GX) / L.laneW);
+    return order[clamp(i, 0, order.length - 1)];
   }
 
   _drawStatic() {
@@ -145,68 +122,60 @@ export class Renderer {
     const bg = g.createLinearGradient(0, 0, 0, L.H);
     bg.addColorStop(0, '#160F38');
     bg.addColorStop(0.55, '#33186A');
-    bg.addColorStop(0.86, '#5B2167');
+    bg.addColorStop(1, '#4A1C5E');
     g.fillStyle = bg;
     g.fillRect(0, 0, L.W, L.H);
     // LED 벽
     const step = L.GW * 0.045;
     g.fillStyle = 'rgba(255,255,255,0.06)';
-    for (let y = step; y < L.floorY - step; y += step)
+    for (let y = step; y < L.H; y += step)
       for (let x = (L.W % step) / 2; x < L.W; x += step) {
         g.beginPath();
         g.arc(x, y, 1.4, 0, Math.PI * 2);
         g.fill();
       }
-    // 조명 트러스
     g.fillStyle = '#0E0A24';
     g.fillRect(0, 0, L.W, L.H * 0.022);
-    // 무대 바닥 (나무)
-    const fl = g.createLinearGradient(0, L.floorY, 0, L.H);
-    fl.addColorStop(0, '#8A5236');
-    fl.addColorStop(1, '#3E2218');
-    g.fillStyle = fl;
-    g.fillRect(0, L.floorY, L.W, L.H - L.floorY);
-    g.fillStyle = 'rgba(255,220,180,0.35)';
-    g.fillRect(0, L.floorY, L.W, 2);
-    g.strokeStyle = 'rgba(0,0,0,0.18)';
-    g.lineWidth = 1;
-    for (let k = 1; k < 6; k++) {
-      const y = L.floorY + (L.H - L.floorY) * (k / 6) ** 1.4;
+    // 세로 줄(레인): 위에서 맨 아래까지. 줄 전체가 버튼
+    const y0 = L.topY;
+    const padTop = L.strikeY - L.instR * 1.45;
+    this.laneOrder.forEach((lane, i) => {
+      const C = LANE[lane];
+      const x = L.GX + L.laneW * i;
+      const lg = g.createLinearGradient(0, y0, 0, L.H);
+      lg.addColorStop(0, `rgba(${C.rgb},0.02)`);
+      lg.addColorStop((padTop - y0) / (L.H - y0), `rgba(${C.rgb},0.16)`);
+      lg.addColorStop(1, `rgba(${C.rgb},0.34)`);
+      g.fillStyle = 'rgba(10,6,28,0.55)';
+      g.fillRect(x, y0, L.laneW, L.H - y0);
+      g.fillStyle = lg;
+      g.fillRect(x, y0, L.laneW, L.H - y0);
+      // 아래쪽 '누르는 판' (악기가 놓인 자리)
+      const m = Math.min(8, L.laneW * 0.06);
+      rr(g, x + m, padTop, L.laneW - m * 2, L.H - padTop + 20, L.laneW * 0.12);
+      g.fillStyle = `rgba(${C.rgb},0.16)`;
+      g.fill();
+      g.lineWidth = 2;
+      g.strokeStyle = `rgba(${C.rgb},0.55)`;
+      g.stroke();
+    });
+    // 줄 사이 구분선
+    for (let i = 0; i <= this.laneOrder.length; i++) {
+      const x = L.GX + L.laneW * i;
+      const lane = this.laneOrder[Math.min(i, this.laneOrder.length - 1)];
+      const lg = g.createLinearGradient(0, y0, 0, L.H);
+      lg.addColorStop(0, 'rgba(255,255,255,0.05)');
+      lg.addColorStop(0.7, `rgba(${LANE[lane].rgb},0.6)`);
+      lg.addColorStop(1, `rgba(${LANE[lane].rgb},0.25)`);
+      g.strokeStyle = lg;
+      g.lineWidth = i === 0 || i === this.laneOrder.length ? 3 : 2;
       g.beginPath();
-      g.moveTo(0, y);
-      g.lineTo(L.W, y);
+      g.moveTo(x, y0);
+      g.lineTo(x, L.H);
       g.stroke();
     }
-    // 노트 하이웨이 (드럼 악보판)
-    const x0 = L.x0;
-    const x1 = L.x1;
-    const y0 = L.topY;
-    const y1 = L.strikeY + L.GW * 0.07;
-    rr(g, x0 - 6, y0, x1 - x0 + 12, y1 - y0, L.GW * 0.04);
-    g.fillStyle = 'rgba(10,6,28,0.66)';
-    g.fill();
-    g.lineWidth = 3;
-    g.strokeStyle = 'rgba(255,255,255,0.14)';
-    g.stroke();
-    this.laneOrder.forEach((i) => {
-      const lg = g.createLinearGradient(0, y0, 0, y1);
-      lg.addColorStop(0, `rgba(${LANE[i].rgb},0)`);
-      lg.addColorStop(1, `rgba(${LANE[i].rgb},0.2)`);
-      g.fillStyle = lg;
-      g.fillRect(L.laneX[i] - L.laneHalf, y0 + 8, L.laneHalf * 2, y1 - y0 - 16);
-      for (const side of [-1, 1]) {
-        const x = L.laneX[i] + side * L.laneHalf;
-        const rg = g.createLinearGradient(0, y0, 0, y1);
-        rg.addColorStop(0, `rgba(${LANE[i].rgb},0)`);
-        rg.addColorStop(1, `rgba(${LANE[i].rgb},0.85)`);
-        g.strokeStyle = rg;
-        g.lineWidth = 2;
-        g.beginPath();
-        g.moveTo(x, y0 + 10);
-        g.lineTo(x, y1 - 10);
-        g.stroke();
-      }
-    });
+    g.fillStyle = 'rgba(255,255,255,0.18)';
+    g.fillRect(L.x0, y0, L.x1 - L.x0, 2);
   }
 
   // ---------- 이벤트 ----------
@@ -234,7 +203,7 @@ export class Renderer {
       this.fx.booms.push({ t0: rt, pow });
     } else {
       if (lane === SNARE) this.crackAt = rt;
-      const at = lane === HAT ? [L.hatX, L.hatY] : lane === CRASH ? [L.crashX, L.crashY] : [L.snareX, L.snareY - L.GW * 0.01];
+      const at = [L.laneX[lane], L.strikeY - L.instR * 0.2];
       const n = judge === 'perfect' ? 12 : 7;
       for (let i = 0; i < n; i++) {
         const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.4;
@@ -273,26 +242,47 @@ export class Renderer {
     const fever = st.combo >= 30;
 
     this._drawSpots(st, rt, pe, fever);
+    this._drawLaneFlash(rt);
     ctx.save();
-    const sc = 1 + pe * 0.014;
-    ctx.translate(L.cx, L.H * 0.6);
+    const sc = 1 + pe * 0.012;
+    ctx.translate(L.cx, L.strikeY);
     ctx.scale(sc, sc);
-    ctx.translate(-L.cx + (Math.random() - 0.5) * ce * 3, -L.H * 0.6 + pe * 4);
+    ctx.translate(-L.cx + (Math.random() - 0.5) * ce * 3, -L.strikeY + pe * 3);
 
     this._drawBeatLines(st);
     this._drawCombo(st, rt);
+    this._drawInstruments(st, rt, pe);
     this._drawTargets(st, rt);
     this._drawNotes(st);
     this._drawBursts(rt);
-    this._drawKit(st, rt, pe);
+    this._drawSparks(rt);
     this._drawJudges(rt);
     ctx.restore();
 
-    this._drawCrowd(st, rt, fever);
+    this._drawMascot(st, rt);
     this._drawBanners(rt);
-    this._drawCountIn(st);
+    this._drawCountIn(st, rt);
     if (this.studio) this._drawStudio(st);
   }
+
+  /** 누른 줄 전체가 번쩍 (줄 어디를 눌러도 된다는 느낌) */
+  _drawLaneFlash(rt) {
+    const ctx = this.ctx;
+    const L = this.L;
+    for (const lane of this.laneOrder) {
+      const a = rt - this.hitAt[lane];
+      if (a > 0.18) continue;
+      const k = 1 - a / 0.18;
+      const x = L.laneX[lane] - L.laneHalf;
+      const gr = ctx.createLinearGradient(0, L.topY, 0, L.H);
+      gr.addColorStop(0, `rgba(${LANE[lane].rgb},0)`);
+      gr.addColorStop(0.75, `rgba(${LANE[lane].rgb},${0.28 * k})`);
+      gr.addColorStop(1, `rgba(${LANE[lane].rgb},${0.45 * k})`);
+      ctx.fillStyle = gr;
+      ctx.fillRect(x, L.topY, L.laneW, L.H - L.topY);
+    }
+  }
+
 
   _drawSpots(st, rt, pe, fever) {
     const ctx = this.ctx;
@@ -357,42 +347,49 @@ export class Renderer {
     }
   }
 
+  /** 판정선: 악기 위를 가로지르는 밝은 선 + 악기마다 고리 */
   _drawTargets(st, rt) {
     const ctx = this.ctx;
     const L = this.L;
     const phase = st.beatDur ? ((st.now / st.beatDur) % 1 + 1) % 1 : 0;
     const pulse = st.playing ? Math.pow(1 - phase, 3) : 0;
-    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-    ctx.lineWidth = 2;
+    ctx.save();
+    ctx.strokeStyle = `rgba(255,255,255,${0.35 + pulse * 0.35})`;
+    ctx.lineWidth = 3;
+    ctx.shadowColor = 'rgba(255,255,255,0.6)';
+    ctx.shadowBlur = 8 * pulse;
     ctx.beginPath();
     ctx.moveTo(L.x0, L.strikeY);
     ctx.lineTo(L.x1, L.strikeY);
     ctx.stroke();
+    ctx.restore();
     const k = 1 + pulse * 0.05;
     for (const lane of this.laneOrder) {
       const x = L.laneX[lane];
       const lit = rt - this.hitAt[lane] < 0.1;
       const c = LANE[lane].rgb;
+      ctx.beginPath();
       if (lane === KICK) rr(ctx, x - (L.barW * k) / 2, L.strikeY - (L.barH * k) / 2, L.barW * k, L.barH * k, (L.barH * k) / 2);
-      else if (lane === SNARE) {
-        ctx.beginPath();
-        ctx.arc(x, L.strikeY, L.padR * k, 0, Math.PI * 2);
-      } else {
+      else if (lane === SNARE) ctx.ellipse(x, L.strikeY, L.padR * 1.1 * k, L.padR * 1.1 * k, 0, 0, Math.PI * 2);
+      else {
         const rx = this._cymR(lane) * k;
-        ctx.beginPath();
         ctx.ellipse(x, L.strikeY, rx, rx * 0.36, 0, 0, Math.PI * 2);
       }
-      ctx.fillStyle = `rgba(${c},${lit ? 0.55 : 0.12})`;
+      ctx.fillStyle = `rgba(${c},${lit ? 0.5 : 0.1})`;
       ctx.fill();
       ctx.lineWidth = 3;
-      ctx.strokeStyle = `rgba(255,255,255,${0.45 + 0.4 * pulse})`;
+      ctx.setLineDash(lit ? [] : [7, 5]);
+      ctx.strokeStyle = `rgba(255,255,255,${0.55 + 0.4 * pulse})`;
       ctx.stroke();
+      ctx.setLineDash([]);
     }
   }
 
+
   _cymR(lane) {
-    return this.L.laneHalf * (lane === CRASH ? 0.92 : 0.78);
+    return this.L.cymR * (lane === CRASH ? 1 : 0.86);
   }
+
 
   /** 하이햇/크래시 노트: 납작한 심벌 모양 */
   _cymbalNote(lane, x, y, alpha, grey) {
@@ -547,27 +544,40 @@ export class Renderer {
       ctx.save();
       ctx.globalAlpha = (1 - p) * b.pow;
       ctx.globalCompositeOperation = 'lighter';
+      const x = L.laneX[b.lane];
       if (b.lane === KICK) {
         const w = L.barW * (1 + e * 0.6);
         const h = L.barH * (1 + e * 2.2);
-        rr(ctx, L.laneX[KICK] - w / 2, L.strikeY - h / 2, w, h, h / 2);
+        rr(ctx, x - w / 2, L.strikeY - h / 2, w, h, h / 2);
         ctx.fillStyle = 'rgba(255,170,100,0.8)';
         ctx.fill();
       } else if (b.lane === SNARE) {
         ctx.beginPath();
-        ctx.arc(L.laneX[SNARE], L.strikeY, L.padR * (1 + e * 1.3), 0, Math.PI * 2);
+        ctx.arc(x, L.strikeY, L.padR * (1 + e * 1.3), 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(160,225,255,0.8)';
         ctx.fill();
       } else {
         const rx = this._cymR(b.lane) * (1 + e * 0.9);
         ctx.beginPath();
-        ctx.ellipse(L.laneX[b.lane], L.strikeY, rx, rx * 0.45, 0, 0, Math.PI * 2);
+        ctx.ellipse(x, L.strikeY, rx, rx * 0.45, 0, 0, Math.PI * 2);
         ctx.fillStyle = `rgba(${LANE[b.lane].rgb},0.85)`;
         ctx.fill();
       }
       ctx.restore();
     }
+    // 킥 울림 링
+    this.fx.booms = this.fx.booms.filter((b) => rt - b.t0 < 0.45);
+    if (this.laneOrder.includes(KICK))
+      for (const b of this.fx.booms) {
+        const p = (rt - b.t0) / 0.45;
+        ctx.strokeStyle = `rgba(255,170,110,${(1 - p) * b.pow})`;
+        ctx.lineWidth = 6 * (1 - p) + 1;
+        ctx.beginPath();
+        ctx.arc(L.laneX[KICK], L.strikeY, L.instR * (1.05 + easeOut(p) * 0.7), 0, Math.PI * 2);
+        ctx.stroke();
+      }
   }
+
 
   _cymbal(x, y, r, tilt, wob) {
     const ctx = this.ctx;
@@ -613,77 +623,70 @@ export class Renderer {
     ctx.stroke();
   }
 
-  _drawKit(st, rt, pe) {
+  /** 줄 맨 아래 악기들: 킥 = 베이스드럼 정면, 스네어 = 스네어, 하이햇/크래시 = 심벌 */
+  _drawInstruments(st, rt, pe) {
     const ctx = this.ctx;
     const L = this.L;
     const R = this.rasters;
-    // 크래시: 크래시 칠 때 흔들림
-    const ca = Math.min(st.crashAge ?? 9, rt - this.hitAt[CRASH]);
-    const cw = ca < 1.5 ? Math.sin(ca * 18) * Math.exp(-ca * 3) * 0.25 : 0;
-    this._stand(L.crashX, L.crashY, L.floorY);
-    this._cymbal(L.crashX, L.crashY, L.crashR, -0.22, cw);
-    // 하이햇: 반주 하이햇에 맞춰 닫힘
-    const ha = Math.min(st.hatAge ?? 9, rt - this.hitAt[HAT]);
-    const close = ha < 0.08 ? 1 - ha / 0.08 : 0;
-    this._stand(L.hatX, L.hatY, L.floorY);
-    this._cymbal(L.hatX, L.hatY + L.hatR * 0.12, L.hatR, 0.05, 0);
-    this._cymbal(L.hatX, L.hatY - L.hatR * (0.1 - close * 0.08), L.hatR, 0.05, 0);
-
-    // 드러머
-    const th = rt - Math.max(...this.hitAt);
-    const tm = rt - Math.max(...this.missAt);
-    const set = R.kong;
-    let face = set.idle;
-    if (th < 0.16) face = set.hit;
-    else if (tm < 0.45) face = set.miss;
-    else if (rt < this.cheerUntil || st.finished) face = set.cheer;
-    const phase = st.beatDur ? ((st.now / st.beatDur) % 1 + 1) % 1 : 0;
-    const bob = st.playing ? Math.pow(1 - phase, 3) : 0;
-    const tk = rt - this.hitAt[0];
-    const kickSquash = tk < 0.5 ? Math.exp(-tk * 14) * Math.cos(tk * 30) : 0;
-    const w = L.drummerW;
-    const sy = 1 - bob * 0.045 - kickSquash * 0.1;
-    const sx = 1 + bob * 0.03 + kickSquash * 0.07;
-    ctx.drawImage(face, L.drummerX - (w * sx) / 2, L.drummerBase - w * sy * 0.945, w * sx, w * sy);
-
-    const counting = !!(st.countIn && st.countIn.label);
-    this._drawStick(this.stickL, st, counting ? 'count' : 'hit', bob, ca);
-    const hatLast = this.hitAt[HAT] > this.hitAt[SNARE];
-    this._drawStick(hatLast ? this.stickRH : this.stickR, st, counting ? 'count' : 'hit', bob, rt - Math.max(this.hitAt[SNARE], this.hitAt[HAT]));
-
-    // 베이스드럼: 킥에 헤드가 '쿵' 부풀어 오름
-    const bw = L.bassW * (1 + pe * 0.06);
-    const bh = bw * 1.05;
-    ctx.drawImage(R.bass, L.bassX - bw / 2, L.bassY - bh * (100 / 210), bw, bh);
-    const kt = rt - this.hitAt[0];
-    if (kt < 0.18) {
-      ctx.fillStyle = `rgba(255,240,220,${0.6 * (1 - kt / 0.18)})`;
-      ctx.beginPath();
-      ctx.arc(L.bassX, L.bassY, bw * 0.39, 0, Math.PI * 2);
-      ctx.fill();
+    for (const lane of this.laneOrder) {
+      const x = L.laneX[lane];
+      const y = L.strikeY;
+      const age = rt - this.hitAt[lane];
+      if (lane === KICK) {
+        const bw = ((L.instR * 2) / 0.92) * (1 + pe * 0.07);
+        const bh = (bw * 210) / 200;
+        ctx.drawImage(R.bass, x - bw / 2, y - bh * (100 / 210), bw, bh);
+        if (age < 0.18) {
+          ctx.fillStyle = `rgba(255,240,220,${0.6 * (1 - age / 0.18)})`;
+          ctx.beginPath();
+          ctx.arc(x, y, bw * 0.39, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else if (lane === SNARE) {
+        const sq = age < 0.25 ? Math.exp(-age * 25) * 0.05 : 0;
+        const sw = ((L.instR * 1.25 * SNARE_VIEW.w) / SNARE_VIEW.rx) * (1 + sq);
+        const sh = ((sw * SNARE_VIEW.h) / SNARE_VIEW.w) * (1 - sq);
+        const s = sw / SNARE_VIEW.w;
+        ctx.drawImage(R.snare, x - sw / 2, y - SNARE_VIEW.cy * s, sw, sh);
+        if (age < 0.14) {
+          ctx.fillStyle = `rgba(255,255,255,${0.85 * (1 - age / 0.14)})`;
+          ctx.beginPath();
+          ctx.ellipse(x, y, SNARE_VIEW.rx * s * 0.9, SNARE_VIEW.ry * s * 0.8, 0, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      } else {
+        const r = this._cymR(lane) * 1.05;
+        const auto = lane === HAT ? st.hatAge ?? 9 : st.crashAge ?? 9;
+        const a = Math.min(auto, age);
+        this._stand(x, y, L.H);
+        if (lane === HAT) {
+          const close = a < 0.08 ? 1 - a / 0.08 : 0;
+          this._cymbal(x, y + r * 0.1, r, 0, 0);
+          this._cymbal(x, y - r * (0.12 - close * 0.1), r, 0, 0);
+        } else {
+          const wob = a < 1.5 ? Math.sin(a * 18) * Math.exp(-a * 3) * 0.25 : 0;
+          this._cymbal(x, y, r, -0.08, wob);
+        }
+      }
+      // 줄 아래 악기 이름 (항상 작게)
+      const fs = Math.round(Math.min(L.laneW * 0.16, L.GW * 0.045));
+      ctx.save();
+      ctx.font = `${fs}px ${FONT}`;
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = fs * 0.28;
+      ctx.strokeStyle = INK;
+      const ly = Math.min(L.H - fs * 1.1, L.strikeY + L.instR * 1.55);
+      ctx.strokeText(LANE[lane].short, x, ly);
+      ctx.fillStyle = LANE[lane].light;
+      ctx.fillText(LANE[lane].short, x, ly);
+      ctx.restore();
     }
-    this.fx.booms = this.fx.booms.filter((b) => rt - b.t0 < 0.45);
-    for (const b of this.fx.booms) {
-      const p = (rt - b.t0) / 0.45;
-      ctx.strokeStyle = `rgba(255,170,110,${(1 - p) * b.pow})`;
-      ctx.lineWidth = 6 * (1 - p) + 1;
-      ctx.beginPath();
-      ctx.arc(L.bassX, L.bassY, L.bassW * (0.48 + easeOut(p) * 0.45), 0, Math.PI * 2);
-      ctx.stroke();
-    }
+  }
 
-    // 스네어
-    const stt = rt - this.hitAt[1];
-    const sq = stt < 0.25 ? Math.exp(-stt * 25) * 0.05 : 0;
-    const swd = L.snareW * (1 + sq);
-    const shg = swd * (230 / 240) * (1 - sq);
-    ctx.drawImage(R.snare, L.snareX - swd / 2, L.snareY - SNARE_VIEW.cy * L.snareScale * (1 - sq), swd, shg);
-    if (stt < 0.14) {
-      ctx.fillStyle = `rgba(255,255,255,${0.85 * (1 - stt / 0.14)})`;
-      ctx.beginPath();
-      ctx.ellipse(L.snareX, L.snareY, SNARE_VIEW.rx * L.snareScale * 0.9, SNARE_VIEW.ry * L.snareScale * 0.8, 0, 0, Math.PI * 2);
-      ctx.fill();
-    }
+  _drawSparks(rt) {
+    const ctx = this.ctx;
     this.fx.sparks = this.fx.sparks.filter((s) => rt - s.t0 < s.life);
     ctx.lineCap = 'round';
     for (const s of this.fx.sparks) {
@@ -702,24 +705,24 @@ export class Renderer {
     ctx.globalAlpha = 1;
   }
 
-  _drawStick(s, st, mode, bob, age) {
+  /** 마스코트 쿵콩이: 화면 맨 아래 가운데에서 박자 타며 표정 바뀜 */
+  _drawMascot(st, rt) {
     const ctx = this.ctx;
-    let p = 0;
-    if (age < 0.045) p = age / 0.045;
-    else if (age < 0.28) p = 1 - easeOut((age - 0.045) / 0.235);
-    let ang = s.rest + (s.hit - s.rest) * p;
-    if (p === 0) ang -= bob * 0.12 * s.dir;
-    if (mode === 'count') {
-      // 카운트: 스틱을 머리 위로 들어 '딱딱' 부딪힘
-      const ph = st.countIn ? st.countIn.phase : 0;
-      ang = -Math.PI / 2 + s.dir * (ph < 0.12 ? 0.12 : 0.32);
-    }
-    const sh = (s.len * 24 * 1.3) / 120;
-    ctx.save();
-    ctx.translate(s.px, s.py);
-    ctx.rotate(ang);
-    ctx.drawImage(this.rasters.stick, -(s.len * 14) / 120, -sh / 2, s.len, sh);
-    ctx.restore();
+    const L = this.L;
+    const set = this.rasters.kong;
+    const th = rt - Math.max(...this.hitAt);
+    const tm = rt - Math.max(...this.missAt);
+    let face = set.idle;
+    if (th < 0.16) face = set.hit;
+    else if (tm < 0.45) face = set.miss;
+    else if (rt < this.cheerUntil || st.finished) face = set.cheer;
+    const phase = st.beatDur ? ((st.now / st.beatDur) % 1 + 1) % 1 : 0;
+    const bob = st.playing ? Math.pow(1 - phase, 3) : 0;
+    const w = L.mascotW;
+    const sy = 1 - bob * 0.05;
+    const sx = 1 + bob * 0.03;
+    const jump = rt < this.cheerUntil ? Math.abs(Math.sin(rt * 12)) * w * 0.12 : 0;
+    ctx.drawImage(face, L.cx - (w * sx) / 2, L.mascotBase - w * sy * 0.945 - jump, w * sx, w * sy);
   }
 
   _drawCombo(st, rt) {
@@ -758,8 +761,8 @@ export class Renderer {
       const t = (rt - j.t0) / 0.45;
       const sc = t < 0.12 ? 1.3 - (t / 0.12) * 0.3 : 1;
       const x = L.laneX[j.lane];
-      const y = L.strikeY - L.GW * 0.11 - t * L.GW * 0.02;
-      const size = L.GW * 0.055 * sc;
+      const y = L.strikeY - L.instR * 1.75 - t * L.GW * 0.02;
+      const size = Math.min(L.GW * 0.055, L.laneW * 0.2) * sc;
       ctx.save();
       ctx.globalAlpha = t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4;
       ctx.font = `${Math.round(size)}px ${FONT}`;
@@ -782,41 +785,6 @@ export class Renderer {
     }
   }
 
-  _drawCrowd(st, rt, fever) {
-    const ctx = this.ctx;
-    const L = this.L;
-    const phase = st.beatDur ? ((st.now / st.beatDur) % 1 + 1) % 1 : 0;
-    const bob = st.playing ? Math.pow(1 - phase, 2) : 0;
-    const n = 11;
-    const baseY = L.H * 0.985;
-    const r = L.GW * 0.06;
-    ctx.fillStyle = '#120B26';
-    for (let k = 0; k < n; k++) {
-      const x = L.GX + (L.GW * (k + 0.5)) / n + (k % 2 ? 4 : -4);
-      const jump = (k % 3 === 0 ? bob : bob * 0.5) * L.GW * 0.012;
-      const y = baseY - (k % 2 ? r * 0.3 : 0) - jump;
-      ctx.beginPath();
-      ctx.arc(x, y - r * 0.6, r * 0.62, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.beginPath();
-      ctx.ellipse(x, y + r * 0.6, r * 1.05, r * 0.8, 0, 0, Math.PI * 2);
-      ctx.fill();
-      if ((fever && k % 2 === 0) || (rt < this.cheerUntil && k % 3 !== 1)) {
-        ctx.save();
-        ctx.strokeStyle = '#120B26';
-        ctx.lineWidth = r * 0.28;
-        ctx.lineCap = 'round';
-        const sway = Math.sin(rt * 6 + k) * r * 0.3;
-        ctx.beginPath();
-        ctx.moveTo(x - r * 0.5, y);
-        ctx.lineTo(x - r * 0.75 + sway, y - r * 1.9);
-        ctx.moveTo(x + r * 0.5, y);
-        ctx.lineTo(x + r * 0.75 + sway, y - r * 1.9);
-        ctx.stroke();
-        ctx.restore();
-      }
-    }
-  }
 
   _drawBanners(rt) {
     const ctx = this.ctx;
@@ -848,7 +816,8 @@ export class Renderer {
     }
   }
 
-  _drawCountIn(st) {
+  /** 카운트인: 큰 숫자 + 줄마다 "왼쪽 엄지 / 킥 (쿵)" 말풍선 + 누르라는 물결 */
+  _drawCountIn(st, rt) {
     if (!st.countIn) return;
     const ctx = this.ctx;
     const L = this.L;
@@ -858,22 +827,37 @@ export class Renderer {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     this.laneOrder.forEach((i) => {
-      const fs = L.GW * (this.laneOrder.length > 2 ? 0.032 : 0.038);
+      const x = L.laneX[i];
+      // 물결: "여기 줄 아무 데나 눌러요"
+      for (let k = 0; k < 2; k++) {
+        const p = ((rt * 0.9 + k * 0.5) % 1 + 1) % 1;
+        ctx.strokeStyle = `rgba(255,255,255,${0.5 * (1 - p) * fade})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(x, L.strikeY, L.instR * (0.6 + p * 0.9), 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      const fs = Math.min(L.laneW * 0.15, L.GW * 0.042);
       ctx.font = `${Math.round(fs)}px ${FONT}`;
       const t1 = LANE[i].thumb;
       const t2 = LANE[i].word;
-      const tw = Math.max(ctx.measureText(t1).width, ctx.measureText(t2).width) + fs * 1.4;
-      const x = L.laneX[i];
-      const y = L.strikeY + L.GW * 0.03;
-      rr(ctx, x - tw / 2, y, tw, fs * 2.8, fs * 0.8);
+      const tw = Math.min(L.laneW - 6, Math.max(ctx.measureText(t1).width, ctx.measureText(t2).width) + fs * 1.2);
+      const bh = fs * 2.8;
+      const y = L.strikeY - L.instR * 1.45 - bh - fs * 0.6;
+      rr(ctx, x - tw / 2, y, tw, bh, fs * 0.8);
       ctx.fillStyle = 'rgba(255,255,255,0.96)';
+      ctx.fill();
+      // 말풍선 꼬리 (악기를 가리킴)
+      ctx.beginPath();
+      ctx.moveTo(x - fs * 0.5, y + bh - 1);
+      ctx.lineTo(x, y + bh + fs * 0.55);
+      ctx.lineTo(x + fs * 0.5, y + bh - 1);
       ctx.fill();
       ctx.fillStyle = INK;
       ctx.fillText(t1, x, y + fs * 0.85);
       ctx.fillStyle = LANE[i].dark;
       ctx.fillText(t2, x, y + fs * 2);
       if (i === this.newLane) {
-        // 새 악기 표시
         const bw = fs * 3.2;
         rr(ctx, x - bw / 2, y - fs * 1.15, bw, fs * 1.3, fs * 0.65);
         ctx.fillStyle = '#FF5FA2';
@@ -885,16 +869,27 @@ export class Renderer {
         ctx.fillText('NEW!', x, y - fs * 0.48);
       }
     });
+    // 한 줄 안내
+    const hs = Math.round(L.GW * 0.045);
+    ctx.font = `${hs}px ${FONT}`;
+    const hint = '콩이 선에 닿을 때 그 줄을 톡!';
+    const hy = L.topY + (L.strikeY - L.topY) * 0.62;
+    const hw = ctx.measureText(hint).width + hs * 1.6;
+    rr(ctx, L.cx - hw / 2, hy - hs * 0.9, hw, hs * 1.8, hs * 0.9);
+    ctx.fillStyle = 'rgba(20,12,48,0.82)';
+    ctx.fill();
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText(hint, L.cx, hy + hs * 0.05);
     if (label) {
       const a = 1 - phase;
       const sc = 1 + (1 - easeOut(Math.min(1, phase * 4))) * 0.35;
       const size = L.GW * 0.2 * sc;
-      ctx.globalAlpha = clamp(a * 1.5, 0, 1);
+      ctx.globalAlpha = clamp(a * 1.5, 0, 1) * fade;
       ctx.font = `${Math.round(size)}px ${FONT}`;
       ctx.lineJoin = 'round';
       ctx.lineWidth = size * 0.14;
       ctx.strokeStyle = INK;
-      const y = L.topY + (L.strikeY - L.topY) * 0.42;
+      const y = L.topY + (L.strikeY - L.topY) * 0.33;
       ctx.strokeText(label, L.cx, y);
       ctx.fillStyle = '#FFE45C';
       ctx.fillText(label, L.cx, y);
@@ -938,7 +933,7 @@ export class Renderer {
       const bfs = fitFont(ctx, s.bottom, L.GW * 0.85, L.GW * 0.048);
       ctx.font = `${bfs}px ${FONT}`;
       const tw = ctx.measureText(s.bottom).width + bfs * 1.4;
-      const by = L.floorY + (L.H - L.floorY) * 0.42;
+      const by = L.H * 0.955;
       rr(ctx, L.cx - tw / 2, by - bfs, tw, bfs * 2, bfs);
       ctx.fillStyle = '#FF8A4C';
       ctx.fill();

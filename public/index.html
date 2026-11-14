@@ -37,9 +37,14 @@
           <button class="kit-bass" data-lane="0" aria-label="킥 쳐보기"></button>
           <button class="kit-snare" data-lane="1" aria-label="스네어 쳐보기"></button>
         </div>
-        <p class="scene-hint">왼쪽 = 킥 · 오른쪽 = 스네어 · 눌러보세요!</p>
+        <p class="scene-hint">왼쪽 줄 = 킥(쿵) · 오른쪽 줄 = 스네어(짝) · 눌러보세요!</p>
       </div>
       <div class="title-actions">
+        <button class="today-card" data-action="today">
+          <span class="today-tag">오늘의 노래</span>
+          <span class="today-body"><b id="today-name">곡 이름</b><small id="today-sub">점수 내고 친구에게 1:1 도전장 ⚔️</small></span>
+          <span class="today-go" data-icon="play"></span>
+        </button>
         <button class="btn btn-primary btn-big" data-action="quickstart"><span data-icon="play"></span> 바로 시작 <small>1단계</small></button>
         <div class="row2">
           <button class="btn btn-ghost" data-action="levels">단계 고르기</button>
@@ -112,6 +117,11 @@
           <div class="hud-level"><b id="hud-lv">1단계</b><span id="hud-name"></span></div>
           <div class="hud-score"><small>점수</small><b id="hud-score">0</b></div>
         </div>
+        <div class="hud-vs" id="hud-vs" hidden>
+          <span class="vs-me">나 <b id="vs-me">0</b></span>
+          <span class="vs-bar"><i id="vs-fill"></i></span>
+          <span class="vs-op"><b id="vs-op">0</b> <em id="vs-name"></em></span>
+        </div>
       </div>
       <button class="studio-stop" data-action="studio-stop" aria-label="녹화 그만"><span data-icon="close"></span></button>
       <div class="studio-count" id="studio-count" hidden><b id="studio-count-num">3</b><span id="studio-count-msg"></span></div>
@@ -126,6 +136,7 @@
         <div class="res-grade" id="res-grade">S</div>
         <div class="res-badge" id="res-badge" hidden>FULL COMBO</div>
         <div class="res-score" id="res-score">0</div>
+        <div class="res-vs" id="res-vs" hidden></div>
         <div class="res-star-hint" id="res-star-hint"></div>
         <div class="res-mascots" id="res-mascots"></div>
         <div class="res-stats">
@@ -141,6 +152,7 @@
           <button class="btn btn-hot" data-action="next" id="btn-next">다음 단계</button>
           <button class="btn btn-ghost" data-action="submit-rank" id="btn-rank"><span data-icon="trophy"></span> 랭킹 등록</button>
           <button class="btn btn-ghost" data-action="share"><span data-icon="share"></span> 결과 공유</button>
+          <button class="btn btn-vs" data-action="send-vs" id="btn-vs"><span data-icon="swords"></span> 친구에게 1:1 도전장</button>
         </div>
         <button class="link" data-action="levels">단계 목록으로</button>
       </div>
@@ -238,6 +250,7 @@
       <button class="btn btn-ghost btn-sm" data-action="calibrate">박자 맞춰서 자동 보정</button>
       <label class="field check"><input type="checkbox" id="set-vibrate" /><span>진동 (안드로이드)</span></label>
       <div class="account" id="settings-account"></div>
+      <p class="muted small credit">피아노 소리: Salamander Grand Piano V3 · Alexander Holm (CC BY 3.0)</p>
     </div>
   </div>
 
@@ -260,6 +273,35 @@
       <h3>결과 카드</h3>
       <p class="muted">이미지를 길게 눌러 저장하고 스토리에 올려보세요!</p>
       <img id="share-img" alt="결과 카드" />
+    </div>
+  </div>
+
+  <div class="modal" id="modal-vs" hidden>
+    <div class="sheet">
+      <button class="icon-btn close" data-action="close-vs" aria-label="닫기"><span data-icon="close"></span></button>
+      <div class="vs-head">⚔️ 1:1 도전장 도착!</div>
+      <div class="vs-card">
+        <div class="vs-from"><b id="vs-in-name"></b> 님의 기록</div>
+        <div class="vs-level" id="vs-in-level"></div>
+        <div class="vs-score" id="vs-in-score"></div>
+        <div class="vs-stars" id="vs-in-stars"></div>
+      </div>
+      <p class="muted">같은 곡을 치는 동안 화면 위에 상대 점수가 실시간으로 같이 올라가요. 이겨 보세요!</p>
+      <div class="stack">
+        <button class="btn btn-primary" data-action="accept-vs"><span data-icon="play"></span> 도전 받기</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="modal-nick" hidden>
+    <div class="sheet small">
+      <button class="icon-btn close" data-action="close-nick" aria-label="닫기"><span data-icon="close"></span></button>
+      <h3>도전장에 쓸 이름</h3>
+      <p class="muted">친구가 볼 이름이에요. (최대 10글자)</p>
+      <label class="field"><span>이름</span><input type="text" id="nick-input" maxlength="10" placeholder="예) 쿵짝왕" /></label>
+      <div class="stack">
+        <button class="btn btn-primary" data-action="save-nick">도전장 보내기</button>
+      </div>
     </div>
   </div>
 

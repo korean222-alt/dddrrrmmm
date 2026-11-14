@@ -45,6 +45,8 @@ export class Game {
     this.lastNoteTime = this.notes.length ? this.notes[this.notes.length - 1].time : 0;
     this.endTime = this.lastNoteTime + barDur(level) * OUTRO_BARS + 0.4;
     this.maxScore = maxScore(level);
+    /** 마디마다 끝났을 때 점수 (1:1 대결에서 상대 점수를 실시간으로 보여줄 때 씀) */
+    this.timeline = [];
     this._loop = this._loop.bind(this);
   }
 
@@ -223,10 +225,14 @@ export class Game {
       rt
     );
 
+    const barPos = (now - ciEnd) / barDur(this.level);
+    while (this.timeline.length < this.level.bars.length && this.timeline.length < Math.floor(barPos)) this.timeline.push(this.score);
+
     this.onHud({
       score: this.score,
       combo: this.combo,
       progress: Math.max(0, Math.min(1, now / this.endTime)),
+      barPos,
     });
 
     if (now >= this.endTime) {
@@ -271,6 +277,8 @@ export class Game {
   _finish() {
     this.state = 'finished';
     this.player.stop(0.6);
+    while (this.timeline.length < this.level.bars.length) this.timeline.push(this.score);
+    this.timeline[this.timeline.length - 1] = this.score;
     const total = this.notes.length;
     const avgOffsetMs = this.offsets.length
       ? Math.round((this.offsets.reduce((a, b) => a + b, 0) / this.offsets.length) * 1000)
@@ -288,6 +296,7 @@ export class Game {
       fullCombo: this.counts.miss === 0 && this.counts.wrong === 0,
       avgOffsetMs,
       auto: this.auto,
+      timeline: this.timeline.slice(),
     });
   }
 }
