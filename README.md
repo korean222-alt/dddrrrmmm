@@ -130,6 +130,11 @@ bars: [
 
 ## 배포
 
+**지금 배포된 곳: https://kongkong-drum.vercel.app** (Vercel, 정적. GitHub 이 브랜치에 push 하면 자동 재배포)
+
+- 지금은 서버 없이 게임만 올라가 있어요. 랭킹은 "곧 오픈"으로 표시되고, Lv.4도 열려 있습니다(1~3단계).
+- 4단계에서는 `/api`를 Vercel Functions로 옮기고 저장소를 Supabase/Neon 같은 DB로 바꿉니다(Vercel은 파일 저장이 안 됨).
+
 - **서버 포함(추천)**: Render / Railway / Fly.io 같은 Node 호스팅. `data/` 폴더가 유지되는 디스크(볼륨)를 붙이세요. 환경변수: `NODE_ENV=production`, `SESSION_SECRET`, `INSTAGRAM_HANDLE`, `SITE_URL`, `ALLOW_DEV_SIMULATE=false`.
 - **정적만**: `public/`을 GitHub Pages / Netlify / Vercel에 올리면 게임은 바로 됩니다(인증·랭킹은 가짜).
 - 트래픽이 커지면 `server/store.js`를 같은 메서드 모양으로 Postgres(Supabase 등) 버전으로 바꾸면 됩니다.
