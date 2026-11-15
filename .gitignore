@@ -4,4 +4,3 @@ data/*.json
 data/*.tmp
 .DS_Store
 *.log
-.wrangler/

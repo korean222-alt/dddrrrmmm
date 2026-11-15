@@ -4,15 +4,20 @@
   "private": true,
   "description": "오케이스트라 — 엄지 두 개로 하는 인스타 릴스 연계 드럼 리듬게임",
   "type": "module",
-  "engines": { "node": ">=20.12" },
+  "engines": {
+    "node": ">=20.12"
+  },
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
-    "test": "node --test test/*.test.js",
-    "cf:dev": "npx -y wrangler@4 dev",
-    "cf:dev:test": "npx -y wrangler@4 dev --var FOLLOW_CHECK_MODE:fake --var ALLOW_DEV_SIMULATE:true --var IG_APP_SECRET:app-secret --var MIN_RUN_RATIO:0 --var IG_VERIFY_TOKEN:vt --var IG_SEND_REPLIES:false",
-    "cf:deploy": "npx -y wrangler@4 deploy",
+    "test": "node --test test/*.test.js && TEST_PG=1 node --test test/server.test.js",
     "ig:profile": "node scripts/ig-profile.js",
     "assets": "node scripts/make-assets.js"
+  },
+  "dependencies": {
+    "@neondatabase/serverless": "^1.2.1"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.16"
   }
 }

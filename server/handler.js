@@ -258,7 +258,9 @@ export function createHandler(cfg, { store, ig }) {
         }
       }
     })();
+    // 응답 뒤 처리를 맡길 곳이 없으면(Vercel 함수는 응답하면 멈출 수 있음) 끝까지 처리하고 응답 (보통 1~2초)
     if (waitUntil) waitUntil(work);
+    else await work;
     return text(200, 'EVENT_RECEIVED');
   }
 }

@@ -13,7 +13,7 @@ import { getLevel, noteCount, pointsFor } from '../public/js/charts.js';
 let server, base, tmp;
 const SECRET = 'app-secret';
 
-// TEST_BASE=http://127.0.0.1:8787 이면 이미 떠 있는 서버(예: wrangler dev 로 띄운 Cloudflare Worker)에 대고 같은 테스트
+// TEST_BASE=http://127.0.0.1:3000 이면 이미 떠 있는 서버에 대고 같은 테스트
 before(async () => {
   if (process.env.TEST_BASE) {
     base = process.env.TEST_BASE;
@@ -31,7 +31,15 @@ before(async () => {
     INSTAGRAM_HANDLE: 'ok_aystra',
     MIN_RUN_RATIO: '0',
   });
-  ({ server } = createApp(cfg));
+  // TEST_PG=1: Vercel 과 같은 Postgres 저장소(PgStore)를 메모리 Postgres(PGlite)로 시험
+  let store;
+  if (process.env.TEST_PG) {
+    const { PGlite } = await import('@electric-sql/pglite');
+    const { PgStore } = await import('../server/pgstore.js');
+    const db = new PGlite();
+    store = await new PgStore(async (text, params) => (await db.query(text, params)).rows).init();
+  }
+  ({ server } = createApp(cfg, { store }));
   await new Promise((r) => server.listen(0, r));
   base = `http://127.0.0.1:${server.address().port}`;
 });
