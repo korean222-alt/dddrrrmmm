@@ -40,19 +40,9 @@
         <p class="scene-hint">왼쪽 줄 = 킥(쿵) · 오른쪽 줄 = 스네어(짝) · 눌러보세요!</p>
       </div>
       <div class="title-actions">
-        <button class="today-card" data-action="today">
-          <span class="today-tag">오늘의 노래</span>
-          <span class="today-body"><b id="today-name">곡 이름</b><small id="today-sub">점수 내고 친구에게 1:1 도전장 ⚔️</small></span>
-          <span class="today-go" data-icon="play"></span>
-        </button>
         <button class="btn btn-primary btn-big" data-action="quickstart"><span data-icon="play"></span> 바로 시작 <small>1단계</small></button>
-        <div class="row2">
-          <button class="btn btn-ghost" data-action="levels">단계 고르기</button>
-          <button class="btn btn-ghost" data-action="studio"><span data-icon="video"></span> 영상 찍기</button>
-        </div>
-        <button class="btn btn-hot" data-action="play-hot">
-          <span class="hot-tag">NEW</span> <span id="hot-name">💎 무제한 모드</span> <span data-icon="lock" class="lock-ico"></span>
-        </button>
+        <button class="btn btn-ghost" data-action="levels">단계 고르기</button>
+        <button class="link studio-link" data-action="studio"><span data-icon="video"></span> 영상 찍기</button>
       </div>
       <div class="inapp-note" id="inapp-note" hidden>
         <b>인스타 앱 안에서 열었어요.</b> 소리가 안 나거나 터치가 밀리면 오른쪽 위 <b>···</b> → <b>외부 브라우저에서 열기</b>. 아이폰은 무음 모드를 꺼주세요.
@@ -68,7 +58,14 @@
         <h2>단계 고르기</h2>
         <button class="icon-btn" data-action="ranking" aria-label="랭킹"><span data-icon="trophy"></span></button>
       </header>
-      <div class="level-list" id="level-list"></div>
+      <div class="level-list">
+          <button class="today-card" data-action="today">
+            <span class="today-tag">오늘의 노래</span>
+            <span class="today-body"><b id="today-name">곡 이름</b><small id="today-sub">점수 내고 친구에게 1:1 도전장 ⚔️</small></span>
+            <span class="today-go" data-icon="play"></span>
+          </button>
+        <div class="level-list" id="level-list"></div>
+      </div>
       <p class="levels-foot" id="levels-foot"></p>
     </section>
 
@@ -117,6 +114,7 @@
           <div class="hud-level"><b id="hud-lv">1단계</b><span id="hud-name"></span></div>
           <div class="hud-score"><small>점수</small><b id="hud-score">0</b></div>
         </div>
+        <div class="hud-stars" id="hud-stars" hidden></div>
         <div class="hud-lives" id="hud-lives" aria-label="목숨" hidden></div>
         <div class="hud-vs" id="hud-vs" hidden>
           <span class="vs-me">나 <b id="vs-me">0</b></span>

@@ -366,6 +366,8 @@ export class Game {
       progress,
       barPos,
       round: this.round ? this.roundInfo : null,
+      // 지금까지 친 걸로 받을 별 개수 (무제한 모드는 별 대신 💎)
+      stars: this.level.endless ? null : starsFor(this.counts),
     };
   }
 
