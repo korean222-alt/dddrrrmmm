@@ -16,10 +16,13 @@ import { PgStore } from '../server/pgstore.js';
 const DEFAULTS = {
   NODE_ENV: 'production',
   INSTAGRAM_HANDLE: 'ok_aystra',
-  // 4단계부터 진짜 팔로우 확인(DM 코드)으로 잠금
-  GATE_MODE: 'follow',
+  // 사업자등록 없이 운영: 4단계부터 '팔로우하러 가기' 누르면 열림(soft),
+  // 랭킹 인스타 아이디는 DM 코드를 운영자가 /admin.html 에서 직접 승인(manual)
+  GATE_MODE: 'soft',
   GATE_FROM_LEVEL: '4',
-  FOLLOW_CHECK_MODE: 'real',
+  FOLLOW_CHECK_MODE: 'manual',
+  // 수동 승인이라 코드는 3일 동안 유효
+  CODE_TTL_MIN: '4320',
   ALLOW_DEV_SIMULATE: 'false',
   // Meta 웹훅 등록할 때 '확인 토큰' 칸에 이 값을 그대로
   IG_VERIFY_TOKEN: 'okaystra-Apkm9hqeZCdQ',

@@ -45,6 +45,17 @@ class HttpError extends Error {
 export function createHandler(cfg, { store, ig }) {
   const limitCodes = rateLimiter(15, 10 * 60 * 1000);
   const limitScores = rateLimiter(60, 10 * 60 * 1000);
+  const limitAdmin = rateLimiter(30, 10 * 60 * 1000);
+
+  /** 관리자 비밀번호 확인 (길이 같을 때만 한 글자씩 비교) */
+  function isAdmin(request) {
+    const t = request.headers.get('x-admin-token') || '';
+    const a = cfg.adminToken;
+    if (!a || t.length !== a.length) return false;
+    let d = 0;
+    for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ t.charCodeAt(i);
+    return d === 0;
+  }
 
   return async function handle(request, { ip = '?', waitUntil } = {}) {
     const url = new URL(request.url);
@@ -84,7 +95,7 @@ export function createHandler(cfg, { store, ig }) {
     const p = unsign(cookiesOf(request)[PLAYER_COOKIE], cfg.sessionSecret);
     if (!p || !p.igsid) return null;
     const rec = await store.getPlayer(p.igsid);
-    return rec ? { igsid: rec.igsid, username: rec.username, followVerifiedAt: rec.followVerifiedAt } : null;
+    return rec ? { igsid: rec.igsid, username: rec.username, followVerifiedAt: rec.followVerifiedAt, guest: !rec.followVerifiedAt } : null;
   }
 
   function getSid(request, setCookies) {
@@ -117,7 +128,8 @@ export function createHandler(cfg, { store, ig }) {
 
     if (p === '/api/me' && m === 'GET') {
       const pl = await getPlayer(request);
-      return json(200, pl ? { verified: true, player: { username: pl.username } } : { verified: false });
+      if (!pl) return json(200, { verified: false });
+      return json(200, { verified: !pl.guest, guest: pl.guest, player: { username: pl.username } });
     }
 
     if (p === '/api/logout' && m === 'POST') {
@@ -142,6 +154,46 @@ export function createHandler(cfg, { store, ig }) {
       return json(200, { code, display: displayCode(code, cfg.codePrefix), purpose, expiresAt: now + cfg.codeTtlMs });
     }
 
+    // 랭킹용 닉네임 (인스타 인증 없이 랭킹 참여). 인증된 사람은 그대로
+    if (p === '/api/guest' && m === 'POST') {
+      if (!limitCodes(ip)) return json(429, { error: 'rate_limited' });
+      const body = await readJson(request);
+      const name = cleanNickname(body.name);
+      if (!name) return json(400, { error: 'bad_name' });
+      const pl = await getPlayer(request);
+      if (pl && !pl.guest) return json(409, { error: 'already_verified' });
+      const igsid = pl ? pl.igsid : 'g_' + newId().replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
+      await store.upsertPlayer(igsid, { username: name });
+      if (!pl) setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
+      return json(200, { verified: false, guest: true, player: { username: name } });
+    }
+
+    // 관리자: 승인 기다리는 코드 목록 / 코드 승인 (인스타 앱에서 DM·팔로우를 직접 보고 승인)
+    if (p.startsWith('/api/admin/')) {
+      if (!limitAdmin(ip) && !isAdmin(request)) return json(429, { error: 'rate_limited' });
+      if (!isAdmin(request)) return json(401, { error: 'admin_required' });
+      if (p === '/api/admin/codes' && m === 'GET') {
+        const rows = await store.listPendingCodes(Date.now(), 100);
+        return json(200, { codes: rows.map((r) => ({ code: r.code, display: displayCode(r.code, cfg.codePrefix), purpose: r.purpose, createdAt: r.createdAt, expiresAt: r.expiresAt })) });
+      }
+      if (p === '/api/admin/approve' && m === 'POST') {
+        const body = await readJson(request);
+        const code = String(body.code || '').toUpperCase().replace(/[\s]/g, '').replace(/^.*-/, '');
+        const username = String(body.username || '').trim().replace(/^@/, '').toLowerCase();
+        if (!/^[a-z0-9._]{1,30}$/.test(username)) return json(400, { error: 'bad_username' });
+        const rec = isCode(code) ? await store.getCode(code) : null;
+        if (!rec) return json(404, { error: 'code_not_found' });
+        if (rec.status === 'verified') return json(409, { error: 'already_verified', username: rec.username });
+        const now = Date.now();
+        if (now > rec.expiresAt) return json(410, { error: 'expired' });
+        const igsid = 'm_' + username;
+        await store.upsertPlayer(igsid, { username, followVerifiedAt: now });
+        await store.updateCode(code, { status: 'verified', igsid, username, verifiedAt: now });
+        return json(200, { ok: true, code, username });
+      }
+      return json(404, { error: 'not_found' });
+    }
+
     // 2) 코드 상태 확인 (발급받은 브라우저만)
     const cm = p.match(/^\/api\/codes\/([^/]+)$/);
     if (cm && m === 'GET') {
@@ -154,6 +206,9 @@ export function createHandler(cfg, { store, ig }) {
         rec.status = 'expired';
       }
       if (rec.status === 'verified') {
+        // 닉네임(게스트)으로 쌓은 기록은 인증된 아이디로 옮김
+        const prev = await getPlayer(request);
+        if (prev && prev.guest && prev.igsid !== rec.igsid) await store.moveScores(prev.igsid, rec.igsid);
         const player = await store.getPlayer(rec.igsid);
         const token = sign({ igsid: rec.igsid, v: rec.verifiedAt }, cfg.sessionSecret);
         setCookies.push(cookie(PLAYER_COOKIE, token, { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
@@ -186,12 +241,12 @@ export function createHandler(cfg, { store, ig }) {
       const body = await readJson(request);
       const level = getLevel(body.level);
       if (!level) return json(400, { error: 'bad_level' });
-      if (isGated(level, cfg.gateFromLevel) && cfg.gateMode === 'follow' && !(await getPlayer(request))) return json(403, { error: 'follow_required' });
+      if (isGated(level, cfg.gateFromLevel) && cfg.gateMode === 'follow' && !(await getPlayer(request))?.followVerifiedAt) return json(403, { error: 'follow_required' });
       const runToken = sign({ l: level.id, t: Date.now(), n: newId() }, cfg.sessionSecret);
       return json(200, { runToken });
     }
 
-    // 4) 점수 등록 (팔로우 인증 필수)
+    // 4) 점수 등록 (닉네임 또는 인스타 인증 필요)
     if (p === '/api/scores' && m === 'POST') {
       if (!limitScores(ip)) return json(429, { error: 'rate_limited' });
       const pl = await getPlayer(request);
@@ -210,7 +265,7 @@ export function createHandler(cfg, { store, ig }) {
       if (!level) return json(400, { error: 'bad_level' });
       const pl = await getPlayer(request);
       const lb = await store.leaderboard(level.id, 50);
-      const entries = lb.rows.map((r) => ({ rank: r.rank, username: r.username, score: r.score, grade: r.grade, me: pl ? r.igsid === pl.igsid : false }));
+      const entries = lb.rows.map((r) => ({ rank: r.rank, username: r.username, verified: !!r.verified, score: r.score, grade: r.grade, me: pl ? r.igsid === pl.igsid : false }));
       const mine = pl ? await store.rankOf(level.id, pl.igsid) : null;
       return json(200, { level: level.id, entries, me: mine ? { rank: mine.rank, score: mine.score } : null });
     }
@@ -247,6 +302,8 @@ export function createHandler(cfg, { store, ig }) {
       return text(200, 'EVENT_RECEIVED');
     }
     if (cfg.ig.debug) console.log('[webhook]', JSON.stringify(body));
+    // 수동 승인 모드: DM 은 운영자가 직접 보고 승인하므로 자동 처리 안 함
+    if (cfg.followCheckMode === 'manual') return text(200, 'EVENT_RECEIVED');
     // Meta 는 빠른 200 을 원함 → 응답은 바로, 처리는 뒤에서
     const work = (async () => {
       for (const dm of messagesFromWebhook(body)) {
@@ -263,6 +320,14 @@ export function createHandler(cfg, { store, ig }) {
     else await work;
     return text(200, 'EVENT_RECEIVED');
   }
+}
+
+/** 랭킹 닉네임: 앞뒤 공백 빼고 2~12자, 글자·숫자·_ . 공백만 */
+export function cleanNickname(v) {
+  const s = String(v || '').trim().replace(/\s+/g, ' ');
+  if ([...s].length < 2 || [...s].length > 12) return null;
+  if (!/^[\p{L}\p{N}_. ]+$/u.test(s)) return null;
+  return s;
 }
 
 /** 점수 검증: 서명된 판 토큰 + 걸린 시간 + 판정 개수와 점수의 일관성 */

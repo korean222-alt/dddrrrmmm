@@ -59,6 +59,13 @@ export class JsonStore {
     this._save();
     return rec;
   }
+  /** 승인 기다리는 코드 (관리자 페이지용) */
+  listPendingCodes(now = Date.now(), limit = 100) {
+    return Object.values(this.data.codes)
+      .filter((r) => (r.status === 'pending' || r.status === 'not_following') && r.expiresAt > now)
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .slice(0, limit);
+  }
   /** 오래된 코드/사용한 판 토큰 정리 */
   prune(now = Date.now()) {
     let n = 0;
@@ -99,7 +106,7 @@ export class JsonStore {
     const rows = [];
     for (const p of Object.values(this.data.players)) {
       const b = p.bests[level];
-      if (b && p.username) rows.push({ igsid: p.igsid, username: p.username, score: b.score, grade: b.grade, at: b.at });
+      if (b && p.username) rows.push({ igsid: p.igsid, username: p.username, verified: !!p.followVerifiedAt, score: b.score, grade: b.grade, at: b.at });
     }
     rows.sort((a, b) => b.score - a.score || a.at - b.at);
     rows.forEach((r, i) => (r.rank = i + 1));
@@ -110,6 +117,16 @@ export class JsonStore {
   rankOf(level, igsid) {
     const r = this.leaderboard(level, 0).all.find((x) => x.igsid === igsid);
     return r ? { rank: r.rank, score: r.score } : null;
+  }
+
+  /** 게스트 기록을 인증된 플레이어로 옮김 (단계별 더 높은 점수만 남김) */
+  moveScores(from, to) {
+    const a = this.data.players[from];
+    const b = this.data.players[to];
+    if (!a || !b || from === to) return;
+    for (const [lv, e] of Object.entries(a.bests || {})) if (!b.bests[lv] || e.score > b.bests[lv].score) b.bests[lv] = e;
+    a.bests = {};
+    this._save();
   }
 
   // ----- 판 토큰 1회용 처리 -----

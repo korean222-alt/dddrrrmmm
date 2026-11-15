@@ -32,6 +32,7 @@ function serverApi() {
     config: () => http('GET', '/api/config'),
     me: () => http('GET', '/api/me'),
     createCode: (purpose) => http('POST', '/api/codes', { purpose }),
+    guest: (name) => http('POST', '/api/guest', { name }),
     pollCode: (code) => http('GET', `/api/codes/${encodeURIComponent(code)}`),
     simulateDm: (code, opts = {}) => http('POST', '/api/dev/simulate-dm', { code, ...opts }),
     startRun: (level) => http('POST', '/api/runs', { level }),
@@ -61,7 +62,12 @@ function mockApi(cfg) {
     },
     async me() {
       const p = getPlayer();
-      return p ? { verified: true, player: p } : { verified: false };
+      return p ? { verified: !p.guest, guest: !!p.guest, player: p } : { verified: false };
+    },
+    async guest(name) {
+      const p = { username: String(name).trim(), guest: true };
+      save('mockPlayer', p);
+      return { verified: false, guest: true, player: p };
     },
     async createCode(purpose) {
       let c = '';

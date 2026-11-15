@@ -92,6 +92,14 @@ export class PgStore {
     }
     return this.getCode(code);
   }
+  /** 승인 기다리는 코드 (관리자 페이지용) */
+  async listPendingCodes(now = Date.now(), limit = 100) {
+    const rows = await this.q(
+      `SELECT * FROM codes WHERE status IN ('pending', 'not_following') AND expires_at > $1 ORDER BY created_at DESC LIMIT $2`,
+      [now, limit]
+    );
+    return rows.map(codeFromRow);
+  }
   /** 오래된 코드/사용한 판 토큰 정리 */
   async prune(now = Date.now()) {
     const del = await this.q('DELETE FROM codes WHERE expires_at + 86400000 < $1 RETURNING code', [now]);
@@ -129,11 +137,13 @@ export class PgStore {
   }
   async leaderboard(level, limit = 50) {
     const rows = await this.q(
-      `SELECT s.igsid, p.username, s.score, s.grade, s.at FROM scores s JOIN players p ON p.igsid = s.igsid
+      `SELECT s.igsid, p.username, p.follow_verified_at, s.score, s.grade, s.at FROM scores s JOIN players p ON p.igsid = s.igsid
        WHERE s.level = $1 AND p.username IS NOT NULL ORDER BY s.score DESC, s.at ASC LIMIT $2`,
       [level, limit]
     );
-    return { rows: rows.map((r, i) => ({ ...r, score: Number(r.score), at: Number(r.at), rank: i + 1 })) };
+    return {
+      rows: rows.map(({ follow_verified_at, ...r }, i) => ({ ...r, verified: follow_verified_at != null, score: Number(r.score), at: Number(r.at), rank: i + 1 })),
+    };
   }
   async rankOf(level, igsid) {
     const mine = await this.one('SELECT score, at FROM scores WHERE igsid = $1 AND level = $2', [igsid, level]);
@@ -144,6 +154,19 @@ export class PgStore {
       [level, mine.score, mine.at]
     );
     return { rank: Number(ahead ? ahead.n : 0) + 1, score: Number(mine.score) };
+  }
+
+  /** 게스트 기록을 인증된 플레이어로 옮김 (단계별 더 높은 점수만 남김) */
+  async moveScores(from, to) {
+    if (from === to) return;
+    await this.q(
+      `INSERT INTO scores (igsid, level, score, grade, max_combo, at)
+       SELECT $2, level, score, grade, max_combo, at FROM scores WHERE igsid = $1
+       ON CONFLICT (igsid, level) DO UPDATE SET score = EXCLUDED.score, grade = EXCLUDED.grade,
+         max_combo = EXCLUDED.max_combo, at = EXCLUDED.at WHERE EXCLUDED.score > scores.score`,
+      [from, to]
+    );
+    await this.q('DELETE FROM scores WHERE igsid = $1', [from]);
   }
 
   // ----- 판 토큰 1회용 처리 -----

@@ -30,6 +30,7 @@ before(async () => {
     IG_VERIFY_TOKEN: 'vt',
     INSTAGRAM_HANDLE: 'ok_aystra',
     MIN_RUN_RATIO: '0',
+    ADMIN_TOKEN: 'admin-pw',
   });
   // TEST_PG=1: Vercel 과 같은 Postgres 저장소(PgStore)를 메모리 Postgres(PGlite)로 시험
   let store;
@@ -150,11 +151,67 @@ test('전체 흐름: 잠금 → DM 웹훅 → 인증 → 점수 → 랭킹', asy
   assert.equal(lb.me.rank, 1);
 });
 
-test('점수 등록은 인증 필수', async () => {
+test('점수 등록은 닉네임 또는 인증 필요', async () => {
   const c = client();
   const run = (await c('POST', '/api/runs', { level: 1 })).json.runToken;
   const r = await c('POST', '/api/scores', { runToken: run, level: 1, score: 0, maxCombo: 0, counts: { perfect: 0, great: 0, good: 0, miss: noteCount(getLevel(1)) } });
   assert.equal(r.status, 401);
+});
+
+function perfectRun(level) {
+  const n = noteCount(getLevel(level));
+  let score = 0;
+  for (let i = 1; i <= n; i++) score += pointsFor('perfect', i);
+  return { score, maxCombo: n, counts: { perfect: n, great: 0, good: 0, miss: 0, wrong: 0 } };
+}
+
+test('닉네임으로 랭킹 참여 → 운영자 수동 승인하면 인스타 아이디로 기록이 옮겨감', async () => {
+  const c = client();
+  // 이상한 닉네임 거부
+  assert.equal((await c('POST', '/api/guest', { name: 'a' })).status, 400);
+  assert.equal((await c('POST', '/api/guest', { name: '<b>x</b>' })).status, 400);
+  const g = await c('POST', '/api/guest', { name: ' 쿵짝왕 ' });
+  assert.equal(g.status, 200);
+  assert.equal(g.json.player.username, '쿵짝왕');
+  const me = (await c('GET', '/api/me')).json;
+  assert.equal(me.verified, false);
+  assert.equal(me.guest, true);
+  // 닉네임만으로는 팔로우 잠금(4단계)이 안 풀림
+  assert.equal((await c('POST', '/api/runs', { level: 4 })).status, 403);
+  // 닉네임으로 점수 등록 → 랭킹에 (인증 표시 없이)
+  const run = (await c('POST', '/api/runs', { level: 2 })).json.runToken;
+  const ok = await c('POST', '/api/scores', { runToken: run, level: 2, ...perfectRun(2) });
+  assert.equal(ok.status, 200);
+  let lb = (await c('GET', '/api/leaderboard?level=2')).json;
+  const mine = lb.entries.find((e) => e.me);
+  assert.equal(mine.username, '쿵짝왕');
+  assert.equal(mine.verified, false);
+
+  // 인스타 인증 코드 → 관리자 승인
+  const code = (await c('POST', '/api/codes', { purpose: 'ranking' })).json;
+  assert.equal((await c('GET', '/api/admin/codes')).status, 401);
+  assert.equal((await c('GET', '/api/admin/codes', null, { 'x-admin-token': 'wrong-pw' })).status, 401);
+  const list = (await c('GET', '/api/admin/codes', null, { 'x-admin-token': 'admin-pw' })).json.codes;
+  assert.ok(list.some((x) => x.code === code.code));
+  const adm = (body) => c('POST', '/api/admin/approve', body, { 'x-admin-token': 'admin-pw' });
+  assert.equal((await adm({ code: code.display, username: 'bad name!' })).status, 400);
+  assert.equal((await adm({ code: 'OK-ZZZZ', username: 'someone' })).status, 404);
+  assert.equal((await adm({ code: code.display.toLowerCase(), username: '@Drum.King_1' })).status, 200);
+  assert.equal((await adm({ code: code.display, username: 'drum.king_1' })).status, 409);
+
+  const polled = await c('GET', `/api/codes/${code.code}`);
+  assert.equal(polled.json.status, 'verified');
+  assert.equal(polled.json.player.username, 'drum.king_1');
+  assert.equal((await c('GET', '/api/me')).json.verified, true);
+  assert.equal((await c('POST', '/api/runs', { level: 4 })).status, 200);
+  // 닉네임 기록이 인스타 아이디로 옮겨짐 (중복 없이)
+  lb = (await c('GET', '/api/leaderboard?level=2')).json;
+  assert.equal(lb.entries.filter((e) => e.username === '쿵짝왕').length, 0);
+  const moved = lb.entries.find((e) => e.me);
+  assert.equal(moved.username, 'drum.king_1');
+  assert.equal(moved.verified, true);
+  // 인증된 사람은 닉네임으로 못 돌아감
+  assert.equal((await c('POST', '/api/guest', { name: '다른이름' })).status, 409);
 });
 
 test('개발용 DM 시뮬레이션: 팔로우 안 함 → 팔로우', async () => {

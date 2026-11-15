@@ -11,7 +11,10 @@ export function makeConfig(env = {}) {
     // 몇 단계부터 팔로우가 필요한지 (1 = 처음부터)
     gateFromLevel: Math.max(1, Number(env.GATE_FROM_LEVEL) || 4),
     // fake: checkFollow 가 항상 "팔로우 중" / real: 인스타 API 로 진짜 확인
-    followCheckMode: env.FOLLOW_CHECK_MODE === 'real' ? 'real' : 'fake',
+    // manual: DM 은 운영자가 인스타 앱에서 직접 보고 /admin.html 에서 승인 (메타 비즈니스 인증 없이)
+    followCheckMode: ['real', 'manual'].includes(env.FOLLOW_CHECK_MODE) ? env.FOLLOW_CHECK_MODE : 'fake',
+    // /admin.html 승인 페이지 비밀번호. 비어 있으면 관리자 기능 꺼짐
+    adminToken: env.ADMIN_TOKEN || '',
     // 테스트용 "DM 보낸 척" API. 기본: 개발 환경에서만 켜짐
     devSimulate: bool(env.ALLOW_DEV_SIMULATE, !prod),
     instagramHandle: (env.INSTAGRAM_HANDLE || '').replace(/^@/, ''),
