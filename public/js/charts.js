@@ -857,8 +857,9 @@ export const ENDLESS_FROM = 13;
  *  단계별 무제한('e5' 등)은 그 단계를 깨면 열림 */
 export function isUnlocked(levelId, bests) {
   if (levelId === ENDLESS_ID) return isClearBest(bests[ENDLESS_FROM]);
+  // 그 단계나 더 뒤 단계를 하나라도 깼으면 열림 (오늘의 노래 등으로 앞 단계를 건너뛴 경우도)
   const base = levelEndlessBase(levelId);
-  if (base) return isClearBest(bests[base.id]);
+  if (base) return LEVELS.some((l) => l.id >= base.id && isClearBest(bests[l.id]));
   const id = Number(levelId);
   return id <= 1 || isClearBest(bests[id - 1]);
 }

@@ -1048,24 +1048,25 @@ export class Renderer {
     const f = this.roundFx;
     if (!f || st.countIn) return;
     const age = rt - f.t0;
-    const D = 1.8;
+    const D = 1.3;
     if (age > D) return;
     const ctx = this.ctx;
     const L = this.L;
     const t = age / D;
     const pop = age < 0.18 ? easeOut(age / 0.18) : 1;
     const alpha = t > 0.75 ? 1 - (t - 0.75) / 0.25 : 1;
-    const y = L.topY + (L.strikeY - L.topY) * 0.42;
+    // 노트를 가리지 않게 위쪽에 작게
+    const y = L.topY + (L.strikeY - L.topY) * 0.12;
     ctx.save();
     ctx.globalAlpha = alpha;
-    const bw = L.GW * 0.92;
-    const bh = L.GW * 0.42;
+    const bw = L.GW * 0.6;
+    const bh = L.GW * 0.2;
     rr(ctx, L.cx - bw / 2, y - bh * 0.55, bw, bh, L.GW * 0.06);
     ctx.fillStyle = 'rgba(14,9,34,0.78)';
     ctx.fill();
     ctx.translate(L.cx, y);
     ctx.scale(pop, pop);
-    this._roundText(f.info, 0, 0, L.GW * 0.2);
+    this._roundText(f.info, 0, 0, L.GW * 0.09);
     ctx.restore();
   }
 

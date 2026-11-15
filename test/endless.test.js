@@ -139,6 +139,9 @@ test('단계별 무제한: 그 단계를 깨면 열림, 그 곡 채보를 4마�
   assert.ok(!isUnlocked('e5', {}));
   assert.ok(!isUnlocked('e5', { 5: { stars: 0 } }));
   assert.ok(isUnlocked('e5', { 5: { stars: 1 } }));
+  // 앞 단계는 건너뛰고 뒤 단계를 깬 경우(오늘의 노래 등)도 열림
+  assert.ok(isUnlocked('e1', { 1: { stars: 0 }, 3: { stars: 2 } }));
+  assert.ok(!isUnlocked('e5', { 3: { stars: 2 } }));
   for (const base of LEVELS) {
     const run = makeLevelEndless(base);
     assert.equal(run.endless, true);

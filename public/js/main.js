@@ -251,15 +251,7 @@ function levelMode() {
 
 /** 무제한 보기: 맨 위에 그리그 무제한(랭킹) + 단계마다 그 곡으로 무제한 (그 단계를 깨면 열림) */
 function renderEndlessLevels(bests) {
-  const eLock = !isUnlocked(ENDLESS_ID, bests);
-  const eb = bests[ENDLESS_ID];
-  const list = [
-    `<button class="level-card endless-card ${eLock ? 'locked' : ''}" data-level="${ENDLESS_ID}">
-      <div class="lv"><span>∞</span></div>
-      <div class="info"><h4>무제한 모드 <small>그리그 · 랭킹</small></h4><p>깰수록 BPM +10 · 매번 다른 채보 · 💎 무제한 랭킹에 올라가요</p></div>
-      <div class="meta">${eLock ? `<span class="lockline">${icon('lock')} ${LOCK_FROM_PREV(ENDLESS_ID)}</span>` : `${gemsHTML(eb ? eb.diamonds || 0 : 0, 'sm')}<span>${eb ? `최고 Lv.${eb.roundsCleared || 0}` : 'NEW'}</span>`}</div>
-    </button>`,
-  ];
+  const list = [];
   for (const lv of LEVELS) {
     const id = levelEndlessId(lv.id);
     const prevLock = !isUnlocked(id, bests);
