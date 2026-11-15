@@ -1,10 +1,12 @@
-// 오디오 엔진: 드럼은 Web Audio 합성, 곡(멜로디·화음·베이스)은 진짜 그랜드 피아노 샘플로 연주합니다.
+// 오디오 엔진: 드럼은 Web Audio 합성, 곡(멜로디·화음·베이스)은 진짜 악기 샘플로 연주합니다.
 //   피아노 샘플: Salamander Grand Piano V3 (Alexander Holm, CC BY 3.0) — public/audio/piano/
+//   오케스트라 샘플: VS Chamber Orchestra Community Edition (Versilian Studios, CC0) — public/audio/orch/
+//     바이올린·첼로 합주, 호른·트롬본, 튜바, 팀파니. 피아노는 박자가 또렷하게 들리게 같이 침
 //   샘플을 못 불러오면 예전 합성음으로 대신 연주합니다.
 // - 모든 박자 판정은 AudioContext 시계 기준 (setTimeout 보다 훨씬 정확)
 // - heardTime(): "지금 스피커에서 나오고 있는 소리"의 시각. 출력 지연까지 반영.
 
-import { STEPS_PER_BAR, COUNT_IN_BARS, OUTRO_BARS, stepDur, parseMelody, chordAt, levelLanes, CHAR_LANES, KICK, SNARE, HAT, CRASH } from './charts.js';
+import { STEPS_PER_BAR, COUNT_IN_BARS, OUTRO_BARS, tempoOf, parseMelody, chordAt, levelLanes, CHAR_LANES, KICK, SNARE, HAT, CRASH } from './charts.js';
 
 const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -38,6 +40,18 @@ for (let o = 2; o <= 6; o++) for (const [n, pc] of [['C', 0], ['Ds', 3], ['Fs', 
 PIANO_NOTES.push({ file: 'C7.mp3', midi: 96 });
 const PIANO_GAIN = 1.9; // 샘플이 합성음보다 작게 녹음돼 있어서 키움 (곡이 드럼에 묻히지 않게)
 
+// 오케스트라 샘플 (파일 이름 = 악기_미디번호.mp3). 소리 크기는 파일마다 맞춰 둠
+const ORCH_BASE = 'audio/orch/';
+const ORCH = {
+  vln: [55, 57, 59, 62, 66, 69, 72, 76, 79, 83, 86],
+  vc: [36, 40, 43, 47, 50, 53, 57, 60, 64],
+  br: [43, 46, 50, 53, 57, 60, 61, 63, 65, 74, 77],
+  tuba: [34, 39, 41, 46, 50],
+  timp: [37, 42],
+};
+const ORCH_FILES = Object.entries(ORCH).flatMap(([k, list]) => list.map((midi) => ({ set: k, midi, file: `${k}_${midi}.mp3` })));
+const ORCH_GAIN = { vln: 0.62, vc: 0.62, br: 0.55, tuba: 0.6, timp: 0.9 };
+
 /** 샘플 앞의 무음 길이(초): 음이 실제로 시작하는 지점부터 틀어야 박자가 정확함 */
 function onsetOf(buf) {
   const d = buf.getChannelData(0);
@@ -57,6 +71,89 @@ export class AudioEngine {
     this.piano = null; // [{ midi, buf, offset }] 불러오면 채워짐
     this._pianoRaw = null;
     this._pianoLoading = null;
+    this.orch = null; // { vln: [{ midi, buf, offset }], ... }
+    this._orchRaw = null;
+    this._orchLoading = null;
+    /** 반주를 오케스트라로 (false 면 피아노만) */
+    this.orchOn = true;
+  }
+
+  /** 오케스트라 샘플 미리 받기 (피아노 다음에) */
+  prefetchOrch(base = ORCH_BASE) {
+    if (this._orchRaw) return this._orchRaw;
+    this._orchRaw = Promise.all(
+      ORCH_FILES.map((n) =>
+        fetch(base + n.file)
+          .then((r) => (r.ok ? r.arrayBuffer() : null))
+          .catch(() => null)
+      )
+    );
+    return this._orchRaw;
+  }
+
+  /** 오케스트라 샘플 디코딩. 실패하면 false (피아노만으로 연주) */
+  loadOrch() {
+    if (this.orch) return Promise.resolve(true);
+    if (this._orchLoading) return this._orchLoading;
+    const ctx = this.ensure();
+    this._orchLoading = this.prefetchOrch().then(async (raws) => {
+      const out = {};
+      for (const k of Object.keys(ORCH)) out[k] = [];
+      let ok = 0;
+      for (let i = 0; i < raws.length; i++) {
+        const ab = raws[i];
+        if (!ab) continue;
+        try {
+          const buf = await new Promise((res, rej) => {
+            const p = ctx.decodeAudioData(ab.slice(0), res, rej);
+            if (p && p.then) p.then(res, rej);
+          });
+          out[ORCH_FILES[i].set].push({ midi: ORCH_FILES[i].midi, buf, offset: onsetOf(buf) });
+          ok++;
+        } catch {}
+      }
+      if (ok < ORCH_FILES.length * 0.8 || Object.values(out).some((l) => !l.length)) {
+        this._orchLoading = null;
+        return false;
+      }
+      for (const l of Object.values(out)) l.sort((a, b) => a.midi - b.midi);
+      this.orch = out;
+      return true;
+    });
+    return this._orchLoading;
+  }
+
+  /** 지금 오케스트라로 칠 수 있나 */
+  get orchestra() {
+    return this.orchOn && !!this.orch;
+  }
+
+  /**
+   * 오케스트라 악기 한 음. set = 'vln' | 'vc' | 'br' | 'tuba' | 'timp'
+   * attack 초 동안 서서히 커지고, dur 뒤 release 로 잦아듦
+   */
+  orchNote(set, t, midi, dur, vel = 0.6, dest = this.musicBus, attack = 0.015, release = 0.18) {
+    const list = this.orch && this.orch[set];
+    if (!list || !list.length) return;
+    const ctx = this.ctx;
+    let s = list[0];
+    for (const p of list) if (Math.abs(p.midi - midi) < Math.abs(s.midi - midi)) s = p;
+    const src = ctx.createBufferSource();
+    src.buffer = s.buf;
+    src.playbackRate.value = Math.pow(2, (midi - s.midi) / 12);
+    const g = ctx.createGain();
+    const v = vel * ORCH_GAIN[set];
+    const t0 = Math.max(t, ctx.currentTime);
+    const end = t0 + Math.max(0.06, dur);
+    if (attack > 0.002) {
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.linearRampToValueAtTime(v, t0 + attack);
+    } else g.gain.setValueAtTime(v, t0);
+    g.gain.setValueAtTime(v, Math.max(end, t0 + attack));
+    g.gain.setTargetAtTime(0, Math.max(end, t0 + attack), release);
+    src.connect(g).connect(dest);
+    src.start(t0, s.offset);
+    src.stop(Math.min(end + release * 6, t0 + s.buf.duration / src.playbackRate.value));
   }
 
   /** 피아노 샘플 파일 미리 받기 (AudioContext 없이도 가능 → 페이지 열자마자 호출) */
@@ -447,6 +544,11 @@ export class AudioEngine {
   /** 별 3개 다 모으면 '짜잔' 화음 */
   fanfare(t = this.ctx.currentTime) {
     const notes = [72, 76, 79, 84];
+    if (this.orchestra) {
+      for (const m of [48, 55, 60, 64]) this.orchNote('br', t + 0.02, m, 1.1, 0.7, this.sfxBus, 0.03, 0.4);
+      for (const m of [72, 76, 79]) this.orchNote('vln', t + 0.02, m, 1.2, 0.6, this.sfxBus, 0.03, 0.4);
+      this.orchNote('timp', t, 36, 1.5, 0.9, this.sfxBus, 0, 0.5);
+    }
     if (this.piano) {
       notes.forEach((m, k) => this.pianoNote(t + k * 0.06, m, 1.2, 0.7, this.sfxBus));
       return;
@@ -486,6 +588,13 @@ export class AudioEngine {
     o.stop(t + 0.08);
   }
 
+  /** 피아노로 lead/bass 를 vel 배율로 (오케스트라와 섞을 때 피아노는 조금 작게) */
+  pianoOr(kind, t, midi, dur, dest, scale = 1) {
+    if (!this.piano) return kind === 'bass' ? this.bass(t, midi, dur, dest) : this.lead(t, midi, dur, dest);
+    if (kind === 'bass') return this.pianoNote(t, midi + 12, dur, 0.62 * scale, dest);
+    return this.pianoNote(t, midi, dur, scale, dest);
+  }
+
   /** 둥글고 부드러운 베이스 (킥처럼 '쿵' 하고 들리지 않게 어택을 느리게) */
   bass(t, midi, dur, dest = this.musicBus) {
     if (this.piano) return this.pianoNote(t, midi + 12, dur, 0.62, dest);
@@ -506,9 +615,9 @@ export class AudioEngine {
     o.stop(t + dur + 0.02);
   }
 
-  pluck(t, midis, dur, dest = this.musicBus) {
+  pluck(t, midis, dur, dest = this.musicBus, scale = 1) {
     if (this.piano) {
-      for (const m of midis) this.pianoNote(t, m, dur, 0.3, dest);
+      for (const m of midis) this.pianoNote(t, m, dur, 0.3 * scale, dest);
       return;
     }
     const ctx = this.ctx;
@@ -568,6 +677,14 @@ export class AudioEngine {
 /**
  * 한 판의 반주 재생기. lookahead 스케줄러로 AudioContext 시각에 정확히 예약.
  * startTime = 카운트인 첫 박의 AudioContext 시각.
+ * 빠르기는 박자 시계(tempoOf)를 따름 → 무제한 모드처럼 단계마다 빨라져도 그대로 맞음.
+ *
+ * 오케스트라 편곡 (샘플을 받았고 설정이 '오케스트라'일 때):
+ *   멜로디 = 피아노(박자 또렷하게) + 바이올린 합주
+ *   화음   = 현악 패드(바이올린 + 첼로) / 곡이 달아오르면 호른·트롬본
+ *   베이스 = 피아노 + 첼로, 절정에서 튜바
+ *   팀파니 = 마디 첫 박 + 크래시 직전 롤
+ *   곡 앞부분은 가볍게, 뒤로 갈수록(무제한 모드는 단계가 오를수록) 악기가 늘며 웅장해짐
  */
 export class SongPlayer {
   constructor(audio, level, startTime, { autoChart = false } = {}) {
@@ -575,8 +692,7 @@ export class SongPlayer {
     this.level = level;
     this.startTime = startTime;
     this.autoChart = autoChart;
-    this.sd = stepDur(level);
-    this.totalSteps = (COUNT_IN_BARS + level.bars.length + OUTRO_BARS) * STEPS_PER_BAR;
+    this.tempo = tempoOf(level);
     this.step = 0;
     this.melody = parseMelody(level.song.melody || []);
     this.melodyBars = (level.song.melody || []).length;
@@ -589,6 +705,11 @@ export class SongPlayer {
     this.drumBus.connect(audio.sfxBus);
   }
 
+  get totalSteps() {
+    if (this.level.endless) return Infinity;
+    return (COUNT_IN_BARS + this.level.bars.length + OUTRO_BARS) * STEPS_PER_BAR;
+  }
+
   start() {
     this.timer = setInterval(() => this.tick(), 25);
     this.tick();
@@ -597,7 +718,7 @@ export class SongPlayer {
   tick() {
     const horizon = this.audio.ctx.currentTime + 0.2;
     while (this.step < this.totalSteps) {
-      const t = this.startTime + this.step * this.sd;
+      const t = this.startTime + this.tempo.stepTime(this.step);
       if (t > horizon) break;
       if (t >= this.audio.ctx.currentTime - 0.01) this.scheduleStep(this.step, t);
       this.step++;
@@ -605,17 +726,27 @@ export class SongPlayer {
     if (this.step >= this.totalSteps) clearInterval(this.timer);
   }
 
+  /** 곡이 얼마나 달아올랐나 0.35 ~ 1 (악기 수가 늘어남) */
+  intensity(mb) {
+    const lv = this.level;
+    if (lv.challenge) return Math.min(1, 0.35 + 0.15 * (lv.roundOfBar(mb) - 1));
+    const n = lv.bars.length;
+    return mb < 4 ? 0.35 : mb < n / 2 ? 0.65 : 1;
+  }
+
   scheduleStep(i, t) {
     const a = this.audio;
     const bar = Math.floor(i / STEPS_PER_BAR);
     const s = i % STEPS_PER_BAR;
     const song = this.level.song;
-    const sd = this.sd;
+    const sd = this.tempo.barLen(bar) / STEPS_PER_BAR;
+    const orch = a.orchestra;
     if (bar < COUNT_IN_BARS) {
       if (s % 4 === 0) a.click(t, s === 0, this.bus);
       return;
     }
     const mb = bar - COUNT_IN_BARS; // 본편 마디 번호
+    if (mb >= this.level.bars.length && this.level.ensureBars) this.level.ensureBars(mb + 1);
     const chartBars = this.level.bars.length;
     const ch = chordAt(song, mb, s);
 
@@ -624,36 +755,100 @@ export class SongPlayer {
       if (s === 0) {
         const home = chordAt(song, 0, 0);
         a.crash(t, this.bus);
-        a.bass(t, home.root - 24, this.sd * 12, this.bus);
-        a.pluck(t, home.notes, this.sd * 14, this.bus);
+        a.bass(t, home.root - 24, sd * 12, this.bus);
+        a.pluck(t, home.notes, sd * 14, this.bus);
         const last = this.melody.filter((n) => n.bar === 0)[0];
-        if (last) a.lead(t, home.root + 12 * Math.round((last.midi - home.root) / 12), this.sd * 10, this.bus);
+        if (last) a.lead(t, home.root + 12 * Math.round((last.midi - home.root) / 12), sd * 10, this.bus);
+        if (orch) {
+          const d = sd * 14;
+          for (const m of home.notes) a.orchNote('vln', t, m + 12, d, 0.5, this.bus, 0.01, 0.5);
+          for (const m of home.notes) a.orchNote('br', t, m - 12, d, 0.6, this.bus, 0.01, 0.5);
+          a.orchNote('vc', t, home.root - 12, d, 0.7, this.bus, 0.01, 0.5);
+          a.orchNote('tuba', t, home.root - 24, d, 0.7, this.bus, 0.01, 0.5);
+          a.orchNote('timp', t, this._timpPitch(home.root), 2, 0.9, this.bus, 0, 0.6);
+        }
       }
       return;
     }
 
+    const heat = this.intensity(mb);
     // 하이햇
     const hc = song.hat[s];
     if (hc === 'x' || hc === 'o') a.hat(t, s % 4 === 0 ? 0.6 : 0.35, hc === 'o', this.bus);
-    // 베이스
+    // 베이스 (오케스트라면 첼로가 같이 받쳐줌)
     const bc = song.bass[s];
     if (bc && bc !== '.') {
       const m = ch.root - 24 + (bc === 'o' ? 12 : bc === '5' ? 7 : 0);
-      a.bass(t, m, sd * 1.8, this.bus);
+      if (orch) {
+        a.pianoOr('bass', t, m, sd * 1.8, this.bus, 0.75);
+        a.orchNote('vc', t, m + 12, Math.max(sd * 1.8, 0.22), 0.45 + 0.25 * heat, this.bus, 0.01, 0.12);
+      } else a.bass(t, m, sd * 1.8, this.bus);
     }
     // 화음
-    if (song.chord[s] === 'x') a.pluck(t, ch.notes, sd * 3, this.bus);
+    if (song.chord[s] === 'x') a.pluck(t, ch.notes, sd * 3, this.bus, orch ? 0.6 : 1);
     // 멜로디 (클래식 곡 주제 선율)
     if (this.melodyBars) {
       const mbar = mb % this.melodyBars;
-      for (const n of this.melody) if (n.bar === mbar && n.step === s) a.lead(t, n.midi, n.len * sd * 0.92, this.bus);
+      for (const n of this.melody) {
+        if (n.bar !== mbar || n.step !== s) continue;
+        const dur = n.len * sd * 0.92;
+        if (!orch) {
+          a.lead(t, n.midi, dur, this.bus);
+          continue;
+        }
+        a.pianoOr('lead', t, n.midi, dur, this.bus, 0.72);
+        // 바이올린 합주: 긴 음은 풍성하게, 16분음표 질주는 살짝만
+        if (n.len >= 2) a.orchNote('vln', t, n.midi, n.len * sd, 0.55 + 0.3 * heat, this.bus, 0.03, 0.15);
+        else a.orchNote('vln', t, n.midi, sd * 1.4, 0.3 + 0.15 * heat, this.bus, 0.004, 0.06);
+        // 절정: 호른이 한 옥타브 아래로 멜로디를 같이 (긴 음만)
+        if (heat >= 1 && n.len >= 4 && n.midi - 12 >= 45) a.orchNote('br', t, n.midi - 12, n.len * sd, 0.4, this.bus, 0.03, 0.15);
+      }
     }
+    if (orch) this._orchestra(mb, s, t, sd, ch, heat);
     // 8마디마다 크래시
     if (s === 0 && mb > 0 && mb % 8 === 0 && !this.mineCrash) a.crash(t, this.bus);
     // 자동 연주(데모/릴스 녹화용)
     if (this.autoChart) {
       for (const lane of CHAR_LANES[this.level.bars[mb][s]] || []) a.playLane(lane, t, this.drumBus);
     }
+  }
+
+  /** 팀파니 음높이: 뿌리음을 C2~B2 근처로 */
+  _timpPitch(root) {
+    let m = root;
+    while (m > 44) m -= 12;
+    while (m < 33) m += 12;
+    return m;
+  }
+
+  /** 현악 패드 · 금관 · 튜바 · 팀파니 */
+  _orchestra(mb, s, t, sd, ch, heat) {
+    const a = this.audio;
+    const song = this.level.song;
+    const entry = song.prog[((mb % song.prog.length) + song.prog.length) % song.prog.length];
+    const parts = entry.trim().split(/\s+/).length;
+    const partLen = STEPS_PER_BAR / parts;
+    // 코드가 바뀌는 자리마다 현악 패드
+    if (s % partLen === 0) {
+      const d = partLen * sd;
+      const pv = 0.22 + 0.16 * heat;
+      for (const m of ch.notes.slice(0, 3)) a.orchNote('vln', t, m, d, pv, this.bus, Math.min(0.12, d * 0.25), 0.25);
+      a.orchNote('vc', t, ch.root - 12, d, pv + 0.1, this.bus, Math.min(0.1, d * 0.2), 0.25);
+      // 금관: 달아오르면 코드 첫 자리마다, 그 전엔 4마디마다 한 번
+      if (heat >= 1 || (heat >= 0.65 && s === 0 && mb % 4 === 0)) {
+        const bv = heat >= 1 ? 0.42 : 0.32;
+        for (const m of [ch.root - 12, ch.notes[1] - 12, ch.notes[2] - 12]) a.orchNote('br', t, m, d * 0.95, bv, this.bus, 0.04, 0.2);
+      }
+    }
+    // 튜바: 절정에서 마디 첫 박
+    if (heat >= 1 && s === 0) a.orchNote('tuba', t, ch.root - 24, 16 * sd * 0.85, 0.55, this.bus, 0.02, 0.2);
+    // 팀파니
+    const tp = this._timpPitch(ch.root);
+    if (heat >= 0.65 && s === 0) a.orchNote('timp', t, tp, 1.5, heat >= 1 ? 0.75 : 0.5, this.bus, 0, 0.5);
+    if (heat >= 1 && s === 8) a.orchNote('timp', t, tp, 1, 0.45, this.bus, 0, 0.4);
+    // 크래시 나오기 직전 마디 끝: 팀파니 롤 (두두두두 → 쾅)
+    const toCrash = (mb + 1) % 8 === 0 && (this.level.endless || mb + 1 < this.level.bars.length);
+    if (heat >= 0.65 && toCrash && s >= 12) a.orchNote('timp', t, tp, 0.5, 0.3 + (s - 12) * 0.12, this.bus, 0, 0.12);
   }
 
   stop(fade = 0.15) {

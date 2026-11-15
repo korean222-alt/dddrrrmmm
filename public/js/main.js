@@ -1,6 +1,9 @@
 // 오케이스트라 — 화면 전환, 잠금(팔로우 인증), 랭킹, 설정을 묶는 앱 본체
 
-import { LEVELS, getLevel, levelLanes, isGated, GATE_FROM_LEVEL, DIFFICULTY_WORDS, STAR_RULES } from './charts.js';
+import {
+  LEVELS, getLevel, levelLanes, isGated, GATE_FROM_LEVEL, DIFFICULTY_WORDS, STAR_RULES,
+  ENDLESS_ID, LAST_LEVEL_ID, makeEndless, isUnlocked, nextChallenge, DIAMOND_RULES, roundInfo,
+} from './charts.js';
 import { AudioEngine, playMetronome } from './audio.js';
 import { Renderer } from './render.js';
 import { Game, MAX_LIVES, LIFE_REGEN_COMBO } from './game.js';
@@ -34,6 +37,12 @@ const ICONS = {
   insta: '<rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke="currentColor" stroke-width="2.2" fill="none"/><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2.2" fill="none"/><circle cx="17.2" cy="6.8" r="1.3" fill="currentColor"/>',
 };
 const STAR_PATH = 'M12 2.6l2.85 5.95 6.55.85-4.8 4.55 1.22 6.5L12 17.3l-5.82 3.15 1.22-6.5-4.8-4.55 6.55-.85z';
+const GEM_PATH = 'M7 3.5h10l4.5 5.6L12 21 2.5 9.1z M2.5 9.1h19 M7 3.5l2.4 5.6L12 21l2.6-11.9L17 3.5';
+/** 다이아몬드 3개 (무제한 모드). 별과 같은 연출 클래스를 씀 */
+const gemsHTML = (n, cls = '') =>
+  `<span class="stars gems ${cls}" aria-label="다이아몬드 ${n}개">${[0, 1, 2]
+    .map((i) => `<svg viewBox="0 0 24 24" class="${i < n ? 'on' : ''}" style="--i:${i}"><path d="${GEM_PATH}"/></svg>`)
+    .join('')}</span>`;
 /** 별 3개 (n개 채움) */
 const starsHTML = (n, cls = '') =>
   `<span class="stars ${cls}" aria-label="별 ${n}개">${[0, 1, 2]
@@ -52,7 +61,7 @@ const state = {
   me: { verified: false },
   settings: loadSettings(),
   auto: false,
-  studio: { level: 8, mode: 'auto', top: '엄지 두 개로 따라 쳐봐!', bottom: '프로필 링크에서 바로 해보기', file: false, active: false },
+  studio: { level: 'ch4', mode: 'auto', top: '엄지로 드럼 쳐보세요', bottom: 'Lv.4까지 오면 드러머 재능 있음', file: false, active: false },
   levelId: 1,
   game: null,
   lastResult: null,
@@ -126,6 +135,21 @@ function needsFollow() {
 function isLocked(level) {
   return isGated(level, gateFrom()) && needsFollow();
 }
+/** 단계 id → 칠 판 (숫자 = 일반 단계, 'endless' = 무제한 모드, 'ch4' = 영상용 레벨업 챌린지 4단계까지) */
+function playable(id) {
+  if (id === ENDLESS_ID) return makeEndless();
+  if (typeof id === 'string' && /^ch\d+$/.test(id)) return makeEndless({ rounds: Number(id.slice(2)) });
+  return getLevel(id);
+}
+const isChallengeId = (id) => id === ENDLESS_ID || (typeof id === 'string' && /^ch\d+$/.test(id));
+/** 앞 단계를 안 깨서 잠김 (팔로우 잠금과 별개) */
+const progressLocked = (id) => !isUnlocked(id, loadBests());
+function progressLockText(id) {
+  if (id === ENDLESS_ID) return `${LAST_LEVEL_ID}단계 ${getLevel(LAST_LEVEL_ID).name}을 깨면 무제한 모드가 열려요 💎`;
+  return `${id - 1}단계를 별 1개 이상으로 깨면 ${id}단계가 열려요`;
+}
+const LOCK_FROM_PREV = (id) => (id === ENDLESS_ID ? `${LAST_LEVEL_ID}단계 깨면 열림` : `${id - 1}단계 깨면 열림`);
+
 /** 잠긴 단계를 누르면: soft 는 팔로우 안내, follow 는 DM 인증 */
 function requireFollow(level, onDone) {
   if (state.cfg.gateMode === 'follow') openVerify('unlock', onDone, level);
@@ -162,9 +186,16 @@ function buildTitle() {
       }, 170);
     });
   });
-  const q = getLevel(params.get('level')) || getLevel(1); // 릴스 링크로 특정 곡 바로 열기용
-  state.levelId = q.id;
-  $('[data-action="quickstart"]').innerHTML = `${icon('play')} 바로 시작 <small>${q.id}단계</small>`;
+  refreshQuick();
+}
+
+/** '바로 시작': 릴스 링크(?level=N)로 온 곡이 열려 있으면 그 곡, 아니면 아직 안 깬 첫 단계 */
+function refreshQuick() {
+  const q = getLevel(params.get('level'));
+  const id = q && !progressLocked(q.id) ? q.id : nextChallenge(loadBests());
+  state.quickId = id;
+  $('[data-action="quickstart"]').innerHTML =
+    id === ENDLESS_ID ? `${icon('play')} 바로 시작 <small>무제한 모드</small>` : `${icon('play')} 바로 시작 <small>${id}단계</small>`;
 }
 
 /** "1~3단계는 누구나" 같은 문구용 */
@@ -187,13 +218,15 @@ function hotLevel() {
 
 function refreshTitle() {
   refreshToday();
-  const hot = hotLevel();
-  const gated = state.cfg.gateMode !== 'open' && isGated(hot, gateFrom());
-  $('#hot-name').textContent = `${hot.id}단계 도전 · ${hot.name}`;
-  $('.lock-ico').hidden = !isLocked(hot);
+  refreshQuick();
+  // 무제한 모드 버튼: 마지막 단계를 깨면 열림
+  const open = !progressLocked(ENDLESS_ID);
+  const eb = loadBests()[ENDLESS_ID];
+  $('#hot-name').textContent = open ? '💎 무제한 모드 · 점점 빨라져요' : '💎 무제한 모드';
+  $('.lock-ico').hidden = open;
   const tag = $('.hot-tag');
-  tag.hidden = !gated;
-  tag.textContent = `${gateFrom()}단계부터 인스타 팔로우`;
+  tag.hidden = false;
+  tag.textContent = !open ? LOCK_FROM_PREV(ENDLESS_ID) : eb ? `최고 Lv.${eb.roundsCleared || 0} 클리어` : 'NEW';
   const foot = $('#title-foot');
   const free = freeRangeText();
   if (state.me.verified) {
@@ -209,10 +242,13 @@ function refreshTitle() {
 function renderLevels() {
   const bests = loadBests();
   let gateShown = false;
-  $('#level-list').innerHTML = LEVELS.map((lv) => {
-    const locked = isLocked(lv);
+  const list = LEVELS.map((lv) => {
+    const prevLock = !isUnlocked(lv.id, bests);
+    const locked = prevLock || isLocked(lv);
     const b = bests[lv.id];
-    const meta = locked
+    const meta = prevLock
+      ? `<span class="lockline">${icon('lock')} ${LOCK_FROM_PREV(lv.id)}</span>`
+      : locked
       ? `<span class="lockline">${icon('lock')} 인스타 팔로우</span>`
       : b
         ? `${starsHTML(b.stars || 0, 'sm')}<span>${fmt(b.score)}</span>`
@@ -223,20 +259,42 @@ function renderLevels() {
       gateShown = true;
       divider = `<div class="gate-divider">${icon('insta')} ${lv.id}단계부터는 ${igWho()} 팔로우하면 열려요</div>`;
     }
-    return `${divider}<button class="level-card ${locked ? 'locked' : ''}" data-level="${lv.id}">
+    return `${divider}<button class="level-card ${locked ? 'locked' : ''} ${lv.boss ? 'boss' : ''}" data-level="${lv.id}">
       <div class="lv"><span>${lv.id}<small>단계</small></span></div>
       <div class="info"><h4>${lv.name} <small>${lv.composer}</small></h4><p>${lv.tagline}</p>${diffHTML(lv.difficulty)}</div>
       <div class="meta">${meta}</div>
     </button>`;
-  }).join('');
+  });
+  // 맨 아래: 무제한 모드 (마지막 단계 깨면 열림)
+  const eLock = !isUnlocked(ENDLESS_ID, bests);
+  const eb = bests[ENDLESS_ID];
+  list.push(`<button class="level-card endless-card ${eLock ? 'locked' : ''}" data-level="${ENDLESS_ID}">
+      <div class="lv"><span>∞</span></div>
+      <div class="info"><h4>무제한 모드 <small>그리그</small></h4><p>깰수록 BPM +10 · 속도 한도 없음</p><p class="gem-rule">💎 Lv.4 · 💎💎 Lv.7 · 💎💎💎 Lv.10 클리어</p></div>
+      <div class="meta">${eLock ? `<span class="lockline">${icon('lock')} ${LOCK_FROM_PREV(ENDLESS_ID)}</span>` : `${gemsHTML(eb ? eb.diamonds || 0 : 0, 'sm')}<span>${eb ? `최고 Lv.${eb.roundsCleared || 0} 클리어` : 'NEW'}</span>`}</div>
+    </button>`);
+  $('#level-list').innerHTML = list.join('');
   const free = freeRangeText();
   $('#levels-foot').innerHTML = needsFollow()
-    ? `${free ? free + ' 누구나 바로! ' : ''}${gateFrom()}단계부터는 ${igWho()} 팔로우하면 열려요.<br>별 3개: ${STAR_RULES[0].text}`
-    : `왼쪽 엄지는 <b style="color:#D0581F">킥(쿵)</b>, 오른쪽 엄지는 <b style="color:#2F86CF">스네어(짝)</b>. 별 3개: ${STAR_RULES[0].text}`;
+    ? `${free ? free + ' 누구나 바로! ' : ''}${gateFrom()}단계부터는 ${igWho()} 팔로우하면 열려요.<br>앞 단계를 별 1개 이상으로 깨면 다음 단계가 열려요. 별 3개: ${STAR_RULES[0].text}`
+    : `앞 단계를 별 1개 이상으로 깨면 다음 단계가 열려요. 마지막 단계까지 깨면 💎 무제한 모드!<br>별 3개: ${STAR_RULES[0].text}`;
 }
 
 // ---------------- 게임 ----------------
-async function tryStart(id) {
+/** free: 오늘의 노래·친구 도전장은 앞 단계를 안 깼어도 칠 수 있음 (팔로우 잠금은 그대로) */
+async function tryStart(id, { free = false } = {}) {
+  if (!free && progressLocked(id)) {
+    toast(progressLockText(id), 2800);
+    if ($('#screen-title').classList.contains('active')) {
+      renderLevels();
+      show('screen-levels');
+    }
+    return;
+  }
+  if (id === ENDLESS_ID) {
+    startLevel(id);
+    return;
+  }
   const lv = getLevel(id);
   if (!lv) return;
   if (isLocked(lv)) {
@@ -253,21 +311,23 @@ async function fontsReady() {
 }
 
 async function startLevel(id) {
-  const lv = getLevel(id);
+  const lv = playable(id);
+  if (!lv) return;
   state.levelId = id;
   await audio.unlock();
   audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx });
+  audio.orchOn = state.settings.band !== 'piano';
   if (state.game) state.game.stop();
   closeModal('modal-pause');
   show('screen-game');
-  $('#hud-lv').textContent = `${lv.id}단계`;
-  $('#hud-name').textContent = `${lv.name} · ${lv.composer}`;
+  $('#hud-lv').textContent = lv.challenge ? (lv.endless ? '무제한' : '챌린지') : `${lv.id}단계`;
+  $('#hud-name').textContent = lv.challenge ? `${lv.songName} · ${lv.composer}` : `${lv.name} · ${lv.composer}`;
   $('#hud-score').textContent = '0';
   $('#hud-progress').style.width = '0%';
   closeModal('modal-continue');
   const st = state.studio;
   renderLives(st.active || state.auto ? null : MAX_LIVES);
-  const vs = !st.active && state.vs && state.vs.levelId === id ? state.vs : null;
+  const vs = !st.active && !lv.challenge && state.vs && state.vs.levelId === id ? state.vs : null;
   $('#hud-vs').hidden = !vs;
   if (vs) {
     $('#vs-name').textContent = vs.name;
@@ -275,17 +335,18 @@ async function startLevel(id) {
     $('#vs-op').textContent = '0';
     $('#vs-fill').style.width = '50%';
   }
-  // 피아노 샘플이 아직이면 잠깐 기다림 (최대 2.5초, 안 되면 합성음으로)
-  await Promise.race([audio.loadPiano(), new Promise((r) => setTimeout(r, 2500))]);
+  // 악기 샘플이 아직이면 잠깐 기다림 (최대 3초. 피아노가 안 되면 합성음, 오케스트라는 받는 대로 중간부터 합류)
+  const orchLoad = audio.orchOn ? audio.loadOrch() : Promise.resolve();
+  await Promise.race([Promise.all([audio.loadPiano(), orchLoad]), new Promise((r) => setTimeout(r, 3000))]);
   $('#screen-game').classList.toggle('studio-mode', st.active);
-  renderer.studio = st.active ? { top: st.top, bottom: st.bottom, label: `${lv.id}단계 · ${lv.composer} ${lv.name}` } : null;
+  renderer.studio = st.active ? studioOverlay(lv) : null;
   setKit(lv);
   await fontsReady();
   await new Promise((r) => requestAnimationFrame(r));
   const cw = $('#game-canvas').clientWidth || window.innerWidth;
   await renderer.resize(st.active ? Math.min(3, Math.max(2, 1080 / cw)) : 2);
   state.runToken = null;
-  state.api
+  if (!lv.challenge) state.api
     .startRun(id)
     .then((r) => (state.runToken = r.runToken))
     .catch((e) => {
@@ -317,6 +378,10 @@ async function startLevel(id) {
           $('#vs-fill').style.width = (tot ? (h.score / tot) * 100 : 50).toFixed(1) + '%';
         }
         last.op = op;
+      }
+      if (h.round && h.round !== last.round) {
+        $('#hud-name').textContent = `Lv.${h.round.round} · ${h.round.name} · ${h.round.bpm} BPM`;
+        last.round = h.round;
       }
       if (h.lives != null && h.lives !== last.lives) {
         renderLives(h.lives, last.lives);
@@ -429,12 +494,20 @@ function renderLives(n, prev) {
 
 /** 목숨 0개: 게임이 멈춘 상태로 이어하기 창 */
 function onDeath(info) {
-  const lv = getLevel(state.levelId);
+  const g = state.game;
+  const lv = g.level;
   state.death = info;
-  $('#cont-level').textContent = `${lv.id}단계 · ${lv.name}`;
   $('#cont-score').textContent = `${fmt(info.score)}점`;
-  $('#cont-progress').style.width = `${Math.round(info.progress * 100)}%`;
-  $('#cont-progress-text').textContent = `곡 ${Math.round(info.progress * 100)}% 까지 왔어요`;
+  if (lv.challenge) {
+    const r = g.roundInfo || roundInfo(1);
+    $('#cont-level').textContent = `무제한 모드 · Lv.${r.round} ${r.name}`;
+    $('#cont-progress').style.width = `${Math.min(100, (r.round / 10) * 100)}%`;
+    $('#cont-progress-text').textContent = `Lv.${r.round} · ${r.bpm} BPM 까지 왔어요`;
+  } else {
+    $('#cont-level').textContent = `${lv.id}단계 · ${lv.name}`;
+    $('#cont-progress').style.width = `${Math.round(info.progress * 100)}%`;
+    $('#cont-progress-text').textContent = `곡 ${Math.round(info.progress * 100)}% 까지 왔어요`;
+  }
   $('#btn-continue').hidden = !info.canContinue;
   $('#cont-note').textContent = info.canContinue
     ? `광고를 끝까지 보면 목숨 ${MAX_LIVES}개로 바로 그 자리부터 이어서 쳐요 (한 판에 한 번)`
@@ -474,9 +547,19 @@ function giveUp() {
 function showResult(res) {
   res.runToken = state.runToken;
   state.lastResult = res;
+  if (res.challenge) {
+    showChallengeResult(res);
+    return;
+  }
   const lv = getLevel(res.levelId);
+  const wasOpen = { next: !progressLocked(res.levelId + 1), endless: !progressLocked(ENDLESS_ID) };
   // 목숨 다 써서 끝난 판은 최고 기록에 안 들어감
   const best = state.auto || res.failed ? { isNew: false } : saveBest(res);
+  // 이번 판으로 새로 열린 단계 알림
+  if (!state.auto && !res.failed) {
+    if (res.levelId === LAST_LEVEL_ID && !wasOpen.endless && !progressLocked(ENDLESS_ID)) setTimeout(() => toast('💎 무제한 모드가 열렸어요! 깰수록 빨라져요', 3200), 2600);
+    else if (getLevel(res.levelId + 1) && !wasOpen.next && !progressLocked(res.levelId + 1)) setTimeout(() => toast(`🔓 ${res.levelId + 1}단계가 열렸어요!`, 2600), 2600);
+  }
   $('#res-level').textContent = `${lv.id}단계 · ${lv.composer} ${lv.name}`;
   $('#screen-result').classList.toggle('failed', !!res.failed);
   const g = $('#res-grade');
@@ -502,8 +585,9 @@ function showResult(res) {
   $('#res-meta').innerHTML = `정확도 ${(res.accuracy * 100).toFixed(1)}% · 최대 콤보 ${res.maxCombo} · ${timing}${state.auto ? '<br>(자동 연주 — 기록 저장 안 됨)' : ''}`;
   const next = getLevel(lv.id + 1);
   const nb = $('#btn-next');
-  nb.hidden = !next;
-  if (next) nb.innerHTML = `다음 ${next.id}단계 ${isLocked(next) ? icon('lock') : ''}`;
+  nb.hidden = false;
+  if (next) nb.innerHTML = `다음 ${next.id}단계 ${isLocked(next) || progressLocked(next.id) ? icon('lock') : ''}`;
+  else nb.innerHTML = `💎 무제한 모드 ${progressLocked(ENDLESS_ID) ? icon('lock') : ''}`;
   $('#btn-rank').hidden = state.auto || res.failed;
   $('#btn-vs').hidden = state.auto || res.failed;
   // 박자가 계속 한쪽으로 밀리면 (블루투스 이어폰 등) 한 번에 맞추기
@@ -529,6 +613,35 @@ function showResult(res) {
   animateResult(res, outcome);
 }
 
+/** 무제한 모드 결과: 등급 자리에 "Lv.N", 별 대신 다이아몬드 */
+function showChallengeResult(res) {
+  const lv = getLevel(8);
+  const best = state.auto ? { isNew: false } : saveBest(res);
+  $('#res-level').textContent = `무제한 모드 · ${lv.composer} ${lv.name}`;
+  $('#screen-result').classList.remove('failed');
+  const g = $('#res-grade');
+  g.textContent = `Lv.${res.roundReached}`;
+  g.style.color = '#FFD84A';
+  const next = DIAMOND_RULES.slice().reverse().find((r) => r.diamonds > res.diamonds);
+  $('#res-star-hint').innerHTML =
+    res.diamonds === 3
+      ? `다이아 3개! 진짜 드러머예요 💎💎💎`
+      : `${res.roundsCleared ? `Lv.${res.roundsCleared}까지 클리어` : 'Lv.1부터 다시 도전!'} · 다음 💎: ${next.text}`;
+  $('#res-new').hidden = !best.isNew;
+  $('#res-badge').hidden = true;
+  for (const k of ['perfect', 'great', 'good', 'miss', 'wrong']) $('#res-' + k).textContent = res.counts[k] || 0;
+  const face = res.diamonds === 0 ? 'miss' : res.diamonds === 1 ? 'idle' : 'cheer';
+  $('#res-mascots').innerHTML = mascotSVG('kong', face) + mascotSVG('jjak', face);
+  const prev = best.prev && !best.isNew ? ` · 내 최고 Lv.${best.prev.roundsCleared || 0} 클리어` : '';
+  $('#res-meta').innerHTML = `최고 속도 ${res.bpmReached} BPM · 최대 콤보 ${res.maxCombo} · 정확도 ${(res.accuracy * 100).toFixed(1)}%${prev}${state.auto ? '<br>(자동 연주 — 기록 저장 안 됨)' : ''}`;
+  $('#btn-next').hidden = true;
+  $('#btn-rank').hidden = true;
+  $('#btn-vs').hidden = true;
+  show('screen-result');
+  renderLevels();
+  animateResult({ ...res, stars: res.diamonds }, null, true);
+}
+
 const clampOffset = (ms) => Math.max(-200, Math.min(200, Math.round(ms / 5) * 5));
 
 /**
@@ -536,14 +649,14 @@ const clampOffset = (ms) => Math.max(-200, Math.min(200, Math.round(ms / 5) * 5)
  * 화면을 누르면 바로 끝까지 건너뜀.
  */
 const resultAnim = { id: 0, finish: null };
-function animateResult(res, outcome) {
+function animateResult(res, outcome, gems = false) {
   const id = ++resultAnim.id;
   const alive = () => resultAnim.id === id;
   const scoreEl = $('#res-score');
   const grade = $('#res-grade');
   const vsBox = $('#res-vs');
   const hint = $('#res-star-hint');
-  $('#res-stars').innerHTML = starsHTML(0, 'big seq');
+  $('#res-stars').innerHTML = gems ? gemsHTML(0, 'big seq') : starsHTML(0, 'big seq');
   const starEls = $$('#res-stars svg');
   grade.classList.add('pending');
   hint.classList.add('pending');
@@ -553,7 +666,7 @@ function animateResult(res, outcome) {
   const timers = [];
   const later = (ms, fn) => timers.push(setTimeout(() => alive() && fn(), ms));
 
-  const ratio = Math.min(1, res.score / (res.maxScore || 1));
+  const ratio = Math.min(1, res.score / (res.maxScore || res.score || 1));
   const startMs = 350;
   const countMs = res.score > 0 ? Math.round(700 + 1100 * ratio) : 0;
   const landMs = startMs + countMs;
@@ -702,10 +815,12 @@ async function shareResult() {
   toast('결과 카드 만드는 중…', 1200);
   const url = siteUrl();
   const canvas = await makeShareCard(r, { siteUrl: url, handle: handle() });
-  const text = `${CONFIG.appName} ${r.levelId}단계 ${r.grade} ${fmt(r.score)}점! 너도 엄지로 쳐 봐 👉 ${url}`;
+  const text = r.challenge
+    ? `${CONFIG.appName} 무제한 모드 Lv.${r.roundsCleared} 클리어 (${r.bpmReached} BPM) ${fmt(r.score)}점! 너도 엄지로 쳐 봐 👉 ${url}`
+    : `${CONFIG.appName} ${r.levelId}단계 ${r.grade} ${fmt(r.score)}점! 너도 엄지로 쳐 봐 👉 ${url}`;
   try {
     const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
-    const file = new File([blob], `okaystra-lv${r.levelId}.png`, { type: 'image/png' });
+    const file = new File([blob], `okaystra-${r.challenge ? 'endless' : 'lv' + r.levelId}.png`, { type: 'image/png' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       await navigator.share({ files: [file], text });
       return;
@@ -946,6 +1061,7 @@ function openSettings() {
   $('#set-speed').value = s.noteSpeed;
   $('#set-offset').value = s.offsetMs;
   $('#set-vibrate').checked = !!s.vibrate;
+  $$('#set-band button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.band === (s.band || 'orch')));
   updateSettingLabels();
   $('#settings-account').innerHTML = state.me.verified
     ? `@${escapeHtml(state.me.player?.username)} 로 인증됨 · <button class="link" data-action="logout">인증 해제</button>`
@@ -972,6 +1088,17 @@ function bindSettings() {
     updateSettingLabels();
   };
   ['#set-music', '#set-sfx', '#set-speed', '#set-offset', '#set-vibrate'].forEach((id) => $(id).addEventListener('input', upd));
+  $('#set-band').addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-band]');
+    if (!b) return;
+    state.settings.band = b.dataset.band;
+    saveSettings(state.settings);
+    audio.orchOn = b.dataset.band !== 'piano';
+    $$('#set-band button').forEach((x) => x.setAttribute('aria-pressed', x === b));
+    await audio.unlock();
+    if (audio.orchOn) audio.loadOrch().then((ok) => ok && audio.fanfare());
+    else audio.fanfare();
+  });
   $('#set-sfx').addEventListener('change', async () => {
     await audio.unlock();
     audio.snare();
@@ -1033,14 +1160,48 @@ function pickMime() {
 }
 const canRecordFile = () => !!pickMime() && !!HTMLCanvasElement.prototype.captureStream;
 
+// 레벨업 챌린지(릴스처럼 Lv.1 → Lv.N 점점 빨라짐)를 고르면 문구도 거기에 맞게
+const STUDIO_TEXT = {
+  level: { top: '엄지 두 개로 따라 쳐봐!', bottom: '프로필 링크에서 바로 해보기' },
+  challenge: (n) => ({ top: '엄지로 드럼 쳐보세요', bottom: `Lv.${n}까지 오면 드러머 재능 있음` }),
+};
+const STUDIO_CHALLENGES = [4, 7];
+function studioDefaults(id) {
+  return isChallengeId(id) ? STUDIO_TEXT.challenge(Number(String(id).slice(2))) : STUDIO_TEXT.level;
+}
+function pickStudioLevel(id) {
+  const st = state.studio;
+  const top = $('#studio-top');
+  const bottom = $('#studio-bottom');
+  // 기본 문구 그대로였으면 새 기본 문구로 바꿔 줌 (직접 쓴 문구는 그대로)
+  const all = [STUDIO_TEXT.level, ...STUDIO_CHALLENGES.map(STUDIO_TEXT.challenge)];
+  const after = studioDefaults(id);
+  if (!top.value.trim() || all.some((d) => d.top === top.value.trim())) top.value = after.top;
+  if (!bottom.value.trim() || all.some((d) => d.bottom === bottom.value.trim())) bottom.value = after.bottom;
+  st.level = id;
+}
+
+/** 영상 화면에 그릴 문구 */
+function studioOverlay(lv) {
+  const st = state.studio;
+  return {
+    top: st.top,
+    bottom: st.bottom,
+    challenge: !!lv.challenge,
+    label: lv.challenge ? '레벨업 챌린지' : `${lv.id}단계 · ${lv.composer} ${lv.name}`,
+  };
+}
+
 function openStudio() {
   if (state.game) state.game.stop();
   const st = state.studio;
   st.active = false;
   $('#screen-game').classList.remove('studio-mode');
-  $('#studio-levels').innerHTML = LEVELS.map(
-    (l) => `<button data-studio-level="${l.id}" aria-pressed="${l.id === st.level}">${l.id}. ${l.name}</button>`
-  ).join('');
+  $('#studio-levels').innerHTML =
+    STUDIO_CHALLENGES.map(
+      (n) => `<button class="chip-hot" data-studio-level="ch${n}" aria-pressed="${st.level === 'ch' + n}">🔥 레벨업 챌린지 Lv.1→${n}</button>`
+    ).join('') +
+    LEVELS.map((l) => `<button data-studio-level="${l.id}" aria-pressed="${l.id === st.level}">${l.id}. ${l.name}</button>`).join('');
   $$('#studio-mode button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.mode === st.mode));
   $('#studio-top').value = st.top;
   $('#studio-bottom').value = st.bottom;
@@ -1057,7 +1218,7 @@ function openStudio() {
 async function studioStart() {
   const st = state.studio;
   const lvCheck = getLevel(st.level);
-  if (isLocked(lvCheck)) {
+  if (lvCheck && isLocked(lvCheck)) {
     requireFollow(lvCheck, studioStart);
     return;
   }
@@ -1072,8 +1233,8 @@ async function studioStart() {
   // 9:16 화면을 먼저 깔고 카운트다운
   show('screen-game');
   $('#screen-game').classList.add('studio-mode');
-  const lv = getLevel(st.level);
-  renderer.studio = { top: st.top, bottom: st.bottom, label: `${lv.id}단계 · ${lv.composer} ${lv.name}` };
+  const lv = playable(st.level) || getLevel(1);
+  renderer.studio = studioOverlay(lv);
   setKit(lv);
   await fontsReady();
   await new Promise((r) => requestAnimationFrame(r));
@@ -1133,8 +1294,22 @@ async function studioFinish(res) {
   await new Promise((resolve) => {
     (function hold() {
       const rt = performance.now() / 1000;
-      renderer.draw({ now: g.endTime, notes: [], approach: g.approach, beatDur: g.beat, combo: g.combo, score: res.score, playing: false, finished: true }, rt);
-      if (performance.now() - t0 < 1500) requestAnimationFrame(hold);
+      renderer.draw(
+        {
+          now: g.endTime,
+          notes: [],
+          approach: g.approach,
+          beatDur: g.beat,
+          combo: g.combo,
+          score: res.score,
+          playing: false,
+          finished: true,
+          round: g.roundInfo || null,
+          cleared: res.challenge ? res.roundsCleared : 0,
+        },
+        rt
+      );
+      if (performance.now() - t0 < (res.challenge ? 2400 : 1500)) requestAnimationFrame(hold);
       else resolve();
     })();
   });
@@ -1160,7 +1335,7 @@ async function studioFinish(res) {
     $('#btn-studio-save').hidden = true;
     $('#studio-done-msg').textContent = '화면 녹화를 멈추고 사진 앱에서 확인하세요. 위아래를 9:16으로 잘라 쓰면 딱 맞아요.';
   }
-  if (!res.auto) saveBest(res);
+  if (!res.auto && !res.challenge) saveBest(res);
   openModal('modal-studio-done');
 }
 
@@ -1168,7 +1343,7 @@ async function studioSave() {
   const st = state.studio;
   if (!st.blob) return;
   const ext = st.blob.type.includes('mp4') ? 'mp4' : 'webm';
-  const file = new File([st.blob], `okaystra-${st.level}단계.${ext}`, { type: st.blob.type });
+  const file = new File([st.blob], `okaystra-${isChallengeId(st.level) ? 'challenge' : st.level + '단계'}.${ext}`, { type: st.blob.type });
   try {
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       await navigator.share({ files: [file] });
@@ -1200,7 +1375,7 @@ async function studioStop() {
 
 // ---------------- 이벤트 연결 ----------------
 const ACTIONS = {
-  quickstart: () => tryStart(state.levelId),
+  quickstart: () => tryStart(state.quickId ?? 1),
   'continue-ad': continueWithAd,
   'give-up': giveUp,
   levels: () => {
@@ -1215,7 +1390,7 @@ const ACTIONS = {
     refreshTitle();
     show('screen-title');
   },
-  today: () => tryStart(todayLevel().id),
+  today: () => tryStart(todayLevel().id, { free: true }),
   'send-vs': sendChallenge,
   'close-vs': () => {
     state.vsIncoming = null;
@@ -1227,7 +1402,7 @@ const ACTIONS = {
     if (!ch) return;
     state.vs = ch;
     state.vsIncoming = null;
-    tryStart(ch.levelId);
+    tryStart(ch.levelId, { free: true });
   },
   'close-nick': () => closeModal('modal-nick'),
   'save-nick': () => {
@@ -1248,14 +1423,17 @@ const ACTIONS = {
     b.remove();
     toast(`박자 보정 ${state.settings.offsetMs > 0 ? '+' : ''}${state.settings.offsetMs}ms 저장! 다시 해 보세요`, 2800);
   },
-  'play-hot': () => tryStart(hotLevel().id),
+  'play-hot': () => tryStart(ENDLESS_ID),
   'follow-go': followGo,
   'follow-done': () => completeFollow(),
   'close-follow': () => {
     state.follow = null;
     closeModal('modal-follow');
   },
-  ranking: () => openRank(state.lastResult ? state.lastResult.levelId : state.levelId),
+  ranking: () => {
+    const id = state.lastResult ? state.lastResult.levelId : state.levelId;
+    openRank(typeof id === 'number' ? id : 1);
+  },
   settings: openSettings,
   pause: togglePause,
   resume: resumeGame,
@@ -1270,7 +1448,7 @@ const ACTIONS = {
     renderLevels();
     show('screen-levels');
   },
-  next: () => tryStart(state.levelId + 1),
+  next: () => (typeof state.levelId === 'number' && getLevel(state.levelId + 1) ? tryStart(state.levelId + 1) : tryStart(ENDLESS_ID)),
   'submit-rank': submitRank,
   share: shareResult,
   'close-verify': () => {
@@ -1342,12 +1520,14 @@ function bindActions() {
   document.addEventListener('click', (e) => {
     const lvBtn = e.target.closest('[data-level]');
     if (lvBtn) {
-      tryStart(Number(lvBtn.dataset.level));
+      const v = lvBtn.dataset.level;
+      tryStart(v === ENDLESS_ID ? v : Number(v));
       return;
     }
     const sl = e.target.closest('[data-studio-level]');
     if (sl) {
-      state.studio.level = Number(sl.dataset.studioLevel);
+      const v = sl.dataset.studioLevel;
+      pickStudioLevel(/^\d+$/.test(v) ? Number(v) : v);
       $$('#studio-levels button').forEach((b) => b.setAttribute('aria-pressed', b === sl));
       return;
     }
@@ -1388,7 +1568,7 @@ function bindActions() {
     if (calib.active) calib.taps.push(audio.heardTime(e.timeStamp));
   });
   // 오디오는 첫 터치에서 깨움 (iOS / 인앱 브라우저)
-  const wake = () => audio.unlock().then(() => audio.loadPiano());
+  const wake = () => audio.unlock().then(() => audio.loadPiano()).then(() => audio.orchOn && audio.loadOrch());
   window.addEventListener('pointerdown', wake, { once: true, capture: true });
   window.addEventListener('keydown', wake, { once: true, capture: true });
 
@@ -1422,7 +1602,8 @@ async function boot() {
   bindGameInput();
   bindSettings();
   audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx });
-  audio.prefetchPiano();
+  audio.orchOn = state.settings.band !== 'piano';
+  audio.prefetchPiano().then(() => audio.orchOn && audio.prefetchOrch());
   refreshToday();
 
   if (isInApp() && !load('inappDismissed', false)) $('#inapp-note').hidden = false;

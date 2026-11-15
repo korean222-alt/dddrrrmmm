@@ -8,7 +8,7 @@
   <meta name="theme-color" content="#1B1240" />
   <meta property="og:type" content="website" />
   <meta property="og:title" content="오케이스트라 — 엄지로 쿵! 짝!" />
-  <meta property="og:description" content="작은 별·징글벨·캉캉·터키 행진곡에 맞춰 엄지로 쿵! 짝! 설치·가입 없이 바로. 별 3개 도전" />
+  <meta property="og:description" content="작은 별·캉캉·터키 행진곡·왕벌의 비행에 맞춰 엄지로 쿵! 짝! 깰수록 빨라지는 무제한 모드까지. 설치·가입 없이 바로" />
   <meta property="og:image" content="assets/og.png" />
   <meta name="twitter:card" content="summary_large_image" />
   <link rel="icon" href="assets/favicon.svg" type="image/svg+xml" />
@@ -51,7 +51,7 @@
           <button class="btn btn-ghost" data-action="studio"><span data-icon="video"></span> 영상 찍기</button>
         </div>
         <button class="btn btn-hot" data-action="play-hot">
-          <span class="hot-tag">인스타 팔로우</span> <span id="hot-name">도전</span> <span data-icon="lock" class="lock-ico"></span>
+          <span class="hot-tag">NEW</span> <span id="hot-name">💎 무제한 모드</span> <span data-icon="lock" class="lock-ico"></span>
         </button>
       </div>
       <div class="inapp-note" id="inapp-note" hidden>
@@ -280,9 +280,15 @@
       <label class="field"><span>콩 다가오는 속도 <b id="set-speed-val"></b></span><input type="range" min="0.7" max="1.6" step="0.1" id="set-speed" /></label>
       <label class="field"><span>싱크 보정 <b id="set-offset-val"></b></span><input type="range" min="-200" max="200" step="5" id="set-offset" /></label>
       <button class="btn btn-ghost btn-sm" data-action="calibrate">박자 맞춰서 자동 보정</button>
+      <div class="field"><span>반주</span>
+        <div class="seg seg-sm" id="set-band">
+          <button data-band="orch" aria-pressed="true"><b>오케스트라</b><small>현악·금관·팀파니 + 피아노</small></button>
+          <button data-band="piano" aria-pressed="false"><b>피아노만</b><small>가볍게 (데이터 절약)</small></button>
+        </div>
+      </div>
       <label class="field check"><input type="checkbox" id="set-vibrate" /><span>진동 (안드로이드)</span></label>
       <div class="account" id="settings-account"></div>
-      <p class="muted small credit">피아노 소리: Salamander Grand Piano V3 · Alexander Holm (CC BY 3.0)</p>
+      <p class="muted small credit">피아노 소리: Salamander Grand Piano V3 · Alexander Holm (CC BY 3.0)<br>오케스트라 소리: VS Chamber Orchestra Community Edition · Versilian Studios (CC0)</p>
     </div>
   </div>
 

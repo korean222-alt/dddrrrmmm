@@ -30,6 +30,8 @@ export const DEFAULT_SETTINGS = {
   noteSpeed: 1,
   offsetMs: 0,
   vibrate: true,
+  // 반주: 'orch' = 오케스트라(현악·금관·팀파니 + 피아노) / 'piano' = 피아노만
+  band: 'orch',
 };
 
 export function loadSettings() {
@@ -40,7 +42,8 @@ export function saveSettings(s) {
 }
 
 /** 레벨별 내 최고 기록 { [levelId]: {score, grade, stars, accuracy, maxCombo, fullCombo, at} }
- *  별은 점수와 따로, 지금까지 받은 최고 개수를 기억합니다. */
+ *  별은 점수와 따로, 지금까지 받은 최고 개수를 기억합니다.
+ *  무제한 모드('endless')는 별 대신 diamonds(다이아)와 roundsCleared(깬 단계 수)도 최고값으로 기억. */
 export function loadBests() {
   return load('bests', {});
 }
@@ -48,6 +51,9 @@ export function saveBest(result) {
   const bests = loadBests();
   const prev = bests[result.levelId];
   const stars = Math.max(result.stars || 0, (prev && prev.stars) || 0);
+  const diamonds = Math.max(result.diamonds || 0, (prev && prev.diamonds) || 0);
+  const roundsCleared = Math.max(result.roundsCleared || 0, (prev && prev.roundsCleared) || 0);
+  const extra = result.challenge ? { diamonds, roundsCleared } : {};
   if (!prev || result.score > prev.score) {
     bests[result.levelId] = {
       score: result.score,
@@ -56,13 +62,14 @@ export function saveBest(result) {
       accuracy: result.accuracy,
       maxCombo: result.maxCombo,
       fullCombo: result.fullCombo,
+      ...extra,
       at: Date.now(),
     };
     save('bests', bests);
     return { isNew: true, prev };
   }
-  if (stars !== (prev.stars || 0)) {
-    prev.stars = stars;
+  if (stars !== (prev.stars || 0) || (result.challenge && (diamonds !== (prev.diamonds || 0) || roundsCleared !== (prev.roundsCleared || 0)))) {
+    Object.assign(prev, { stars }, extra);
     save('bests', bests);
   }
   return { isNew: false, prev };

@@ -521,6 +521,51 @@ export const LEVELS = [
       'X.......B.......',
     ],
   },
+  {
+    id: 13,
+    name: '왕벌의 비행',
+    composer: '림스키코르사코프',
+    tagline: '최종 보스 · 미친 속도 16분음표',
+    difficulty: 5,
+    bpm: 132,
+    boss: true,
+    song: {
+      // 원곡은 2/4 박자 16분음표 질주. 우리 한 마디(16칸)에 원곡 두 마디
+      prog: ['E', 'Am', 'Am E', 'Am E', 'Am E', 'Am', 'Dm Am', 'E Am'],
+      hat: '................',
+      bass: 'x.x.x.x.x.x.x.x.',
+      chord: '..x...x...x...x.',
+      melody: [
+        'E6:1 D#6:1 D6:1 C#6:1 D6:1 C#6:1 C6:1 B5:1 C6:1 B5:1 A#5:1 A5:1 G#5:1 G5:1 F#5:1 F5:1',
+        'E5:1 D#5:1 D5:1 C#5:1 C5:1 F5:1 E5:1 D#5:1 E5:1 D#5:1 D5:1 C#5:1 C5:1 F5:1 E5:1 D#5:1',
+        'E5:1 D#5:1 D5:1 C#5:1 D5:1 C#5:1 C5:1 B4:1 C5:1 C#5:1 D5:1 D#5:1 E5:1 F5:1 E5:1 D#5:1',
+        'E5:1 D#5:1 D5:1 C#5:1 C5:1 F5:1 E5:1 D#5:1 E5:1 D#5:1 D5:1 C#5:1 D5:1 C#5:1 C5:1 B4:1',
+        'A5:1 G#5:1 G5:1 F#5:1 F5:1 A#5:1 A5:1 G#5:1 A5:1 G#5:1 G5:1 F#5:1 F5:1 A#5:1 A5:1 G#5:1',
+        'A5:1 G#5:1 G5:1 F#5:1 G5:1 F#5:1 F5:1 E5:1 F5:1 F#5:1 G5:1 G#5:1 A5:1 A#5:1 A5:1 G#5:1',
+        'A5:1 G#5:1 G5:1 F#5:1 F5:1 A#5:1 A5:1 G#5:1 A5:1 G#5:1 G5:1 F#5:1 G5:1 F#5:1 F5:1 E5:1',
+        'F5:1 F#5:1 G5:1 G#5:1 A5:1 A#5:1 B5:1 C6:1 B5:2 G#5:2 A5:4',
+      ],
+    },
+    bars: [
+      // 같은 엄지는 8분음표(2칸) 간격 이상. 엄지 번갈아 치는 16분음표(KSKS)로 '날갯짓'
+      'C...S...K...S...',
+      'K.S.K.S.K.S.K.S.',
+      'K.H.S.H.K.H.S.H.',
+      'K.S.K.S.KSK.S...',
+      'X...K.H.S.H.K.H.',
+      'K.HKS.H.K.HKS.H.',
+      'K.S.K.S.K.S.KSK.',
+      'B...B...B.B.B...',
+      'C.H.S.H.K.H.S.H.',
+      'J.H.S.H.J.H.S.H.',
+      'K.HKS.H.K.HKS.H.',
+      'K.S.KSK.S.K.KSK.',
+      'X.H.S.H.X.H.S.H.',
+      'K.HKS.HKS.H.S.H.',
+      'K.S.K.S.KSKSKSK.',
+      'X...B...B.B.X...',
+    ],
+  },
 ];
 
 /** 이 단계가 팔로우 잠금 대상인지 */
@@ -591,7 +636,69 @@ export function barDur(level) {
 
 /** 곡 전체 길이(초): 카운트인 + 본편 + 아웃트로 */
 export function levelDuration(level) {
-  return (COUNT_IN_BARS + level.bars.length + OUTRO_BARS) * barDur(level);
+  return tempoOf(level).barStart(COUNT_IN_BARS + level.bars.length + OUTRO_BARS);
+}
+
+// ---------------------------------------------------------------
+// 박자 시계: 마디마다 BPM 이 달라질 수 있음 (무제한 모드는 단계마다 빨라짐)
+//   bar = 카운트인을 포함한 전체 마디 번호 (0 = 카운트인 첫 마디)
+// ---------------------------------------------------------------
+export class TempoMap {
+  /** @param {(bar:number)=>number} bpmOfBar  @param {number} [constBpm] 고정 빠르기면 계산을 곱셈으로 */
+  constructor(bpmOfBar, constBpm = 0) {
+    this.bpmOf = bpmOfBar;
+    this.constBpm = constBpm;
+    this.starts = [0];
+    this._hint = 0;
+  }
+  bpm(bar) {
+    return this.constBpm || this.bpmOf(Math.max(0, Math.floor(bar)));
+  }
+  barLen(bar) {
+    return 240 / this.bpm(bar);
+  }
+  barStart(bar) {
+    if (this.constBpm) return (bar * 240) / this.constBpm;
+    if (bar <= 0) return bar * this.barLen(0);
+    while (this.starts.length <= bar) {
+      const b = this.starts.length - 1;
+      this.starts.push(this.starts[b] + this.barLen(b));
+    }
+    return this.starts[bar];
+  }
+  stepTime(step) {
+    const bar = Math.floor(step / STEPS_PER_BAR);
+    return this.barStart(bar) + ((step - bar * STEPS_PER_BAR) * this.barLen(bar)) / STEPS_PER_BAR;
+  }
+  /** 시각 → 마디 위치(소수). 음수 시각도 첫 마디 빠르기로 */
+  barAt(t) {
+    if (this.constBpm) return (t * this.constBpm) / 240;
+    if (t < 0) return t / this.barLen(0);
+    let b = this._hint;
+    if (this.barStart(b) > t) b = 0;
+    while (this.barStart(b + 1) <= t) b++;
+    this._hint = b;
+    return b + (t - this.barStart(b)) / this.barLen(b);
+  }
+  beatAt(t) {
+    return this.barAt(t) * 4;
+  }
+  beatTime(beat) {
+    const bar = Math.floor(beat / 4);
+    return this.barStart(bar) + ((beat - bar * 4) * this.barLen(bar)) / 4;
+  }
+}
+
+const _tempos = new WeakMap();
+/** 단계의 박자 시계 (보통 단계는 고정 BPM) */
+export function tempoOf(level) {
+  if (level.tempo) return level.tempo;
+  let t = _tempos.get(level);
+  if (!t) {
+    t = new TempoMap(() => level.bpm, level.bpm);
+    _tempos.set(level, t);
+  }
+  return t;
 }
 
 /** 이 단계에서 쓰는 악기들 (화면 왼쪽부터 순서) */
@@ -604,23 +711,27 @@ export function levelLanes(level) {
 /**
  * 채보 → 노트 목록. time 은 곡 시작(카운트인 첫 박) 기준 초.
  * 동시치기(B/J/X)는 레인마다 같은 시각의 노트 + 같은 pair 번호.
+ * fromBar~toBar 로 일부 마디만 만들 수 있음 (무제한 모드가 앞으로 나갈 마디를 그때그때 추가)
  */
-export function buildNotes(level) {
+export function buildNotes(level, fromBar = 0, toBar = level.bars.length, pairStart = 0) {
   const notes = [];
-  const sd = stepDur(level);
-  let pair = 0;
-  level.bars.forEach((bar, b) => {
+  const tempo = tempoOf(level);
+  let pair = pairStart;
+  for (let b = fromBar; b < toBar; b++) {
+    const bar = level.bars[b];
+    const mult = (level.barMult && level.barMult[b]) || 1;
     for (let s = 0; s < STEPS_PER_BAR; s++) {
       const lanes = CHAR_LANES[bar[s]];
       if (!lanes) continue;
       const step = (COUNT_IN_BARS + b) * STEPS_PER_BAR + s;
-      const time = step * sd;
+      const time = tempo.stepTime(step);
       const p = lanes.length > 1 ? pair++ : -1;
-      for (const lane of lanes) notes.push({ time, lane, step, pair: p });
+      for (const lane of lanes) notes.push({ time, lane, step, pair: p, mult });
     }
-  });
+  }
   notes.sort((a, b) => a.time - b.time || a.lane - b.lane);
   notes.forEach((n, i) => (n.id = i));
+  notes.nextPair = pair;
   return notes;
 }
 
@@ -688,4 +799,174 @@ export function scoreBounds(counts) {
   const base =
     (counts.perfect || 0) * POINTS.perfect + (counts.great || 0) * POINTS.great + (counts.good || 0) * POINTS.good;
   return { min: Math.floor(base * 0.999), max: Math.ceil(base * comboMultiplier(Infinity)) };
+}
+
+// ---------------------------------------------------------------
+// 진행 잠금: 앞 단계를 깨야(별 1개 이상) 다음 단계가 열림. 마지막 단계를 깨면 무제한 모드
+// ---------------------------------------------------------------
+/** 이 기록이 '깬' 기록인지 (별 1개 이상) */
+export function isClearBest(best) {
+  return !!best && (best.stars || 0) >= 1;
+}
+export const LAST_LEVEL_ID = LEVELS[LEVELS.length - 1].id;
+/** bests = { [levelId]: best } 일 때 이 단계가 열려 있는지 (1단계는 항상) */
+export function isUnlocked(levelId, bests) {
+  if (levelId === ENDLESS_ID) return isClearBest(bests[LAST_LEVEL_ID]);
+  const id = Number(levelId);
+  return id <= 1 || isClearBest(bests[id - 1]);
+}
+/** 아직 안 깬 첫 단계 (다 깼으면 무제한 모드) */
+export function nextChallenge(bests) {
+  const lv = LEVELS.find((l) => !isClearBest(bests[l.id]));
+  return lv ? lv.id : ENDLESS_ID;
+}
+
+// ---------------------------------------------------------------
+// 무제한 모드 / 레벨업 챌린지
+//   한 판 안에서 Lv.1, Lv.2 … 로 올라감. 한 단계 = ROUND_BARS 마디, 단계마다 BPM +10 (끝없이)
+//   패턴도 기본 쿵짝 → 8비트 → 엇박 → 필인 지옥 … 순서로 어려워짐
+//   목숨이 다 떨어질 때까지 계속. 별 대신 다이아몬드 3개.
+//   rounds 를 주면(영상 찍기용 레벨업 챌린지) 그 단계까지만 치고 끝남
+// ---------------------------------------------------------------
+export const ENDLESS_ID = 'endless';
+export const ROUND_BARS = 4;
+export const ENDLESS_BASE_BPM = 90;
+export const ENDLESS_BPM_STEP = 10;
+
+/** 다이아몬드: Lv.N 까지 깨면 (= Lv.N+1 도달) */
+export const DIAMOND_RULES = [
+  { diamonds: 3, round: 10, text: 'Lv.10 클리어' },
+  { diamonds: 2, round: 7, text: 'Lv.7 클리어' },
+  { diamonds: 1, round: 4, text: 'Lv.4 클리어 (드러머 재능!)' },
+];
+export function diamondsFor(roundsCleared) {
+  for (const r of DIAMOND_RULES) if (roundsCleared >= r.round) return r.diamonds;
+  return 0;
+}
+
+const ROUND_NAMES = [
+  ['기본 쿵짝', ''],
+  ['8비트 록', ''],
+  ['엇박 들어갑니다', ''],
+  ['필인 지옥', '손가락 꼬임 주의!'],
+  ['더블 킥', '왼손 엄지 바빠요'],
+  ['16비트 그루브', ''],
+  ['속도 한계 돌파', '여기부터 진짜 고수'],
+  ['광속 드러머', ''],
+  ['인간 메트로놈', ''],
+  ['전설의 엄지', '여기까지 오면 드러머 확정'],
+];
+export function roundBpm(round) {
+  return ENDLESS_BASE_BPM + ENDLESS_BPM_STEP * (round - 1);
+}
+/** 단계 정보: { round, bpm, name, warn } */
+export function roundInfo(round) {
+  const [name, warn] = ROUND_NAMES[round - 1] || ['한계 없음', '어디까지 가나 보자'];
+  return { round, bpm: roundBpm(round), name, warn };
+}
+
+// 같은 엄지(킥)는 2칸(8분음표) 간격 이상. 16분음표는 엄지 번갈아 칠 때만
+const POOLS = {
+  1: ['K...S...K...S...', 'K...S...K...S...', 'K...K...S...S...', 'K.......S...S...'],
+  2: ['K...S...K.K.S...', 'K.K.S...K.K.S...', 'K...S.K.K...S...', 'K.K.S...K...S...'],
+  3: ['K..KS...K..KS...', 'K...S..K.K..S...', 'K..K..S.K...S...', 'K...S..K..K.S...', 'K..KS..K..K.S...'],
+  4: ['K.K.S...K..KS...', 'K..KS..K.K..S...', 'K...S.K.K..KS...'],
+  5: ['K.K.S.K.K.K.S...', 'K.K.S...K.K.S.K.', 'B...K.K.S.K.K.S.', 'K.K.S.K.K.K.S.K.'],
+  6: ['K.S.SK.SK.S.SK.S', 'K.SKS..SK.SKS..S', 'K..KS.SK.KS.S..S', 'K.S..KS.K.S.SK.S'],
+};
+const FILLS = ['K.S.K.S.KSKSKSKS', 'K...S...KSKS.S.S', 'K.K.S...SKSKSKS.', 'KSKSKSK.S.S.B...', 'K.S.K.S.B.B.B...'];
+const FILLS_FAST = ['K.S.K.S.B.B.B...', 'B...B...K.S.K.S.', 'K.K.S.S.K.K.B...'];
+/** 16분음표(붙어 있는 두 칸)가 있는 패턴 — 너무 빠르면 뺌 */
+/** 두 글자가 같은 엄지를 쓰는지 (킥·크래시 = 왼쪽, 스네어·하이햇 = 오른쪽) */
+const thumbs = (c) => new Set((CHAR_LANES[c] || []).map((l) => (l === KICK || l === CRASH ? 'L' : 'R')));
+const sameThumb = (a, b) => [...thumbs(a)].some((h) => thumbs(b).has(h));
+const has16th = (bar) => [...bar].some((c, i) => c !== '.' && i < bar.length - 1 && bar[i + 1] !== '.');
+
+/** 간단한 고정 시드 난수 (같은 시드면 같은 채보) */
+function rng(seed) {
+  let a = seed >>> 0 || 1;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** round 단계의 마디 ROUND_BARS 개 */
+export function roundBars(round, rand = Math.random) {
+  const bpm = roundBpm(round);
+  const fast = bpm > 140;
+  const ok = (list) => {
+    const f = fast ? list.filter((b) => !has16th(b)) : list;
+    return f.length ? f : list.filter((b) => !has16th(b));
+  };
+  const tiers = round <= 6 ? [round] : [3, 4, 5, 6];
+  let pool = ok(tiers.flatMap((t) => POOLS[t]));
+  if (!pool.length) pool = POOLS[2];
+  const pick = (list) => list[Math.floor(rand() * list.length) % list.length];
+  const out = [];
+  for (let i = 0; i < ROUND_BARS; i++) {
+    if (i === ROUND_BARS - 1 && round >= 4) out.push(pick(fast ? FILLS_FAST : ok(FILLS)));
+    else if (i === ROUND_BARS - 1 && round >= 2) out.push(pick(ok(POOLS[Math.min(round, 3)])));
+    else out.push(pick(pool));
+  }
+  // 단계 첫 마디는 한숨 돌리게 (새 단계 이름이 크게 뜨는 동안)
+  if (round > 1) out[0] = round >= 3 ? 'K...S...K.K.S...' : 'K...S...K...S...';
+  // 마디 경계에서 같은 엄지 16분음표 연타가 생기면 앞 마디 마지막 칸을 비움
+  // (단계 첫 마디는 항상 킥으로 시작하고 단계 마지막 마디는 킥으로 끝나지 않아서 단계 사이 경계는 안전)
+  for (let i = 1; i < out.length; i++) if (sameThumb(out[i - 1][STEPS_PER_BAR - 1], out[i][0])) out[i - 1] = out[i - 1].slice(0, -1) + '.';
+  return out;
+}
+
+/**
+ * 무제한 모드(또는 rounds 단계짜리 레벨업 챌린지) 판 하나.
+ * level 처럼 쓰지만 bars 가 치는 동안 계속 늘어남 → ensureBars(n)
+ */
+export function makeEndless({ rounds = Infinity, seed = (Math.random() * 2 ** 31) | 0 } = {}) {
+  const mk = LEVELS.find((l) => l.id === 8);
+  const rand = rng(seed);
+  const run = {
+    id: rounds === Infinity ? ENDLESS_ID : `ch${rounds}`,
+    endless: rounds === Infinity,
+    challenge: true,
+    maxRounds: rounds,
+    seed,
+    name: rounds === Infinity ? '무제한 모드' : `레벨업 챌린지`,
+    composer: '그리그',
+    songName: '산왕의 궁전에서',
+    tagline: '깰수록 점점 빨라져요 · 속도 한도 없음',
+    difficulty: 5,
+    bpm: ENDLESS_BASE_BPM,
+    song: mk.song,
+    bars: [],
+    barMult: [],
+    barRound: [],
+    roundsBuilt: 0,
+    /** n 마디까지 채보 만들기 (단계 단위) */
+    ensureBars(n) {
+      while (this.bars.length < n && this.roundsBuilt < this.maxRounds) {
+        const r = ++this.roundsBuilt;
+        for (const bar of roundBars(r, rand)) {
+          this.bars.push(bar);
+          this.barMult.push(1 + 0.1 * (r - 1)); // 빠를수록 점수 더
+          this.barRound.push(r);
+        }
+      }
+      return this.bars.length;
+    },
+    /** 본편 mb 번째 마디의 단계 (1부터) */
+    roundOfBar(mb) {
+      if (mb < 0) return 1;
+      return Math.floor(mb / ROUND_BARS) + 1;
+    },
+  };
+  // 카운트인은 Lv.1 빠르기, 아웃트로는 마지막 단계 빠르기
+  run.tempo = new TempoMap((bar) => {
+    const r = Math.min(run.roundOfBar(bar - COUNT_IN_BARS), run.maxRounds);
+    return roundBpm(r);
+  });
+  run.ensureBars(ROUND_BARS * 2);
+  return run;
 }

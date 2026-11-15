@@ -1,0 +1,142 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+
+import {
+  LEVELS, getLevel, levelLanes, buildNotes, stepDur, tempoOf, TempoMap, CRASH, HAT, KICK, SNARE,
+  makeEndless, roundBpm, roundInfo, roundBars, diamondsFor, ROUND_BARS, COUNT_IN_BARS,
+  isUnlocked, nextChallenge, ENDLESS_ID, LAST_LEVEL_ID, STEPS_PER_BAR,
+} from '../public/js/charts.js';
+
+/** 같은 엄지(왼쪽: 킥·크래시 / 오른쪽: 스네어·하이햇)로 2칸보다 촘촘한 연타가 없는지 */
+function assertNoSameThumb16th(notes, label) {
+  const last = { L: -9, R: -9 };
+  for (const n of notes) {
+    const h = n.lane === KICK || n.lane === CRASH ? 'L' : 'R';
+    if (n.step !== last[h]) assert.ok(n.step - last[h] >= 2, `${label} ${h} 엄지 ${n.step}칸`);
+    last[h] = n.step;
+  }
+}
+
+test('13단계 왕벌의 비행: 가장 빠른 최종 보스, 4악기, 같은 엄지 16분음표 연타 없음', () => {
+  const lv = getLevel(13);
+  assert.equal(lv.name, '왕벌의 비행');
+  assert.equal(LAST_LEVEL_ID, 13);
+  assert.equal(lv.difficulty, 5);
+  assert.ok(LEVELS.every((l) => l.bpm <= lv.bpm), '제일 빠른 곡');
+  assert.deepEqual(levelLanes(lv), [CRASH, KICK, SNARE, HAT]);
+  assertNoSameThumb16th(buildNotes(lv), 'Lv.13');
+});
+
+test('박자 시계: 고정 BPM 은 예전 계산과 똑같고, 바뀌는 BPM 도 앞뒤가 맞음', () => {
+  for (const lv of LEVELS) {
+    const t = tempoOf(lv);
+    for (const step of [0, 7, 16, 100, 333]) assert.ok(Math.abs(t.stepTime(step) - step * stepDur(lv)) < 1e-9);
+  }
+  const tm = new TempoMap((bar) => 100 + bar * 20);
+  assert.equal(tm.barStart(1), 2.4); // 100 BPM 한 마디
+  assert.ok(Math.abs(tm.barStart(2) - (2.4 + 2)) < 1e-9); // 다음 마디는 120 BPM
+  for (const t of [0.1, 2.5, 7.77, 30]) assert.ok(Math.abs(tm.beatTime(tm.beatAt(t)) - t) < 1e-9);
+  assert.equal(Math.floor(tm.barAt(tm.barStart(5) + 1e-6)), 5);
+});
+
+test('무제한 모드: 단계마다 BPM +10, 한도 없이 계속, 채보가 치는 동안 늘어남', () => {
+  assert.equal(roundBpm(1), 90);
+  assert.equal(roundBpm(2), 100);
+  assert.equal(roundBpm(4), 120); // 릴스처럼 Lv.4 = 120 BPM
+  assert.equal(roundBpm(50), 580);
+  assert.equal(roundInfo(4).warn, '손가락 꼬임 주의!');
+  assert.ok(roundInfo(99).name);
+  const e = makeEndless({ seed: 7 });
+  assert.equal(e.endless, true);
+  assert.deepEqual(levelLanes(e), [KICK, SNARE]);
+  e.ensureBars(ROUND_BARS * 30);
+  assert.equal(e.bars.length, ROUND_BARS * 30);
+  const t = e.tempo;
+  assert.equal(t.bpm(0), 90); // 카운트인
+  assert.equal(t.bpm(COUNT_IN_BARS), 90);
+  assert.equal(t.bpm(COUNT_IN_BARS + ROUND_BARS), 100);
+  assert.equal(t.bpm(COUNT_IN_BARS + ROUND_BARS * 29), roundBpm(30));
+  const notes = buildNotes(e);
+  for (let i = 1; i < notes.length; i++) assert.ok(notes[i].time >= notes[i - 1].time);
+  assertNoSameThumb16th(notes, '무제한');
+  // 같은 시드 = 같은 채보 / 단계별 점수 배율
+  const e2 = makeEndless({ seed: 7 });
+  e2.ensureBars(ROUND_BARS * 30);
+  assert.deepEqual(e2.bars, e.bars);
+  assert.ok(e.barMult[ROUND_BARS * 10] > e.barMult[0]);
+  // 140 BPM 넘으면 16분음표(붙은 두 칸)는 안 나옴
+  for (let r = 7; r <= 40; r++)
+    for (const bar of roundBars(r)) assert.ok(![...bar].some((c, i) => c !== '.' && bar[i + 1] && bar[i + 1] !== '.'), `Lv.${r} ${bar}`);
+  // 영상용 챌린지는 정해진 단계까지만
+  const ch = makeEndless({ rounds: 4 });
+  ch.ensureBars(999);
+  assert.equal(ch.bars.length, ROUND_BARS * 4);
+  assert.equal(ch.endless, false);
+  for (const bar of ch.bars) assert.equal(bar.length, STEPS_PER_BAR);
+});
+
+test('다이아몬드: Lv.4 / Lv.7 / Lv.10 클리어', () => {
+  assert.equal(diamondsFor(0), 0);
+  assert.equal(diamondsFor(3), 0);
+  assert.equal(diamondsFor(4), 1);
+  assert.equal(diamondsFor(7), 2);
+  assert.equal(diamondsFor(10), 3);
+  assert.equal(diamondsFor(42), 3);
+});
+
+test('진행 잠금: 앞 단계를 별 1개 이상으로 깨야 열림, 마지막 단계를 깨면 무제한 모드', () => {
+  const bests = {};
+  assert.ok(isUnlocked(1, bests));
+  assert.ok(!isUnlocked(2, bests));
+  assert.ok(!isUnlocked(ENDLESS_ID, bests));
+  assert.equal(nextChallenge(bests), 1);
+  bests[1] = { stars: 0, score: 100 };
+  assert.ok(!isUnlocked(2, bests), '별 0개는 못 깬 것');
+  bests[1].stars = 1;
+  assert.ok(isUnlocked(2, bests));
+  assert.ok(!isUnlocked(3, bests));
+  assert.equal(nextChallenge(bests), 2);
+  for (const l of LEVELS) bests[l.id] = { stars: 2 };
+  assert.ok(isUnlocked(ENDLESS_ID, bests));
+  assert.equal(nextChallenge(bests), ENDLESS_ID);
+});
+
+test('무제한 모드 게임: 노트가 계속 추가되고, 목숨이 다 떨어지면 깬 단계·다이아로 결과', async () => {
+  const { Game } = await import('../public/js/game.js');
+  const noop = () => {};
+  globalThis.cancelAnimationFrame ??= noop;
+  const rounds = [];
+  const renderer = { onJudge: noop, onLife: noop, onCombo: noop, onTap: noop, draw: noop, reset: noop, onRound: (i) => rounds.push(i.round) };
+  const audio = { ctx: { suspend: async () => {}, resume: async () => {} }, heardTime: () => 0, crash: noop };
+  let ended = null;
+  const lv = makeEndless({ seed: 3 });
+  const g = new Game({ audio, renderer, level: lv, settings: {}, onDeath: noop, onEnd: (r) => (ended = r) });
+  assert.equal(g.endTime, Infinity);
+  g.startTime = 0;
+  g.state = 'playing';
+  g.player = { stop: noop };
+  const before = g.notes.length;
+  // Lv.6 한가운데까지 왔다고 치면 앞으로 2단계치 채보가 생김
+  const t = lv.tempo.barStart(COUNT_IN_BARS + ROUND_BARS * 5 + 2);
+  g._extend(t);
+  g._checkRound(t, 0);
+  assert.ok(g.notes.length > before);
+  assert.ok(lv.bars.length >= ROUND_BARS * 7);
+  assert.equal(g.round, 6);
+  assert.deepEqual(rounds, [6]);
+  assert.ok(g.notes.every((n, i) => n.id === i));
+  // 점수: 빠른 단계일수록 배율
+  const late = g.notes.find((n) => n.mult > 1.4);
+  g._judge(late, 0, 0);
+  assert.ok(g.score > 1000);
+  // 거기서 목숨 다 씀 → 5단계 깸 → 다이아 1개
+  g.diedAt = t;
+  g.state = 'dead';
+  g.giveUp();
+  assert.equal(ended.challenge, true);
+  assert.equal(ended.endless, true);
+  assert.equal(ended.roundsCleared, 5);
+  assert.equal(ended.diamonds, 1);
+  assert.equal(ended.bpmReached, 140);
+  assert.equal(ended.failed, false);
+});

@@ -31,6 +31,12 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const easeOut = (t) => 1 - Math.pow(1 - t, 3);
 const SPOT_COLORS = ['255,95,162', '255,210,74', '95,211,255', '155,123,255'];
 
+/** 지금 박자 안에서의 위치 0~1 (빠르기가 바뀌어도 박자 시계를 따라감) */
+function beatPhase(st) {
+  if (st.tempo) return ((st.tempo.beatAt(st.now) % 1) + 1) % 1;
+  return st.beatDur ? ((st.now / st.beatDur) % 1 + 1) % 1 : 0;
+}
+
 function rr(ctx, x, y, w, h, r) {
   ctx.beginPath();
   if (ctx.roundRect) ctx.roundRect(x, y, w, h, r);
@@ -59,6 +65,12 @@ export class Renderer {
     this.comboPopAt = -9;
     this.cheerUntil = -9;
     this.lifeFx = { t0: -9, delta: 0 };
+    this.roundFx = null;
+  }
+
+  /** 레벨업 챌린지: 새 단계 (화면 가운데 "Lv.3" 크게) */
+  onRound(info, rt) {
+    this.roundFx = { info, t0: rt };
   }
 
   /**
@@ -343,9 +355,10 @@ export class Renderer {
 
     this._drawMascot(st, rt);
     this._drawBanners(rt);
+    if (!this.studio) this._drawRound(st, rt);
     this._drawCountIn(st, rt);
     this._drawLifeFx(st, rt);
-    if (this.studio) this._drawStudio(st);
+    if (this.studio) this._drawStudio(st, rt);
   }
 
   /** 목숨 깎이면 화면 가장자리가 빨갛게, 다 떨어지면 화면이 어두워짐 */
@@ -401,7 +414,7 @@ export class Renderer {
   _drawSpots(st, rt, pe, fever) {
     const ctx = this.ctx;
     const L = this.L;
-    const phase = st.beatDur ? ((st.now / st.beatDur) % 1 + 1) % 1 : 0;
+    const phase = beatPhase(st);
     const beatGlow = st.playing ? Math.pow(1 - phase, 4) : 0;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
@@ -439,11 +452,11 @@ export class Renderer {
   _drawBeatLines(st) {
     const ctx = this.ctx;
     const L = this.L;
-    if (!st.beatDur) return;
+    if (!st.beatDur && !st.tempo) return;
     const sub = st.beatDur / 2;
-    const first = Math.ceil(st.now / sub);
-    for (let b = first; ; b++) {
-      const dt = b * sub - st.now;
+    const first = st.tempo ? Math.ceil(st.tempo.beatAt(st.now) * 2) : Math.ceil(st.now / sub);
+    for (let b = first; b < first + 400; b++) {
+      const dt = (st.tempo ? st.tempo.beatTime(b / 2) : b * sub) - st.now;
       if (dt > st.approach) break;
       const s = this._s(dt, st.approach);
       const y = this._py(s);
@@ -465,7 +478,7 @@ export class Renderer {
   _drawTargets(st, rt) {
     const ctx = this.ctx;
     const L = this.L;
-    const phase = st.beatDur ? ((st.now / st.beatDur) % 1 + 1) % 1 : 0;
+    const phase = beatPhase(st);
     const pulse = st.playing ? Math.pow(1 - phase, 3) : 0;
     ctx.save();
     ctx.strokeStyle = `rgba(255,255,255,${0.35 + pulse * 0.35})`;
@@ -838,7 +851,7 @@ export class Renderer {
     if (th < 0.16) face = set.hit;
     else if (tm < 0.45) face = set.miss;
     else if (rt < this.cheerUntil || st.finished) face = set.cheer;
-    const phase = st.beatDur ? ((st.now / st.beatDur) % 1 + 1) % 1 : 0;
+    const phase = beatPhase(st);
     const bob = st.playing ? Math.pow(1 - phase, 3) : 0;
     const w = L.mascotW;
     const sy = 1 - bob * 0.05;
@@ -1030,10 +1043,114 @@ export class Renderer {
     ctx.restore();
   }
 
-  _drawStudio(st) {
+  /** 새 단계 배너: "Lv.3" + "엇박 들어갑니다 · 110 BPM" (+ 경고) — 1.8초 */
+  _drawRound(st, rt) {
+    const f = this.roundFx;
+    if (!f || st.countIn) return;
+    const age = rt - f.t0;
+    const D = 1.8;
+    if (age > D) return;
+    const ctx = this.ctx;
+    const L = this.L;
+    const t = age / D;
+    const pop = age < 0.18 ? easeOut(age / 0.18) : 1;
+    const alpha = t > 0.75 ? 1 - (t - 0.75) / 0.25 : 1;
+    const y = L.topY + (L.strikeY - L.topY) * 0.42;
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    const bw = L.GW * 0.92;
+    const bh = L.GW * 0.42;
+    rr(ctx, L.cx - bw / 2, y - bh * 0.55, bw, bh, L.GW * 0.06);
+    ctx.fillStyle = 'rgba(14,9,34,0.78)';
+    ctx.fill();
+    ctx.translate(L.cx, y);
+    ctx.scale(pop, pop);
+    this._roundText(f.info, 0, 0, L.GW * 0.2);
+    ctx.restore();
+  }
+
+  /** "Lv.N" 노란 큰 글씨 + 부제 + 빨간 경고 (y = Lv 글씨 가운데) */
+  _roundText(info, x, y, size, clearText) {
+    const ctx = this.ctx;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    const big = clearText || `Lv.${info.round}`;
+    const fs = fitFont(ctx, big, this.L.GW * 0.86, size);
+    ctx.font = `${fs}px ${FONT}`;
+    ctx.lineWidth = fs * 0.14;
+    ctx.strokeStyle = INK;
+    ctx.strokeText(big, x, y);
+    ctx.fillStyle = '#FFD84A';
+    ctx.fillText(big, x, y);
+    const sub = clearText ? info.sub || '' : `${info.name} · ${info.bpm} BPM`;
+    if (sub) {
+      const ss = fitFont(ctx, sub, this.L.GW * 0.86, size * 0.3);
+      ctx.font = `${ss}px ${FONT}`;
+      ctx.lineWidth = ss * 0.2;
+      ctx.strokeText(sub, x, y + fs * 0.66);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillText(sub, x, y + fs * 0.66);
+    }
+    if (!clearText && info.warn) {
+      const ws = Math.round(size * 0.24);
+      ctx.font = `${ws}px ${FONT}`;
+      ctx.lineWidth = ws * 0.2;
+      ctx.strokeText(info.warn, x, y + fs * 0.66 + ws * 1.5);
+      ctx.fillStyle = '#FF6B5A';
+      ctx.fillText(info.warn, x, y + fs * 0.66 + ws * 1.5);
+    }
+  }
+
+  /** 영상 찍기 레벨업 챌린지: 릴스처럼 위에 훅 문구 → 시작하면 "Lv.N · 이름 · BPM" */
+  _drawStudioChallenge(st, rt) {
     const ctx = this.ctx;
     const L = this.L;
     const s = this.studio;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    const top = L.H * 0.045;
+    if (st.cleared) {
+      this._roundText({ sub: s.bottom }, L.cx, top + L.GW * 0.12, L.GW * 0.17, `Lv.${st.cleared} 클리어!`);
+    } else if (!st.round || st.countIn || st.now < 0) {
+      // 훅: 큰 흰 글씨 두 줄 + 작은 부제
+      const words = (s.top || '').trim();
+      const fs = fitFont(ctx, words, L.GW * 0.92, L.GW * 0.12);
+      ctx.font = `${fs}px ${FONT}`;
+      ctx.lineWidth = fs * 0.16;
+      ctx.strokeStyle = INK;
+      ctx.strokeText(words, L.cx, top + fs * 0.7);
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillText(words, L.cx, top + fs * 0.7);
+      if (s.bottom) {
+        const bs = fitFont(ctx, s.bottom, L.GW * 0.9, L.GW * 0.055);
+        ctx.font = `${bs}px ${FONT}`;
+        ctx.lineWidth = bs * 0.2;
+        ctx.strokeText(s.bottom, L.cx, top + fs * 1.45 + bs * 0.4);
+        ctx.fillStyle = '#FFD84A';
+        ctx.fillText(s.bottom, L.cx, top + fs * 1.45 + bs * 0.4);
+      }
+    } else {
+      const f = this.roundFx;
+      const age = f ? rt - f.t0 : 9;
+      const pop = 1 + (age < 0.25 ? (1 - easeOut(age / 0.25)) * 0.25 : 0);
+      ctx.translate(L.cx, top + L.GW * 0.11);
+      ctx.scale(pop, pop);
+      this._roundText(st.round, 0, 0, L.GW * 0.2);
+    }
+    ctx.restore();
+  }
+
+  _drawStudio(st, rt) {
+    const ctx = this.ctx;
+    const L = this.L;
+    const s = this.studio;
+    if (s.challenge) {
+      this._drawStudioChallenge(st, rt);
+      return;
+    }
     ctx.save();
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';

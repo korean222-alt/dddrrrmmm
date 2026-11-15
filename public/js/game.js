@@ -1,8 +1,8 @@
 // 한 판의 게임 진행: 시간 관리, 입력 판정, 점수/콤보.
 
 import {
-  STEPS_PER_BAR, stepDur,
-  buildNotes, beatDur, barDur, JUDGE, pointsFor, accuracy, gradeFor, starsFor,
+  STEPS_PER_BAR, tempoOf, ROUND_BARS, roundInfo, diamondsFor,
+  buildNotes, JUDGE, pointsFor, accuracy, gradeFor, starsFor,
   COUNT_IN_BARS, OUTRO_BARS, maxScore, levelLanes, INSTRUMENTS, KICK, SNARE, HAT, CRASH,
 } from './charts.js';
 import { SongPlayer } from './audio.js';
@@ -33,15 +33,16 @@ export class Game {
     this.onHud = onHud || (() => {});
     this.onEnd = onEnd || (() => {});
     this.onDeath = onDeath || null;
-    this.notes = buildNotes(level);
+    this.tempo = tempoOf(level);
     /** 화면 왼쪽부터 레인(악기) 순서 */
     this.laneOrder = levelLanes(level);
+    this.notes = [];
     this.lanes = INSTRUMENTS.map(() => []);
-    for (const n of this.notes) {
-      n.judged = false;
-      n.result = null;
-      this.lanes[n.lane].push(n);
-    }
+    this.builtBars = 0;
+    this._pair = 0;
+    this._addNotes();
+    /** 레벨업 챌린지(무제한 모드): 지금 단계 */
+    this.round = 0;
     this.ptr = INSTRUMENTS.map(() => 0);
     this.score = 0;
     this.combo = 0;
@@ -55,15 +56,53 @@ export class Game {
     this.graceUntil = -Infinity;
     this._lostAt = null;
     this.state = 'idle';
-    this.beat = beatDur(level);
+    this.beat = 60 / this.tempo.bpm(0);
     this.approach = 1.5 / (settings.noteSpeed || 1);
     this.firstNoteTime = this.notes.length ? this.notes[0].time : 0;
-    this.lastNoteTime = this.notes.length ? this.notes[this.notes.length - 1].time : 0;
-    this.endTime = this.lastNoteTime + barDur(level) * OUTRO_BARS + 0.4;
-    this.maxScore = maxScore(level);
+    this._setEnd();
+    this.maxScore = level.endless ? 0 : maxScore(level);
     /** 마디마다 끝났을 때 점수 (1:1 대결에서 상대 점수를 실시간으로 보여줄 때 씀) */
     this.timeline = [];
     this._loop = this._loop.bind(this);
+  }
+
+  /** 채보 마디가 늘어났으면(무제한 모드) 노트 추가 */
+  _addNotes() {
+    const lv = this.level;
+    if (lv.bars.length <= this.builtBars) return false;
+    const add = buildNotes(lv, this.builtBars, lv.bars.length, this._pair);
+    this._pair = add.nextPair;
+    const base = this.notes.length;
+    for (const n of add) {
+      n.id += base;
+      n.judged = false;
+      n.result = null;
+      this.notes.push(n);
+      this.lanes[n.lane].push(n);
+    }
+    this.builtBars = lv.bars.length;
+    return true;
+  }
+
+  /** 끝나는 시각: 무제한 모드는 끝없음 (목숨이 다 떨어질 때까지) */
+  _setEnd() {
+    const lv = this.level;
+    this.lastNoteTime = this.notes.length ? this.notes[this.notes.length - 1].time : 0;
+    if (lv.endless) {
+      this.endTime = Infinity;
+      return;
+    }
+    const lastBar = COUNT_IN_BARS + lv.bars.length - 1;
+    this.endTime = this.lastNoteTime + this.tempo.barLen(lastBar) * OUTRO_BARS + 0.4;
+  }
+
+  /** 무제한 모드: 앞으로 2단계치 채보는 늘 만들어 둠 */
+  _extend(now) {
+    const lv = this.level;
+    if (!lv.ensureBars) return;
+    const bar = Math.max(0, Math.floor(this.tempo.barAt(now)) - COUNT_IN_BARS);
+    lv.ensureBars(bar + ROUND_BARS * 2);
+    if (this._addNotes()) this._setEnd();
   }
 
   get offset() {
@@ -154,7 +193,7 @@ export class Game {
     this.combo++;
     this.maxCombo = Math.max(this.maxCombo, this.combo);
     this.counts[res]++;
-    this.score += pointsFor(res, this.combo);
+    this.score += Math.round(pointsFor(res, this.combo) * (n.mult || 1));
     this.offsets.push(dt);
     this.r.onJudge(n.lane, res, rt, dt < 0);
     this.r.onCombo(this.combo, rt);
@@ -236,6 +275,8 @@ export class Game {
     if (this.state !== 'playing') return;
     const rt = performance.now() / 1000;
     const now = this.songTime();
+    this._extend(now);
+    this._checkRound(now, rt);
 
     if (this.auto) {
       for (const lane of this.laneOrder) {
@@ -270,8 +311,8 @@ export class Game {
 
     this._drawFrame(now, rt);
 
-    const barPos = (now - COUNT_IN_BARS * barDur(this.level)) / barDur(this.level);
-    while (this.timeline.length < this.level.bars.length && this.timeline.length < Math.floor(barPos)) this.timeline.push(this.score);
+    const barPos = this.tempo.barAt(now) - COUNT_IN_BARS;
+    while (!this.level.challenge && this.timeline.length < this.level.bars.length && this.timeline.length < Math.floor(barPos)) this.timeline.push(this.score);
 
     this.onHud(this._hud(now));
 
@@ -282,20 +323,44 @@ export class Game {
     this._raf = requestAnimationFrame(this._loop);
   }
 
+  /** 레벨업 챌린지: 단계가 바뀌면 화면에 "Lv.3 엇박 들어갑니다 · 110 BPM" (한 마디 미리 예고) */
+  _checkRound(now, rt) {
+    if (!this.level.challenge) return;
+    const mb = this.tempo.barAt(now) - COUNT_IN_BARS;
+    // 새 단계 시작 한 박 전부터 크게 띄움 (첫 단계는 카운트인 마지막 박)
+    const r = Math.min(this.level.maxRounds, Math.max(1, Math.floor((mb + 0.25) / ROUND_BARS) + 1));
+    if (r !== this.round) {
+      this.round = r;
+      this.roundInfo = roundInfo(r);
+      if (this.r.onRound) this.r.onRound(this.roundInfo, rt);
+    }
+  }
+
+  /** 지금까지 깬 단계 수 */
+  _roundsCleared(now) {
+    const mb = this.tempo.barAt(now) - COUNT_IN_BARS;
+    return Math.max(0, Math.min(this.level.maxRounds, Math.floor(mb / ROUND_BARS)));
+  }
+
   _hud(now) {
+    const barPos = this.tempo.barAt(now) - COUNT_IN_BARS;
+    let progress;
+    if (this.level.endless) progress = Math.max(0, (barPos % ROUND_BARS) / ROUND_BARS);
+    else progress = Math.max(0, Math.min(1, now / this.endTime));
     return {
       score: this.score,
       combo: this.combo,
       lives: this.livesOn ? this.lives : null,
-      progress: Math.max(0, Math.min(1, now / this.endTime)),
-      barPos: (now - COUNT_IN_BARS * barDur(this.level)) / barDur(this.level),
+      progress,
+      barPos,
+      round: this.round ? this.roundInfo : null,
     };
   }
 
   _drawFrame(now, rt, dead = false) {
     // 카운트인 표시 (+ 엄지 안내)
     let countIn = null;
-    const ciEnd = COUNT_IN_BARS * barDur(this.level);
+    const ciEnd = this.tempo.barStart(COUNT_IN_BARS);
     if (now < ciEnd) {
       const b = Math.max(0, Math.floor(now / this.beat));
       countIn = { label: COUNT_LABELS[Math.min(b, 3)], phase: now < 0 ? 0 : (now / this.beat) % 1, fade: 1 };
@@ -313,6 +378,8 @@ export class Game {
         notes: this.notes,
         approach: this.approach,
         beatDur: this.beat,
+        tempo: this.tempo,
+        round: this.round ? this.roundInfo : null,
         combo: this.combo,
         score: this.score,
         playing: !dead,
@@ -328,8 +395,8 @@ export class Game {
 
   /** 반주 하이햇/크래시가 마지막으로 울린 뒤 지난 시간 (드럼 세트 애니메이션용) */
   _kitAges(now) {
-    const sd = stepDur(this.level);
-    const idx = Math.floor(now / sd);
+    const tp = this.tempo;
+    const idx = Math.floor(tp.barAt(now) * STEPS_PER_BAR);
     const song = this.level.song;
     let hatAge = 9;
     // 하이햇/크래시를 내가 치는 단계에선 반주가 안 침 (화면도 내 타격에만 반응)
@@ -341,16 +408,15 @@ export class Game {
       const mb = bar - COUNT_IN_BARS;
       const c = mb < 0 ? (s % 4 === 0 ? 'x' : '.') : mb < this.level.bars.length ? song.hat[s] : '.';
       if (c === 'x' || c === 'o') {
-        hatAge = now - i * sd;
+        hatAge = now - tp.stepTime(i);
         break;
       }
     }
-    const barLen = sd * STEPS_PER_BAR;
-    const mbNow = Math.floor(now / barLen) - COUNT_IN_BARS;
+    const mbNow = Math.floor(tp.barAt(now)) - COUNT_IN_BARS;
     let crashAge = 9;
     for (let mb = mbNow; mb >= Math.max(0, mbNow - 2) && !mineCrash; mb--) {
-      if ((mb > 0 && mb % 8 === 0) || mb === this.level.bars.length) {
-        crashAge = now - (mb + COUNT_IN_BARS) * barLen;
+      if ((mb > 0 && mb % 8 === 0) || (!this.level.endless && mb === this.level.bars.length)) {
+        crashAge = now - tp.barStart(mb + COUNT_IN_BARS);
         break;
       }
     }
@@ -361,6 +427,10 @@ export class Game {
   _finish(failed = false) {
     this.state = 'finished';
     this.player.stop(0.6);
+    if (this.level.challenge) {
+      this._finishChallenge(failed);
+      return;
+    }
     while (this.timeline.length < this.level.bars.length) this.timeline.push(this.score);
     this.timeline[this.timeline.length - 1] = this.score;
     const total = this.notes.length;
@@ -384,6 +454,42 @@ export class Game {
       avgOffsetMs,
       auto: this.auto,
       timeline: this.timeline.slice(),
+    });
+  }
+
+  /** 무제한 모드 / 레벨업 챌린지 결과: 몇 단계까지 깼나 + 다이아몬드 */
+  _finishChallenge(died) {
+    const lv = this.level;
+    const at = died ? this.diedAt ?? this.songTime() : this.endTime;
+    const cleared = died ? this._roundsCleared(at) : lv.maxRounds;
+    const avgOffsetMs = this.offsets.length
+      ? Math.round((this.offsets.reduce((a, b) => a + b, 0) / this.offsets.length) * 1000)
+      : 0;
+    const judged = this.notes.filter((n) => n.judged).length;
+    this.onEnd({
+      levelId: lv.id,
+      challenge: true,
+      endless: !!lv.endless,
+      score: this.score,
+      maxScore: this.score,
+      maxCombo: this.maxCombo,
+      counts: { ...this.counts },
+      total: judged,
+      accuracy: accuracy(this.counts),
+      grade: gradeFor(this.counts),
+      roundsCleared: cleared,
+      roundReached: Math.min(lv.maxRounds, cleared + 1),
+      bpmReached: roundInfo(Math.max(1, Math.min(lv.maxRounds, cleared + (died ? 1 : 0)))).bpm,
+      diamonds: diamondsFor(cleared),
+      stars: 0,
+      fullCombo: false,
+      failed: false,
+      died,
+      continued: this.continues,
+      progress: 1,
+      avgOffsetMs,
+      auto: this.auto,
+      timeline: [],
     });
   }
 }

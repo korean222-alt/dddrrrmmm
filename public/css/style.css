@@ -367,3 +367,22 @@ input[type='range'] { width: 100%; accent-color: var(--grass); height: 28px; }
 
 /* 실패한 판 결과 */
 #screen-result.failed .res-grade { color: #ff6b8a !important; }
+
+/* ---------- 무제한 모드 · 다이아몬드 · 보스 단계 ---------- */
+.stars.gems svg path { fill: #e6e1ee; stroke: var(--ink); stroke-width: 1.5; stroke-linejoin: round; }
+.stars.gems svg.on path { fill: #5fd8ff; }
+.stars.gems.big svg.on path { animation-name: gemfill; }
+@keyframes gemfill { from { fill: #e6e1ee; } }
+.level-card.endless-card { background: linear-gradient(135deg, #1e1550, #3b1c72); color: #fff; }
+.level-card.endless-card h4 small, .level-card.endless-card p, .level-card.endless-card .meta { color: rgba(255, 255, 255, 0.78); }
+.level-card.endless-card .lv { background: #5fd8ff; font-size: 34px; }
+.level-card.endless-card .gem-rule { font-size: 12px; margin-top: 3px; }
+.level-card.endless-card .lockline { color: #ffd84a; }
+.level-card.endless-card.locked .lv { background: #6d6590; }
+.level-card.boss .lv { background: #e2541f; }
+.level-card.boss.locked .lv { background: #d9d4e3; }
+.level-card.locked { opacity: 0.86; }
+.chips button.chip-hot { border-color: var(--ink); background: #fff3ec; }
+.chips button.chip-hot[aria-pressed='true'] { background: var(--coral); color: #fff; }
+.seg.seg-sm { margin-top: 6px; }
+.seg.seg-sm button b { font-size: 15px; }
