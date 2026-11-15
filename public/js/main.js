@@ -3,10 +3,11 @@
 import {
   LEVELS, getLevel, levelLanes, isGated, GATE_FROM_LEVEL, DIFFICULTY_WORDS, STAR_RULES,
   ENDLESS_ID, LAST_LEVEL_ID, makeEndless, isUnlocked, nextChallenge, DIAMOND_RULES, roundInfo,
+  ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId,
 } from './charts.js';
 import { AudioEngine, playMetronome } from './audio.js';
 import { Renderer } from './render.js';
-import { Game, MAX_LIVES, LIFE_REGEN_COMBO } from './game.js';
+import { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } from './game.js';
 import { initAds, showRewarded } from './ads.js';
 import { createApi } from './api.js';
 import { initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay } from './track.js';
@@ -133,20 +134,24 @@ function needsFollow() {
 function isLocked(level) {
   return isGated(level, gateFrom()) && needsFollow();
 }
-/** 단계 id → 칠 판 (숫자 = 일반 단계, 'endless' = 무제한 모드, 'ch4' = 영상용 레벨업 챌린지 4단계까지) */
+/** 단계 id → 칠 판 (숫자 = 일반 단계, 'endless' = 무제한 모드, 'e13' = 13단계 무제한, 'ch4' = 영상용 레벨업 챌린지 4단계까지) */
 function playable(id) {
   if (id === ENDLESS_ID) return makeEndless();
+  const eb = levelEndlessBase(id);
+  if (eb) return makeLevelEndless(eb);
   if (typeof id === 'string' && /^ch\d+$/.test(id)) return makeEndless({ rounds: Number(id.slice(2)) });
   return getLevel(id);
 }
-const isChallengeId = (id) => id === ENDLESS_ID || (typeof id === 'string' && /^ch\d+$/.test(id));
+const isChallengeId = (id) => id === ENDLESS_ID || (typeof id === 'string' && /^(ch|e)\d+$/.test(id));
 /** 앞 단계를 안 깨서 잠김 (팔로우 잠금과 별개) */
 const progressLocked = (id) => !isUnlocked(id, loadBests());
 function progressLockText(id) {
-  if (id === ENDLESS_ID) return `${LAST_LEVEL_ID}단계 ${getLevel(LAST_LEVEL_ID).name}을 깨면 무제한 모드가 열려요 💎`;
+  if (id === ENDLESS_ID) return `${ENDLESS_FROM}단계 ${getLevel(ENDLESS_FROM).name}을 깨면 무제한 모드가 열려요 💎`;
+  const eb = levelEndlessBase(id);
+  if (eb) return `${eb.id}단계 ${eb.name}을 별 1개 이상으로 깨면 무제한이 열려요 💎`;
   return `${id - 1}단계를 별 1개 이상으로 깨면 ${id}단계가 열려요`;
 }
-const LOCK_FROM_PREV = (id) => (id === ENDLESS_ID ? `${LAST_LEVEL_ID}단계 깨면 열림` : `${id - 1}단계 깨면 열림`);
+const LOCK_FROM_PREV = (id) => (id === ENDLESS_ID ? `${ENDLESS_FROM}단계 깨면 열림` : `${id - 1}단계 깨면 열림`);
 
 /** 앞 단계를 아직 못 깼어도 인스타 연결(팔로우)은 미리 해둘 수 있음. 연결 후엔 진행 잠금 안내 */
 function earlyFollow(level) {
@@ -239,8 +244,51 @@ function refreshTitle() {
 }
 
 // ---------------- 레벨 목록 ----------------
+/** 단계 목록 보기: 'normal' = 일반 단계 / 'endless' = 단계별 무제한 */
+function levelMode() {
+  return load('levelMode', 'normal') === 'endless' ? 'endless' : 'normal';
+}
+
+/** 무제한 보기: 맨 위에 그리그 무제한(랭킹) + 단계마다 그 곡으로 무제한 (그 단계를 깨면 열림) */
+function renderEndlessLevels(bests) {
+  const eLock = !isUnlocked(ENDLESS_ID, bests);
+  const eb = bests[ENDLESS_ID];
+  const list = [
+    `<button class="level-card endless-card ${eLock ? 'locked' : ''}" data-level="${ENDLESS_ID}">
+      <div class="lv"><span>∞</span></div>
+      <div class="info"><h4>무제한 모드 <small>그리그 · 랭킹</small></h4><p>깰수록 BPM +10 · 매번 다른 채보 · 💎 무제한 랭킹에 올라가요</p></div>
+      <div class="meta">${eLock ? `<span class="lockline">${icon('lock')} ${LOCK_FROM_PREV(ENDLESS_ID)}</span>` : `${gemsHTML(eb ? eb.diamonds || 0 : 0, 'sm')}<span>${eb ? `최고 Lv.${eb.roundsCleared || 0}` : 'NEW'}</span>`}</div>
+    </button>`,
+  ];
+  for (const lv of LEVELS) {
+    const id = levelEndlessId(lv.id);
+    const prevLock = !isUnlocked(id, bests);
+    const locked = prevLock || isLocked(lv);
+    const b = bests[id];
+    const meta = prevLock
+      ? `<span class="lockline">${icon('lock')} ${lv.id}단계 깨면 열림</span>`
+      : locked
+        ? `<span class="lockline">${icon('lock')} 인스타 팔로우</span>`
+        : `${gemsHTML(b ? b.diamonds || 0 : 0, 'sm')}<span>${b ? `최고 Lv.${b.roundsCleared || 0}` : 'NEW'}</span>`;
+    list.push(`<button class="level-card endless-card lv-endless ${locked ? 'locked' : ''}" data-level="${id}">
+      <div class="lv"><span>${lv.id}<small>∞</small></span></div>
+      <div class="info"><h4>${lv.name} <small>${lv.composer}</small></h4><p>${lv.bpm} BPM부터 · 4마디마다 +${LEVEL_ENDLESS_STEP}</p></div>
+      <div class="meta">${meta}</div>
+    </button>`);
+  }
+  $('#level-list').innerHTML = list.join('');
+  refreshToday();
+  $('#levels-foot').innerHTML = `단계를 별 1개 이상으로 깨면 그 곡의 무제한이 열려요. 목숨이 다 떨어질 때까지 계속!<br>💎 Lv.4 · 💎💎 Lv.7 · 💎💎💎 Lv.10 클리어`;
+}
+
 function renderLevels() {
   const bests = loadBests();
+  const mode = levelMode();
+  $$('#level-mode button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === mode)));
+  if (mode === 'endless') {
+    renderEndlessLevels(bests);
+    return;
+  }
   let gateShown = false;
   const list = LEVELS.map((lv) => {
     const prevLock = !isUnlocked(lv.id, bests);
@@ -267,7 +315,7 @@ function renderLevels() {
       <div class="meta">${meta}</div>
     </button>`;
   });
-  // 맨 아래: 무제한 모드 (마지막 단계 깨면 열림)
+  // 맨 아래: 무제한 모드 (13단계 깨면 열림)
   const eLock = !isUnlocked(ENDLESS_ID, bests);
   const eb = bests[ENDLESS_ID];
   list.push(`<button class="level-card endless-card ${eLock ? 'locked' : ''}" data-level="${ENDLESS_ID}">
@@ -280,14 +328,14 @@ function renderLevels() {
   const free = freeRangeText();
   $('#levels-foot').innerHTML = needsFollow()
     ? `${free ? free + ' 누구나 바로! ' : ''}${gateFrom()}단계부터는 ${igWho()} 팔로우하면 열려요.<br>앞 단계를 별 1개 이상으로 깨면 다음 단계가 열려요. 별 3개: ${STAR_RULES[0].text}`
-    : `앞 단계를 별 1개 이상으로 깨면 다음 단계가 열려요. 마지막 단계까지 깨면 💎 무제한 모드!<br>별 3개: ${STAR_RULES[0].text}`;
+    : `앞 단계를 별 1개 이상으로 깨면 다음 단계가 열려요. 깬 단계는 위 <b>💎 무제한</b> 탭에서 끝없이 칠 수 있어요!<br>별 3개: ${STAR_RULES[0].text}`;
 }
 
 // ---------------- 게임 ----------------
 /** free: 오늘의 노래·친구 도전장은 앞 단계를 안 깼어도 칠 수 있음 (팔로우 잠금은 그대로) */
 async function tryStart(id, { free = false } = {}) {
   if (!free && progressLocked(id)) {
-    const glv = getLevel(id);
+    const glv = levelEndlessBase(id) ? null : getLevel(id);
     // 팔로우 잠금 단계면 앞 단계를 안 깼어도 인스타 연결은 미리 할 수 있게
     if (glv && isLocked(glv)) {
       earlyFollow(glv);
@@ -304,7 +352,8 @@ async function tryStart(id, { free = false } = {}) {
     startLevel(id);
     return;
   }
-  const lv = getLevel(id);
+  // 단계별 무제한은 원래 단계의 팔로우 잠금을 따름
+  const lv = levelEndlessBase(id) || getLevel(id);
   if (!lv) return;
   if (isLocked(lv)) {
     requireFollow(lv, () => startLevel(id));
@@ -370,7 +419,7 @@ async function startLevel(id) {
   if (state.game) state.game.stop();
   state.runToken = null;
   // 영상 찍기는 팔로우 잠금 없이 (계정 주인이 촬영용으로 씀) → 서버 판 토큰도 안 받음
-  if ((!lv.challenge || lv.endless) && !st.active) state.api
+  if ((!lv.challenge || lv.id === ENDLESS_ID) && !st.active) state.api
     .startRun(id)
     .then((r) => (state.runToken = r.runToken))
     .catch((e) => {
@@ -538,7 +587,7 @@ function onDeath(info) {
   $('#cont-score').textContent = `${fmt(info.score)}점`;
   if (lv.challenge) {
     const r = g.roundInfo || roundInfo(1);
-    $('#cont-level').textContent = `무제한 모드 · Lv.${r.round} ${r.name}`;
+    $('#cont-level').textContent = `${lv.baseId ? lv.name : '무제한 모드'} · Lv.${r.round} ${r.name}`;
     $('#cont-progress').style.width = `${Math.min(100, (r.round / 10) * 100)}%`;
     $('#cont-progress-text').textContent = `Lv.${r.round} · ${r.bpm} BPM 까지 왔어요`;
   } else {
@@ -548,7 +597,7 @@ function onDeath(info) {
   }
   $('#btn-continue').hidden = !info.canContinue;
   $('#cont-note').textContent = info.canContinue
-    ? `광고를 끝까지 보면 목숨 ${MAX_LIVES}개로 바로 그 자리부터 이어서 쳐요 (한 판에 한 번)`
+    ? `광고를 끝까지 보면 목숨 ${REVIVE_LIVES}개로 바로 그 자리부터 이어서 쳐요 (한 판에 한 번)`
     : '이어하기는 한 판에 한 번이에요. 다시 도전해 보세요!';
   openModal('modal-continue');
 }
@@ -567,7 +616,7 @@ async function continueWithAd() {
   audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx });
   if (state.game !== g || g.state !== 'dead') return;
   if (r === 'rewarded' && g.revive()) {
-    renderLives(MAX_LIVES, 0);
+    renderLives(REVIVE_LIVES, 0);
     await countdownResume(g);
   } else {
     toast('광고를 끝까지 봐야 이어할 수 있어요');
@@ -595,7 +644,7 @@ function showResult(res) {
   const best = state.auto || res.failed ? { isNew: false } : saveBest(res);
   // 이번 판으로 새로 열린 단계 알림
   if (!state.auto && !res.failed) {
-    if (res.levelId === LAST_LEVEL_ID && !wasOpen.endless && !progressLocked(ENDLESS_ID)) setTimeout(() => toast('💎 무제한 모드가 열렸어요! 깰수록 빨라져요', 3200), 2600);
+    if (res.levelId === ENDLESS_FROM && !wasOpen.endless && !progressLocked(ENDLESS_ID)) setTimeout(() => toast('💎 무제한 모드가 열렸어요! 깰수록 빨라져요', 3200), 2600);
     else if (getLevel(res.levelId + 1) && !wasOpen.next && !progressLocked(res.levelId + 1)) setTimeout(() => toast(`🔓 ${res.levelId + 1}단계가 열렸어요!`, 2600), 2600);
   }
   $('#res-level').textContent = `${lv.id}단계 · ${lv.composer} ${lv.name}`;
@@ -655,9 +704,10 @@ function showResult(res) {
 
 /** 무제한 모드 결과: 등급 자리에 "Lv.N", 별 대신 다이아몬드 */
 function showChallengeResult(res) {
-  const lv = getLevel(8);
+  const base = levelEndlessBase(res.levelId);
+  const lv = base || getLevel(8);
   const best = state.auto ? { isNew: false } : saveBest(res);
-  $('#res-level').textContent = `무제한 모드 · ${lv.composer} ${lv.name}`;
+  $('#res-level').textContent = base ? `${base.id}단계 무제한 · ${base.composer} ${base.name}` : `무제한 모드 · ${lv.composer} ${lv.name}`;
   $('#screen-result').classList.remove('failed');
   const g = $('#res-grade');
   g.textContent = `Lv.${res.roundReached}`;
@@ -1566,10 +1616,16 @@ function bindActions() {
     submitJoin();
   });
   document.addEventListener('click', (e) => {
+    const modeBtn = e.target.closest('#level-mode [data-mode]');
+    if (modeBtn) {
+      save('levelMode', modeBtn.dataset.mode);
+      renderLevels();
+      return;
+    }
     const lvBtn = e.target.closest('[data-level]');
     if (lvBtn) {
       const v = lvBtn.dataset.level;
-      tryStart(v === ENDLESS_ID ? v : Number(v));
+      tryStart(/^\d+$/.test(v) ? Number(v) : v);
       return;
     }
     const sl = e.target.closest('[data-studio-level]');

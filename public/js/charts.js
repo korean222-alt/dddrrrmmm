@@ -525,7 +525,7 @@ export const LEVELS = [
     id: 13,
     name: '왕벌의 비행',
     composer: '림스키코르사코프',
-    tagline: '최종 보스 · 미친 속도 16분음표',
+    tagline: '보스 · 미친 속도 16분음표',
     difficulty: 5,
     bpm: 132,
     boss: true,
@@ -564,6 +564,47 @@ export const LEVELS = [
       'K.HKS.HKS.H.S.H.',
       'K.S.K.S.KSKSKSK.',
       'X...B...B.B.X...',
+    ],
+  },
+  {
+    id: 14,
+    name: '윌리엄 텔 서곡',
+    composer: '로시니',
+    tagline: '진짜 최종 보스 · 질주하는 말발굽',
+    difficulty: 5,
+    bpm: 144,
+    boss: true,
+    song: {
+      // 피날레 '스위스 군대의 행진' 갤럽. 따다닥 따다닥 말발굽 리듬 (우리 한 마디에 원곡 2/4 두 마디)
+      prog: ['E A', 'A E', 'E A', 'B E'],
+      hat: '................',
+      bass: 'x.x.x.x.x.x.x.x.',
+      chord: '..x...x...x...x.',
+      melody: [
+        'E5:1 E5:1 E5:2 E5:1 E5:1 E5:2 E5:1 E5:1 A5:2 B5:2 C#6:2',
+        'E5:1 E5:1 E5:2 E5:1 E5:1 A5:2 C#6:1 C#6:1 B5:2 G#5:2 E5:2',
+        'E5:1 E5:1 E5:2 E5:1 E5:1 E5:2 E5:1 E5:1 A5:2 B5:2 C#6:2',
+        'E5:1 E5:1 E5:2 E5:1 E5:1 A5:2 C#6:2 B5:2 A5:4',
+      ],
+    },
+    bars: [
+      // 13단계보다 빠르고 촘촘하게. 그래도 같은 엄지 16분음표 연타는 없음 (엄지를 번갈아 치는 KSK 말발굽)
+      'X...K.S.K.S.KSK.',
+      'KSK.KSK.KSK.S.S.',
+      'KHK.S.K.KHK.S.H.',
+      'KSK.KSK.B.B.X...',
+      'C.H.KHK.S.H.KHK.',
+      'S.H.KHK.S.HKS.H.',
+      'KSK.KSK.KSKSKSK.',
+      'X...B...B.B.X...',
+      'J.H.KSK.J.H.KSK.',
+      'X.H.KSK.S.H.KSK.',
+      'KHKSKHKSKHKSK...',
+      'X.S.KSK.X.S.KSK.',
+      'J.H.S.H.J.H.S.H.',
+      'KSKSKSKSKSKSKSK.',
+      'X.B.K.S.X.B.K.S.',
+      'X...B...X.......',
     ],
   },
 ];
@@ -703,6 +744,7 @@ export function tempoOf(level) {
 
 /** 이 단계에서 쓰는 악기들 (화면 왼쪽부터 순서) */
 export function levelLanes(level) {
+  if (level.lanes) return level.lanes; // 단계별 무제한: 채보가 늘어나도 처음부터 원래 단계의 악기 그대로
   const used = new Set([KICK, SNARE]);
   for (const bar of level.bars) for (const c of bar) for (const l of CHAR_LANES[c] || []) used.add(l);
   return SCREEN_ORDER.filter((l) => used.has(l));
@@ -809,9 +851,14 @@ export function isClearBest(best) {
   return !!best && (best.stars || 0) >= 1;
 }
 export const LAST_LEVEL_ID = LEVELS[LEVELS.length - 1].id;
-/** bests = { [levelId]: best } 일 때 이 단계가 열려 있는지 (1단계는 항상) */
+/** 무제한 모드(그리그)는 13단계를 깨면 열림 (14단계를 추가하기 전에 이미 연 사람이 다시 잠기지 않게) */
+export const ENDLESS_FROM = 13;
+/** bests = { [levelId]: best } 일 때 이 단계가 열려 있는지 (1단계는 항상)
+ *  단계별 무제한('e5' 등)은 그 단계를 깨면 열림 */
 export function isUnlocked(levelId, bests) {
-  if (levelId === ENDLESS_ID) return isClearBest(bests[LAST_LEVEL_ID]);
+  if (levelId === ENDLESS_ID) return isClearBest(bests[ENDLESS_FROM]);
+  const base = levelEndlessBase(levelId);
+  if (base) return isClearBest(bests[base.id]);
   const id = Number(levelId);
   return id <= 1 || isClearBest(bests[id - 1]);
 }
@@ -967,6 +1014,63 @@ export function makeEndless({ rounds = Infinity, seed = (Math.random() * 2 ** 31
     const r = Math.min(run.roundOfBar(bar - COUNT_IN_BARS), run.maxRounds);
     return roundBpm(r);
   });
+  run.ensureBars(ROUND_BARS * 2);
+  return run;
+}
+
+// ---------------------------------------------------------------
+// 단계별 무제한 모드: 그 단계 곡·채보를 4마디씩 끝없이 이어 치고, 4마디마다 BPM +LEVEL_ENDLESS_STEP
+//   id = 'e' + 단계 번호 (예: 'e13'). 그 단계를 깨면 열림. 다이아 기준은 그리그 무제한과 같음
+// ---------------------------------------------------------------
+export const LEVEL_ENDLESS_STEP = 6;
+export const levelEndlessId = (id) => `e${id}`;
+/** 'e13' → 13단계 레벨 (아니면 null) */
+export function levelEndlessBase(id) {
+  const m = /^e(\d+)$/.exec(String(id));
+  return m ? getLevel(Number(m[1])) : null;
+}
+
+export function makeLevelEndless(base) {
+  const bpmOf = (r) => base.bpm + LEVEL_ENDLESS_STEP * (r - 1);
+  const run = {
+    id: levelEndlessId(base.id),
+    baseId: base.id,
+    endless: true,
+    challenge: true,
+    maxRounds: Infinity,
+    name: `${base.name} 무제한`,
+    composer: base.composer,
+    songName: base.name,
+    tagline: `${base.id}단계 곡이 끝없이 · 4마디마다 BPM +${LEVEL_ENDLESS_STEP}`,
+    difficulty: base.difficulty,
+    bpm: base.bpm,
+    song: base.song,
+    lanes: levelLanes(base),
+    bars: [],
+    barMult: [],
+    barRound: [],
+    roundsBuilt: 0,
+    ensureBars(n) {
+      while (this.bars.length < n) {
+        const r = ++this.roundsBuilt;
+        for (let i = 0; i < ROUND_BARS; i++) {
+          this.bars.push(base.bars[((r - 1) * ROUND_BARS + i) % base.bars.length]);
+          this.barMult.push(1 + 0.1 * (r - 1));
+          this.barRound.push(r);
+        }
+      }
+      return this.bars.length;
+    },
+    roundOfBar(mb) {
+      if (mb < 0) return 1;
+      return Math.floor(mb / ROUND_BARS) + 1;
+    },
+    /** 화면에 띄울 단계 정보 (그리그 무제한의 roundInfo 대신) */
+    roundInfo(r) {
+      return { round: r, bpm: bpmOf(r), name: r === 1 ? '원래 빠르기' : `${Math.round((bpmOf(r) / base.bpm) * 100)}% 빠르기`, warn: '' };
+    },
+  };
+  run.tempo = new TempoMap((bar) => bpmOf(run.roundOfBar(bar - COUNT_IN_BARS)));
   run.ensureBars(ROUND_BARS * 2);
   return run;
 }

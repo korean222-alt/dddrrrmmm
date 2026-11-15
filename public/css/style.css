@@ -423,3 +423,9 @@ input[type='range'] { width: 100%; accent-color: var(--grass); height: 28px; }
 
 #follow-go:disabled { opacity: 1; cursor: default; }
 #follow-go .spinner { display: inline-block; vertical-align: -3px; margin-right: 6px; border-color: rgba(255, 255, 255, 0.35); border-top-color: #fff; }
+
+/* 단계 목록: 일반 / 무제한 보기 */
+.mode-tabs { margin-bottom: 4px; }
+.mode-tabs button { flex: 1; font-size: 16px; padding: 9px 12px; }
+.level-card.lv-endless .lv { background: #9a7bff; font-size: 26px; }
+.level-card.lv-endless .lv small { color: #fff; -webkit-text-stroke: 0; font-size: 14px; }

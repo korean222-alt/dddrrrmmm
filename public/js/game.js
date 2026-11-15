@@ -15,6 +15,8 @@ export const MAX_LIVES = 5;
 export const LIFE_REGEN_COMBO = 20;
 /** 한 판에 이어하기 몇 번까지 */
 export const MAX_CONTINUES = 1;
+/** 광고 보고 이어하면 목숨 몇 개로 다시 시작하는지 */
+export const REVIVE_LIVES = 1;
 /** 이어하기 직후 목숨 안 깎이는 시간(초) */
 const REVIVE_GRACE = 1.6;
 /** 헛침으로 목숨이 깎인 뒤 이 시간(초) 안의 헛침은 또 안 깎음 (두 엄지 동시 실수) */
@@ -265,13 +267,13 @@ export class Game {
     });
   }
 
-  /** 광고 보고 이어하기: 목숨 다시 꽉 채우고, 바깥에서 카운트다운 후 resume() */
+  /** 광고 보고 이어하기: 목숨 REVIVE_LIVES 개로 그 자리부터, 바깥에서 카운트다운 후 resume() */
   revive() {
     if (this.state !== 'dead') return false;
     this.continues++;
-    this.lives = MAX_LIVES;
+    this.lives = REVIVE_LIVES;
     this.graceUntil = this.diedAt + REVIVE_GRACE;
-    this.r.onLife(this.lives, +MAX_LIVES, performance.now() / 1000);
+    this.r.onLife(this.lives, +REVIVE_LIVES, performance.now() / 1000);
     this.state = 'paused';
     return true;
   }
@@ -336,6 +338,11 @@ export class Game {
   }
 
   /** 레벨업 챌린지: 단계가 바뀌면 화면에 "Lv.3 엇박 들어갑니다 · 110 BPM" (한 마디 미리 예고) */
+  /** 단계 정보: 단계별 무제한은 원래 곡 빠르기에서 시작 */
+  _roundInfo(r) {
+    return this.level.roundInfo ? this.level.roundInfo(r) : roundInfo(r);
+  }
+
   _checkRound(now, rt) {
     if (!this.level.challenge) return;
     const mb = this.tempo.barAt(now) - COUNT_IN_BARS;
@@ -343,7 +350,7 @@ export class Game {
     const r = Math.min(this.level.maxRounds, Math.max(1, Math.floor((mb + 0.25) / ROUND_BARS) + 1));
     if (r !== this.round) {
       this.round = r;
-      this.roundInfo = roundInfo(r);
+      this.roundInfo = this._roundInfo(r);
       if (this.r.onRound) this.r.onRound(this.roundInfo, rt);
     }
   }
@@ -493,7 +500,7 @@ export class Game {
       grade: gradeFor(this.counts),
       roundsCleared: cleared,
       roundReached: Math.min(lv.maxRounds, cleared + 1),
-      bpmReached: roundInfo(Math.max(1, Math.min(lv.maxRounds, cleared + (died ? 1 : 0)))).bpm,
+      bpmReached: this._roundInfo(Math.max(1, Math.min(lv.maxRounds, cleared + (died ? 1 : 0)))).bpm,
       diamonds: diamondsFor(cleared),
       stars: 0,
       fullCombo: false,

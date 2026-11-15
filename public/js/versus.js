@@ -8,7 +8,7 @@ import { LEVELS, getLevel, maxScore } from './charts.js';
 
 const DAY_MS = 86400000;
 /** 날마다 돌아가며 나오는 순서 (같은 곡이 이틀 연속 안 나오게) */
-const TODAY_ORDER = [3, 9, 1, 11, 5, 13, 7, 2, 10, 6, 12, 4, 8];
+const TODAY_ORDER = [3, 9, 1, 11, 5, 13, 7, 2, 14, 10, 6, 12, 4, 8];
 const GRADES = ['SS', 'S', 'A', 'B', 'C', 'D'];
 export const NAME_MAX = 10;
 

@@ -140,7 +140,7 @@ test('12단계 터키 행진곡: 같은 엄지로 16분음표 연타 없음 (사
 });
 
 test('목숨: MISS 5번이면 멈추고 이어하기 1번, 동시치기 둘 다 놓쳐도 1개, 콤보로 회복', async () => {
-  const { Game, MAX_LIVES, LIFE_REGEN_COMBO, MAX_CONTINUES } = await import('../public/js/game.js');
+  const { Game, MAX_LIVES, LIFE_REGEN_COMBO, MAX_CONTINUES, REVIVE_LIVES } = await import('../public/js/game.js');
   const noop = () => {};
   globalThis.cancelAnimationFrame ??= noop;
   const renderer = { onJudge: noop, onLife: noop, onCombo: noop, onTap: noop, draw: noop, reset: noop };
@@ -165,14 +165,15 @@ test('목숨: MISS 5번이면 멈추고 이어하기 1번, 동시치기 둘 다 
   assert.equal(g.state, 'dead');
   assert.equal(deaths.length, 1);
   assert.equal(deaths[0].canContinue, MAX_CONTINUES > 0);
-  // 이어하기 → 목숨 꽉 + 다음엔 이어하기 없음
+  // 이어하기 → 목숨 1개로 다시 + 다음엔 이어하기 없음
+  assert.equal(REVIVE_LIVES, 1);
   assert.ok(g.revive());
-  assert.equal(g.lives, MAX_LIVES);
+  assert.equal(g.lives, REVIVE_LIVES);
   assert.equal(g.state, 'paused');
   g.state = 'playing';
   g.graceUntil = -Infinity;
   const rest = g.notes.filter((n) => !n.judged && n.pair < 0);
-  for (let i = 0; i < MAX_LIVES; i++) g._miss(rest[i], 0);
+  g._miss(rest[0], 0); // 한 번만 놓쳐도 끝
   assert.equal(deaths.length, 2);
   assert.equal(deaths[1].canContinue, false);
   g.giveUp();

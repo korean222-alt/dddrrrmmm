@@ -7,7 +7,7 @@
 //   newVids:  기간 안에 처음 온 방문자 id 목록 (그 전에는 한 번도 안 옴)
 // vid = 브라우저(기기)마다 붙는 익명 번호. 이름·아이디·IP 와 연결되지 않아요.
 
-import { getLevel } from '../public/js/charts.js';
+import { levelEndlessBase, getLevel } from '../public/js/charts.js';
 
 const DAY = 24 * 3600 * 1000;
 
@@ -21,6 +21,8 @@ const avg = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length :
 const round1 = (n) => Math.round(n * 10) / 10;
 
 function levelName(id) {
+  const base = levelEndlessBase(id);
+  if (base) return `${base.name} 무제한`;
   const lv = getLevel(/^\d+$/.test(id) ? Number(id) : id);
   if (!lv) return '';
   return lv.challenge ? (lv.endless ? '무제한 모드' : '레벨업 챌린지') : lv.name;

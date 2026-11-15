@@ -5,6 +5,7 @@ import {
   LEVELS, getLevel, levelLanes, buildNotes, stepDur, tempoOf, TempoMap, CRASH, HAT, KICK, SNARE,
   makeEndless, roundBpm, roundInfo, roundBars, diamondsFor, ROUND_BARS, COUNT_IN_BARS,
   isUnlocked, nextChallenge, ENDLESS_ID, LAST_LEVEL_ID, STEPS_PER_BAR,
+  ENDLESS_FROM, makeLevelEndless, levelEndlessBase, levelEndlessId, LEVEL_ENDLESS_STEP,
 } from '../public/js/charts.js';
 
 /** 같은 엄지(왼쪽: 킥·크래시 / 오른쪽: 스네어·하이햇)로 2칸보다 촘촘한 연타가 없는지 */
@@ -17,14 +18,38 @@ function assertNoSameThumb16th(notes, label) {
   }
 }
 
-test('13단계 왕벌의 비행: 가장 빠른 최종 보스, 4악기, 같은 엄지 16분음표 연타 없음', () => {
+/** 같은 엄지로 2칸보다 촘촘하게 친 노트의 칸 번호들 */
+function sameThumb16th(notes) {
+  const last = { L: -9, R: -9 };
+  const out = [];
+  for (const n of notes) {
+    const h = n.lane === KICK || n.lane === CRASH ? 'L' : 'R';
+    if (n.step !== last[h] && n.step - last[h] < 2) out.push(n.step);
+    last[h] = n.step;
+  }
+  return out;
+}
+
+test('13단계 왕벌의 비행: 보스, 4악기, 같은 엄지 16분음표 연타 없음', () => {
   const lv = getLevel(13);
   assert.equal(lv.name, '왕벌의 비행');
-  assert.equal(LAST_LEVEL_ID, 13);
   assert.equal(lv.difficulty, 5);
-  assert.ok(LEVELS.every((l) => l.bpm <= lv.bpm), '제일 빠른 곡');
   assert.deepEqual(levelLanes(lv), [CRASH, KICK, SNARE, HAT]);
   assertNoSameThumb16th(buildNotes(lv), 'Lv.13');
+});
+
+test('14단계 윌리엄 텔 서곡: 13단계보다 빠르고 촘촘한 진짜 최종 보스, 같은 엄지 16분음표 연타 없음', () => {
+  const lv = getLevel(14);
+  const prev = getLevel(13);
+  assert.equal(lv.name, '윌리엄 텔 서곡');
+  assert.equal(LAST_LEVEL_ID, 14);
+  assert.ok(LEVELS.every((l) => l.bpm <= lv.bpm), '제일 빠른 곡');
+  assert.ok(lv.bpm > prev.bpm);
+  // 1초에 치는 노트 수도 13단계보다 많음
+  const density = (l) => buildNotes(l).length / (l.bars.length * (240 / l.bpm));
+  assert.ok(density(lv) > density(prev), `14단계 ${density(lv).toFixed(2)} vs 13단계 ${density(prev).toFixed(2)}`);
+  assert.deepEqual(levelLanes(lv), [CRASH, KICK, SNARE, HAT]);
+  assertNoSameThumb16th(buildNotes(lv), 'Lv.14');
 });
 
 test('박자 시계: 고정 BPM 은 예전 계산과 똑같고, 바뀌는 BPM 도 앞뒤가 맞음', () => {
@@ -99,6 +124,42 @@ test('진행 잠금: 앞 단계를 별 1개 이상으로 깨야 열림, 마지�
   for (const l of LEVELS) bests[l.id] = { stars: 2 };
   assert.ok(isUnlocked(ENDLESS_ID, bests));
   assert.equal(nextChallenge(bests), ENDLESS_ID);
+  // 14단계가 생겨도 13단계까지 깬 사람의 무제한은 그대로 열려 있음
+  delete bests[14];
+  assert.equal(ENDLESS_FROM, 13);
+  assert.ok(isUnlocked(ENDLESS_ID, bests));
+  assert.equal(nextChallenge(bests), 14);
+});
+
+test('단계별 무제한: 그 단계를 깨면 열림, 그 곡 채보를 4마디씩 끝없이, 4마디마다 빨라짐', () => {
+  assert.equal(levelEndlessId(5), 'e5');
+  assert.equal(levelEndlessBase('e5').id, 5);
+  assert.equal(levelEndlessBase('endless'), null);
+  assert.equal(levelEndlessBase(5), null);
+  assert.ok(!isUnlocked('e5', {}));
+  assert.ok(!isUnlocked('e5', { 5: { stars: 0 } }));
+  assert.ok(isUnlocked('e5', { 5: { stars: 1 } }));
+  for (const base of LEVELS) {
+    const run = makeLevelEndless(base);
+    assert.equal(run.endless, true);
+    assert.equal(run.id, `e${base.id}`);
+    // 악기는 원래 단계 그대로 (채보가 늘어나도)
+    assert.deepEqual(levelLanes(run), levelLanes(base));
+    run.ensureBars(base.bars.length * 2 + ROUND_BARS);
+    // 채보는 원래 단계 마디를 순서대로 되풀이
+    for (let i = 0; i < run.bars.length; i++) assert.equal(run.bars[i], base.bars[i % base.bars.length]);
+    // 빠르기: 원래 BPM 부터 4마디마다 +LEVEL_ENDLESS_STEP
+    assert.equal(run.tempo.bpm(COUNT_IN_BARS), base.bpm);
+    assert.equal(run.tempo.bpm(COUNT_IN_BARS + ROUND_BARS), base.bpm + LEVEL_ENDLESS_STEP);
+    assert.equal(run.roundInfo(3).bpm, base.bpm + 2 * LEVEL_ENDLESS_STEP);
+    // 곡이 처음으로 돌아가는 이음새에서 새로 생기는 같은 엄지 16분음표 연타는 없음
+    // (5~11단계의 더블 킥처럼 원래 채보에 있는 건 그대로 둠. 12단계부터는 원래도 없음)
+    const len = base.bars.length * STEPS_PER_BAR;
+    const pre = COUNT_IN_BARS * STEPS_PER_BAR; // 노트 칸 번호는 카운트인 마디부터 셈
+    const own = new Set(sameThumb16th(buildNotes(base)));
+    for (const st of sameThumb16th(buildNotes(run))) assert.ok(own.has(((st - pre) % len) + pre), `e${base.id} 이음새 ${st}칸`);
+    if (base.id >= 12) assertNoSameThumb16th(buildNotes(run), `e${base.id}`);
+  }
 });
 
 test('무제한 모드 게임: 노트가 계속 추가되고, 목숨이 다 떨어지면 깬 단계·다이아로 결과', async () => {
