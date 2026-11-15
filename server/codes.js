@@ -19,10 +19,10 @@ export function displayCode(code, prefix) {
 }
 
 /**
- * DM 문장에서 코드 후보 뽑기. "콩콩-K7P2", "k7p2", "콩콩 K7P2 입니다" 모두 인식.
+ * DM 문장에서 코드 후보 뽑기. "OK-K7P2", "k7p2", "OK K7P2 입니다" 모두 인식.
  * 접두사가 붙은 것을 먼저, 그다음 맨 4글자 토큰 순서.
  */
-export function extractCodes(text, prefix = '콩콩') {
+export function extractCodes(text, prefix = 'OK') {
   if (!text) return [];
   const t = String(text).normalize('NFKC').toUpperCase();
   const out = [];

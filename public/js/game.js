@@ -9,13 +9,22 @@ import { SongPlayer } from './audio.js';
 
 const COUNT_LABELS = ['1', '2', '3', '4!'];
 
+/** 목숨: MISS 하면 하나씩 줄고, 0개가 되면 멈춤 → 이어하기(광고) 또는 끝 */
+export const MAX_LIVES = 5;
+/** 콤보가 이만큼 쌓일 때마다 목숨 하나 회복 (최대 MAX_LIVES) */
+export const LIFE_REGEN_COMBO = 20;
+/** 한 판에 이어하기 몇 번까지 */
+export const MAX_CONTINUES = 1;
+/** 이어하기 직후 목숨 안 깎이는 시간(초) */
+const REVIVE_GRACE = 1.6;
+
 export class Game {
   /**
    * @param {object} o
    * @param {import('./audio.js').AudioEngine} o.audio
    * @param {import('./render.js').Renderer} o.renderer
    */
-  constructor({ audio, renderer, level, settings, auto = false, onHud, onEnd }) {
+  constructor({ audio, renderer, level, settings, auto = false, onHud, onEnd, onDeath }) {
     this.audio = audio;
     this.r = renderer;
     this.level = level;
@@ -23,6 +32,7 @@ export class Game {
     this.auto = auto;
     this.onHud = onHud || (() => {});
     this.onEnd = onEnd || (() => {});
+    this.onDeath = onDeath || null;
     this.notes = buildNotes(level);
     /** 화면 왼쪽부터 레인(악기) 순서 */
     this.laneOrder = levelLanes(level);
@@ -38,6 +48,12 @@ export class Game {
     this.maxCombo = 0;
     this.counts = { perfect: 0, great: 0, good: 0, miss: 0, wrong: 0 };
     this.offsets = [];
+    // 자동 연주(영상 찍기)나 죽었을 때 처리할 곳이 없으면 목숨 없음
+    this.livesOn = !auto && !!this.onDeath;
+    this.lives = MAX_LIVES;
+    this.continues = 0;
+    this.graceUntil = -Infinity;
+    this._lostAt = null;
     this.state = 'idle';
     this.beat = beatDur(level);
     this.approach = 1.5 / (settings.noteSpeed || 1);
@@ -142,6 +158,10 @@ export class Game {
     this.offsets.push(dt);
     this.r.onJudge(n.lane, res, rt, dt < 0);
     this.r.onCombo(this.combo, rt);
+    if (this.livesOn && this.combo % LIFE_REGEN_COMBO === 0 && this.lives < MAX_LIVES) {
+      this.lives++;
+      this.r.onLife(this.lives, +1, rt);
+    }
     if (this.combo % 25 === 0) {
       this.audio.crash(undefined, this.audio.sfxBus, 0.5);
       this.milestoneAt = this.songTime();
@@ -159,6 +179,57 @@ export class Game {
     this.counts.miss++;
     this.combo = 0;
     this.r.onJudge(n.lane, 'miss', rt);
+    this._loseLife(n, rt);
+  }
+
+  /** MISS → 목숨 하나. 동시치기(두 레인 같은 시각)를 둘 다 놓쳐도 하나만 깎음 */
+  _loseLife(n, rt) {
+    if (!this.livesOn || this.state !== 'playing') return;
+    if (n.time < this.graceUntil) return;
+    if (this._lostAt === n.time) return;
+    this._lostAt = n.time;
+    this.lives = Math.max(0, this.lives - 1);
+    this.r.onLife(this.lives, -1, rt);
+    if (this.settings.vibrate && navigator.vibrate) {
+      try {
+        navigator.vibrate(40);
+      } catch {}
+    }
+    if (this.lives <= 0) this._die();
+  }
+
+  /** 목숨 0개: 그 자리에서 멈춤 (노래도 멈춤). 이어하기 또는 포기는 바깥(main)에서 고름 */
+  _die() {
+    this.state = 'dead';
+    this.diedAt = this.songTime();
+    cancelAnimationFrame(this._raf);
+    this.audio.ctx.suspend().catch(() => {});
+    // 멈춘 화면에 '목숨 끝' 표시 한 번 그리기
+    this._drawFrame(this.diedAt, performance.now() / 1000, true);
+    this.onHud(this._hud(this.diedAt));
+    this.onDeath({
+      canContinue: this.continues < MAX_CONTINUES,
+      progress: Math.max(0, Math.min(1, this.diedAt / this.endTime)),
+      score: this.score,
+    });
+  }
+
+  /** 광고 보고 이어하기: 목숨 다시 꽉 채우고, 바깥에서 카운트다운 후 resume() */
+  revive() {
+    if (this.state !== 'dead') return false;
+    this.continues++;
+    this.lives = MAX_LIVES;
+    this.graceUntil = this.diedAt + REVIVE_GRACE;
+    this.r.onLife(this.lives, +MAX_LIVES, performance.now() / 1000);
+    this.state = 'paused';
+    return true;
+  }
+
+  /** 이어하기 안 하고 끝내기 → 실패 결과 */
+  giveUp() {
+    if (this.state !== 'dead') return;
+    this.audio.ctx.resume().catch(() => {});
+    this._finish(true);
   }
 
   _loop() {
@@ -195,7 +266,33 @@ export class Game {
         break;
       }
     }
+    if (this.state !== 'playing') return; // 방금 목숨이 다 떨어짐 (_die 가 화면 그림)
 
+    this._drawFrame(now, rt);
+
+    const barPos = (now - COUNT_IN_BARS * barDur(this.level)) / barDur(this.level);
+    while (this.timeline.length < this.level.bars.length && this.timeline.length < Math.floor(barPos)) this.timeline.push(this.score);
+
+    this.onHud(this._hud(now));
+
+    if (now >= this.endTime) {
+      this._finish();
+      return;
+    }
+    this._raf = requestAnimationFrame(this._loop);
+  }
+
+  _hud(now) {
+    return {
+      score: this.score,
+      combo: this.combo,
+      lives: this.livesOn ? this.lives : null,
+      progress: Math.max(0, Math.min(1, now / this.endTime)),
+      barPos: (now - COUNT_IN_BARS * barDur(this.level)) / barDur(this.level),
+    };
+  }
+
+  _drawFrame(now, rt, dead = false) {
     // 카운트인 표시 (+ 엄지 안내)
     let countIn = null;
     const ciEnd = COUNT_IN_BARS * barDur(this.level);
@@ -218,28 +315,15 @@ export class Game {
         beatDur: this.beat,
         combo: this.combo,
         score: this.score,
-        playing: true,
+        playing: !dead,
+        dead,
+        lives: this.livesOn ? this.lives : null,
+        maxLives: MAX_LIVES,
         countIn,
         finished: now > this.lastNoteTime + 0.3,
       },
       rt
     );
-
-    const barPos = (now - ciEnd) / barDur(this.level);
-    while (this.timeline.length < this.level.bars.length && this.timeline.length < Math.floor(barPos)) this.timeline.push(this.score);
-
-    this.onHud({
-      score: this.score,
-      combo: this.combo,
-      progress: Math.max(0, Math.min(1, now / this.endTime)),
-      barPos,
-    });
-
-    if (now >= this.endTime) {
-      this._finish();
-      return;
-    }
-    this._raf = requestAnimationFrame(this._loop);
   }
 
   /** 반주 하이햇/크래시가 마지막으로 울린 뒤 지난 시간 (드럼 세트 애니메이션용) */
@@ -274,7 +358,7 @@ export class Game {
     return { hatAge, crashAge };
   }
 
-  _finish() {
+  _finish(failed = false) {
     this.state = 'finished';
     this.player.stop(0.6);
     while (this.timeline.length < this.level.bars.length) this.timeline.push(this.score);
@@ -291,9 +375,12 @@ export class Game {
       counts: { ...this.counts },
       total,
       accuracy: accuracy(this.counts),
-      grade: gradeFor(this.counts),
-      stars: starsFor(this.counts),
-      fullCombo: this.counts.miss === 0 && this.counts.wrong === 0,
+      grade: failed ? 'F' : gradeFor(this.counts),
+      stars: failed ? 0 : starsFor(this.counts),
+      fullCombo: !failed && this.counts.miss === 0 && this.counts.wrong === 0,
+      failed,
+      continued: this.continues,
+      progress: failed ? Math.max(0, Math.min(1, (this.diedAt ?? 0) / this.endTime)) : 1,
       avgOffsetMs,
       auto: this.auto,
       timeline: this.timeline.slice(),

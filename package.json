@@ -1,8 +1,8 @@
 {
-  "name": "kongkong-drum",
+  "name": "okaystra",
   "version": "0.1.0",
   "private": true,
-  "description": "콩콩 드럼 — 엄지 두 개로 하는 인스타 릴스 연계 리듬게임",
+  "description": "오케이스트라 — 엄지 두 개로 하는 인스타 릴스 연계 드럼 리듬게임",
   "type": "module",
   "engines": { "node": ">=20.12" },
   "scripts": {

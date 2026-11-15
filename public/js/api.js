@@ -41,12 +41,14 @@ function serverApi() {
   };
 }
 
-// ---------------- 가짜 API (서버 없이 흐름 확인용) ----------------
+// ---------------- 서버 없는 모드 (정적 호스팅) ----------------
+// 랭킹·DM 인증은 서버가 있어야 진짜로 동작. 이 모드에선 화면에 '곧 오픈'으로 나오고,
+// 아래 흐름은 내 컴퓨터(localhost)에서 개발할 때만 씀.
 const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
 
 /** 서버의 checkFollow 와 같은 모양. 지금은 항상 "팔로우 확인됨" */
 export async function mockCheckFollow(igsid) {
-  return { following: true, username: 'demo_player', igsid };
+  return { following: true, username: 'tester', igsid };
 }
 
 function mockApi(cfg) {
@@ -77,7 +79,7 @@ function mockApi(cfg) {
     async simulateDm(code, opts = {}) {
       const rec = codes.get(code);
       if (!rec) throw new Error('코드 없음');
-      const r = opts.notFollowing ? { following: false, username: 'demo_player' } : await mockCheckFollow('mock-igsid');
+      const r = opts.notFollowing ? { following: false, username: 'tester' } : await mockCheckFollow('mock-igsid');
       if (r.following) {
         rec.status = 'verified';
         rec.player = { username: r.username };
@@ -130,7 +132,7 @@ export async function createApi(cfg) {
     clearTimeout(timer);
     if (res.ok) {
       const j = await res.json();
-      if (j && j.ok && j.app === 'kongkong-drum') return serverApi();
+      if (j && j.ok && j.app === 'okaystra') return serverApi();
     }
   } catch {}
   return mockApi(cfg);

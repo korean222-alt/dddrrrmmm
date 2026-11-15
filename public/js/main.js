@@ -1,9 +1,10 @@
-// 콩콩 드럼 — 화면 전환, 잠금(팔로우 인증), 랭킹, 설정을 묶는 앱 본체
+// 오케이스트라 — 화면 전환, 잠금(팔로우 인증), 랭킹, 설정을 묶는 앱 본체
 
 import { LEVELS, getLevel, levelLanes, isGated, GATE_FROM_LEVEL, DIFFICULTY_WORDS, STAR_RULES } from './charts.js';
 import { AudioEngine, playMetronome } from './audio.js';
 import { Renderer } from './render.js';
-import { Game } from './game.js';
+import { Game, MAX_LIVES, LIFE_REGEN_COMBO } from './game.js';
+import { initAds, showRewarded } from './ads.js';
 import { createApi } from './api.js';
 import { CONFIG } from './config.js';
 import { mascotSVG, stickSVG, bassDrumSVG, snareSVG } from './mascot.js';
@@ -29,6 +30,7 @@ const ICONS = {
   video: '<rect x="3" y="6" width="13" height="12" rx="3" stroke="currentColor" stroke-width="2.2" fill="none"/><path d="M16 10.5l5-3v9l-5-3z" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linejoin="round"/>',
   send: '<path d="M21 3L10 14M21 3l-7 18-4-7-7-4z" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linejoin="round" stroke-linecap="round"/>',
   swords: '<path d="M4 4l9.5 9.5M4 4v3.5M4 4h3.5M20 4l-9.5 9.5M20 4v3.5M20 4h-3.5M7 14l3 3M5.5 18.5l2-2M17 14l-3 3M18.5 18.5l-2-2" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/>',
+  heart: '<path d="M12 20.5s-8-4.9-8-10.6A4.4 4.4 0 0112 7.2a4.4 4.4 0 018 2.7c0 5.7-8 10.6-8 10.6z" fill="currentColor"/>',
   insta: '<rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke="currentColor" stroke-width="2.2" fill="none"/><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2.2" fill="none"/><circle cx="17.2" cy="6.8" r="1.3" fill="currentColor"/>',
 };
 const STAR_PATH = 'M12 2.6l2.85 5.95 6.55.85-4.8 4.55 1.22 6.5L12 17.3l-5.82 3.15 1.22-6.5-4.8-4.55 6.55-.85z';
@@ -50,13 +52,13 @@ const state = {
   me: { verified: false },
   settings: loadSettings(),
   auto: false,
-  studio: { level: 4, mode: 'auto', top: '엄지 두 개로 따라 쳐봐!', bottom: '프로필 링크에서 바로 해보기', file: false, active: false },
+  studio: { level: 8, mode: 'auto', top: '엄지 두 개로 따라 쳐봐!', bottom: '프로필 링크에서 바로 해보기', file: false, active: false },
   levelId: 1,
   game: null,
   lastResult: null,
   runToken: null,
   verify: null,
-  rankLevel: 4,
+  rankLevel: 1,
   vs: null, // 받은 도전장 { name, levelId, score, stars, grade, accuracy, timeline }
 };
 
@@ -105,7 +107,9 @@ const atHandle = () => (handle() ? '@' + handle() : '우리 인스타 계정');
 const igWho = () => (handle() ? `@${handle()} 인스타` : '인스타');
 const isInApp = () => /Instagram|FBAN|FBAV|KAKAOTALK|NAVER/i.test(navigator.userAgent);
 
-const isLocalDev = () => /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname) || params.get('dev') === '1';
+const isLocalDev = () => /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+/** 테스트용 주소 옵션(?gate= ?level= …)은 내 컴퓨터(localhost)에서만. 실제 사이트에선 무시 */
+const devParam = (k) => (isLocalDev() ? params.get(k) : null);
 /** 서버 없이 배포된 상태(정적 호스팅): 랭킹은 아직 안 열림 */
 const demoOnly = () => state.api && state.api.mode === 'mock' && !isLocalDev();
 const SOON = () => `랭킹은 곧 열려요! ${atHandle()} 팔로우하고 기다려 주세요`;
@@ -158,7 +162,7 @@ function buildTitle() {
       }, 170);
     });
   });
-  const q = getLevel(params.get('level')) || getLevel(1);
+  const q = getLevel(params.get('level')) || getLevel(1); // 릴스 링크로 특정 곡 바로 열기용
   state.levelId = q.id;
   $('[data-action="quickstart"]').innerHTML = `${icon('play')} 바로 시작 <small>${q.id}단계</small>`;
 }
@@ -176,9 +180,14 @@ function refreshToday() {
   $('#today-sub').textContent = best ? `내 최고 ${fmt(best.score)}점 · 친구에게 1:1 도전장 ⚔️` : `${lv.id}단계 · 점수 내고 친구에게 1:1 도전장 ⚔️`;
 }
 
+/** 시작 화면 '도전' 버튼 단계: 팔로우 잠금 안쪽에서 처음 나오는 어려움(★4) 곡 */
+function hotLevel() {
+  return LEVELS.find((l) => l.id >= gateFrom() && l.difficulty >= 4) || getLevel(gateFrom()) || LEVELS[LEVELS.length - 1];
+}
+
 function refreshTitle() {
   refreshToday();
-  const hot = getLevel(Math.max(4, gateFrom())) || getLevel(4);
+  const hot = hotLevel();
   const gated = state.cfg.gateMode !== 'open' && isGated(hot, gateFrom());
   $('#hot-name').textContent = `${hot.id}단계 도전 · ${hot.name}`;
   $('.lock-ico').hidden = !isLocked(hot);
@@ -192,7 +201,7 @@ function refreshTitle() {
   } else if (needsFollow()) {
     foot.innerHTML = `${free ? free + ' 바로! ' : ''}<b>${gateFrom()}단계부터는 ${igWho()} 팔로우</b>하면 열려요`;
   } else {
-    foot.innerHTML = handle() ? `만든 곳 <a href="https://instagram.com/${handle()}" target="_blank" rel="noopener">${atHandle()}</a> · 새 곡 소식은 인스타에서!` : '모두 아는 클래식 명곡에 맞춰 드럼을 쳐 보세요!';
+    foot.innerHTML = handle() ? `만든 곳 <a href="https://instagram.com/${handle()}" target="_blank" rel="noopener">${atHandle()}</a> · 새 곡 소식은 인스타에서!` : '모두 아는 명곡에 맞춰 드럼을 쳐 보세요!';
   }
 }
 
@@ -255,7 +264,9 @@ async function startLevel(id) {
   $('#hud-name').textContent = `${lv.name} · ${lv.composer}`;
   $('#hud-score').textContent = '0';
   $('#hud-progress').style.width = '0%';
+  closeModal('modal-continue');
   const st = state.studio;
+  renderLives(st.active || state.auto ? null : MAX_LIVES);
   const vs = !st.active && state.vs && state.vs.levelId === id ? state.vs : null;
   $('#hud-vs').hidden = !vs;
   if (vs) {
@@ -286,7 +297,7 @@ async function startLevel(id) {
         requireFollow(lv, () => startLevel(id));
       }
     });
-  const last = { score: -1, p: -1, op: -1 };
+  const last = { score: -1, p: -1, op: -1, lives: MAX_LIVES };
   state.game = new Game({
     audio,
     renderer,
@@ -307,10 +318,16 @@ async function startLevel(id) {
         }
         last.op = op;
       }
+      if (h.lives != null && h.lives !== last.lives) {
+        renderLives(h.lives, last.lives);
+        last.lives = h.lives;
+      }
       last.score = h.score;
       last.p = p;
     },
     onEnd: (res) => (state.studio.active ? studioFinish(res) : showResult(res)),
+    // 영상 찍기 땐 목숨 없음 (녹화 중에 멈추면 안 되니까)
+    onDeath: st.active ? null : onDeath,
   });
   state.game.start();
 }
@@ -321,10 +338,10 @@ function setKit(lv) {
   renderer.newLane = lv.newInstrument ?? -1;
 }
 
-/** 피아노 타일처럼 세로 줄: 누른 줄의 악기 (악기 그림을 정확히 안 눌러도 됨) */
-function laneFromX(x) {
+/** 누른 줄의 악기 (원근으로 비스듬한 줄 모양 그대로. 악기 그림을 정확히 안 눌러도 됨) */
+function laneFromPoint(x, y) {
   const r = $('#game-canvas').getBoundingClientRect();
-  return renderer.laneAt(x - r.left);
+  return renderer.laneAt(x - r.left, y - r.top);
 }
 
 // 키보드: 레인 수에 따라 왼쪽부터 키 배정
@@ -341,7 +358,7 @@ function bindGameInput() {
     (e) => {
       e.preventDefault();
       if (!state.game) return;
-      state.game.input(laneFromX(e.clientX), e.timeStamp);
+      state.game.input(laneFromPoint(e.clientX, e.clientY), e.timeStamp);
     },
     { passive: false }
   );
@@ -379,13 +396,78 @@ async function resumeGame() {
   closeModal('modal-pause');
   const g = state.game;
   if (!g || g.state !== 'paused') return;
-  // 3초 카운트다운 후 재개 (손가락 올릴 시간)
+  await countdownResume(g);
+}
+
+/** 3초 카운트다운 후 재개 (손가락 올릴 시간) */
+async function countdownResume(g) {
   for (const n of ['3', '2', '1']) {
     toast(n, 450);
     await new Promise((r) => setTimeout(r, 450));
   }
+  if (state.game !== g || g.state !== 'paused') return;
   await audio.unlock();
   g.resume();
+}
+
+// ---------------- 목숨 · 이어하기 ----------------
+/** HUD 하트 n개 (null 이면 숨김). prev 보다 줄면 깨지는 연출, 늘면 통통 */
+function renderLives(n, prev) {
+  const box = $('#hud-lives');
+  if (n == null) {
+    box.hidden = true;
+    return;
+  }
+  box.hidden = false;
+  box.innerHTML = Array.from({ length: MAX_LIVES }, (_, i) => {
+    const cls = i < n ? 'on' : 'off';
+    const fx = prev != null && i >= n && i < prev ? ' lost' : prev != null && i < n && i >= prev ? ' gain' : '';
+    return `<i class="${cls}${fx}">${icon('heart')}</i>`;
+  }).join('');
+  box.classList.toggle('low', n === 1);
+}
+
+/** 목숨 0개: 게임이 멈춘 상태로 이어하기 창 */
+function onDeath(info) {
+  const lv = getLevel(state.levelId);
+  state.death = info;
+  $('#cont-level').textContent = `${lv.id}단계 · ${lv.name}`;
+  $('#cont-score').textContent = `${fmt(info.score)}점`;
+  $('#cont-progress').style.width = `${Math.round(info.progress * 100)}%`;
+  $('#cont-progress-text').textContent = `곡 ${Math.round(info.progress * 100)}% 까지 왔어요`;
+  $('#btn-continue').hidden = !info.canContinue;
+  $('#cont-note').textContent = info.canContinue
+    ? `광고를 끝까지 보면 목숨 ${MAX_LIVES}개로 바로 그 자리부터 이어서 쳐요 (한 판에 한 번)`
+    : '이어하기는 한 판에 한 번이에요. 다시 도전해 보세요!';
+  openModal('modal-continue');
+}
+
+async function continueWithAd() {
+  const g = state.game;
+  if (!g || g.state !== 'dead') return;
+  const btn = $('#btn-continue');
+  btn.disabled = true;
+  closeModal('modal-continue');
+  const r = await showRewarded(state.cfg, {
+    beforeAd: () => audio.setVolumes({ music: 0, sfx: 0 }),
+    afterAd: () => audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx }),
+  });
+  btn.disabled = false;
+  audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx });
+  if (state.game !== g || g.state !== 'dead') return;
+  if (r === 'rewarded' && g.revive()) {
+    renderLives(MAX_LIVES, 0);
+    await countdownResume(g);
+  } else {
+    toast('광고를 끝까지 봐야 이어할 수 있어요');
+    onDeath(state.death);
+  }
+}
+
+function giveUp() {
+  closeModal('modal-continue');
+  const g = state.game;
+  if (g && g.state === 'dead') g.giveUp();
 }
 
 // ---------------- 결과 ----------------
@@ -393,14 +475,17 @@ function showResult(res) {
   res.runToken = state.runToken;
   state.lastResult = res;
   const lv = getLevel(res.levelId);
-  const best = state.auto ? { isNew: false } : saveBest(res);
+  // 목숨 다 써서 끝난 판은 최고 기록에 안 들어감
+  const best = state.auto || res.failed ? { isNew: false } : saveBest(res);
   $('#res-level').textContent = `${lv.id}단계 · ${lv.composer} ${lv.name}`;
+  $('#screen-result').classList.toggle('failed', !!res.failed);
   const g = $('#res-grade');
   g.textContent = res.grade;
   g.style.color = gradeColor(res.grade);
   const nextRule = STAR_RULES.slice().reverse().find((r) => r.stars > res.stars);
-  $('#res-star-hint').innerHTML =
-    res.stars === 3
+  $('#res-star-hint').innerHTML = res.failed
+    ? `목숨을 다 썼어요! 곡 ${Math.round((res.progress || 0) * 100)}% 까지 · 콤보 ${LIFE_REGEN_COMBO}개마다 목숨 +1`
+    : res.stars === 3
       ? '완벽해요! 별 3개 달성 🎉'
       : res.stars === 0
         ? `아쉬워요! 별 1개: ${STAR_RULES[2].text}`
@@ -419,8 +504,8 @@ function showResult(res) {
   const nb = $('#btn-next');
   nb.hidden = !next;
   if (next) nb.innerHTML = `다음 ${next.id}단계 ${isLocked(next) ? icon('lock') : ''}`;
-  $('#btn-rank').hidden = state.auto;
-  $('#btn-vs').hidden = state.auto;
+  $('#btn-rank').hidden = state.auto || res.failed;
+  $('#btn-vs').hidden = state.auto || res.failed;
   // 박자가 계속 한쪽으로 밀리면 (블루투스 이어폰 등) 한 번에 맞추기
   const hits = (res.counts.perfect || 0) + (res.counts.great || 0) + (res.counts.good || 0);
   if (!state.auto && hits >= 8 && Math.abs(res.avgOffsetMs) >= 40) {
@@ -553,10 +638,10 @@ async function shareChallenge(nick) {
   const lv = getLevel(r.levelId);
   const code = encodeChallenge({ name: nick, levelId: r.levelId, score: r.score, stars: r.stars, grade: r.grade, accuracy: r.accuracy, timeline: r.timeline });
   const url = `${siteUrl()}?vs=${code}`;
-  const text = `⚔️ ${nick}의 1:1 도전장! 콩콩 드럼 ${lv.name}(${lv.composer}) ${fmt(r.score)}점. 이길 수 있어?`;
+  const text = `⚔️ ${nick}의 1:1 도전장! ${CONFIG.appName} ${lv.name}(${lv.composer}) ${fmt(r.score)}점. 이길 수 있어?`;
   try {
     if (navigator.share) {
-      await navigator.share({ title: '콩콩 드럼 1:1 도전장', text, url });
+      await navigator.share({ title: `${CONFIG.appName} 1:1 도전장`, text, url });
       return;
     }
   } catch (e) {
@@ -617,10 +702,10 @@ async function shareResult() {
   toast('결과 카드 만드는 중…', 1200);
   const url = siteUrl();
   const canvas = await makeShareCard(r, { siteUrl: url, handle: handle() });
-  const text = `콩콩 드럼 ${r.levelId}단계 ${r.grade} ${fmt(r.score)}점! 너도 엄지로 쳐 봐 👉 ${url}`;
+  const text = `${CONFIG.appName} ${r.levelId}단계 ${r.grade} ${fmt(r.score)}점! 너도 엄지로 쳐 봐 👉 ${url}`;
   try {
     const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
-    const file = new File([blob], `kongkong-lv${r.levelId}.png`, { type: 'image/png' });
+    const file = new File([blob], `okaystra-lv${r.levelId}.png`, { type: 'image/png' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       await navigator.share({ files: [file], text });
       return;
@@ -688,7 +773,7 @@ function setVerifyStatus(st, text) {
 async function openVerify(purpose, onDone, level, existing) {
   stopPolling();
   state.verify = { purpose, onDone, code: null };
-  const lv = level || getLevel(gateFrom()) || getLevel(4);
+  const lv = level || getLevel(gateFrom()) || LEVELS[0];
   $('#verify-title').textContent = purpose === 'ranking' ? '랭킹에 내 인스타 아이디 올리기' : `${gateFrom()}단계부터는 인스타 팔로우!`;
   $('#verify-desc').textContent =
     purpose === 'ranking'
@@ -698,7 +783,7 @@ async function openVerify(purpose, onDone, level, existing) {
   f.textContent = atHandle();
   f.href = handle() ? `https://instagram.com/${handle()}` : '#';
   $('#verify-mascots').innerHTML = mascotSVG('kong', 'idle') + mascotSVG('jjak', 'idle');
-  $('#verify-dev').hidden = !state.cfg.devSimulate || (demoOnly() && !params.has('gate'));
+  $('#verify-dev').hidden = !state.cfg.devSimulate || !isLocalDev();
   openModal('modal-verify');
   if (existing) {
     state.verify.code = existing.code;
@@ -797,11 +882,11 @@ async function restorePending() {
     if (r.status === 'verified') {
       remove('pendingCode');
       state.me = { verified: true, player: r.player };
-      toast(`팔로우 확인 완료! 4~6단계가 열렸어요 🎉`, 3200);
+      toast(`팔로우 확인 완료! ${gateFrom()}~${LEVELS.length}단계가 열렸어요 🎉`, 3200);
       renderLevels();
       refreshTitle();
     } else if (r.status === 'pending' || r.status === 'not_following') {
-      const lv = getLevel(p.levelId) || getLevel(4);
+      const lv = getLevel(p.levelId) || getLevel(gateFrom()) || LEVELS[0];
       const after = p.purpose === 'ranking' ? submitRank : () => startLevel(lv.id);
       await openVerify(p.purpose, after, lv, p);
       handleVerifyStatus(r);
@@ -811,7 +896,7 @@ async function restorePending() {
 
 // ---------------- 랭킹 ----------------
 async function openRank(levelId) {
-  state.rankLevel = levelId || state.rankLevel || 4;
+  state.rankLevel = levelId || state.rankLevel || 1;
   $('#rank-tabs').innerHTML = LEVELS.map(
     (l) => `<button role="tab" data-rank="${l.id}" aria-selected="${l.id === state.rankLevel}">${l.id}단계</button>`
   ).join('');
@@ -822,7 +907,7 @@ async function openRank(levelId) {
 async function loadRank() {
   const list = $('#rank-list');
   if (demoOnly()) {
-    list.innerHTML = `<div class="rank-empty">${SOON()}<br><br>4단계 더블 킥 점수를 미리 올려두세요 🥁</div>`;
+    list.innerHTML = `<div class="rank-empty">${SOON()}<br><br>${hotLevel().id}단계 ${escapeHtml(hotLevel().name)} 점수를 미리 올려두세요 🥁</div>`;
     $('#rank-foot').textContent = '';
     return;
   }
@@ -840,7 +925,7 @@ async function loadRank() {
         )
         .join('');
     const foot = [];
-    if (data.sample) foot.push('서버 없이 내 기록만 보여주는 테스트 모드예요.');
+    if (data.sample && isLocalDev()) foot.push('(개발 모드: 서버 없이 내 기록만 보여요)');
     if (!state.me.verified) foot.push('내 아이디를 올리려면 결과 화면에서 "랭킹 등록"을 누르세요.');
     else if (data.me) foot.push(`내 순위: ${data.me.rank}위`);
     $('#rank-foot').textContent = foot.join(' ');
@@ -1083,7 +1168,7 @@ async function studioSave() {
   const st = state.studio;
   if (!st.blob) return;
   const ext = st.blob.type.includes('mp4') ? 'mp4' : 'webm';
-  const file = new File([st.blob], `kongkong-${st.level}단계.${ext}`, { type: st.blob.type });
+  const file = new File([st.blob], `okaystra-${st.level}단계.${ext}`, { type: st.blob.type });
   try {
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       await navigator.share({ files: [file] });
@@ -1116,6 +1201,8 @@ async function studioStop() {
 // ---------------- 이벤트 연결 ----------------
 const ACTIONS = {
   quickstart: () => tryStart(state.levelId),
+  'continue-ad': continueWithAd,
+  'give-up': giveUp,
   levels: () => {
     if (state.game) state.game.stop();
     state.studio.active = false;
@@ -1161,19 +1248,20 @@ const ACTIONS = {
     b.remove();
     toast(`박자 보정 ${state.settings.offsetMs > 0 ? '+' : ''}${state.settings.offsetMs}ms 저장! 다시 해 보세요`, 2800);
   },
-  'play-hot': () => tryStart(Math.max(4, gateFrom())),
+  'play-hot': () => tryStart(hotLevel().id),
   'follow-go': followGo,
   'follow-done': () => completeFollow(),
   'close-follow': () => {
     state.follow = null;
     closeModal('modal-follow');
   },
-  ranking: () => openRank(state.lastResult ? state.lastResult.levelId : 4),
+  ranking: () => openRank(state.lastResult ? state.lastResult.levelId : state.levelId),
   settings: openSettings,
   pause: togglePause,
   resume: resumeGame,
   retry: () => {
     closeModal('modal-pause');
+    closeModal('modal-continue');
     startLevel(state.levelId);
   },
   quit: () => {
@@ -1285,7 +1373,7 @@ function bindActions() {
   // 모달 바깥 탭 → 닫기 (일시정지 모달 제외)
   $$('.modal').forEach((m) =>
     m.addEventListener('click', (e) => {
-      if (e.target !== m || m.id === 'modal-pause') return;
+      if (e.target !== m || m.id === 'modal-pause' || m.id === 'modal-continue' || m.id === 'modal-ad') return;
       if (m.id === 'modal-verify') stopPolling();
       if (m.id === 'modal-follow') state.follow = null;
       m.hidden = true;
@@ -1346,9 +1434,10 @@ async function boot() {
       if (sc[k] !== undefined && sc[k] !== '' && sc[k] !== null) state.cfg[k] = sc[k];
     }
   } catch {}
-  const g = params.get('gate');
+  const g = devParam('gate');
   if (g === 'follow' || g === 'open' || g === 'soft') state.cfg.gateMode = g;
-  if (params.get('gatefrom')) state.cfg.gateFromLevel = Number(params.get('gatefrom'));
+  if (devParam('gatefrom')) state.cfg.gateFromLevel = Number(devParam('gatefrom'));
+  initAds(state.cfg);
   try {
     state.me = await state.api.me();
   } catch {
@@ -1376,7 +1465,7 @@ async function boot() {
     else toast('도전장 링크가 깨졌어요. 다시 받아 주세요!', 3000);
   }
   document.documentElement.dataset.api = state.api.mode;
-  if (params.get('debug') === '1') window.__kk = { state, audio, renderer };
+  if (devParam('debug') === '1') window.__kk = { state, audio, renderer };
 }
 
 boot();

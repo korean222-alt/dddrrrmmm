@@ -112,7 +112,7 @@ export function createApp(cfg, { store, ig } = {}) {
     const p = url.pathname;
     const m = req.method;
 
-    if (p === '/api/health') return send(res, 200, { ok: true, app: 'kongkong-drum' });
+    if (p === '/api/health') return send(res, 200, { ok: true, app: 'okaystra' });
 
     if (p === '/api/config' && m === 'GET') {
       return send(res, 200, {

@@ -33,11 +33,14 @@ test('곡: 멜로디 마디 길이 16칸, 코드 이름 해석', () => {
   assert.throws(() => parseMelody(['C5 D5 E5']), /16칸/);
 });
 
-test('악기: 1~4단계 킥·스네어, 5단계 +하이햇, 6단계 +크래시', () => {
-  assert.deepEqual(levelLanes(LEVELS[0]), [0, 1]);
-  assert.deepEqual(levelLanes(LEVELS[3]), [0, 1]);
-  assert.deepEqual(levelLanes(LEVELS[4]), [0, 1, HAT]);
-  assert.deepEqual(levelLanes(LEVELS[5]), [CRASH, 0, 1, HAT]);
+test('악기: 1~8단계 킥·스네어, 9단계 +하이햇, 12단계 +크래시', () => {
+  for (let i = 0; i < 8; i++) assert.deepEqual(levelLanes(LEVELS[i]), [0, 1], `Lv.${i + 1}`);
+  for (const i of [8, 9, 10]) assert.deepEqual(levelLanes(LEVELS[i]), [0, 1, HAT], `Lv.${i + 1}`);
+  assert.deepEqual(levelLanes(LEVELS[11]), [CRASH, 0, 1, HAT]);
+  assert.equal(LEVELS[8].newInstrument, HAT);
+  assert.equal(LEVELS[11].newInstrument, CRASH);
+  // 난이도는 단계가 올라갈수록 같거나 높아짐
+  for (let i = 1; i < LEVELS.length; i++) assert.ok(LEVELS[i].difficulty >= LEVELS[i - 1].difficulty, `Lv.${i + 1} 난이도`);
   // 같은 엄지 레인(킥/크래시, 스네어/하이햇)에 동시 노트가 없어야 함
   for (const lv of LEVELS) {
     const byTime = new Map();
@@ -71,7 +74,7 @@ test('노트 생성: 동시치기는 두 레인 같은 시각', () => {
     assert.equal(notes.length, noteCount(lv));
     for (let i = 1; i < notes.length; i++) assert.ok(notes[i].time >= notes[i - 1].time);
   }
-  const both = buildNotes(LEVELS[4]).filter((n) => n.pair === 0);
+  const both = buildNotes(LEVELS[8]).filter((n) => n.pair === 0);
   assert.equal(both.length, 2);
   assert.equal(both[0].time, both[1].time);
 });
@@ -89,10 +92,10 @@ test('점수: 만점, 등급, 범위', () => {
 });
 
 test('DM 코드 인식', () => {
-  assert.deepEqual(extractCodes('콩콩-K7P2'), ['K7P2']);
-  assert.deepEqual(extractCodes('안녕하세요! 콩콩 k7p2 보냅니다'), ['K7P2']);
+  assert.deepEqual(extractCodes('OK-K7P2'), ['K7P2']);
+  assert.deepEqual(extractCodes('안녕하세요! ok k7p2 보냅니다'), ['K7P2']);
   assert.deepEqual(extractCodes('k7p2'), ['K7P2']);
-  assert.deepEqual(extractCodes('콩콩–K7P2입니다'.replace('입니다', ' 입니다')), ['K7P2']);
+  assert.deepEqual(extractCodes('OK–K7P2입니다'.replace('입니다', ' 입니다')), ['K7P2']);
   assert.deepEqual(extractCodes('그냥 잡담이에요'), []);
   assert.deepEqual(extractCodes('K0O1'), []); // 0,O,1 은 코드에 안 씀
   for (let i = 0; i < 50; i++) assert.ok(isCode(generateCode()));
@@ -121,21 +124,21 @@ test('웹훅 본문 파싱: 에코/내 계정/텍스트 없음 제외', () => {
       {
         id: 'BIZ',
         messaging: [
-          { sender: { id: 'U1' }, recipient: { id: 'BIZ' }, message: { mid: 'm1', text: '콩콩-K7P2' } },
+          { sender: { id: 'U1' }, recipient: { id: 'BIZ' }, message: { mid: 'm1', text: 'OK-K7P2' } },
           { sender: { id: 'BIZ' }, recipient: { id: 'U1' }, message: { mid: 'm2', text: '답장', is_echo: true } },
           { sender: { id: 'U2' }, recipient: { id: 'BIZ' }, message: { mid: 'm3', attachments: [] } },
         ],
       },
     ],
   };
-  assert.deepEqual(messagesFromWebhook(body), [{ igsid: 'U1', text: '콩콩-K7P2' }]);
+  assert.deepEqual(messagesFromWebhook(body), [{ igsid: 'U1', text: 'OK-K7P2' }]);
 });
 
 function fakeDeps(following) {
   const store = new JsonStore('/dev/null');
   store._save = () => {};
   const sent = [];
-  const cfg = { codePrefix: '콩콩', instagramHandle: 'kongkong', followCheckMode: 'fake', ig: {} };
+  const cfg = { codePrefix: 'OK', instagramHandle: 'ok_aystra', followCheckMode: 'fake', ig: {} };
   const ig = { sendDm: async (id, text) => sent.push({ id, text }), checkFollow: async () => ({ following, username: 'alice' }) };
   return { store, ig, cfg, sent };
 }
@@ -143,7 +146,7 @@ function fakeDeps(following) {
 test('DM 처리: 팔로우 중이면 verified + 플레이어 저장', async () => {
   const d = fakeDeps(true);
   d.store.createCode({ code: 'K7P2', purpose: 'unlock', sessionId: 's', status: 'pending', createdAt: Date.now(), expiresAt: Date.now() + 60000 });
-  const out = await processDm({ igsid: 'U1', text: '콩콩-K7P2' }, d);
+  const out = await processDm({ igsid: 'U1', text: 'OK-K7P2' }, d);
   assert.equal(out.result, 'verified');
   assert.equal(d.store.getCode('K7P2').status, 'verified');
   assert.equal(d.store.getPlayer('U1').username, 'alice');
@@ -154,7 +157,7 @@ test('DM 처리: 팔로우 안 하면 not_following → 팔로우 후 재전송�
   const d = fakeDeps(false);
   d.store.createCode({ code: 'AB23', purpose: 'unlock', sessionId: 's', status: 'pending', createdAt: Date.now(), expiresAt: Date.now() + 60000 });
   assert.equal((await processDm({ igsid: 'U1', text: 'AB23' }, d)).result, 'not_following');
-  assert.match(d.sent[0].text, /@kongkong/);
+  assert.match(d.sent[0].text, /@ok_aystra/);
   d.ig.checkFollow = async () => ({ following: true, username: 'alice' });
   assert.equal((await processDm({ igsid: 'U1', text: 'AB23' }, d)).result, 'verified');
 });
@@ -181,7 +184,7 @@ test('checkFollow: fake 는 항상 확인됨, real 은 is_user_follow_business �
 
 test('1:1 도전장: 링크로 주고받기 + 위조/깨진 값 거부', async () => {
   const { encodeChallenge, decodeChallenge, opponentScoreAt, versusOutcome, todayLevel, kstDateKey, cleanName } = await import('../public/js/versus.js');
-  const lv = LEVELS[5];
+  const lv = LEVELS[11];
   const timeline = lv.bars.map((_, i) => (i + 1) * 1000);
   const r = { name: '쿵짝왕<script>', levelId: lv.id, score: timeline.at(-1), stars: 2, grade: 'A', accuracy: 0.912, timeline };
   const code = encodeChallenge(r);
@@ -215,12 +218,57 @@ test('1:1 도전장: 링크로 주고받기 + 위조/깨진 값 거부', async (
   }
 });
 
-test('6단계 터키 행진곡: 같은 엄지로 16분음표 연타 없음 (사람이 깰 수 있게)', () => {
-  const lv = LEVELS[5];
+test('12단계 터키 행진곡: 같은 엄지로 16분음표 연타 없음 (사람이 깰 수 있게)', () => {
+  const lv = LEVELS[11];
   const last = { L: -9, R: -9 };
   for (const n of buildNotes(lv)) {
     const h = n.lane === 0 || n.lane === CRASH ? 'L' : 'R';
     if (n.step !== last[h]) assert.ok(n.step - last[h] >= 2, `${h} 엄지 ${n.step}칸`);
     last[h] = n.step;
   }
+});
+
+test('목숨: MISS 5번이면 멈추고 이어하기 1번, 동시치기 둘 다 놓쳐도 1개, 콤보로 회복', async () => {
+  const { Game, MAX_LIVES, LIFE_REGEN_COMBO, MAX_CONTINUES } = await import('../public/js/game.js');
+  const noop = () => {};
+  globalThis.cancelAnimationFrame ??= noop;
+  const renderer = { onJudge: noop, onLife: noop, onCombo: noop, onTap: noop, draw: noop, reset: noop };
+  const audio = { ctx: { suspend: async () => {}, resume: async () => {} }, heardTime: () => 0, crash: noop };
+  const deaths = [];
+  let ended = null;
+  const g = new Game({ audio, renderer, level: LEVELS[8], settings: {}, onDeath: (d) => deaths.push(d), onEnd: (r) => (ended = r) });
+  g.startTime = 0;
+  g.state = 'playing';
+  g.player = { stop: noop };
+  assert.equal(g.lives, MAX_LIVES);
+  // 동시치기 한 쌍을 둘 다 놓침 → 목숨 1개만
+  const pair = g.notes.filter((n) => n.pair === 0);
+  pair.forEach((n) => g._miss(n, 0));
+  assert.equal(g.lives, MAX_LIVES - 1);
+  // 콤보 회복
+  const singles = g.notes.filter((n) => n.pair < 0 && !n.judged);
+  for (let i = 0; i < LIFE_REGEN_COMBO; i++) g._judge(singles[i], 0, 0);
+  assert.equal(g.lives, MAX_LIVES);
+  // 5번 MISS → 멈춤
+  for (let i = 0; i < MAX_LIVES; i++) g._miss(singles[LIFE_REGEN_COMBO + i], 0);
+  assert.equal(g.state, 'dead');
+  assert.equal(deaths.length, 1);
+  assert.equal(deaths[0].canContinue, MAX_CONTINUES > 0);
+  // 이어하기 → 목숨 꽉 + 다음엔 이어하기 없음
+  assert.ok(g.revive());
+  assert.equal(g.lives, MAX_LIVES);
+  assert.equal(g.state, 'paused');
+  g.state = 'playing';
+  g.graceUntil = -Infinity;
+  const rest = g.notes.filter((n) => !n.judged && n.pair < 0);
+  for (let i = 0; i < MAX_LIVES; i++) g._miss(rest[i], 0);
+  assert.equal(deaths.length, 2);
+  assert.equal(deaths[1].canContinue, false);
+  g.giveUp();
+  assert.equal(ended.failed, true);
+  assert.equal(ended.stars, 0);
+  assert.equal(ended.fullCombo, false);
+  // 자동 연주(영상 찍기)엔 목숨 없음
+  const auto = new Game({ audio, renderer, level: LEVELS[0], settings: {}, auto: true, onDeath: noop });
+  assert.equal(auto.livesOn, false);
 });

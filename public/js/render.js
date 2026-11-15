@@ -1,5 +1,6 @@
 // 게임 화면 그리기 (Canvas 2D)
-// 콘셉트: 공연 무대 + 피아노 타일식 세로 줄. 줄 맨 아래에 악기가 놓여 있고, 줄 어디를 눌러도 그 악기가 울림.
+// 콘셉트: 공연 무대 + 멀리서 다가오는 길(원근법). 길 맨 앞(판정선)에 악기가 놓여 있고, 줄 어디를 눌러도 그 악기가 울림.
+//   노트는 먼 곳(화면 위, 작게)에서 나타나 점점 커지며 다가옴. 줄도 위로 갈수록 좁아짐.
 //   노트는 드럼 게임 관례대로 킥 = 가로 막대, 스네어 = 둥근 드럼 헤드 패드, 하이햇/크래시 = 심벌.
 // 타격감: 킥은 화면 전체가 '쿵' 하고 눌리고(펀치), 스네어는 '짝' 하고 옆으로 튀며 불꽃.
 
@@ -57,6 +58,7 @@ export class Renderer {
     this.crackAt = -9;
     this.comboPopAt = -9;
     this.cheerUntil = -9;
+    this.lifeFx = { t0: -9, delta: 0 };
   }
 
   /**
@@ -73,19 +75,28 @@ export class Renderer {
     const GX = (W - GW) / 2;
     const studio = !!this.studio;
     const n = this.laneOrder.length;
-    const laneW = GW / n;
+    // 판정선에서 길 폭. 아래로 갈수록 더 넓어지니 조금 좁게
+    const RW = GW * 0.9;
+    const laneW = RW / n;
     const L = {
       W, H, dpr, GW, GX, studio, n, laneW,
       cx: W / 2,
-      topY: H * (studio ? 0.25 : 0.155),
+      topY: H * (studio ? 0.25 : 0.18),
       // 판정선은 엄지에 안 가리게 조금 위로. 그 아래 빈 줄이 엄지 올려두는 자리
       strikeY: H * (studio ? 0.64 : 0.655),
       laneX: [],
       laneHalf: laneW / 2,
     };
-    this.laneOrder.forEach((lane, i) => (L.laneX[lane] = GX + laneW * (i + 0.5)));
-    L.x0 = GX;
-    L.x1 = GX + GW;
+    L.x0 = W / 2 - RW / 2;
+    L.x1 = W / 2 + RW / 2;
+    this.laneOrder.forEach((lane, i) => (L.laneX[lane] = L.x0 + laneW * (i + 0.5)));
+    // 원근: 노트까지 거리 d(판정선=0, 가장 먼 곳=FAR) → 크기 s = CAM / (CAM + d)
+    //   화면 y = horizonY + (strikeY - horizonY) * s,  x = cx + (x0 - cx) * s
+    L.cam = 1;
+    L.far = 2.8;
+    L.sFar = L.cam / (L.cam + L.far);
+    L.horizonY = (L.topY - L.strikeY * L.sFar) / (1 - L.sFar);
+    L.sBottom = (H - L.horizonY) / (L.strikeY - L.horizonY);
     // 줄 맨 아래 악기 크기 (판정선 위치에 악기 중심)
     L.instR = Math.min(laneW * 0.36, H * 0.07, GW * 0.17);
     L.barW = Math.min(laneW * 0.8, GW * 0.34);
@@ -104,13 +115,45 @@ export class Renderer {
     this._drawStatic();
   }
 
-  /** 화면 x 좌표(캔버스 기준) → 그 줄의 악기. 게임판 밖이면 가까운 줄 */
-  laneAt(x) {
+  /** 화면 좌표(캔버스 기준) → 그 줄의 악기. 비스듬한 줄 모양 그대로 판단, 길 밖이면 가까운 줄 */
+  laneAt(x, y) {
     const L = this.L;
     const order = this.laneOrder;
     if (!L) return order[0];
-    const i = Math.floor((x - L.GX) / L.laneW);
+    const s = y === undefined ? 1 : clamp(this._sAtY(y), L.sFar, L.sBottom);
+    const xw = L.cx + (x - L.cx) / s;
+    const i = Math.floor((xw - L.x0) / L.laneW);
     return order[clamp(i, 0, order.length - 1)];
+  }
+
+  // ---------- 원근 ----------
+  /** 남은 시간 dt → 크기 배율 s (판정선 1, 멀수록 작아짐) */
+  _s(dt, approach) {
+    const L = this.L;
+    const d = Math.max(-0.6 * L.cam, (dt / approach) * L.far);
+    return L.cam / (L.cam + d);
+  }
+  _py(s) {
+    const L = this.L;
+    return L.horizonY + (L.strikeY - L.horizonY) * s;
+  }
+  _px(x, s) {
+    return this.L.cx + (x - this.L.cx) * s;
+  }
+  _sAtY(y) {
+    const L = this.L;
+    return (y - L.horizonY) / (L.strikeY - L.horizonY);
+  }
+  /** 길 위 사다리꼴 (월드 x 범위 xa~xb, 화면 y 범위 ya~yb) */
+  _trap(g, xa, xb, ya, yb) {
+    const sa = this._sAtY(ya);
+    const sb = this._sAtY(yb);
+    g.beginPath();
+    g.moveTo(this._px(xa, sa), ya);
+    g.lineTo(this._px(xb, sa), ya);
+    g.lineTo(this._px(xb, sb), yb);
+    g.lineTo(this._px(xa, sb), yb);
+    g.closePath();
   }
 
   _drawStatic() {
@@ -137,46 +180,79 @@ export class Renderer {
       }
     g.fillStyle = '#0E0A24';
     g.fillRect(0, 0, L.W, L.H * 0.022);
-    // 세로 줄(레인): 위에서 맨 아래까지. 줄 전체가 버튼
+    // 먼 곳(소실점 쪽) 빛: 길이 저 멀리서 이어지는 느낌
+    const glow = g.createRadialGradient(L.cx, L.topY, 0, L.cx, L.topY, L.GW * 0.75);
+    glow.addColorStop(0, 'rgba(255,180,230,0.32)');
+    glow.addColorStop(0.35, 'rgba(155,123,255,0.14)');
+    glow.addColorStop(1, 'rgba(155,123,255,0)');
+    g.fillStyle = glow;
+    g.fillRect(0, 0, L.W, L.H);
+    // 원근 길(레인): 위(먼 곳)는 좁고 아래(가까운 곳)는 넓음. 줄 전체가 버튼
     const y0 = L.topY;
     const padTop = L.strikeY - L.instR * 1.45;
     this.laneOrder.forEach((lane, i) => {
       const C = LANE[lane];
-      const x = L.GX + L.laneW * i;
+      const xa = L.x0 + L.laneW * i;
+      const xb = xa + L.laneW;
       const lg = g.createLinearGradient(0, y0, 0, L.H);
-      lg.addColorStop(0, `rgba(${C.rgb},0.02)`);
-      lg.addColorStop((padTop - y0) / (L.H - y0), `rgba(${C.rgb},0.16)`);
-      lg.addColorStop(1, `rgba(${C.rgb},0.34)`);
-      g.fillStyle = 'rgba(10,6,28,0.55)';
-      g.fillRect(x, y0, L.laneW, L.H - y0);
+      lg.addColorStop(0, `rgba(${C.rgb},0.03)`);
+      lg.addColorStop((padTop - y0) / (L.H - y0), `rgba(${C.rgb},0.2)`);
+      lg.addColorStop(1, `rgba(${C.rgb},0.36)`);
+      this._trap(g, xa, xb, y0, L.H);
+      g.fillStyle = 'rgba(10,6,28,0.6)';
+      g.fill();
       g.fillStyle = lg;
-      g.fillRect(x, y0, L.laneW, L.H - y0);
+      g.fill();
+      // 바닥 무늬: 길 따라 가운데 가는 줄
+      const xm = (xa + xb) / 2;
+      const ml = g.createLinearGradient(0, y0, 0, L.strikeY);
+      ml.addColorStop(0, `rgba(${C.rgb},0)`);
+      ml.addColorStop(1, `rgba(${C.rgb},0.28)`);
+      g.strokeStyle = ml;
+      g.lineWidth = 1.5;
+      g.beginPath();
+      g.moveTo(this._px(xm, L.sFar), y0);
+      g.lineTo(xm, L.strikeY);
+      g.stroke();
       // 아래쪽 '누르는 판' (악기가 놓인 자리)
       const m = Math.min(8, L.laneW * 0.06);
-      rr(g, x + m, padTop, L.laneW - m * 2, L.H - padTop + 20, L.laneW * 0.12);
+      this._trap(g, xa + m, xb - m, padTop, L.H + 20);
       g.fillStyle = `rgba(${C.rgb},0.16)`;
       g.fill();
       g.lineWidth = 2;
       g.strokeStyle = `rgba(${C.rgb},0.55)`;
       g.stroke();
     });
-    // 줄 사이 구분선
+    // 줄 사이 구분선 (소실점 쪽으로 모임)
     for (let i = 0; i <= this.laneOrder.length; i++) {
-      const x = L.GX + L.laneW * i;
+      const x = L.x0 + L.laneW * i;
       const lane = this.laneOrder[Math.min(i, this.laneOrder.length - 1)];
+      const edge = i === 0 || i === this.laneOrder.length;
       const lg = g.createLinearGradient(0, y0, 0, L.H);
-      lg.addColorStop(0, 'rgba(255,255,255,0.05)');
-      lg.addColorStop(0.7, `rgba(${LANE[lane].rgb},0.6)`);
-      lg.addColorStop(1, `rgba(${LANE[lane].rgb},0.25)`);
+      lg.addColorStop(0, 'rgba(255,255,255,0.08)');
+      lg.addColorStop(0.7, `rgba(${LANE[lane].rgb},${edge ? 0.9 : 0.6})`);
+      lg.addColorStop(1, `rgba(${LANE[lane].rgb},0.3)`);
       g.strokeStyle = lg;
-      g.lineWidth = i === 0 || i === this.laneOrder.length ? 3 : 2;
+      g.lineWidth = edge ? 3.5 : 2;
+      if (edge) {
+        g.shadowColor = `rgba(${LANE[lane].rgb},0.8)`;
+        g.shadowBlur = 10;
+      }
       g.beginPath();
-      g.moveTo(x, y0);
-      g.lineTo(x, L.H);
+      g.moveTo(this._px(x, L.sFar), y0);
+      g.lineTo(this._px(x, L.sBottom), L.H);
       g.stroke();
+      g.shadowBlur = 0;
     }
-    g.fillStyle = 'rgba(255,255,255,0.18)';
-    g.fillRect(L.x0, y0, L.x1 - L.x0, 2);
+    // 길 끝(먼 곳)
+    g.fillStyle = 'rgba(255,255,255,0.35)';
+    g.fillRect(this._px(L.x0, L.sFar), y0 - 1, (L.x1 - L.x0) * L.sFar, 2);
+    // 먼 곳 안개
+    const fog = g.createLinearGradient(0, y0 - 2, 0, y0 + (L.strikeY - y0) * 0.22);
+    fog.addColorStop(0, 'rgba(40,20,80,0.75)');
+    fog.addColorStop(1, 'rgba(40,20,80,0)');
+    g.fillStyle = fog;
+    g.fillRect(0, y0 - 2, L.W, (L.strikeY - y0) * 0.22 + 2);
   }
 
   // ---------- 이벤트 ----------
@@ -222,6 +298,11 @@ export class Renderer {
     }
   }
 
+  /** 목숨 변화: delta < 0 이면 빨간 테두리 번쩍 */
+  onLife(lives, delta, rt) {
+    this.lifeFx = { t0: rt, delta, lives };
+  }
+
   onCombo(combo, rt) {
     this.comboPopAt = rt;
     if (combo > 0 && combo % 25 === 0) {
@@ -263,7 +344,38 @@ export class Renderer {
     this._drawMascot(st, rt);
     this._drawBanners(rt);
     this._drawCountIn(st, rt);
+    this._drawLifeFx(st, rt);
     if (this.studio) this._drawStudio(st);
+  }
+
+  /** 목숨 깎이면 화면 가장자리가 빨갛게, 다 떨어지면 화면이 어두워짐 */
+  _drawLifeFx(st, rt) {
+    const ctx = this.ctx;
+    const L = this.L;
+    const f = this.lifeFx;
+    const age = rt - f.t0;
+    const lost = f.delta < 0 && age < 0.5 ? 1 - age / 0.5 : 0;
+    const low = st.lives != null && st.lives === 1 && !st.dead ? 0.35 + 0.25 * Math.sin(rt * 6) : 0;
+    const k = Math.max(lost, low, st.dead ? 1 : 0);
+    if (k > 0) {
+      const gr = ctx.createRadialGradient(L.cx, L.H / 2, Math.min(L.W, L.H) * 0.3, L.cx, L.H / 2, Math.max(L.W, L.H) * 0.75);
+      gr.addColorStop(0, 'rgba(255,40,80,0)');
+      gr.addColorStop(1, `rgba(255,40,80,${0.55 * k})`);
+      ctx.fillStyle = gr;
+      ctx.fillRect(0, 0, L.W, L.H);
+    }
+    if (st.dead) {
+      ctx.fillStyle = 'rgba(14,6,30,0.55)';
+      ctx.fillRect(0, 0, L.W, L.H);
+    }
+    // 회복: 초록빛 반짝
+    if (f.delta > 0 && age < 0.45) {
+      const gr = ctx.createRadialGradient(L.cx, L.H / 2, Math.min(L.W, L.H) * 0.3, L.cx, L.H / 2, Math.max(L.W, L.H) * 0.75);
+      gr.addColorStop(0, 'rgba(124,245,180,0)');
+      gr.addColorStop(1, `rgba(124,245,180,${0.35 * (1 - age / 0.45)})`);
+      ctx.fillStyle = gr;
+      ctx.fillRect(0, 0, L.W, L.H);
+    }
   }
 
   /** 누른 줄 전체가 번쩍 (줄 어디를 눌러도 된다는 느낌) */
@@ -280,7 +392,8 @@ export class Renderer {
       gr.addColorStop(0.75, `rgba(${LANE[lane].rgb},${0.28 * k})`);
       gr.addColorStop(1, `rgba(${LANE[lane].rgb},${0.45 * k})`);
       ctx.fillStyle = gr;
-      ctx.fillRect(x, L.topY, L.laneW, L.H - L.topY);
+      this._trap(ctx, x, x + L.laneW, L.topY, L.H);
+      ctx.fill();
     }
   }
 
@@ -320,8 +433,7 @@ export class Renderer {
   }
 
   _y(dt, approach) {
-    const L = this.L;
-    return L.strikeY - (dt / approach) * (L.strikeY - L.topY);
+    return this._py(this._s(dt, approach));
   }
 
   _drawBeatLines(st) {
@@ -333,16 +445,17 @@ export class Renderer {
     for (let b = first; ; b++) {
       const dt = b * sub - st.now;
       if (dt > st.approach) break;
-      const y = this._y(dt, st.approach);
-      if (y < L.topY + 10) continue;
+      const s = this._s(dt, st.approach);
+      const y = this._py(s);
+      if (y < L.topY + 4) continue;
       const bar = b % 8 === 0;
       const beat = b % 2 === 0;
       ctx.strokeStyle = bar ? 'rgba(255,255,255,0.4)' : beat ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.06)';
-      ctx.lineWidth = bar ? 2.5 : 1.2;
+      ctx.lineWidth = (bar ? 2.5 : 1.2) * Math.max(0.5, s);
       for (const i of this.laneOrder) {
         ctx.beginPath();
-        ctx.moveTo(L.laneX[i] - L.laneHalf + 4, y);
-        ctx.lineTo(L.laneX[i] + L.laneHalf - 4, y);
+        ctx.moveTo(this._px(L.laneX[i] - L.laneHalf + 4, s), y);
+        ctx.lineTo(this._px(L.laneX[i] + L.laneHalf - 4, s), y);
         ctx.stroke();
       }
     }
@@ -510,14 +623,15 @@ export class Renderer {
       if (n.pair < 0 || n.judged) continue;
       const o = seen.get(n.pair);
       if (o) {
-        const y = this._y(n.time - st.now, st.approach);
+        const ps = this._s(n.time - st.now, st.approach);
+        const y = this._py(ps);
         const [a, b] = [o, n].sort((p, q) => L.laneX[p.lane] - L.laneX[q.lane]);
         ctx.strokeStyle = 'rgba(255,228,92,0.85)';
-        ctx.lineWidth = 3;
-        ctx.setLineDash([6, 5]);
+        ctx.lineWidth = 3 * ps;
+        ctx.setLineDash([6 * ps, 5 * ps]);
         ctx.beginPath();
-        ctx.moveTo(L.laneX[a.lane] + L.laneHalf * 0.8, y);
-        ctx.lineTo(L.laneX[b.lane] - L.laneHalf * 0.8, y);
+        ctx.moveTo(this._px(L.laneX[a.lane] + L.laneHalf * 0.8, ps), y);
+        ctx.lineTo(this._px(L.laneX[b.lane] - L.laneHalf * 0.8, ps), y);
         ctx.stroke();
         ctx.setLineDash([]);
       } else seen.set(n.pair, n);
@@ -525,13 +639,20 @@ export class Renderer {
     for (let k = vis.length - 1; k >= 0; k--) {
       const n = vis[k];
       const dt = n.time - st.now;
-      const y = this._y(dt, st.approach);
-      let a = clamp((1 - dt / st.approach) / 0.08, 0, 1);
+      const ps = this._s(dt, st.approach);
+      const y = this._py(ps);
+      const x = this._px(L.laneX[n.lane], ps);
+      let a = clamp((1 - dt / st.approach) / 0.1, 0, 1);
       if (dt < 0) a *= clamp(1 + dt * 5, 0, 1);
       if (n.judged) a *= 0.55;
-      if (n.lane === KICK) this._kickBar(L.laneX[KICK], y, a, n.judged);
-      else if (n.lane === SNARE) this._snarePad(L.laneX[SNARE], y, a, n.judged);
-      else this._cymbalNote(n.lane, L.laneX[n.lane], y, a, n.judged);
+      ctx.save();
+      ctx.translate(x, y);
+      // 바닥에 누운 느낌: 멀수록 살짝 더 납작
+      ctx.scale(ps, ps * (0.82 + 0.18 * Math.min(1, ps)));
+      if (n.lane === KICK) this._kickBar(0, 0, a, n.judged);
+      else if (n.lane === SNARE) this._snarePad(0, 0, a, n.judged);
+      else this._cymbalNote(n.lane, 0, 0, a, n.judged);
+      ctx.restore();
     }
   }
 
@@ -884,7 +1005,7 @@ export class Renderer {
     // 한 줄 안내
     const hs = Math.round(L.GW * 0.045);
     ctx.font = `${hs}px ${FONT}`;
-    const hint = '콩이 선에 닿을 때 그 줄을 톡!';
+    const hint = '다가온 콩이 선에 닿을 때 그 줄을 톡!';
     const hy = L.topY + (L.strikeY - L.topY) * 0.62;
     const hw = ctx.measureText(hint).width + hs * 1.6;
     rr(ctx, L.cx - hw / 2, hy - hs * 0.9, hw, hs * 1.8, hs * 0.9);

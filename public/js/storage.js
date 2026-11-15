@@ -1,6 +1,7 @@
 // localStorage 래퍼 (인앱 브라우저/사생활 모드에서 막혀도 게임은 돌아가게)
 
-const PREFIX = 'kongkong:';
+// 이름을 바꾸면서 접두사도 바꿈 → 출시 전 테스트하며 쌓인 기록·설정은 전부 초기화
+const PREFIX = 'okaystra:';
 
 export function load(key, fallback) {
   try {

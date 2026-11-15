@@ -26,15 +26,15 @@ const ogHtml = `${font}<style>${base}
 body{width:1200px;height:630px;position:relative}
 .floor{position:absolute;left:0;right:0;bottom:0;height:70px;background:linear-gradient(#8a5236,#3e2218)}
 .cloud{position:absolute;background:#fff;border-radius:99px}
-h1{position:absolute;left:70px;top:110px;font-size:140px;font-weight:400;color:#fff;-webkit-text-stroke:6px #3b2a4a;paint-order:stroke fill;text-shadow:0 8px 0 #3b2a4a}
-h1 span{color:#ff8e6b}
+h1{position:absolute;left:70px;top:110px;font-size:118px;font-weight:400;color:#fff;-webkit-text-stroke:6px #3b2a4a;paint-order:stroke fill;text-shadow:0 8px 0 #3b2a4a}
+h1 span{color:#f4c84a}
 p{position:absolute;left:76px;top:300px;font-size:42px;background:#fff;border:4px solid #3b2a4a;border-radius:99px;padding:8px 26px}
 .pill{position:absolute;left:76px;top:400px;background:#ff8a4c;color:#fff;font-size:36px;padding:10px 28px;border-radius:99px;border:4px solid #3b2a4a}
 .a{position:absolute}
 </style>
 <div class="floor"></div>
-<h1>콩콩 <span>드럼</span></h1>
-<p>엄지 두 개로 치는 드럼 리듬게임</p>
+<h1><span>OK</span>AYSTRA</h1>
+<p>엄지 두 개로 치는 명곡 드럼 게임</p>
 <div class="pill">설치·가입 없이 바로 플레이</div>
 <div class="a" style="left:770px;top:190px;width:230px">${mascotSVG('kong', 'hit', 230)}</div>
 <div class="a" style="left:640px;top:300px;width:270px">${bassDrumSVG(270)}</div>

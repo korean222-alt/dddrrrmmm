@@ -29,7 +29,7 @@ https://<내-도메인>/webhook
 `.env`:
 ```
 IG_APP_SECRET=<앱 설정 > 기본 설정 > 앱 시크릿>
-IG_VERIFY_TOKEN=<아무 문자열, 예: kongkong-verify-2026>
+IG_VERIFY_TOKEN=<아무 문자열, 예: okaystra-verify-2026>
 IG_ACCESS_TOKEN=<Instagram 로그인으로 발급한 장기 토큰>
 IG_DEBUG=true
 ```

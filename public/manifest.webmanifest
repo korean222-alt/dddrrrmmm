@@ -1,6 +1,6 @@
 {
-  "name": "콩콩 드럼",
-  "short_name": "콩콩 드럼",
+  "name": "오케이스트라 · 엄지 드럼",
+  "short_name": "오케이스트라",
   "start_url": "./",
   "display": "standalone",
   "orientation": "portrait",

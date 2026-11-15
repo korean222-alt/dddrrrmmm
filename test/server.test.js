@@ -23,7 +23,7 @@ before(async () => {
     ALLOW_DEV_SIMULATE: 'true',
     IG_APP_SECRET: SECRET,
     IG_VERIFY_TOKEN: 'vt',
-    INSTAGRAM_HANDLE: 'kongkong',
+    INSTAGRAM_HANDLE: 'ok_aystra',
     MIN_RUN_RATIO: '0',
   });
   ({ server } = createApp(cfg));
@@ -68,10 +68,10 @@ const sig = (b) => 'sha256=' + crypto.createHmac('sha256', SECRET).update(b).dig
 
 test('정적 파일과 헬스체크', async () => {
   const c = client();
-  assert.equal((await c('GET', '/api/health')).json.app, 'kongkong-drum');
+  assert.equal((await c('GET', '/api/health')).json.app, 'okaystra');
   const html = await c('GET', '/');
   assert.equal(html.status, 200);
-  assert.match(html.text, /콩콩 드럼/);
+  assert.match(html.text, /오케이스트라/);
   assert.equal((await c('GET', '/../package.json')).status, 404);
 });
 
@@ -91,7 +91,7 @@ test('전체 흐름: 잠금 → DM 웹훅 → 인증 → 점수 → 랭킹', asy
   assert.equal((await c('POST', '/api/runs', { level: 1 })).status, 200);
 
   const code = (await c('POST', '/api/codes', { purpose: 'unlock' })).json;
-  assert.match(code.display, /^콩콩-[A-Z2-9]{4}$/);
+  assert.match(code.display, /^OK-[A-Z2-9]{4}$/);
   assert.equal((await c('GET', `/api/codes/${code.code}`)).json.status, 'pending');
 
   // 다른 브라우저는 남의 코드를 조회할 수 없음

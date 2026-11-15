@@ -34,7 +34,7 @@ export function loadConfig(env = process.env) {
     devSimulate: bool(env.ALLOW_DEV_SIMULATE, !prod),
     instagramHandle: (env.INSTAGRAM_HANDLE || '').replace(/^@/, ''),
     siteUrl: env.SITE_URL || '',
-    codePrefix: env.CODE_PREFIX || '콩콩',
+    codePrefix: env.CODE_PREFIX || 'OK',
     codeTtlMs: (Number(env.CODE_TTL_MIN) || 10) * 60 * 1000,
     cookieSecure: bool(env.COOKIE_SECURE, prod),
     trustProxy: bool(env.TRUST_PROXY, prod),

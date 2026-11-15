@@ -49,9 +49,9 @@ export async function makeShareCard(result, { siteUrl, handle }) {
   g.font = `110px ${FONT}`;
   g.lineWidth = 22;
   g.strokeStyle = '#3B2A4A';
-  g.strokeText('콩콩 드럼', W / 2, 200);
+  g.strokeText('OKAYSTRA', W / 2, 200);
   g.fillStyle = '#FFFFFF';
-  g.fillText('콩콩 드럼', W / 2, 200);
+  g.fillText('OKAYSTRA', W / 2, 200);
 
   const pill = `${level.id}단계 · ${level.composer} ${level.name}`;
   g.font = `56px ${FONT}`;
@@ -120,7 +120,7 @@ export async function makeShareCard(result, { siteUrl, handle }) {
 }
 
 export function gradeColor(grade) {
-  return { SS: '#FF7A3D', S: '#FFB33D', A: '#25B865', B: '#3D8BFF', C: '#A889E8', D: '#9A94AE' }[grade] || '#3B2A4A';
+  return { SS: '#FF7A3D', S: '#FFB33D', A: '#25B865', B: '#3D8BFF', C: '#A889E8', D: '#9A94AE', F: '#FF6B8A' }[grade] || '#3B2A4A';
 }
 
 function roundRect(g, x, y, w, h, r) {
