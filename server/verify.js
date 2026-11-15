@@ -31,7 +31,7 @@ export async function processDm(dm, deps) {
 
   let rec = null;
   for (const c of extractCodes(dm.text, cfg.codePrefix)) {
-    rec = store.getCode(c);
+    rec = await store.getCode(c);
     if (rec) break;
   }
   if (!rec) return { result: 'no_code' }; // 일반 대화는 무시 (답장 안 함)
@@ -40,7 +40,7 @@ export async function processDm(dm, deps) {
     return { result: 'already_verified', code: rec.code };
   }
   if (rec.status === 'expired' || now > rec.expiresAt) {
-    store.updateCode(rec.code, { status: 'expired' });
+    await store.updateCode(rec.code, { status: 'expired' });
     await ig.sendDm(dm.igsid, '코드가 만료됐어요 🥲 사이트에서 새 코드를 받아 다시 보내주세요!');
     return { result: 'expired', code: rec.code };
   }
@@ -50,23 +50,23 @@ export async function processDm(dm, deps) {
     res = await checkFollow(dm.igsid);
   } catch (e) {
     console.error('[verify] checkFollow 실패:', e.message);
-    store.updateCode(rec.code, { lastError: e.message, lastErrorAt: now });
+    await store.updateCode(rec.code, { lastError: e.message, lastErrorAt: now });
     await ig.sendDm(dm.igsid, '확인 중 문제가 생겼어요. 잠시 후 같은 코드를 다시 보내주세요!');
     return { result: 'error', code: rec.code, error: e.message };
   }
 
   if (res.following) {
-    store.updateCode(rec.code, { status: 'verified', igsid: dm.igsid, username: res.username, verifiedAt: now });
-    store.upsertPlayer(dm.igsid, { username: res.username, followVerifiedAt: now });
+    await store.updateCode(rec.code, { status: 'verified', igsid: dm.igsid, username: res.username, verifiedAt: now });
+    await store.upsertPlayer(dm.igsid, { username: res.username, followVerifiedAt: now });
     const msg =
       rec.purpose === 'ranking'
         ? '확인 완료! 🥁 사이트로 돌아가면 랭킹에 점수가 올라가요.'
-        : '팔로우 확인 완료! 🥁 사이트로 돌아가면 Lv.4 쿵쿵 폭주가 열려 있어요.';
+        : '팔로우 확인 완료! 🥁 사이트로 돌아가면 4단계부터 열려 있어요.';
     await ig.sendDm(dm.igsid, msg);
     return { result: 'verified', code: rec.code, username: res.username };
   }
 
-  store.updateCode(rec.code, { status: 'not_following', igsid: dm.igsid, username: res.username });
+  await store.updateCode(rec.code, { status: 'not_following', igsid: dm.igsid, username: res.username });
   await ig.sendDm(dm.igsid, `아직 팔로우가 안 되어 있어요! ${handle} 팔로우하고 같은 코드를 한 번 더 보내주세요 🙏`);
   return { result: 'not_following', code: rec.code };
 }

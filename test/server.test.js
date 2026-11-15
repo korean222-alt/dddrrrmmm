@@ -13,7 +13,12 @@ import { getLevel, noteCount, pointsFor } from '../public/js/charts.js';
 let server, base, tmp;
 const SECRET = 'app-secret';
 
+// TEST_BASE=http://127.0.0.1:8787 이면 이미 떠 있는 서버(예: wrangler dev 로 띄운 Cloudflare Worker)에 대고 같은 테스트
 before(async () => {
+  if (process.env.TEST_BASE) {
+    base = process.env.TEST_BASE;
+    return;
+  }
   tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kk-'));
   const cfg = loadConfig({
     SESSION_SECRET: 'test-secret',
@@ -31,6 +36,7 @@ before(async () => {
   base = `http://127.0.0.1:${server.address().port}`;
 });
 after(() => {
+  if (!server) return;
   server.close();
   fs.rmSync(tmp, { recursive: true, force: true });
 });

@@ -106,6 +106,12 @@ export class JsonStore {
     return { rows: rows.slice(0, limit), all: rows };
   }
 
+  /** 이 플레이어의 순위 { rank, score } (기록 없으면 null) */
+  rankOf(level, igsid) {
+    const r = this.leaderboard(level, 0).all.find((x) => x.igsid === igsid);
+    return r ? { rank: r.rank, score: r.score } : null;
+  }
+
   // ----- 판 토큰 1회용 처리 -----
   useRun(nonce, expiresAt) {
     if (this.data.usedRuns[nonce]) return false;

@@ -17,7 +17,7 @@
 
 ### 목숨 · 이어하기 (광고)
 
-- 목숨 **5개** (화면 위 하트). **MISS 할 때마다 1개** 줄어듦. 동시치기 두 개를 다 놓쳐도 1개만. 헛침(노트 없는 곳)은 콤보만 끊기고 목숨은 그대로.
+- 목숨 **5개** (화면 위 하트). **MISS 할 때마다 1개** 줄어듦. 동시치기 두 개를 다 놓쳐도 1개만. **헛침(노트 없는 곳을 누름)도 1개** 줄어듦 (두 엄지가 동시에 미끄러지면 1개만).
 - **콤보 20개마다 목숨 +1** (최대 5개).
 - 0개가 되면 그 자리에서 노래가 멈추고 **"광고 보고 이어하기"** 창. 광고를 끝까지 보면 목숨 5개로 **그 자리부터** 이어서 침 (3초 카운트다운, 이어한 직후 1.6초는 목숨 안 깎임). **한 판에 한 번.**
 - 이어하기 안 하면 "실패" 결과(F, 별 0개) — 최고 기록·랭킹·도전장에는 안 들어감.
@@ -75,7 +75,7 @@
 
 ### 판정 · 별
 
-- 노트 없는 곳을 누르면 **헛침**: 점수 없음 + 콤보 끊김 + 정확도 하락
+- 노트 없는 곳을 누르면 **헛침**: 점수 없음 + 콤보 끊김 + 정확도 하락 + 목숨 -1
 - 노트보다 0.15~0.26초 너무 일찍 누르면 그 노트는 **MISS** → 마구 연타하면 점수가 거의 0
 - 별 3개 = 미스·헛침 없이 정확도 90% 이상 / 2개 = 75% 이상 / 1개 = 50% 이상 (기준은 `charts.js`의 `STAR_RULES`)
 
@@ -123,13 +123,9 @@ PC에서는 `F`/`←` = 킥, `J`/`→` = 스네어, `Space` = 동시, `Esc` = �
 
 1. ✅ **게임만** — 1~6단계, 쿵/짝 두 레인, 콤보, 점수, 등급, 결과 카드 공유
 2. ✅ **서버 인터페이스** — `checkFollow(igsid)`는 지금 **항상 "확인됨"** 을 돌려주는 가짜(`FOLLOW_CHECK_MODE=fake`). 게임은 모두 이 함수를 거칩니다.
-3. ⏳ **릴스 올리고 반응 보기** — 지금 기본값은 `soft`: 4단계를 누르면 "인스타 팔로우하고 오세요" 안내 → 팔로우 버튼 누르고 돌아오면 열림(진짜 확인은 아님). 처음부터 팔로우를 받으려면 `gateFromLevel: 1`(서버는 `GATE_FROM_LEVEL=1`).
-4. ⏳ **진짜 팔로우 확인** — 앱 심사/테스트 결과에 따라 `.env`에서 두 줄만 바꾸면 됩니다:
-   ```
-   GATE_MODE=follow
-   FOLLOW_CHECK_MODE=real
-   ```
-   자세한 Meta 설정은 [docs/instagram-setup.md](docs/instagram-setup.md).
+3. ✅ **호스팅 이사** — Cloudflare Workers + D1 (서버·랭킹 저장 가능)
+4. ⏳ **진짜 팔로우 확인** — 서버 설정은 이미 `GATE_MODE=follow` + `FOLLOW_CHECK_MODE=real` (4단계부터 잠김). Meta 앱 연결만 남음 → [docs/instagram-setup.md](docs/instagram-setup.md).
+   Meta 연결 전에는 DM 이 안 들어오니 4단계부터는 아무도 못 열어요(의도). 영상 찍기는 잠금 없이 됨.
 
 ## 팔로우 인증 흐름
 
@@ -216,14 +212,18 @@ song: {
 
 ## 배포
 
-**지금 배포된 곳: https://kongkong-drum.vercel.app** (Vercel, 정적. GitHub 이 브랜치에 push 하면 자동 재배포)
+**새 집: Cloudflare Workers** (`wrangler.jsonc`) — 사이트(`public/`) + 서버(`/api`, `/webhook`) + DB(D1 `okaystra-db`)가 한 곳에.
 
-- 지금은 서버 없이 게임만 올라가 있어요. 랭킹은 "곧 오픈"으로 표시되고, 4단계도 열려 있습니다(지금은 1~3단계 진행 중).
-- 4단계에서는 `/api`를 Vercel Functions로 옮기고 저장소를 Supabase/Neon 같은 DB로 바꿉니다(Vercel은 파일 저장이 안 됨).
+- 서버 코드는 `server/handler.js` 하나를 Node(`npm start`)와 Cloudflare Worker(`worker/index.js`)가 같이 씀. 저장소만 다름: Node = JSON 파일(`server/store.js`), Cloudflare = D1(`worker/d1store.js`).
+- D1 테이블은 워커가 처음 뜰 때 자동으로 만듦(`worker/schema.sql`). 쿠키 서명 키(`SESSION_SECRET`)도 없으면 D1 에 자동 생성.
+- 설정값은 `wrangler.jsonc` 의 `vars` (지금: 4단계부터 진짜 팔로우 확인 `GATE_MODE=follow`, `FOLLOW_CHECK_MODE=real`).
+- 비밀값 두 개는 대시보드에서 **Secret** 으로: `IG_ACCESS_TOKEN`, `IG_APP_SECRET` → [docs/instagram-setup.md](docs/instagram-setup.md)
+- 로컬에서 워커 그대로 돌려보기: `npm run cf:dev` (http://localhost:8787, D1 은 내 컴퓨터 안 가짜)
+  - 같은 서버 테스트를 워커에 대고: `TEST_BASE=http://127.0.0.1:8787 node --test test/server.test.js` (테스트용 `--var` 는 `package.json` 의 `cf:dev:test`)
 
-- **서버 포함(추천)**: Render / Railway / Fly.io 같은 Node 호스팅. `data/` 폴더가 유지되는 디스크(볼륨)를 붙이세요. 환경변수: `NODE_ENV=production`, `SESSION_SECRET`, `INSTAGRAM_HANDLE`, `SITE_URL`, `ALLOW_DEV_SIMULATE=false`.
-- **정적만**: `public/`을 GitHub Pages / Netlify / Vercel에 올리면 게임은 바로 됩니다(인증·랭킹은 가짜).
-- 트래픽이 커지면 `server/store.js`를 같은 메서드 모양으로 Postgres(Supabase 등) 버전으로 바꾸면 됩니다.
+**연결 (처음 한 번, Cloudflare 대시보드):** Workers & Pages → Create → **Import a repository** → GitHub `dddrrrmmm` 선택 → Production branch `claude/eloquent-hamilton-5w1xwr` → Build command 비움, Deploy command `npx wrangler deploy` → Deploy. 이후 이 브랜치에 push 하면 자동 배포. 주소는 `https://okaystra.<내 서브도메인>.workers.dev`.
+
+**예전 집: Vercel** https://kongkong-drum.vercel.app — 정적 사이트만(서버 없음). 같은 브랜치 push 로 계속 배포되지만 랭킹·DM 인증은 안 되고 4단계부터 잠긴 채로 있음. 인스타 링크를 Cloudflare 주소로 바꾼 뒤엔 Vercel 프로젝트를 꺼도 됨.
 
 ## 실기기 테스트 체크리스트 (중요)
 

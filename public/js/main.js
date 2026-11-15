@@ -346,7 +346,8 @@ async function startLevel(id) {
   const cw = $('#game-canvas').clientWidth || window.innerWidth;
   await renderer.resize(st.active ? Math.min(3, Math.max(2, 1080 / cw)) : 2);
   state.runToken = null;
-  if (!lv.challenge) state.api
+  // 영상 찍기는 팔로우 잠금 없이 (계정 주인이 촬영용으로 씀) → 서버 판 토큰도 안 받음
+  if (!lv.challenge && !st.active) state.api
     .startRun(id)
     .then((r) => (state.runToken = r.runToken))
     .catch((e) => {
@@ -1217,11 +1218,6 @@ function openStudio() {
 
 async function studioStart() {
   const st = state.studio;
-  const lvCheck = getLevel(st.level);
-  if (lvCheck && isLocked(lvCheck)) {
-    requireFollow(lvCheck, studioStart);
-    return;
-  }
   st.top = $('#studio-top').value.trim();
   st.bottom = $('#studio-bottom').value.trim();
   st.file = $('#studio-file').checked;

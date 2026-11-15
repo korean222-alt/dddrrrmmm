@@ -1,83 +1,84 @@
-# 인스타 팔로우 확인 연결하기 (4단계)
+# 인스타 팔로우 확인 연결하기 (Cloudflare)
 
-지금 서버는 `FOLLOW_CHECK_MODE=fake` 라서 `checkFollow()`가 항상 "팔로우 중"을 돌려줍니다.
-아래 순서로 **진짜 값이 오는지 먼저 확인**한 다음 `real`로 바꾸세요.
+서버는 이미 준비돼 있어요: `wrangler.jsonc` 에 `GATE_MODE=follow`(4단계부터 잠금), `FOLLOW_CHECK_MODE=real`(인스타 API 로 진짜 확인).
+남은 건 **Meta 앱을 만들어서 우리 서버(웹훅)에 DM 이 들어오게 하는 것**과 **비밀값 2개를 Cloudflare 에 넣는 것**뿐입니다.
 
-> ⚠️ 앞서 정리한 제약은 그대로입니다.
-> - 댓글만으로는 팔로우 여부 조회가 안 됩니다. **DM이 필수**예요(DM을 보낸 사람만 프로필 조회 가능).
-> - 앱 역할이 없는 일반 유저에게 쓰려면 **Advanced Access(앱 심사)** 가 필요할 수 있습니다.
-> - 그래서 **테스터가 아닌 계정으로 DM을 보내서 값이 오는지** 꼭 먼저 확인하세요.
+> ⚠️ 꼭 알아둘 제약
+> - 댓글만으로는 팔로우 여부를 못 봐요. **DM 이 필수** (DM 을 보낸 사람만 프로필 조회 가능).
+> - Meta 앱이 **개발 모드**일 땐 앱에 등록한 **테스터 계정의 DM 만** 들어와요. 모든 사람에게 열려면 **앱 심사 + 라이브 모드** 필요.
+> - 그 전까지 일반 사용자는 4단계부터 못 열어요(지금 원하는 상태). 영상 찍기는 잠금 없이 됨.
 
-## 1. 준비물
+## 0. Cloudflare 에 사이트 올리기 (처음 한 번)
 
-- 인스타 **프로페셔널 계정**(비즈니스/크리에이터)
-- [Meta for Developers](https://developers.facebook.com/) 앱 (유형: 비즈니스)
-- 제품 추가: **Instagram** → "Instagram 로그인을 통한 API 설정"
-- 권한: `instagram_business_basic`, `instagram_business_manage_messages`
-- 인스타 앱 설정 → 메시지 → **"연결된 도구 허용"** 켜기
+1. Cloudflare 대시보드 → **Workers & Pages** → **Create** → **Import a repository**
+2. GitHub `korean222-alt/dddrrrmmm` 선택
+3. Project name `okaystra`, Production branch `claude/eloquent-hamilton-5w1xwr`
+4. Build command: 비움 / Deploy command: `npx wrangler deploy` → **Deploy**
+5. 끝나면 주소가 나와요: `https://okaystra.<내 서브도메인>.workers.dev` ← 아래 "내 주소"
+6. 열어서 `https://내주소/api/health` 가 `{"ok":true,"app":"okaystra"}` 면 성공
 
-## 2. 서버를 인터넷에 열기
+## 1. 인스타 계정
 
-웹훅은 `https://` 주소가 필요합니다. 배포한 서버를 쓰거나, 로컬이면 터널(ngrok, cloudflared 등)을 씁니다.
+- @ok_aystra 를 **프로페셔널 계정**(크리에이터/비즈니스)으로 전환
+- 인스타 앱 → 설정 → **메시지 및 스토리 답장 → 메시지 컨트롤 → 연결된 도구 → "메시지 접근 허용"** 켜기
 
-```
-https://<내-도메인>/webhook
-```
+## 2. Meta 앱 만들기
 
-## 3. 웹훅 등록
+1. https://developers.facebook.com → 내 앱 → **앱 만들기**
+2. 사용 사례: **"Instagram에서 메시지 및 콘텐츠 관리"** → 앱 이름 아무거나(예: okaystra)
+3. 앱 대시보드 → **Instagram → "Instagram 로그인을 통한 API 설정"**
+   1. **액세스 토큰 생성**: "계정 추가" → @ok_aystra 로 로그인 → 토큰 복사 (장기 토큰, 60일)
+   2. **웹훅 구성**
+      - 콜백 URL: `https://내주소/webhook`
+      - 확인 토큰: `okaystra-Apkm9hqeZCdQ` (`wrangler.jsonc` 의 `IG_VERIFY_TOKEN`)
+      - **확인 및 저장** → 성공하면 필드 목록에서 **messages 구독**
+   3. 같은 페이지의 **Instagram 앱 시크릿** 복사
 
-`.env`:
-```
-IG_APP_SECRET=<앱 설정 > 기본 설정 > 앱 시크릿>
-IG_VERIFY_TOKEN=<아무 문자열, 예: okaystra-verify-2026>
-IG_ACCESS_TOKEN=<Instagram 로그인으로 발급한 장기 토큰>
-IG_DEBUG=true
-```
+## 3. 비밀값 넣기 (Cloudflare)
 
-Meta 앱 대시보드 → Instagram → 웹훅 구성:
-- 콜백 URL: `https://<내-도메인>/webhook`
-- 확인 토큰: `IG_VERIFY_TOKEN`과 같은 값
-- 구독 필드: **messages**
+Workers & Pages → **okaystra → Settings → Variables and Secrets → Add** → Type **Secret**:
 
-"확인 및 저장"이 성공하면 서버가 `hub.challenge`에 정상 응답한 것입니다.
-
-## 4. 값이 오는지 확인 (가장 중요)
-
-1. `IG_DEBUG=true`, `FOLLOW_CHECK_MODE=fake` 상태로 서버 실행
-2. **앱 역할이 없는 다른 인스타 계정**으로 사이트에서 코드를 받아 DM 전송
-3. 서버 로그에서 `[webhook]` 원문과 보낸 사람 ID(IGSID) 확인
-4. 점검 스크립트 실행:
-   ```bash
-   npm run ig:profile -- <IGSID>
-   ```
-   - `✅ is_user_follow_business = true/false` → 5단계로
-   - `❌ ... 없습니다` → 권한/앱 심사 문제. Advanced Access 신청 필요
-   - 웹훅 자체가 안 옴 → 앱이 개발 모드라 테스터 DM만 들어오는 상태일 가능성. 앱 심사 필요
-
-팔로우한 상태 / 언팔로우한 상태 둘 다 해보고 값이 바뀌는지 보세요.
-
-## 5. 진짜로 교체
-
-```
-GATE_MODE=follow          # Lv.4+ 잠금 켜기
-FOLLOW_CHECK_MODE=real    # 진짜 팔로우 확인
-ALLOW_DEV_SIMULATE=false  # 테스트 버튼 끄기
-IG_DEBUG=false
-```
-
-게임·사이트 코드는 수정할 필요 없습니다. `server/instagram.js`의 `checkFollow()` 하나만 동작이 바뀝니다.
-
-## 자주 막히는 곳
-
-| 증상 | 확인할 것 |
+| 이름 | 값 |
 |---|---|
-| 웹훅 등록 실패 | 주소가 https인지, `IG_VERIFY_TOKEN` 일치하는지 |
-| 웹훅 401 | `IG_APP_SECRET`이 맞는지 (서명 검증 실패) |
-| DM은 오는데 사이트가 안 열림 | 코드가 10분 지나 만료됐는지, 같은 폰·같은 브라우저인지 |
-| 인스타 앱 브라우저 ↔ DM 이동 후 상태 사라짐 | 쿠키/저장소가 막힌 경우. 외부 브라우저로 열기 안내 |
-| 토큰 만료 | 장기 토큰은 60일. 만료 전에 갱신 |
+| `IG_ACCESS_TOKEN` | 2-3-1 에서 복사한 토큰 |
+| `IG_APP_SECRET` | 2-3-3 의 Instagram 앱 시크릿 |
+
+저장하면 바로 적용돼요. (`SESSION_SECRET` 은 안 넣어도 됨 — 자동 생성)
+
+## 4. 테스트 (개발 모드)
+
+1. Meta 앱 → **앱 역할 → 역할 → Instagram 테스터 추가** → 내 **다른 인스타 계정**(부계정) 추가
+2. 부계정 인스타 앱 → 설정 → **앱 및 웹사이트 → 테스터 초대** 수락
+3. 부계정으로 @ok_aystra **팔로우** → 폰에서 사이트 열기 → 4단계 누르기 → 코드(OK-XXXX) DM 보내기
+4. 몇 초 안에 사이트가 열리고 DM 으로 "팔로우 확인 완료!" 답장이 오면 성공
+5. 안 되면 Cloudflare → okaystra → **Logs (실시간)** 에서 `[webhook]` 줄 확인
+
+| 로그 | 뜻 / 할 일 |
+|---|---|
+| 아무것도 안 찍힘 | 웹훅 구독(messages) 확인, 테스터 초대 수락 확인, 인스타 "연결된 도구 허용" 확인 |
+| `서명 불일치` (401) | `IG_APP_SECRET` 이 틀림. 앱 설정 → 기본 설정 → 앱 시크릿 값으로도 시도 |
+| `is_user_follow_business 값이 오지 않았습니다` | 권한 부족 → 6번(앱 심사)에서 Advanced Access 필요 |
+| `IG_ACCESS_TOKEN 이 설정되지 않았습니다` | 3번 비밀값 확인 |
+| `DM verified` | 성공 🎉 |
+
+언팔로우한 상태로도 한 번 보내서 "아직 팔로우가 안 되어 있어요" 답장이 오는지 확인하세요.
+
+## 5. 인스타 프로필 링크 바꾸기
+
+프로필 링크를 `https://내주소` 로. (예전 Vercel 주소는 서버가 없어서 인증·랭킹이 안 돼요)
+
+## 6. 모든 사람에게 열기 (앱 심사)
+
+1. 앱 설정 → 기본 설정: **개인정보처리방침 URL** `https://내주소/privacy.html`, **데이터 삭제 안내 URL** `https://내주소/privacy.html#delete`, 앱 아이콘, 카테고리
+2. **앱 검수 → 권한 및 기능**: `instagram_business_basic`, `instagram_business_manage_messages` **Advanced Access** 요청
+   - 화면 녹화 제출: 사이트에서 코드 받기 → DM 보내기 → 확인 답장 → 4단계 열림
+   - 설명 예: "사용자가 직접 보낸 인증 코드 DM 에만 자동 답장하고, 보낸 사람이 우리 계정을 팔로우했는지 확인해 게임 단계를 열어줍니다."
+3. 승인되면 앱을 **라이브 모드**로 전환 → 이제 누구나 DM 인증 가능
+4. 다 되면 `wrangler.jsonc` 의 `IG_DEBUG` 를 `"false"` 로 (Claude 에게 말하면 바꿔줌)
 
 ## 운영 팁
 
-- 인증된 DM 보낸 사람에게는 서버가 "확인 완료!" 답장을 자동으로 보냅니다(`IG_SEND_REPLIES=true`). 코드가 없는 일반 DM에는 답하지 않아요.
-- 랭킹 1위를 릴스에 쓰기 전에 그 계정에 DM으로 한 번 확인하면 위조 기록도 거를 수 있고 소통도 됩니다.
+- 장기 토큰은 **60일**이면 만료돼요. 만료 전에 2-3-1 에서 다시 생성해서 `IG_ACCESS_TOKEN` 바꾸기.
+- 코드가 없는 일반 DM 에는 서버가 답장하지 않아요.
+- 랭킹 1위를 릴스에 쓰기 전엔 그 계정에 DM 으로 한 번 확인하세요.
+- 로컬 Node 서버(`npm start`)로 테스트할 땐 `.env` 에 같은 이름으로 넣으면 돼요 (`.env.example` 참고).

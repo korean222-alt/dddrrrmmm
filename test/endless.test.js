@@ -140,3 +140,32 @@ test('무제한 모드 게임: 노트가 계속 추가되고, 목숨이 다 떨�
   assert.equal(ended.bpmReached, 140);
   assert.equal(ended.failed, false);
 });
+
+test('헛침(노트 없는 곳 누름)도 목숨 1개, 두 엄지 동시 헛침은 1개만', async () => {
+  const { Game, MAX_LIVES } = await import('../public/js/game.js');
+  const noop = () => {};
+  globalThis.cancelAnimationFrame ??= noop;
+  const renderer = { onJudge: noop, onLife: noop, onCombo: noop, onTap: noop, draw: noop, reset: noop };
+  let t = 0;
+  const audio = { ctx: { suspend: async () => {}, resume: async () => {} }, heardTime: () => t, crash: noop, playLane: noop };
+  const g = new Game({ audio, renderer, level: getLevel(1), settings: {}, onDeath: noop, onEnd: noop });
+  g.startTime = 0;
+  g.state = 'playing';
+  g.player = { stop: noop };
+  // 1단계 첫 노트는 카운트인 뒤. 노트 사이 빈 곳을 누름
+  const n0 = g.notes[0];
+  t = n0.time + 0.5;
+  g.input(KICK, 0);
+  assert.equal(g.counts.wrong, 1);
+  assert.equal(g.lives, MAX_LIVES - 1);
+  // 거의 같은 순간 다른 엄지도 헛침 → 목숨은 그대로
+  t += 0.05;
+  g.input(SNARE, 0);
+  assert.equal(g.counts.wrong, 2);
+  assert.equal(g.lives, MAX_LIVES - 1);
+  // 조금 뒤 또 헛침 → 하나 더
+  t += 0.3;
+  g.input(KICK, 0);
+  assert.equal(g.lives, MAX_LIVES - 2);
+  assert.equal(g.combo, 0);
+});

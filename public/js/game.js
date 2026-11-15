@@ -17,6 +17,8 @@ export const LIFE_REGEN_COMBO = 20;
 export const MAX_CONTINUES = 1;
 /** 이어하기 직후 목숨 안 깎이는 시간(초) */
 const REVIVE_GRACE = 1.6;
+/** 헛침으로 목숨이 깎인 뒤 이 시간(초) 안의 헛침은 또 안 깎음 (두 엄지 동시 실수) */
+const WRONG_GAP = 0.12;
 
 export class Game {
   /**
@@ -176,13 +178,18 @@ export class Game {
       return;
     }
     // 노트 없는 곳을 누름 → 헛침: 점수 없음 + 콤보 끊김 (카운트인/끝난 뒤는 봐줌)
-    if (t > this.firstNoteTime - this.beat && t < this.lastNoteTime + JUDGE.good) this._wrong(lane, rt);
+    if (t > this.firstNoteTime - this.beat && t < this.lastNoteTime + JUDGE.good) this._wrong(lane, rt, t);
   }
 
-  _wrong(lane, rt) {
+  /** 노트 없는 곳을 누름(헛침): 콤보 끊김 + 목숨 하나. 두 엄지가 동시에 미끄러져도(0.12초 안) 하나만 */
+  _wrong(lane, rt, t) {
     this.counts.wrong++;
     this.combo = 0;
     this.r.onJudge(lane, 'wrong', rt);
+    if (t === undefined || t - (this._wrongLostAt ?? -9) < WRONG_GAP) return;
+    if (t < this.graceUntil || !this.livesOn || this.state !== 'playing') return;
+    this._wrongLostAt = t;
+    this._hurt(rt);
   }
 
   _judge(n, dt, rt) {
@@ -227,6 +234,11 @@ export class Game {
     if (n.time < this.graceUntil) return;
     if (this._lostAt === n.time) return;
     this._lostAt = n.time;
+    this._hurt(rt);
+  }
+
+  /** 목숨 하나 깎기 (0개면 멈춤) */
+  _hurt(rt) {
     this.lives = Math.max(0, this.lives - 1);
     this.r.onLife(this.lives, -1, rt);
     if (this.settings.vibrate && navigator.vibrate) {
