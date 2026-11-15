@@ -123,7 +123,7 @@ PC에서는 `F`/`←` = 킥, `J`/`→` = 스네어, `Space` = 동시, `Esc` = �
 
 1. ✅ **게임만** — 1~6단계, 쿵/짝 두 레인, 콤보, 점수, 등급, 결과 카드 공유
 2. ✅ **서버 인터페이스** — `checkFollow(igsid)`는 지금 **항상 "확인됨"** 을 돌려주는 가짜(`FOLLOW_CHECK_MODE=fake`). 게임은 모두 이 함수를 거칩니다.
-3. ✅ **호스팅 이사** — Cloudflare Workers + D1 (서버·랭킹 저장 가능)
+3. ✅ **서버 붙이기** — Vercel 함수 + Neon Postgres (Neon 연결만 하면 랭킹·인증 저장)
 4. ⏳ **진짜 팔로우 확인** — 서버 설정은 이미 `GATE_MODE=follow` + `FOLLOW_CHECK_MODE=real` (4단계부터 잠김). Meta 앱 연결만 남음 → [docs/instagram-setup.md](docs/instagram-setup.md).
    Meta 연결 전에는 DM 이 안 들어오니 4단계부터는 아무도 못 열어요(의도). 영상 찍기는 잠금 없이 됨.
 
@@ -212,18 +212,15 @@ song: {
 
 ## 배포
 
-**새 집: Cloudflare Workers** (`wrangler.jsonc`) — 사이트(`public/`) + 서버(`/api`, `/webhook`) + DB(D1 `okaystra-db`)가 한 곳에.
+**https://kongkong-drum.vercel.app** — Vercel. 이 브랜치(`claude/eloquent-hamilton-5w1xwr`)에 push 하면 자동 배포.
 
-- 서버 코드는 `server/handler.js` 하나를 Node(`npm start`)와 Cloudflare Worker(`worker/index.js`)가 같이 씀. 저장소만 다름: Node = JSON 파일(`server/store.js`), Cloudflare = D1(`worker/d1store.js`).
-- D1 테이블은 워커가 처음 뜰 때 자동으로 만듦(`worker/schema.sql`). 쿠키 서명 키(`SESSION_SECRET`)도 없으면 D1 에 자동 생성.
-- 설정값은 `wrangler.jsonc` 의 `vars` (지금: 4단계부터 진짜 팔로우 확인 `GATE_MODE=follow`, `FOLLOW_CHECK_MODE=real`).
-- 비밀값 두 개는 대시보드에서 **Secret** 으로: `IG_ACCESS_TOKEN`, `IG_APP_SECRET` → [docs/instagram-setup.md](docs/instagram-setup.md)
-- 로컬에서 워커 그대로 돌려보기: `npm run cf:dev` (http://localhost:8787, D1 은 내 컴퓨터 안 가짜)
-  - 같은 서버 테스트를 워커에 대고: `TEST_BASE=http://127.0.0.1:8787 node --test test/server.test.js` (테스트용 `--var` 는 `package.json` 의 `cf:dev:test`)
-
-**연결 (처음 한 번, Cloudflare 대시보드):** Workers & Pages → Create → **Import a repository** → GitHub `dddrrrmmm` 선택 → Production branch `claude/eloquent-hamilton-5w1xwr` → Build command 비움, Deploy command `npx wrangler deploy` → Deploy. 이후 이 브랜치에 push 하면 자동 배포. 주소는 `https://okaystra.<내 서브도메인>.workers.dev`.
-
-**예전 집: Vercel** https://kongkong-drum.vercel.app — 정적 사이트만(서버 없음). 같은 브랜치 push 로 계속 배포되지만 랭킹·DM 인증은 안 되고 4단계부터 잠긴 채로 있음. 인스타 링크를 Cloudflare 주소로 바꾼 뒤엔 Vercel 프로젝트를 꺼도 됨.
+- 사이트 = `public/` (정적), 서버 = **Vercel 함수** `api/server.js` (`vercel.json` 의 rewrites 가 `/api/*`, `/webhook` 을 여기로), DB = **Neon Postgres**.
+- 서버 코드는 `server/handler.js` 하나를 Node(`npm start`)와 Vercel 함수가 같이 씀. 저장소만 다름: Node = JSON 파일(`server/store.js`), Vercel = Postgres(`server/pgstore.js`). 테이블은 처음 요청 때 자동 생성.
+- 함수 지역은 싱가포르(`sin1`). Neon DB 도 **싱가포르(AWS ap-southeast-1)** 로 만들어야 빨라요.
+- **Neon 연결 전**에는 `/api/health` 가 503 → 사이트는 서버 없는 모드(랭킹 '곧 오픈', 4단계부터 잠김)로 그대로 돌아감.
+- 기본 설정은 `api/server.js` 의 `DEFAULTS` (4단계부터 진짜 팔로우 확인). Vercel 환경변수로 같은 이름을 넣으면 그 값이 우선.
+- 비밀값 두 개는 Vercel → Settings → Environment Variables (Sensitive): `IG_ACCESS_TOKEN`, `IG_APP_SECRET` → [docs/instagram-setup.md](docs/instagram-setup.md). `SESSION_SECRET` 은 DB 에 자동 생성.
+- 테스트: `npm test` 가 JSON 저장소와 Postgres 저장소(메모리 Postgres PGlite) 둘 다 같은 흐름으로 시험.
 
 ## 실기기 테스트 체크리스트 (중요)
 
