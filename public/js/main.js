@@ -327,11 +327,17 @@ async function fontsReady() {
   } catch {}
 }
 
+// 곡 시작은 비동기(악기 소리 불러오기 등)라서, 같은 단계를 빠르게 두 번 누르면 게임이 둘 생겨
+// 먼저 만든 쪽이 카운트인 중에 이미 진행되던 버그가 있었음 → 마지막 호출만 살리고 앞선 호출은 중단
+let startSeq = 0;
 async function startLevel(id) {
   const lv = playable(id);
   if (!lv) return;
+  const seq = ++startSeq;
+  const stale = () => seq !== startSeq;
   state.levelId = id;
   await audio.unlock();
+  if (stale()) return;
   audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx });
   audio.orchOn = state.settings.band !== 'piano';
   if (state.game) state.game.stop();
@@ -355,6 +361,7 @@ async function startLevel(id) {
   // 악기 샘플이 아직이면 잠깐 기다림 (최대 3초. 피아노가 안 되면 합성음, 오케스트라는 받는 대로 중간부터 합류)
   const orchLoad = audio.orchOn ? audio.loadOrch() : Promise.resolve();
   await Promise.race([Promise.all([audio.loadPiano(), orchLoad]), new Promise((r) => setTimeout(r, 3000))]);
+  if (stale()) return;
   $('#screen-game').classList.toggle('studio-mode', st.active);
   renderer.studio = st.active ? studioOverlay(lv) : null;
   setKit(lv);
@@ -362,6 +369,8 @@ async function startLevel(id) {
   await new Promise((r) => requestAnimationFrame(r));
   const cw = $('#game-canvas').clientWidth || window.innerWidth;
   await renderer.resize(st.active ? Math.min(3, Math.max(2, 1080 / cw)) : 2);
+  if (stale()) return;
+  if (state.game) state.game.stop();
   state.runToken = null;
   // 영상 찍기는 팔로우 잠금 없이 (계정 주인이 촬영용으로 씀) → 서버 판 토큰도 안 받음
   if (!lv.challenge && !st.active) state.api
