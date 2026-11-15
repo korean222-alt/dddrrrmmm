@@ -953,9 +953,9 @@ function completeFollow(silent) {
 // ---------------- 랭킹 ----------------
 async function openRank(levelId) {
   state.rankLevel = levelId || state.rankLevel || 1;
-  $('#rank-tabs').innerHTML = LEVELS.map(
-    (l) => `<button role="tab" data-rank="${l.id}" aria-selected="${l.id === state.rankLevel}">${l.id}단계</button>`
-  ).join('');
+  $('#rank-tabs').innerHTML =
+    `<button role="tab" data-rank="total" aria-selected="${state.rankLevel === 'total'}">🏆 총 등수</button>` +
+    LEVELS.map((l) => `<button role="tab" data-rank="${l.id}" aria-selected="${l.id === state.rankLevel}">${l.id}단계</button>`).join('');
   openModal('modal-rank');
   await loadRank();
 }
@@ -970,7 +970,9 @@ async function loadRank() {
   list.innerHTML = '<div class="rank-empty"><span class="spinner" style="display:inline-block"></span></div>';
   try {
     const data = await state.api.leaderboard(state.rankLevel);
+    const total = state.rankLevel === 'total';
     if (!data.entries.length) list.innerHTML = '<div class="rank-empty">아직 아무도 없어요. 첫 1위의 주인공이 되어보세요!</div>';
+    else if (total) list.innerHTML = totalRankHtml(data);
     else
       list.innerHTML = data.entries
         .slice(0, 50)
@@ -982,6 +984,7 @@ async function loadRank() {
         .join('');
     const foot = [];
     if (data.sample && isLocalDev()) foot.push('(개발 모드: 서버 없이 내 기록만 보여요)');
+    if (total) foot.push('단계별 최고점을 모두 더한 점수예요. 더 많은 단계를 높은 점수로 칠수록 올라가요!');
     if (data.me) foot.push(`내 순위: ${data.me.rank}위.`);
     if (state.me.guest) foot.push(`<b>${escapeHtml(state.me.player?.username)}</b> 님으로 참여 중 · 끝까지 치면 점수가 알아서 올라가요.`);
     else foot.push('닉네임을 정하면 끝까지 친 점수가 알아서 랭킹에 올라가요. <button class="link" data-action="rank-join">닉네임 정하기</button>');
@@ -989,6 +992,31 @@ async function loadRank() {
   } catch {
     list.innerHTML = '<div class="rank-empty">랭킹을 불러오지 못했어요.</div>';
   }
+}
+
+/** 총 등수: 1·2·3등 시상대 + 4등부터 목록 */
+function totalRankHtml(data) {
+  const n = data.levels || LEVELS.length;
+  const MEDAL = ['🥇', '🥈', '🥉'];
+  const top = data.entries.slice(0, 3);
+  // 시상대는 2등-1등-3등 순서로 늘어놓기
+  const order = [1, 0, 2].filter((i) => top[i]);
+  const podium = order
+    .map((i) => {
+      const e = top[i];
+      return `<div class="pod pod${i + 1} ${e.me ? 'me' : ''}"><span class="medal">${MEDAL[i]}</span>
+        <span class="pn">${escapeHtml(e.username)}</span><span class="ps">${fmt(e.score)}</span>
+        <span class="pl">${e.levels}/${n}단계</span><span class="step">${i + 1}등</span></div>`;
+    })
+    .join('');
+  const rest = data.entries
+    .slice(3, 50)
+    .map(
+      (e) => `<div class="rank-row ${e.me ? 'me' : ''}"><span class="r">${e.rank}</span><span class="u">${escapeHtml(e.username)}</span>
+        <span class="s">${fmt(e.score)}</span><span class="g small">${e.levels}/${n}</span></div>`
+    )
+    .join('');
+  return `<div class="podium">${podium}</div>${rest}`;
 }
 
 function escapeHtml(s) {
@@ -1405,8 +1433,7 @@ const ACTIONS = {
     closeModal('modal-follow');
   },
   ranking: () => {
-    const id = state.lastResult ? state.lastResult.levelId : state.levelId;
-    openRank(typeof id === 'number' ? id : 1);
+    openRank('total');
   },
   settings: openSettings,
   pause: togglePause,
@@ -1504,7 +1531,7 @@ function bindActions() {
     }
     const tab = e.target.closest('[data-rank]');
     if (tab) {
-      state.rankLevel = Number(tab.dataset.rank);
+      state.rankLevel = tab.dataset.rank === 'total' ? 'total' : Number(tab.dataset.rank);
       $$('#rank-tabs button').forEach((b) => b.setAttribute('aria-selected', b === tab));
       loadRank();
       return;

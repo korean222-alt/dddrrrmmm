@@ -83,6 +83,26 @@ export class JsonStore {
     return { rows: rows.slice(0, limit), all: rows };
   }
 
+  /** 총 등수: 단계별 최고점의 합. 같으면 먼저 달성한 사람이 위 */
+  totalLeaderboard(limit = 50) {
+    const rows = [];
+    for (const p of Object.values(this.data.players)) {
+      const bs = Object.values(p.bests || {});
+      if (!bs.length || !p.username) continue;
+      rows.push({
+        igsid: p.igsid, username: p.username, score: bs.reduce((a, b) => a + b.score, 0),
+        levels: bs.length, at: Math.max(...bs.map((b) => b.at || 0)),
+      });
+    }
+    rows.sort((a, b) => b.score - a.score || a.at - b.at);
+    rows.forEach((r, i) => (r.rank = i + 1));
+    return { rows: rows.slice(0, limit), all: rows };
+  }
+  totalRankOf(igsid) {
+    const r = this.totalLeaderboard(0).all.find((x) => x.igsid === igsid);
+    return r ? { rank: r.rank, score: r.score, levels: r.levels } : null;
+  }
+
   /** 이 플레이어의 순위 { rank, score } (기록 없으면 null) */
   rankOf(level, igsid) {
     const r = this.leaderboard(level, 0).all.find((x) => x.igsid === igsid);

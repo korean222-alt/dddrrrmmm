@@ -5,7 +5,7 @@
 
 import { sign, unsign, parseCookies, cookie, newId } from './session.js';
 import { buildStats } from './stats.js';
-import { getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur } from '../public/js/charts.js';
+import { LEVELS, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur } from '../public/js/charts.js';
 
 const PLAYER_COOKIE = 'kk_player';
 const VID_COOKIE = 'kk_vid'; // 익명 방문자 번호 (이용 통계용, 1년)
@@ -199,6 +199,14 @@ export function createHandler(cfg, { store }) {
       const out = await store.recordScore(pl.igsid, v.level.id, { score: v.score, grade: v.grade, maxCombo: v.maxCombo });
       const mine = await store.rankOf(v.level.id, pl.igsid);
       return json(200, { ...out, rank: mine ? mine.rank : null });
+    }
+
+    if (p === '/api/leaderboard' && m === 'GET' && url.searchParams.get('level') === 'total') {
+      const pl = await getPlayer(request);
+      const lb = await store.totalLeaderboard(50);
+      const entries = lb.rows.map((r) => ({ rank: r.rank, username: r.username, score: r.score, levels: r.levels, me: pl ? r.igsid === pl.igsid : false }));
+      const mine = pl ? await store.totalRankOf(pl.igsid) : null;
+      return json(200, { level: 'total', levels: LEVELS.length, entries, me: mine });
     }
 
     if (p === '/api/leaderboard' && m === 'GET') {

@@ -119,6 +119,20 @@ test('닉네임 → 판 시작 → 점수 등록(조작 거부) → 랭킹', asy
   const lb2 = (await c('GET', '/api/leaderboard?level=4')).json;
   assert.equal(lb2.entries[0].username, '새이름');
   assert.equal(lb2.entries[0].score, pr.score);
+
+  // 총 등수: 단계별 최고점의 합. 2단계도 치면 합이 늘어남
+  const t1 = (await c('GET', '/api/leaderboard?level=total')).json;
+  assert.equal(t1.entries[0].score, pr.score);
+  assert.equal(t1.entries[0].levels, 1);
+  assert.equal(t1.entries[0].me, true);
+  assert.equal(t1.me.rank, 1);
+  const run2 = (await c('POST', '/api/runs', { level: 2 })).json.runToken;
+  const pr2 = perfectRun(2);
+  assert.equal((await c('POST', '/api/scores', { runToken: run2, level: 2, ...pr2 })).status, 200);
+  const t2 = (await c('GET', '/api/leaderboard?level=total')).json;
+  assert.equal(t2.entries[0].score, pr.score + pr2.score);
+  assert.equal(t2.entries[0].levels, 2);
+  assert.equal(t2.me.score, pr.score + pr2.score);
 });
 
 test('인스타 아이디 등록(DM 코드·웹훅·관리자 승인)은 없어짐', async () => {

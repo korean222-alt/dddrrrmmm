@@ -108,6 +108,30 @@ export class PgStore {
       rows: rows.map((r, i) => ({ ...r, score: Number(r.score), at: Number(r.at), rank: i + 1 })),
     };
   }
+  /** 총 등수: 단계별 최고점의 합. 같으면 먼저 달성한 사람이 위 */
+  async totalLeaderboard(limit = 50) {
+    const rows = await this.q(
+      `SELECT s.igsid, p.username, SUM(s.score) AS score, COUNT(*) AS levels, MAX(s.at) AS at
+       FROM scores s JOIN players p ON p.igsid = s.igsid WHERE p.username IS NOT NULL
+       GROUP BY s.igsid, p.username ORDER BY score DESC, at ASC LIMIT $1`,
+      [limit]
+    );
+    return { rows: rows.map((r, i) => ({ ...r, score: Number(r.score), levels: Number(r.levels), at: Number(r.at), rank: i + 1 })) };
+  }
+  async totalRankOf(igsid) {
+    const mine = await this.one(
+      `SELECT SUM(s.score) AS score, COUNT(*) AS levels, MAX(s.at) AS at FROM scores s JOIN players p ON p.igsid = s.igsid
+       WHERE s.igsid = $1 AND p.username IS NOT NULL`,
+      [igsid]
+    );
+    if (!mine || mine.score == null) return null;
+    const ahead = await this.one(
+      `SELECT COUNT(*) AS n FROM (SELECT SUM(s.score) AS t, MAX(s.at) AS a FROM scores s JOIN players p ON p.igsid = s.igsid
+         WHERE p.username IS NOT NULL GROUP BY s.igsid) x WHERE x.t > $1 OR (x.t = $1 AND x.a < $2)`,
+      [Number(mine.score), Number(mine.at)]
+    );
+    return { rank: Number(ahead ? ahead.n : 0) + 1, score: Number(mine.score), levels: Number(mine.levels) };
+  }
   async rankOf(level, igsid) {
     const mine = await this.one('SELECT score, at FROM scores WHERE igsid = $1 AND level = $2', [igsid, level]);
     if (!mine) return null;

@@ -76,6 +76,13 @@ function mockApi(cfg) {
       return { best: improved ? score : prev.score, improved, rank: lb.me ? lb.me.rank : null };
     },
     async leaderboard(level) {
+      if (level === 'total') {
+        const p = getPlayer();
+        const bs = Object.values(load('mockBoard', {}));
+        const me = p && bs.length ? { rank: 1, score: bs.reduce((a, b) => a + b.score, 0), levels: bs.length } : null;
+        const entries = me ? [{ rank: 1, username: p.username, score: me.score, levels: me.levels, me: true }] : [];
+        return { level: 'total', levels: 13, entries, me, sample: true };
+      }
       const entries = [];
       const mine = load('mockBoard', {})[level];
       if (mine) entries.push({ ...mine, me: true });
