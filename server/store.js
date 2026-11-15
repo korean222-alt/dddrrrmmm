@@ -3,15 +3,20 @@
 //
 // codes:   { [code]: { code, purpose, sessionId, status, createdAt, expiresAt, igsid?, username?, verifiedAt? } }
 //          status: pending | not_following | verified | expired
+// sessions: { [sid]: { sid, vid, startedAt, lastAt, activeSec, ref, device } }   ← 이용 통계 (접속 1회)
+// plays:    { [id]: { id, sid, vid, level, mode, startedAt, endedAt, result, score, stars, sec } }  ← 곡 한 판
 // players: { [igsid]: { igsid, username, followVerifiedAt, bests: { [level]: { score, grade, maxCombo, at } } } }
 
 import fs from 'node:fs';
 import path from 'node:path';
 
+// 이용 통계는 1년 보관
+export const STATS_KEEP_MS = 400 * 24 * 3600 * 1000;
+
 export class JsonStore {
   constructor(file) {
     this.file = file;
-    this.data = { codes: {}, players: {}, usedRuns: {} };
+    this.data = { codes: {}, players: {}, usedRuns: {}, sessions: {}, plays: {} };
     this._timer = null;
   }
 
@@ -19,7 +24,7 @@ export class JsonStore {
     try {
       const raw = fs.readFileSync(this.file, 'utf8');
       const d = JSON.parse(raw);
-      this.data = { codes: d.codes || {}, players: d.players || {}, usedRuns: d.usedRuns || {} };
+      this.data = { codes: d.codes || {}, players: d.players || {}, usedRuns: d.usedRuns || {}, sessions: d.sessions || {}, plays: d.plays || {} };
     } catch (e) {
       if (e.code !== 'ENOENT') console.error('[store] 읽기 실패, 새로 시작:', e.message);
     }
@@ -76,6 +81,9 @@ export class JsonStore {
       }
     }
     for (const [k, exp] of Object.entries(this.data.usedRuns)) if (exp < now) delete this.data.usedRuns[k];
+    const old = now - STATS_KEEP_MS;
+    for (const [k, r] of Object.entries(this.data.sessions)) if (r.startedAt < old) delete this.data.sessions[k];
+    for (const [k, r] of Object.entries(this.data.plays)) if (r.startedAt < old) delete this.data.plays[k];
     if (n) this._save();
     return n;
   }
@@ -135,5 +143,36 @@ export class JsonStore {
     this.data.usedRuns[nonce] = expiresAt;
     this._save();
     return true;
+  }
+
+  // ----- 이용 통계 (익명) -----
+  /** 접속 1회: 처음이면 만들고, 이후엔 마지막 시각·활동 시간(초)만 갱신 */
+  trackSession({ sid, vid, now, activeSec, ref, device }) {
+    const r = this.data.sessions[sid];
+    if (!r) this.data.sessions[sid] = { sid, vid, startedAt: now, lastAt: now, activeSec, ref, device };
+    else {
+      r.lastAt = now;
+      r.activeSec = Math.max(r.activeSec || 0, activeSec);
+    }
+    this._save();
+  }
+  /** 곡 한 판: 시작(startedAt) 또는 끝(endedAt, result, score…)을 같은 id 로 이어서 채움 */
+  trackPlay(p) {
+    const r = this.data.plays[p.id];
+    if (!r) this.data.plays[p.id] = { result: null, endedAt: null, score: null, stars: null, sec: null, ...p };
+    else for (const k of ['endedAt', 'result', 'score', 'stars', 'sec']) if (p[k] != null) r[k] = p[k];
+    this._save();
+  }
+  /** [from, to) 에 시작한 접속·판 원본 + 이 기간에 처음 온 방문자 */
+  statsRaw(from, to) {
+    const inRange = (r) => r.startedAt >= from && r.startedAt < to;
+    const sessions = Object.values(this.data.sessions);
+    const first = new Map();
+    for (const s of sessions) if (!first.has(s.vid) || s.startedAt < first.get(s.vid)) first.set(s.vid, s.startedAt);
+    return {
+      sessions: sessions.filter(inRange),
+      plays: Object.values(this.data.plays).filter(inRange),
+      newVids: [...first].filter(([, t]) => t >= from && t < to).map(([v]) => v),
+    };
   }
 }

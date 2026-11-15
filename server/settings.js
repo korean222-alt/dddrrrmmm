@@ -15,6 +15,8 @@ export function makeConfig(env = {}) {
     followCheckMode: ['real', 'manual'].includes(env.FOLLOW_CHECK_MODE) ? env.FOLLOW_CHECK_MODE : 'fake',
     // /admin.html 승인 페이지 비밀번호. 비어 있으면 관리자 기능 꺼짐
     adminToken: env.ADMIN_TOKEN || '',
+    // 이용 통계에서 '하루'를 나누는 시간대 (UTC 와의 차이, 분). 기본 한국 +540
+    statsTzMin: env.STATS_TZ_MIN && Number.isFinite(Number(env.STATS_TZ_MIN)) ? Number(env.STATS_TZ_MIN) : 540,
     // 테스트용 "DM 보낸 척" API. 기본: 개발 환경에서만 켜짐
     devSimulate: bool(env.ALLOW_DEV_SIMULATE, !prod),
     instagramHandle: (env.INSTAGRAM_HANDLE || '').replace(/^@/, ''),

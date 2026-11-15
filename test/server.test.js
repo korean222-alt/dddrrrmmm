@@ -224,3 +224,45 @@ test('개발용 DM 시뮬레이션: 팔로우 안 함 → 팔로우', async () =
   assert.equal(r.json.status, 'verified');
   assert.equal(r.json.player.username, 'dev_tester');
 });
+
+test('이용 통계: 접속·판 기록 → 관리자만 집계 조회', async () => {
+  const a = client();
+  const b = client();
+  const sidA = 'sess-aaaaaaaa-1';
+  // 방문자 A: 접속 + 2단계 시작 → 끝까지, 3단계 시작 후 중간에 나감
+  assert.equal((await a('POST', '/api/track', { sid: sidA, active: 10, ref: 'Instagram.com', device: 'inapp' })).status, 200);
+  assert.equal((await a('POST', '/api/track', { sid: sidA, active: 90, ref: 'x', device: 'mobile', plays: [{ ev: 'start', id: 'play-aaaa-0001', level: 2, mode: 'normal' }] })).status, 200);
+  await a('POST', '/api/track', { sid: sidA, active: 150, plays: [{ ev: 'end', id: 'play-aaaa-0001', level: 2, result: 'clear', score: 1234, stars: 3, sec: 60 }, { ev: 'start', id: 'play-aaaa-0002', level: 3 }] });
+  await a('POST', '/api/track', { sid: sidA, active: 200, plays: [{ ev: 'end', id: 'play-aaaa-0002', level: 3, result: 'quit', sec: 12 }] });
+  // 방문자 B: 시작 알림이 유실되고 끝 알림만 옴 (그래도 한 판으로 셈) + 실패
+  await b('POST', '/api/track', { sid: 'sess-bbbbbbbb-1', active: 30, ref: 'utm', device: 'desktop', plays: [{ ev: 'end', id: 'play-bbbb-0001', level: 'endless', result: 'fail', score: 500, stars: 0, sec: 40 }] });
+  // 이상한 값은 거부/무시
+  assert.equal((await a('POST', '/api/track', { sid: 'x' })).status, 400);
+  assert.equal((await a('POST', '/api/track', 'not json')).status, 400);
+
+  // 관리자만
+  assert.equal((await a('GET', '/api/admin/stats')).status, 401);
+  const st = (await a('GET', '/api/admin/stats?days=7', null, { 'x-admin-token': 'admin-pw' })).json;
+  const t = st.totals;
+  assert.equal(t.visitors, 2);
+  assert.equal(t.newVisitors, 2);
+  assert.equal(t.sessions, 2);
+  assert.equal(t.plays, 3);
+  assert.equal(t.clears, 1);
+  assert.equal(t.fails, 1);
+  assert.equal(t.quits, 1);
+  // 활동 시간은 줄어들지 않고 가장 큰 값 (A 200초, B 30초 → 평균 115)
+  assert.equal(t.avgSessionSec, 115);
+  const lv2 = st.byLevel.find((x) => x.level === '2');
+  assert.equal(lv2.clear, 1);
+  assert.equal(lv2.avgScore, 1234);
+  assert.ok(st.byLevel.find((x) => x.level === 'endless'));
+  assert.equal(st.perDay.length, 7);
+  assert.equal(st.perDay.at(-1).plays, 3);
+  assert.ok(st.refs.length >= 1);
+  // 방문자 번호 쿠키는 다시 발급되지 않음 (같은 브라우저 = 같은 방문자)
+  await a('POST', '/api/track', { sid: 'sess-aaaaaaaa-2', active: 5 });
+  const st2 = (await a('GET', '/api/admin/stats?days=7', null, { 'x-admin-token': 'admin-pw' })).json;
+  assert.equal(st2.totals.visitors, 2);
+  assert.equal(st2.totals.sessions, 3);
+});

@@ -7,10 +7,13 @@ import { generateCode, displayCode, isCode } from './codes.js';
 import { sign, unsign, parseCookies, cookie, newId } from './session.js';
 import { messagesFromWebhook, processDm } from './verify.js';
 import { verifySignature } from './instagram.js';
+import { buildStats } from './stats.js';
 import { getLevel, isGated, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur } from '../public/js/charts.js';
 
 const PLAYER_COOKIE = 'kk_player';
 const SID_COOKIE = 'kk_sid';
+const VID_COOKIE = 'kk_vid'; // 익명 방문자 번호 (이용 통계용, 1년)
+const VID_MAX_AGE = 365 * 24 * 3600;
 const PLAYER_MAX_AGE = 180 * 24 * 3600;
 
 /** 아주 단순한 IP별 요청 제한 (서버/워커 인스턴스 안에서만) */
@@ -46,6 +49,7 @@ export function createHandler(cfg, { store, ig }) {
   const limitCodes = rateLimiter(15, 10 * 60 * 1000);
   const limitScores = rateLimiter(60, 10 * 60 * 1000);
   const limitAdmin = rateLimiter(30, 10 * 60 * 1000);
+  const limitTrack = rateLimiter(200, 10 * 60 * 1000);
 
   /** 관리자 비밀번호 확인 (길이 같을 때만 한 글자씩 비교) */
   function isAdmin(request) {
@@ -168,6 +172,28 @@ export function createHandler(cfg, { store, ig }) {
       return json(200, { verified: false, guest: true, player: { username: name } });
     }
 
+    // 이용 통계 (익명): 접속 시간 + 곡 시작/끝. 이름·아이디·IP 는 저장하지 않음
+    if (p === '/api/track' && m === 'POST') {
+      if (!limitTrack(ip)) return json(429, { error: 'rate_limited' });
+      const t = cleanTrack(await readJson(request));
+      if (!t) return json(400, { error: 'bad_track' });
+      let vid = cookiesOf(request)[VID_COOKIE];
+      if (!/^[A-Za-z0-9_-]{16,32}$/.test(vid || '')) {
+        vid = newId();
+        setCookies.push(cookie(VID_COOKIE, vid, { maxAge: VID_MAX_AGE, secure: cfg.cookieSecure }));
+      }
+      const now = Date.now();
+      await store.trackSession({ sid: t.sid, vid, now, activeSec: t.activeSec, ref: t.ref, device: t.device });
+      for (const e of t.plays) {
+        await store.trackPlay(
+          e.ev === 'start'
+            ? { id: e.id, sid: t.sid, vid, level: e.level, mode: e.mode, startedAt: now }
+            : { id: e.id, sid: t.sid, vid, level: e.level, mode: e.mode, startedAt: now - e.sec * 1000, endedAt: now, result: e.result, score: e.score, stars: e.stars, sec: e.sec }
+        );
+      }
+      return json(200, { ok: true });
+    }
+
     // 관리자: 승인 기다리는 코드 목록 / 코드 승인 (인스타 앱에서 DM·팔로우를 직접 보고 승인)
     if (p.startsWith('/api/admin/')) {
       if (!limitAdmin(ip) && !isAdmin(request)) return json(429, { error: 'rate_limited' });
@@ -175,6 +201,17 @@ export function createHandler(cfg, { store, ig }) {
       if (p === '/api/admin/codes' && m === 'GET') {
         const rows = await store.listPendingCodes(Date.now(), 100);
         return json(200, { codes: rows.map((r) => ({ code: r.code, display: displayCode(r.code, cfg.codePrefix), purpose: r.purpose, createdAt: r.createdAt, expiresAt: r.expiresAt })) });
+      }
+      // 이용 통계: ?days=7 (1~90). 오늘 포함 최근 N일
+      if (p === '/api/admin/stats' && m === 'GET') {
+        const days = Math.min(90, Math.max(1, Math.floor(Number(url.searchParams.get('days'))) || 7));
+        const tzMin = cfg.statsTzMin;
+        const now = Date.now();
+        // 시간대 기준 오늘 0시부터 (days-1)일 전 ~ 지금
+        const dayMs = 24 * 3600 * 1000;
+        const todayStart = Math.floor((now + tzMin * 60000) / dayMs) * dayMs - tzMin * 60000;
+        const from = todayStart - (days - 1) * dayMs;
+        return json(200, { days, ...buildStats(await store.statsRaw(from, now + 1), { from, to: now, tzMin }) });
       }
       if (p === '/api/admin/approve' && m === 'POST') {
         const body = await readJson(request);
@@ -320,6 +357,38 @@ export function createHandler(cfg, { store, ig }) {
     else await work;
     return text(200, 'EVENT_RECEIVED');
   }
+}
+
+/** 통계 전송 내용 검증: 이상한 값은 버리고 크기를 제한 */
+export function cleanTrack(b) {
+  if (!b || typeof b !== 'object') return null;
+  const idOf = (v, max = 40) => (typeof v === 'string' && v.length >= 8 && v.length <= max && /^[\w-]+$/.test(v) ? v : null);
+  const int = (v, max) => (Number.isFinite(v) ? Math.max(0, Math.min(max, Math.round(v))) : 0);
+  const sid = idOf(b.sid);
+  if (!sid) return null;
+  const plays = [];
+  for (const e of (Array.isArray(b.plays) ? b.plays : []).slice(0, 10)) {
+    if (!e || typeof e !== 'object') continue;
+    const id = idOf(e.id);
+    const level = typeof e.level === 'number' || typeof e.level === 'string' ? String(e.level) : '';
+    if (!id || !/^[\w-]{1,20}$/.test(level)) continue;
+    const out = { id, level, mode: e.mode === 'vs' ? 'vs' : 'normal', ev: e.ev === 'end' ? 'end' : 'start' };
+    if (out.ev === 'end') {
+      out.result = ['clear', 'fail', 'quit'].includes(e.result) ? e.result : 'quit';
+      out.score = Number.isFinite(e.score) ? int(e.score, 10_000_000) : null;
+      out.stars = Number.isFinite(e.stars) ? int(e.stars, 3) : null;
+      out.sec = int(e.sec, 6 * 3600);
+    }
+    plays.push(out);
+  }
+  return {
+    sid,
+    activeSec: int(b.active, 24 * 3600),
+    // 어디서 왔나 (utm_source 나 이전 페이지의 도메인). 개인 정보가 섞이지 않게 글자 종류·길이 제한
+    ref: typeof b.ref === 'string' ? b.ref.toLowerCase().replace(/[^a-z0-9._-]/g, '').slice(0, 40) : '',
+    device: ['mobile', 'desktop', 'inapp'].includes(b.device) ? b.device : 'unknown',
+    plays,
+  };
 }
 
 /** 랭킹 닉네임: 앞뒤 공백 빼고 2~12자, 글자·숫자·_ . 공백만 */

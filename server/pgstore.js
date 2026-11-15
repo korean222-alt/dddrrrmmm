@@ -14,7 +14,20 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS scores_rank ON scores (level, score DESC, at)`,
   `CREATE TABLE IF NOT EXISTS used_runs (nonce TEXT PRIMARY KEY, expires_at BIGINT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
+  // 이용 통계 (익명): 접속 1회 / 곡 한 판. vid = 브라우저마다 붙는 무작위 번호
+  `CREATE TABLE IF NOT EXISTS sessions (
+     sid TEXT PRIMARY KEY, vid TEXT NOT NULL, started_at BIGINT NOT NULL, last_at BIGINT NOT NULL,
+     active_sec INTEGER NOT NULL DEFAULT 0, ref TEXT, device TEXT)`,
+  `CREATE INDEX IF NOT EXISTS sessions_started ON sessions (started_at)`,
+  `CREATE INDEX IF NOT EXISTS sessions_vid ON sessions (vid)`,
+  `CREATE TABLE IF NOT EXISTS plays (
+     id TEXT PRIMARY KEY, sid TEXT NOT NULL, vid TEXT NOT NULL, level TEXT NOT NULL, mode TEXT,
+     started_at BIGINT NOT NULL, ended_at BIGINT, result TEXT, score INTEGER, stars INTEGER, sec INTEGER)`,
+  `CREATE INDEX IF NOT EXISTS plays_started ON plays (started_at)`,
 ];
+
+// 이용 통계는 1년 보관
+const STATS_KEEP_MS = 400 * 24 * 3600 * 1000;
 
 // codes 테이블: JS 이름 ↔ 열 이름
 const CODE_COLS = {
@@ -104,6 +117,8 @@ export class PgStore {
   async prune(now = Date.now()) {
     const del = await this.q('DELETE FROM codes WHERE expires_at + 86400000 < $1 RETURNING code', [now]);
     await this.q('DELETE FROM used_runs WHERE expires_at < $1', [now]);
+    await this.q('DELETE FROM plays WHERE started_at < $1', [now - STATS_KEEP_MS]);
+    await this.q('DELETE FROM sessions WHERE started_at < $1', [now - STATS_KEEP_MS]);
     return del.length;
   }
 
@@ -173,6 +188,44 @@ export class PgStore {
   async useRun(nonce, expiresAt) {
     const r = await this.q('INSERT INTO used_runs (nonce, expires_at) VALUES ($1, $2) ON CONFLICT (nonce) DO NOTHING RETURNING nonce', [nonce, expiresAt]);
     return r.length === 1;
+  }
+
+  // ----- 이용 통계 (익명) -----
+  async trackSession({ sid, vid, now, activeSec, ref, device }) {
+    await this.q(
+      `INSERT INTO sessions (sid, vid, started_at, last_at, active_sec, ref, device) VALUES ($1, $2, $3, $3, $4, $5, $6)
+       ON CONFLICT (sid) DO UPDATE SET last_at = EXCLUDED.last_at, active_sec = GREATEST(sessions.active_sec, EXCLUDED.active_sec)`,
+      [sid, vid, now, activeSec, ref || null, device || null]
+    );
+  }
+  async trackPlay(p) {
+    await this.q(
+      `INSERT INTO plays (id, sid, vid, level, mode, started_at, ended_at, result, score, stars, sec)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       ON CONFLICT (id) DO UPDATE SET ended_at = COALESCE(EXCLUDED.ended_at, plays.ended_at), result = COALESCE(EXCLUDED.result, plays.result),
+         score = COALESCE(EXCLUDED.score, plays.score), stars = COALESCE(EXCLUDED.stars, plays.stars), sec = COALESCE(EXCLUDED.sec, plays.sec)`,
+      [p.id, p.sid, p.vid, p.level, p.mode ?? null, p.startedAt, p.endedAt ?? null, p.result ?? null, p.score ?? null, p.stars ?? null, p.sec ?? null]
+    );
+  }
+  /** [from, to) 에 시작한 접속·판 원본 (최대 10만 줄) + 이 기간에 처음 온 방문자 */
+  async statsRaw(from, to) {
+    const sessions = await this.q(
+      `SELECT sid, vid, started_at, active_sec, ref, device FROM sessions WHERE started_at >= $1 AND started_at < $2 LIMIT 100000`,
+      [from, to]
+    );
+    const plays = await this.q(
+      `SELECT id, vid, level, started_at, result, score, stars, sec FROM plays WHERE started_at >= $1 AND started_at < $2 LIMIT 100000`,
+      [from, to]
+    );
+    const fresh = await this.q('SELECT vid FROM sessions GROUP BY vid HAVING MIN(started_at) >= $1 AND MIN(started_at) < $2', [from, to]);
+    return {
+      sessions: sessions.map((r) => ({ sid: r.sid, vid: r.vid, startedAt: Number(r.started_at), activeSec: Number(r.active_sec), ref: r.ref, device: r.device })),
+      plays: plays.map((r) => ({
+        id: r.id, vid: r.vid, level: r.level, startedAt: Number(r.started_at), result: r.result,
+        score: r.score == null ? null : Number(r.score), stars: r.stars == null ? null : Number(r.stars), sec: r.sec == null ? null : Number(r.sec),
+      })),
+      newVids: fresh.map((r) => r.vid),
+    };
   }
 
   flush() {}

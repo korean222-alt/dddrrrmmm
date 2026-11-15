@@ -9,6 +9,7 @@ import { Renderer } from './render.js';
 import { Game, MAX_LIVES, LIFE_REGEN_COMBO } from './game.js';
 import { initAds, showRewarded } from './ads.js';
 import { createApi } from './api.js';
+import { initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay } from './track.js';
 import { CONFIG } from './config.js';
 import { mascotSVG, stickSVG, bassDrumSVG, snareSVG } from './mascot.js';
 import { loadSettings, saveSettings, loadBests, saveBest, load, save, remove } from './storage.js';
@@ -73,6 +74,8 @@ const state = {
 
 // ---------------- 유틸 ----------------
 function show(screenId) {
+  // 곡 도중 다른 화면으로 나가면 '중간에 나감'으로 기록
+  if (screenId !== 'screen-game' && hasOpenPlay()) trackPlayEnd({ result: 'quit' });
   $$('.screen').forEach((s) => s.classList.toggle('active', s.id === screenId));
 }
 function openModal(id) {
@@ -414,11 +417,16 @@ async function startLevel(id) {
       last.score = h.score;
       last.p = p;
     },
-    onEnd: (res) => (state.studio.active ? studioFinish(res) : showResult(res)),
+    onEnd: (res) => {
+      if (!state.studio.active && !res.auto) trackPlayEnd({ result: res.failed || res.died ? 'fail' : 'clear', score: res.score, stars: res.stars });
+      return state.studio.active ? studioFinish(res) : showResult(res);
+    },
     // 영상 찍기 땐 목숨 없음 (녹화 중에 멈추면 안 되니까)
     onDeath: st.active ? null : onDeath,
   });
   state.game.start();
+  // 영상 찍기·자동 연주는 통계에 안 셈
+  if (!st.active && !state.auto) trackPlayStart(id, vs ? 'vs' : 'normal');
 }
 
 /** 단계에 맞게 화면 레인(악기) 세팅 */
@@ -1702,6 +1710,7 @@ async function boot() {
   if (g === 'follow' || g === 'open' || g === 'soft') state.cfg.gateMode = g;
   if (devParam('gatefrom')) state.cfg.gateFromLevel = Number(devParam('gatefrom'));
   initAds(state.cfg);
+  initTracker({ enabled: state.api.mode === 'server' });
   try {
     state.me = await state.api.me();
   } catch {
