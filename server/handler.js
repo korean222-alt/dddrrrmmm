@@ -5,7 +5,13 @@
 
 import { sign, unsign, parseCookies, cookie, newId } from './session.js';
 import { buildStats } from './stats.js';
-import { LEVELS, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur } from '../public/js/charts.js';
+import { LEVELS, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur, ENDLESS_ID, ROUND_BARS, roundBpm, pointsFor } from '../public/js/charts.js';
+
+// 무제한 모드 랭킹은 저장소의 level 0 칸에 '깬 단계 × 1,000,000 + 점수' 한 숫자로 저장 (단계가 먼저, 같으면 점수)
+export const ENDLESS_LEVEL = 0;
+const ENDLESS_MULT = 1_000_000;
+export const endlessKey = (rounds, score) => rounds * ENDLESS_MULT + Math.min(score, ENDLESS_MULT - 1);
+export const endlessParts = (v) => ({ rounds: Math.floor(v / ENDLESS_MULT), score: v % ENDLESS_MULT });
 
 const PLAYER_COOKIE = 'kk_player';
 const VID_COOKIE = 'kk_vid'; // 익명 방문자 번호 (이용 통계용, 1년)
@@ -94,7 +100,7 @@ export function createHandler(cfg, { store }) {
     const p = unsign(cookiesOf(request)[PLAYER_COOKIE], cfg.sessionSecret);
     if (!p || !p.igsid) return null;
     const rec = await store.getPlayer(p.igsid);
-    return rec && rec.username ? { igsid: rec.igsid, username: rec.username } : null;
+    return rec && rec.username ? { igsid: rec.igsid, username: rec.username, ig: rec.ig || null } : null;
   }
 
   // ------------------- API -------------------
@@ -117,7 +123,7 @@ export function createHandler(cfg, { store }) {
     if (p === '/api/me' && m === 'GET') {
       const pl = await getPlayer(request);
       if (!pl) return json(200, { verified: false });
-      return json(200, { verified: false, guest: true, player: { username: pl.username } });
+      return json(200, { verified: false, guest: true, needsIg: !pl.ig, player: { username: pl.username } });
     }
 
     if (p === '/api/logout' && m === 'POST') {
@@ -125,17 +131,21 @@ export function createHandler(cfg, { store }) {
       return json(200, { ok: true });
     }
 
-    // 랭킹용 닉네임. 이미 있으면 새 이름으로 바꿈 (기록은 그대로)
+    // 랭킹용 닉네임 + 인스타 아이디. 이미 있으면 새 이름/아이디로 바꿈 (기록은 그대로)
+    //   인스타 아이디는 운영자가 팔로우했는지 직접 확인하는 데만 쓰고, 랭킹에는 안 보임.
+    //   (처음 만드는 사람은 꼭 필요. 예전에 아이디 없이 참여한 사람은 한 번 채워 넣으면 됨)
     if (p === '/api/guest' && m === 'POST') {
       if (!limitGuest(ip)) return json(429, { error: 'rate_limited' });
       const body = await readJson(request);
       const name = cleanNickname(body.name);
       if (!name) return json(400, { error: 'bad_name' });
       const pl = await getPlayer(request);
+      const ig = cleanInstagram(body.ig);
+      if (!ig && !(pl && pl.ig)) return json(400, { error: 'bad_ig' });
       const igsid = pl ? pl.igsid : 'g_' + newId().replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
-      await store.upsertPlayer(igsid, { username: name });
+      await store.upsertPlayer(igsid, { username: name, ig });
       if (!pl) setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
-      return json(200, { verified: false, guest: true, player: { username: name } });
+      return json(200, { verified: false, guest: true, needsIg: false, player: { username: name } });
     }
 
     // 이용 통계 (익명): 접속 시간 + 곡 시작/끝. 이름·아이디·IP 는 저장하지 않음
@@ -175,13 +185,25 @@ export function createHandler(cfg, { store }) {
         const from = todayStart - (days - 1) * dayMs;
         return json(200, { days, ...buildStats(await store.statsRaw(from, now + 1), { from, to: now, tzMin }) });
       }
+      // 랭킹 참여자 (인스타 아이디로 팔로우 확인 → 안 했으면 삭제)
+      if (p === '/api/admin/players' && m === 'GET') return json(200, { players: await store.listPlayers() });
+      if (p === '/api/admin/players/delete' && m === 'POST') {
+        const b = await readJson(request);
+        if (typeof b.igsid !== 'string' || !b.igsid) return json(400, { error: 'bad_igsid' });
+        return json(200, { ok: await store.deletePlayer(b.igsid) });
+      }
+      if (p === '/api/admin/players/check' && m === 'POST') {
+        const b = await readJson(request);
+        if (typeof b.igsid !== 'string' || !b.igsid) return json(400, { error: 'bad_igsid' });
+        return json(200, { ok: await store.setChecked(b.igsid, b.checked !== false) });
+      }
       return json(404, { error: 'not_found' });
     }
 
     // 3) 판 시작 토큰 (점수 위조 방지용 최소 장치)
     if (p === '/api/runs' && m === 'POST') {
       const body = await readJson(request);
-      const level = getLevel(body.level);
+      const level = body.level === ENDLESS_ID ? { id: ENDLESS_ID } : getLevel(body.level);
       if (!level) return json(400, { error: 'bad_level' });
       const runToken = sign({ l: level.id, t: Date.now(), n: newId() }, cfg.sessionSecret);
       return json(200, { runToken });
@@ -193,6 +215,15 @@ export function createHandler(cfg, { store }) {
       const pl = await getPlayer(request);
       if (!pl) return json(401, { error: 'verify_required' });
       const body = await readJson(request);
+      if (body.level === ENDLESS_ID) {
+        const e = validateEndless(body, cfg);
+        if (!e.ok) return json(400, { error: e.error });
+        if (!(await store.useRun(e.nonce, Date.now() + 2 * 24 * 3600 * 1000))) return json(409, { error: 'run_used' });
+        const out = await store.recordScore(pl.igsid, ENDLESS_LEVEL, { score: endlessKey(e.rounds, e.score), grade: null, maxCombo: 0 });
+        const mine = await store.rankOf(ENDLESS_LEVEL, pl.igsid);
+        const best = endlessParts(out.best);
+        return json(200, { improved: out.improved, best: best.score, rounds: best.rounds, rank: mine ? mine.rank : null });
+      }
       const v = validateScore(body, cfg);
       if (!v.ok) return json(400, { error: v.error });
       if (!(await store.useRun(v.nonce, Date.now() + 2 * 24 * 3600 * 1000))) return json(409, { error: 'run_used' });
@@ -207,6 +238,14 @@ export function createHandler(cfg, { store }) {
       const entries = lb.rows.map((r) => ({ rank: r.rank, username: r.username, score: r.score, levels: r.levels, me: pl ? r.igsid === pl.igsid : false }));
       const mine = pl ? await store.totalRankOf(pl.igsid) : null;
       return json(200, { level: 'total', levels: LEVELS.length, entries, me: mine });
+    }
+
+    if (p === '/api/leaderboard' && m === 'GET' && url.searchParams.get('level') === ENDLESS_ID) {
+      const pl = await getPlayer(request);
+      const lb = await store.leaderboard(ENDLESS_LEVEL, 50);
+      const entries = lb.rows.map((r) => ({ rank: r.rank, username: r.username, ...endlessParts(r.score), me: pl ? r.igsid === pl.igsid : false }));
+      const mine = pl ? await store.rankOf(ENDLESS_LEVEL, pl.igsid) : null;
+      return json(200, { level: ENDLESS_ID, entries, me: mine ? { rank: mine.rank, ...endlessParts(mine.score) } : null });
     }
 
     if (p === '/api/leaderboard' && m === 'GET') {
@@ -253,6 +292,37 @@ export function cleanTrack(b) {
     device: ['mobile', 'desktop', 'inapp'].includes(b.device) ? b.device : 'unknown',
     plays,
   };
+}
+
+/**
+ * 인스타 아이디: @ 나 주소(instagram.com/아이디)로 써도 아이디만 뽑아냄. 영문·숫자·_ . 30자까지. 이상하면 null
+ */
+export function cleanInstagram(v) {
+  let s = String(v || '').trim().toLowerCase();
+  const m = s.match(/instagram\.com\/([^/?#\s]+)/);
+  if (m) s = m[1];
+  s = s.replace(/^@+/, '');
+  return /^[a-z0-9._]{1,30}$/.test(s) ? s : null;
+}
+
+/** 무제한 모드 점수 검증: 서명된 판 토큰 + 그 단계까지 치려면 걸리는 최소 시간 + 점수 상한 */
+export function validateEndless(body, cfg, now = Date.now()) {
+  const run = unsign(body.runToken, cfg.sessionSecret);
+  if (!run || run.l !== ENDLESS_ID) return { ok: false, error: 'bad_run' };
+  const rounds = body.rounds;
+  if (!Number.isInteger(rounds) || rounds < 1 || rounds > 200) return { ok: false, error: 'bad_rounds' };
+  const elapsed = (now - run.t) / 1000;
+  if (elapsed > 6 * 3600) return { ok: false, error: 'run_expired' };
+  // 단계 하나 = ROUND_BARS 마디 × 4박. 깬 단계 전부를 치는 데 걸리는 최소 시간
+  let minSec = 0;
+  for (let r = 1; r <= rounds; r++) minSec += (ROUND_BARS * 4 * 60) / roundBpm(r);
+  if (elapsed < minSec * cfg.minRunRatio) return { ok: false, error: 'too_fast' };
+  // 점수 상한: 단계마다 노트 100개를 전부 PERFECT + 최대 콤보, 빠른 단계 점수 배율(1 + 0.1 × (단계-1))까지
+  const score = body.score;
+  let max = 0;
+  for (let r = 1; r <= rounds + 1; r++) max += 100 * pointsFor('perfect', 100) * (1 + 0.1 * (r - 1));
+  if (!Number.isInteger(score) || score < 0 || score > max) return { ok: false, error: 'bad_score' };
+  return { ok: true, rounds, score, nonce: run.n };
 }
 
 /** 랭킹 닉네임: 앞뒤 공백 빼고 2~12자, 글자·숫자·_ . 공백만 */

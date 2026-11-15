@@ -86,10 +86,14 @@ test('닉네임 → 판 시작 → 점수 등록(조작 거부) → 랭킹', asy
   // 이상한 닉네임 거부
   assert.equal((await c('POST', '/api/guest', { name: 'a' })).status, 400);
   assert.equal((await c('POST', '/api/guest', { name: '<b>x</b>' })).status, 400);
-  const g = await c('POST', '/api/guest', { name: ' 쿵짝왕 ' });
+  // 인스타 아이디는 꼭 필요 (없거나 이상하면 거부)
+  assert.equal((await c('POST', '/api/guest', { name: '쿵짝왕' })).status, 400);
+  assert.equal((await c('POST', '/api/guest', { name: '쿵짝왕', ig: 'a b' })).status, 400);
+  const g = await c('POST', '/api/guest', { name: ' 쿵짝왕 ', ig: '@Kong_Jjak' });
   assert.equal(g.status, 200);
   assert.equal(g.json.player.username, '쿵짝왕');
   assert.equal((await c('GET', '/api/me')).json.guest, true);
+  assert.equal((await c('GET', '/api/me')).json.needsIg, false);
 
   // 서버는 4단계도 막지 않음 (잠금은 안내일 뿐)
   const run = (await c('POST', '/api/runs', { level: 4 })).json.runToken;
@@ -115,7 +119,7 @@ test('닉네임 → 판 시작 → 점수 등록(조작 거부) → 랭킹', asy
   assert.equal(lb.me.rank, 1);
 
   // 닉네임을 바꿔도 기록은 그대로 (같은 사람)
-  assert.equal((await c('POST', '/api/guest', { name: '새이름' })).status, 200);
+  assert.equal((await c('POST', '/api/guest', { name: '새이름' })).status, 200); // 아이디는 이미 있으니 이름만 바꿔도 됨
   const lb2 = (await c('GET', '/api/leaderboard?level=4')).json;
   assert.equal(lb2.entries[0].username, '새이름');
   assert.equal(lb2.entries[0].score, pr.score);
@@ -133,6 +137,69 @@ test('닉네임 → 판 시작 → 점수 등록(조작 거부) → 랭킹', asy
   assert.equal(t2.entries[0].score, pr.score + pr2.score);
   assert.equal(t2.entries[0].levels, 2);
   assert.equal(t2.me.score, pr.score + pr2.score);
+});
+
+test('무제한 모드: 따로 랭킹 (깬 단계 먼저, 같으면 점수) · 총 등수엔 안 들어감', async () => {
+  const c = client();
+  const d = client();
+  await c('POST', '/api/guest', { name: '무제한왕', ig: 'endless_king' });
+  await d('POST', '/api/guest', { name: '둘째', ig: 'second.one' });
+  const run = (await c('POST', '/api/runs', { level: 'endless' })).json.runToken;
+  assert.ok(run);
+  // 조작 거부: 단계 0, 말도 안 되는 점수, 다른 단계용 토큰
+  assert.equal((await c('POST', '/api/scores', { runToken: run, level: 'endless', rounds: 0, score: 100 })).status, 400);
+  assert.equal((await c('POST', '/api/scores', { runToken: run, level: 'endless', rounds: 3, score: 99999999 })).status, 400);
+  const run4 = (await c('POST', '/api/runs', { level: 4 })).json.runToken;
+  assert.equal((await c('POST', '/api/scores', { runToken: run4, level: 'endless', rounds: 3, score: 100 })).status, 400);
+  const ok = await c('POST', '/api/scores', { runToken: run, level: 'endless', rounds: 5, score: 40000 });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.json.rank, 1);
+  assert.equal(ok.json.rounds, 5);
+  assert.equal((await c('POST', '/api/scores', { runToken: run, level: 'endless', rounds: 5, score: 40000 })).status, 409);
+  // 둘째: 같은 단계, 더 높은 점수 → 1위. 첫째는 2위
+  const run2 = (await d('POST', '/api/runs', { level: 'endless' })).json.runToken;
+  assert.equal((await d('POST', '/api/scores', { runToken: run2, level: 'endless', rounds: 5, score: 41000 })).status, 200);
+  const lb = (await c('GET', '/api/leaderboard?level=endless')).json;
+  assert.equal(lb.entries[0].username, '둘째');
+  assert.equal(lb.entries[0].rounds, 5);
+  assert.equal(lb.entries[0].score, 41000);
+  assert.equal(lb.entries[1].me, true);
+  assert.equal(lb.me.rank, 2);
+  // 더 낮은 기록은 그대로
+  const run3 = (await c('POST', '/api/runs', { level: 'endless' })).json.runToken;
+  const low = await c('POST', '/api/scores', { runToken: run3, level: 'endless', rounds: 2, score: 9000 });
+  assert.equal(low.json.improved, false);
+  assert.equal(low.json.rounds, 5);
+  // 총 등수엔 무제한 점수가 안 섞임
+  const tot = (await c('GET', '/api/leaderboard?level=total')).json;
+  assert.ok(tot.entries.every((e) => e.score < 1_000_000 * 5));
+  assert.ok(!tot.entries.some((e) => e.username === '무제한왕'));
+});
+
+test('관리자: 랭킹 참여자 목록(인스타 아이디) → 확인함 → 삭제', async () => {
+  const adm = { 'x-admin-token': 'admin-pw' };
+  const c = client();
+  await c('POST', '/api/guest', { name: '삭제대상', ig: 'del.me' });
+  const run = (await c('POST', '/api/runs', { level: 2 })).json.runToken;
+  await c('POST', '/api/scores', { runToken: run, level: 2, ...perfectRun(2) });
+  // 비밀번호 없으면 거부
+  assert.equal((await c('GET', '/api/admin/players')).status, 401);
+  const list = (await c('GET', '/api/admin/players', null, adm)).json.players;
+  const me = list.find((p) => p.username === '삭제대상');
+  assert.equal(me.ig, 'del.me');
+  assert.equal(me.checkedAt, null);
+  assert.equal(me.levels, 1);
+  // 확인함 → 아래로 (checkedAt 생김)
+  assert.equal((await c('POST', '/api/admin/players/check', { igsid: me.igsid, checked: true }, adm)).json.ok, true);
+  assert.ok((await c('GET', '/api/admin/players', null, adm)).json.players.find((p) => p.igsid === me.igsid).checkedAt);
+  // 아이디를 바꾸면 다시 확인 필요
+  await c('POST', '/api/guest', { name: '삭제대상', ig: 'other_id' });
+  assert.equal((await c('GET', '/api/admin/players', null, adm)).json.players.find((p) => p.igsid === me.igsid).checkedAt, null);
+  // 삭제: 랭킹에서도 사라지고, 그 사람은 다시 닉네임을 정해야 함
+  assert.equal((await c('POST', '/api/admin/players/delete', { igsid: me.igsid }, adm)).json.ok, true);
+  assert.ok(!(await c('GET', '/api/leaderboard?level=2')).json.entries.some((e) => e.username === '삭제대상'));
+  assert.equal((await c('GET', '/api/me')).json.guest, undefined);
+  assert.ok(!(await c('GET', '/api/admin/players', null, adm)).json.players.some((p) => p.igsid === me.igsid));
 });
 
 test('인스타 아이디 등록(DM 코드·웹훅·관리자 승인)은 없어짐', async () => {

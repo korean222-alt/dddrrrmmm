@@ -30,7 +30,7 @@ function serverApi() {
     mode: 'server',
     config: () => http('GET', '/api/config'),
     me: () => http('GET', '/api/me'),
-    guest: (name) => http('POST', '/api/guest', { name }),
+    guest: (name, ig) => http('POST', '/api/guest', { name, ig }),
     startRun: (level) => http('POST', '/api/runs', { level }),
     submitScore: (payload) => http('POST', '/api/scores', payload),
     leaderboard: (level) => http('GET', `/api/leaderboard?level=${level}`),
@@ -52,15 +52,15 @@ function mockApi(cfg) {
       const p = getPlayer();
       return p ? { verified: !p.guest, guest: !!p.guest, player: p } : { verified: false };
     },
-    async guest(name) {
-      const p = { username: String(name).trim(), guest: true };
+    async guest(name, ig) {
+      const p = { username: String(name).trim(), ig, guest: true };
       save('mockPlayer', p);
       return { verified: false, guest: true, player: p };
     },
     async startRun(level) {
       return { runToken: `mock.${level}.${Date.now()}` };
     },
-    async submitScore({ level, score, counts }) {
+    async submitScore({ level, score, counts, rounds }) {
       const p = getPlayer();
       if (!p) {
         const e = new Error('verify_required');
@@ -68,6 +68,13 @@ function mockApi(cfg) {
         throw e;
       }
       const board = load('mockBoard', {});
+      if (level === 'endless') {
+        const prev = board.endless;
+        const improved = !prev || rounds > prev.rounds || (rounds === prev.rounds && score > prev.score);
+        if (improved) board.endless = { username: p.username, rounds, score, at: Date.now() };
+        save('mockBoard', board);
+        return { improved, best: board.endless.score, rounds: board.endless.rounds, rank: 1 };
+      }
       const prev = board[level];
       const improved = !prev || score > prev.score;
       if (improved) board[level] = { username: p.username, score, grade: gradeFor(counts), at: Date.now() };
@@ -76,16 +83,21 @@ function mockApi(cfg) {
       return { best: improved ? score : prev.score, improved, rank: lb.me ? lb.me.rank : null };
     },
     async leaderboard(level) {
+      if (level === 'endless') {
+        const mine = load('mockBoard', {}).endless;
+        const entries = mine ? [{ rank: 1, username: mine.username, rounds: mine.rounds, score: mine.score, me: true }] : [];
+        return { level: 'endless', entries, me: mine ? { rank: 1, rounds: mine.rounds, score: mine.score } : null, sample: true };
+      }
       if (level === 'total') {
         const p = getPlayer();
-        const bs = Object.values(load('mockBoard', {}));
+        const bs = Object.entries(load('mockBoard', {})).filter(([k]) => k !== 'endless').map(([, v]) => v);
         const me = p && bs.length ? { rank: 1, score: bs.reduce((a, b) => a + b.score, 0), levels: bs.length } : null;
         const entries = me ? [{ rank: 1, username: p.username, score: me.score, levels: me.levels, me: true }] : [];
         return { level: 'total', levels: 13, entries, me, sample: true };
       }
       const entries = [];
       const mine = load('mockBoard', {})[level];
-      if (mine) entries.push({ ...mine, me: true });
+      if (mine && level !== 'endless') entries.push({ ...mine, me: true });
       entries.sort((a, b) => b.score - a.score);
       entries.forEach((e, i) => (e.rank = i + 1));
       const me = entries.find((e) => e.me) || null;

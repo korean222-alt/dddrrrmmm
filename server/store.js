@@ -5,13 +5,17 @@
 //          status: pending | not_following | verified | expired
 // sessions: { [sid]: { sid, vid, startedAt, lastAt, activeSec, ref, device } }   ← 이용 통계 (접속 1회)
 // plays:    { [id]: { id, sid, vid, level, mode, startedAt, endedAt, result, score, stars, sec } }  ← 곡 한 판
-// players: { [igsid]: { igsid, username, followVerifiedAt, bests: { [level]: { score, grade, maxCombo, at } } } }
+// players: { [igsid]: { igsid, username, ig(인스타 아이디), createdAt, checkedAt(운영자가 팔로우 확인한 시각), bests: { [level]: { score, grade, maxCombo, at } } } }
+//          level 0 = 무제한 모드 (점수 = 깬 단계 × 1,000,000 + 점수, 서버가 풀어서 보여줌)
 
 import fs from 'node:fs';
 import path from 'node:path';
 
 // 이용 통계는 1년 보관
 export const STATS_KEEP_MS = 400 * 24 * 3600 * 1000;
+
+/** 관리자 목록 정렬: 아직 확인 안 한 사람 먼저, 그 안에선 최근 가입 순 */
+export const sortPlayers = (rows) => rows.sort((a, b) => !!a.checkedAt - !!b.checkedAt || (b.createdAt || 0) - (a.createdAt || 0));
 
 export class JsonStore {
   constructor(file) {
@@ -55,11 +59,43 @@ export class JsonStore {
     return this.data.players[igsid] || null;
   }
   upsertPlayer(igsid, patch) {
-    const p = this.data.players[igsid] || { igsid, username: null, bests: {} };
-    Object.assign(p, patch);
+    const p = this.data.players[igsid] || { igsid, username: null, ig: null, createdAt: Date.now(), checkedAt: null, bests: {} };
+    const { ig, ...rest } = patch;
+    Object.assign(p, rest);
+    // 인스타 아이디가 바뀌면 운영자가 팔로우를 다시 확인해야 함
+    if (ig && ig !== p.ig) {
+      p.ig = ig;
+      p.checkedAt = null;
+    }
     this.data.players[igsid] = p;
     this._save();
     return p;
+  }
+  /** 관리자용 참여자 목록 (확인 안 한 사람 먼저, 최근 가입 순) */
+  listPlayers() {
+    const rows = [];
+    for (const p of Object.values(this.data.players)) {
+      if (!p.username) continue;
+      const bs = Object.entries(p.bests || {}).filter(([lv]) => lv !== '0');
+      rows.push({
+        igsid: p.igsid, username: p.username, ig: p.ig || null, createdAt: p.createdAt || null, checkedAt: p.checkedAt || null,
+        total: bs.reduce((a, [, b]) => a + b.score, 0), levels: bs.length, endless: p.bests && p.bests[0] ? p.bests[0].score : null,
+      });
+    }
+    return sortPlayers(rows);
+  }
+  deletePlayer(igsid) {
+    const had = !!this.data.players[igsid];
+    delete this.data.players[igsid];
+    if (had) this._save();
+    return had;
+  }
+  setChecked(igsid, on) {
+    const p = this.data.players[igsid];
+    if (!p) return false;
+    p.checkedAt = on ? Date.now() : null;
+    this._save();
+    return true;
   }
   recordScore(igsid, level, entry) {
     const p = this.data.players[igsid];
@@ -87,7 +123,7 @@ export class JsonStore {
   totalLeaderboard(limit = 50) {
     const rows = [];
     for (const p of Object.values(this.data.players)) {
-      const bs = Object.values(p.bests || {});
+      const bs = Object.entries(p.bests || {}).filter(([lv]) => lv !== '0').map(([, b]) => b); // 0 = 무제한 모드 (따로 랭킹)
       if (!bs.length || !p.username) continue;
       rows.push({
         igsid: p.igsid, username: p.username, score: bs.reduce((a, b) => a + b.score, 0),

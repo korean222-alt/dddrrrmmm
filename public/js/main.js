@@ -370,7 +370,7 @@ async function startLevel(id) {
   if (state.game) state.game.stop();
   state.runToken = null;
   // 영상 찍기는 팔로우 잠금 없이 (계정 주인이 촬영용으로 씀) → 서버 판 토큰도 안 받음
-  if (!lv.challenge && !st.active) state.api
+  if ((!lv.challenge || lv.endless) && !st.active) state.api
     .startRun(id)
     .then((r) => (state.runToken = r.runToken))
     .catch((e) => {
@@ -675,11 +675,13 @@ function showChallengeResult(res) {
   const prev = best.prev && !best.isNew ? ` · 내 최고 Lv.${best.prev.roundsCleared || 0} 클리어` : '';
   $('#res-meta').innerHTML = `최고 속도 ${res.bpmReached} BPM · 최대 콤보 ${res.maxCombo} · 정확도 ${(res.accuracy * 100).toFixed(1)}%${prev}${state.auto ? '<br>(자동 연주 — 기록 저장 안 됨)' : ''}`;
   $('#btn-next').hidden = true;
-  $('#btn-rank').hidden = true;
+  // 무제한 모드는 랭킹이 따로 있어서 끝나면 알아서 올려요 (Lv.1 이상 깼을 때)
+  $('#btn-rank').hidden = state.auto || !res.endless;
   $('#btn-vs').hidden = true;
   show('screen-result');
   renderLevels();
   animateResult({ ...res, stars: res.diamonds }, null, true);
+  if (!state.auto && res.endless) setTimeout(() => submitRank(res), 1800);
 }
 
 const clampOffset = (ms) => Math.max(-200, Math.min(200, Math.round(ms / 5) * 5));
@@ -816,24 +818,27 @@ function openIncomingVs(ch) {
 
 /** 랭킹에 내 점수 올리기. 끝까지 친 판은 결과가 뜨면 알아서 올라가요 (닉네임이 있을 때) */
 async function submitRank(r = state.lastResult) {
-  if (!r || r.auto || r.challenge || r.failed || r.submitted || r.submitting) return;
+  // 무제한 모드는 목숨이 다해 끝나도 올림 (최소 Lv.1 은 깨야). 영상용 챌린지(ch4 등)는 안 올림
+  const endless = !!r && r.levelId === ENDLESS_ID;
+  if (!r || r.auto || (r.challenge && !endless) || (r.failed && !endless) || r.submitted || r.submitting) return;
+  if (endless && !(r.roundsCleared >= 1)) return;
   if (demoOnly() || state.api.mode !== 'server') return;
-  if (!state.me.guest) {
+  // 닉네임·인스타 아이디가 없으면 한 번 물어봄 (예전에 아이디 없이 참여한 사람도)
+  if (!state.me.guest || state.me.needsIg) {
     askNickname();
     return;
   }
   if (!r.runToken) return;
   r.submitting = true;
   try {
-    const out = await state.api.submitScore({
-      runToken: r.runToken,
-      level: r.levelId,
-      score: r.score,
-      maxCombo: r.maxCombo,
-      counts: r.counts,
-    });
+    const out = await state.api.submitScore(
+      endless
+        ? { runToken: r.runToken, level: ENDLESS_ID, rounds: r.roundsCleared, score: r.score }
+        : { runToken: r.runToken, level: r.levelId, score: r.score, maxCombo: r.maxCombo, counts: r.counts }
+    );
     r.submitted = true;
-    toast(out.improved ? `랭킹에 올라갔어요! 현재 ${out.rank}위 🏆` : `내 최고 기록(${fmt(out.best)})이 그대로 유지돼요 · ${out.rank}위`, 3000);
+    if (endless) toast(out.improved ? `무제한 랭킹에 올라갔어요! Lv.${out.rounds} 클리어 · ${out.rank}위 🏆` : `내 최고 기록(Lv.${out.rounds} 클리어)이 그대로 유지돼요 · ${out.rank}위`, 3200);
+    else toast(out.improved ? `랭킹에 올라갔어요! 현재 ${out.rank}위 🏆` : `내 최고 기록(${fmt(out.best)})이 그대로 유지돼요 · ${out.rank}위`, 3000);
   } catch (e) {
     if (e.status === 401) {
       state.me = { verified: false };
@@ -856,6 +861,9 @@ function askNickname(force = false) {
 function openJoin() {
   $('#join-err').hidden = true;
   $('#join-name').value = state.me.player?.username || load('lastNick', '');
+  $('#join-ig').value = load('lastIg', '');
+  $('#join-rule-handle').textContent = atHandle();
+  $('#join-insta').href = handle() ? `https://www.instagram.com/${handle()}/` : 'https://www.instagram.com/';
   openModal('modal-join');
   setTimeout(() => $('#join-name').focus(), 50);
 }
@@ -867,15 +875,22 @@ async function submitJoin() {
   };
   if ([...name].length < 2) return err('2자 이상으로 써 주세요.');
   if (!/^[\p{L}\p{N}_. ]+$/u.test(name)) return err('한글·영문·숫자·_ . 만 쓸 수 있어요.');
+  // @ 나 인스타 주소로 써도 아이디만 뽑음 (서버도 같은 규칙으로 한 번 더 확인)
+  let ig = $('#join-ig').value.trim().toLowerCase();
+  const um = ig.match(/instagram\.com\/([^/?#\s]+)/);
+  if (um) ig = um[1];
+  ig = ig.replace(/^@+/, '');
+  if (!/^[a-z0-9._]{1,30}$/.test(ig)) return err('인스타 아이디를 정확히 써 주세요. (영문·숫자·_ . 만)');
   try {
-    state.me = await state.api.guest(name);
+    state.me = await state.api.guest(name, ig);
     save('lastNick', name);
+    save('lastIg', ig);
     closeModal('modal-join');
     refreshTitle();
-    toast(`${name} 님으로 랭킹에 참여해요!`);
+    toast(`${name} 님으로 랭킹에 참여해요! ${atHandle()} 팔로우 꼭 해주세요 🙏`, 3200);
     submitRank();
   } catch (e) {
-    err(e.status === 429 ? '잠시 후 다시 시도해 주세요.' : '등록하지 못했어요. 다시 시도해 주세요.');
+    err(e.status === 429 ? '잠시 후 다시 시도해 주세요.' : e.data && e.data.error === 'bad_ig' ? '인스타 아이디를 정확히 써 주세요.' : '등록하지 못했어요. 다시 시도해 주세요.');
   }
 }
 
@@ -961,6 +976,7 @@ async function openRank(levelId) {
   state.rankLevel = levelId || state.rankLevel || 1;
   $('#rank-tabs').innerHTML =
     `<button role="tab" data-rank="total" aria-selected="${state.rankLevel === 'total'}">🏆 총 등수</button>` +
+    `<button role="tab" data-rank="endless" aria-selected="${state.rankLevel === ENDLESS_ID}">💎 무제한</button>` +
     LEVELS.map((l) => `<button role="tab" data-rank="${l.id}" aria-selected="${l.id === state.rankLevel}">${l.id}단계</button>`).join('');
   openModal('modal-rank');
   await loadRank();
@@ -977,8 +993,18 @@ async function loadRank() {
   try {
     const data = await state.api.leaderboard(state.rankLevel);
     const total = state.rankLevel === 'total';
+    const endless = state.rankLevel === ENDLESS_ID;
     if (!data.entries.length) list.innerHTML = '<div class="rank-empty">아직 아무도 없어요. 첫 1위의 주인공이 되어보세요!</div>';
     else if (total) list.innerHTML = totalRankHtml(data);
+    else if (endless)
+      list.innerHTML = data.entries
+        .slice(0, 50)
+        .map(
+          (e) => `<div class="rank-row ${e.rank <= 3 ? 'top' + e.rank : ''} ${e.me ? 'me' : ''}">
+          <span class="r">${e.rank}</span><span class="u">${escapeHtml(e.username)}</span>
+          <span class="s">${fmt(e.score)}</span><span class="g endless">Lv.${e.rounds}</span></div>`
+        )
+        .join('');
     else
       list.innerHTML = data.entries
         .slice(0, 50)
@@ -991,6 +1017,7 @@ async function loadRank() {
     const foot = [];
     if (data.sample && isLocalDev()) foot.push('(개발 모드: 서버 없이 내 기록만 보여요)');
     if (total) foot.push('단계별 최고점을 모두 더한 점수예요. 더 많은 단계를 높은 점수로 칠수록 올라가요!');
+    if (endless) foot.push('무제한 모드 랭킹이에요. 더 높은 단계(Lv.)까지 깬 사람이 위, 같으면 점수가 높은 사람이 위예요.');
     if (data.me) foot.push(`내 순위: ${data.me.rank}위.`);
     if (state.me.guest) foot.push(`<b>${escapeHtml(state.me.player?.username)}</b> 님으로 참여 중 · 끝까지 치면 점수가 알아서 올라가요.`);
     else foot.push('닉네임을 정하면 끝까지 친 점수가 알아서 랭킹에 올라가요. <button class="link" data-action="rank-join">닉네임 정하기</button>');
@@ -1456,7 +1483,10 @@ const ACTIONS = {
     show('screen-levels');
   },
   next: () => (typeof state.levelId === 'number' && getLevel(state.levelId + 1) ? tryStart(state.levelId + 1) : tryStart(ENDLESS_ID)),
-  'submit-rank': () => openRank(state.lastResult && typeof state.lastResult.levelId === 'number' ? state.lastResult.levelId : 1),
+  'submit-rank': () => {
+    const id = state.lastResult && state.lastResult.levelId;
+    openRank(id === ENDLESS_ID || typeof id === 'number' ? id : 1);
+  },
   'close-join': () => closeModal('modal-join'),
   'rank-join': () => {
     closeModal('modal-rank');
@@ -1537,7 +1567,7 @@ function bindActions() {
     }
     const tab = e.target.closest('[data-rank]');
     if (tab) {
-      state.rankLevel = tab.dataset.rank === 'total' ? 'total' : Number(tab.dataset.rank);
+      state.rankLevel = /^\d+$/.test(tab.dataset.rank) ? Number(tab.dataset.rank) : tab.dataset.rank;
       $$('#rank-tabs button').forEach((b) => b.setAttribute('aria-selected', b === tab));
       loadRank();
       return;

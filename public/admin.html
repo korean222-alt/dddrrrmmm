@@ -64,6 +64,14 @@
     </div>
 
     <div id="app" hidden>
+      <div class="tabs" id="main-tabs">
+        <button type="button" data-tab="stats" class="on">이용 통계</button>
+        <button type="button" data-tab="players">랭킹 참여자</button>
+      </div>
+      <section id="tab-players" hidden>
+        <p>인스타 아이디를 눌러 팔로우했는지 확인하세요. 안 했으면 <b>삭제</b> (랭킹과 점수가 같이 지워져요), 했으면 <b>확인함</b>을 누르면 아래로 내려가요. 가입 후 24시간이 넘은 미확인 참여자는 빨간 글씨로 보여요.</p>
+        <div class="card"><div class="head"><b id="players-count"></b><button type="button" class="ghost" id="players-reload">새로고침</button></div><ul id="players"></ul></div>
+      </section>
       <section id="tab-stats">
         <div class="tabs" id="ranges">
           <button type="button" data-days="1">오늘</button>
@@ -157,6 +165,58 @@
       days = Number(b.dataset.days);
       document.querySelectorAll('#ranges [data-days]').forEach((x) => x.classList.toggle('on', x === b));
       loadStats();
+    });
+
+    // ---------- 랭킹 참여자 ----------
+    const ago = (t) => {
+      if (!t) return '기존 참여자';
+      const m = Math.floor((Date.now() - t) / 60000);
+      return m < 60 ? `${Math.max(m, 0)}분 전 가입` : m < 1440 ? `${Math.floor(m / 60)}시간 전 가입` : `${Math.floor(m / 1440)}일 전 가입`;
+    };
+    async function loadPlayers() {
+      const r = await call('GET', '/api/admin/players');
+      if (r.status === 401) return logout('비밀번호가 맞지 않아요.');
+      if (r.status !== 200) {
+        $('#players').innerHTML = '<li class="empty">불러오지 못했어요.</li>';
+        return;
+      }
+      const ps = r.data.players || [];
+      const todo = ps.filter((p) => !p.checkedAt).length;
+      $('#players-count').textContent = `참여자 ${ps.length}명 · 확인 필요 ${todo}명`;
+      $('#players').innerHTML = ps.length
+        ? ps.map((p) => {
+            const late = !p.checkedAt && p.createdAt && Date.now() - p.createdAt > 24 * 3600 * 1000;
+            const id = p.ig
+              ? `<a href="https://www.instagram.com/${esc(p.ig)}/" target="_blank" rel="noopener" style="color:var(--pink)">@${esc(p.ig)}</a>`
+              : '<span class="meta">인스타 아이디 없음 (예전 참여자)</span>';
+            return `<li data-igsid="${esc(p.igsid)}"><div><div><b>${esc(p.username)}</b> ${id}</div>
+              <div class="meta" ${late ? 'style="color:var(--bad)"' : ''}>${p.checkedAt ? '✅ 확인함' : '확인 필요'} · ${ago(p.createdAt)} · 총 ${fmtN(p.total)}점 (${p.levels}단계)${p.endless != null ? ' · 무제한 Lv.' + Math.floor(p.endless / 1000000) : ''}</div></div>
+              <div style="display:flex;gap:6px">${p.checkedAt ? '<button type="button" class="ghost" data-do="uncheck">확인 취소</button>' : '<button type="button" data-do="check">확인함</button>'}<button type="button" class="ghost" data-do="delete" style="color:var(--bad)">삭제</button></div></li>`;
+          }).join('')
+        : '<li class="empty">아직 참여자가 없어요.</li>';
+    }
+    $('#players').addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-do]');
+      if (!b) return;
+      const li = b.closest('li');
+      const igsid = li.dataset.igsid;
+      const name = li.querySelector('b').textContent;
+      if (b.dataset.do === 'delete') {
+        if (!confirm(`"${name}" 님을 삭제할까요?\n닉네임과 모든 랭킹 기록이 지워져요.`)) return;
+        await call('POST', '/api/admin/players/delete', { igsid });
+      } else {
+        await call('POST', '/api/admin/players/check', { igsid, checked: b.dataset.do === 'check' });
+      }
+      loadPlayers();
+    });
+    $('#players-reload').addEventListener('click', loadPlayers);
+    $('#main-tabs').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-tab]');
+      if (!b) return;
+      document.querySelectorAll('#main-tabs [data-tab]').forEach((x) => x.classList.toggle('on', x === b));
+      $('#tab-stats').hidden = b.dataset.tab !== 'stats';
+      $('#tab-players').hidden = b.dataset.tab !== 'players';
+      if (b.dataset.tab === 'players') loadPlayers();
     });
 
     function logout(text) {

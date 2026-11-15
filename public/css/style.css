@@ -415,3 +415,8 @@ input[type='range'] { width: 100%; accent-color: var(--grass); height: 28px; }
 .pod2 .step { background: #8a96a8; padding: 9px 0; } .pod3 .step { background: #c97b3c; }
 .pod.me { box-shadow: inset 0 0 0 2px var(--grass); }
 .rank-row .g.small { width: auto; font-size: 13px; color: var(--muted); }
+
+.join-rule { margin: 0 0 8px; line-height: 1.6; background: var(--cream); border-radius: 12px; padding: 10px 12px; font-size: 15px; }
+#join-insta { margin-bottom: 12px; text-decoration: none; }
+#join-form + .muted { margin-top: 14px; }
+.rank-row .g.endless { width: auto; color: #7a3cc4; white-space: nowrap; }

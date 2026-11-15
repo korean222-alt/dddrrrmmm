@@ -4,6 +4,10 @@
 
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS players (igsid TEXT PRIMARY KEY, username TEXT, follow_verified_at BIGINT)`,
+  // ig = 인스타 아이디(랭킹 참여 때 받음), checked_at = 운영자가 팔로우를 확인한 시각
+  `ALTER TABLE players ADD COLUMN IF NOT EXISTS ig TEXT`,
+  `ALTER TABLE players ADD COLUMN IF NOT EXISTS created_at BIGINT`,
+  `ALTER TABLE players ADD COLUMN IF NOT EXISTS checked_at BIGINT`,
   `CREATE TABLE IF NOT EXISTS scores (
      igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, grade TEXT, max_combo INTEGER,
      at BIGINT NOT NULL, PRIMARY KEY (igsid, level))`,
@@ -74,15 +78,42 @@ export class PgStore {
   // ----- players -----
   async getPlayer(igsid) {
     const r = await this.one('SELECT * FROM players WHERE igsid = $1', [igsid]);
-    return r ? { igsid: r.igsid, username: r.username } : null;
+    return r ? { igsid: r.igsid, username: r.username, ig: r.ig || null } : null;
   }
   async upsertPlayer(igsid, patch) {
+    // 인스타 아이디가 바뀌면 운영자가 팔로우를 다시 확인해야 함 (checked_at 비움)
     await this.q(
-      `INSERT INTO players (igsid, username) VALUES ($1, $2)
-       ON CONFLICT (igsid) DO UPDATE SET username = COALESCE(EXCLUDED.username, players.username)`,
-      [igsid, patch.username ?? null]
+      `INSERT INTO players (igsid, username, ig, created_at) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (igsid) DO UPDATE SET username = COALESCE(EXCLUDED.username, players.username),
+         checked_at = CASE WHEN EXCLUDED.ig IS NOT NULL AND EXCLUDED.ig IS DISTINCT FROM players.ig THEN NULL ELSE players.checked_at END,
+         ig = COALESCE(EXCLUDED.ig, players.ig)`,
+      [igsid, patch.username ?? null, patch.ig ?? null, Date.now()]
     );
     return this.getPlayer(igsid);
+  }
+  /** 관리자용 참여자 목록 (확인 안 한 사람 먼저, 최근 가입 순) */
+  async listPlayers() {
+    const rows = await this.q(
+      `SELECT p.igsid, p.username, p.ig, p.created_at, p.checked_at,
+         COALESCE(SUM(s.score) FILTER (WHERE s.level > 0), 0) AS total, COUNT(s.level) FILTER (WHERE s.level > 0) AS levels,
+         MAX(s.score) FILTER (WHERE s.level = 0) AS endless
+       FROM players p LEFT JOIN scores s ON s.igsid = p.igsid WHERE p.username IS NOT NULL
+       GROUP BY p.igsid, p.username, p.ig, p.created_at, p.checked_at
+       ORDER BY (p.checked_at IS NULL) DESC, p.created_at DESC NULLS LAST LIMIT 1000`
+    );
+    return rows.map((r) => ({
+      igsid: r.igsid, username: r.username, ig: r.ig || null, createdAt: num(r.created_at) ?? null, checkedAt: num(r.checked_at) ?? null,
+      total: Number(r.total), levels: Number(r.levels), endless: r.endless == null ? null : Number(r.endless),
+    }));
+  }
+  async deletePlayer(igsid) {
+    await this.q('DELETE FROM scores WHERE igsid = $1', [igsid]);
+    const r = await this.q('DELETE FROM players WHERE igsid = $1 RETURNING igsid', [igsid]);
+    return r.length === 1;
+  }
+  async setChecked(igsid, on) {
+    const r = await this.q('UPDATE players SET checked_at = $2 WHERE igsid = $1 RETURNING igsid', [igsid, on ? Date.now() : null]);
+    return r.length === 1;
   }
   async recordScore(igsid, level, entry) {
     if (!(await this.getPlayer(igsid))) return null;
@@ -112,7 +143,7 @@ export class PgStore {
   async totalLeaderboard(limit = 50) {
     const rows = await this.q(
       `SELECT s.igsid, p.username, SUM(s.score) AS score, COUNT(*) AS levels, MAX(s.at) AS at
-       FROM scores s JOIN players p ON p.igsid = s.igsid WHERE p.username IS NOT NULL
+       FROM scores s JOIN players p ON p.igsid = s.igsid WHERE p.username IS NOT NULL AND s.level > 0
        GROUP BY s.igsid, p.username ORDER BY score DESC, at ASC LIMIT $1`,
       [limit]
     );
@@ -121,13 +152,13 @@ export class PgStore {
   async totalRankOf(igsid) {
     const mine = await this.one(
       `SELECT SUM(s.score) AS score, COUNT(*) AS levels, MAX(s.at) AS at FROM scores s JOIN players p ON p.igsid = s.igsid
-       WHERE s.igsid = $1 AND p.username IS NOT NULL`,
+       WHERE s.igsid = $1 AND p.username IS NOT NULL AND s.level > 0`,
       [igsid]
     );
     if (!mine || mine.score == null) return null;
     const ahead = await this.one(
       `SELECT COUNT(*) AS n FROM (SELECT SUM(s.score) AS t, MAX(s.at) AS a FROM scores s JOIN players p ON p.igsid = s.igsid
-         WHERE p.username IS NOT NULL GROUP BY s.igsid) x WHERE x.t > $1 OR (x.t = $1 AND x.a < $2)`,
+         WHERE p.username IS NOT NULL AND s.level > 0 GROUP BY s.igsid) x WHERE x.t > $1 OR (x.t = $1 AND x.a < $2)`,
       [Number(mine.score), Number(mine.at)]
     );
     return { rank: Number(ahead ? ahead.n : 0) + 1, score: Number(mine.score), levels: Number(mine.levels) };
