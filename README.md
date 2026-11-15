@@ -124,8 +124,9 @@ PC에서는 `F`/`←` = 킥, `J`/`→` = 스네어, `Space` = 동시, `Esc` = �
 1. ✅ **게임만** — 1~6단계, 쿵/짝 두 레인, 콤보, 점수, 등급, 결과 카드 공유
 2. ✅ **서버 인터페이스** — `checkFollow(igsid)`는 지금 **항상 "확인됨"** 을 돌려주는 가짜(`FOLLOW_CHECK_MODE=fake`). 게임은 모두 이 함수를 거칩니다.
 3. ✅ **서버 붙이기** — Vercel 함수 + Neon Postgres (Neon 연결만 하면 랭킹·인증 저장)
-4. ⏳ **진짜 팔로우 확인** — 서버 설정은 이미 `GATE_MODE=follow` + `FOLLOW_CHECK_MODE=real` (4단계부터 잠김). Meta 앱 연결만 남음 → [docs/instagram-setup.md](docs/instagram-setup.md).
-   Meta 연결 전에는 DM 이 안 들어오니 4단계부터는 아무도 못 열어요(의도). 영상 찍기는 잠금 없이 됨.
+4. ✅ **진짜 팔로우 확인** — Meta 앱 연결 완료, 테스터 계정으로 DM 인증 → 4단계 열림 확인됨 (`GATE_MODE=follow` + `FOLLOW_CHECK_MODE=real`) → [docs/instagram-setup.md](docs/instagram-setup.md).
+   지금은 앱이 **개발 모드**라 테스터로 등록한 계정만 인증돼요. 영상 찍기는 잠금 없이 됨.
+5. ⏳ **모든 사람에게 열기** — 앱 심사(Advanced Access) + 라이브 모드 전환 (문서 6번). 토큰은 60일마다 갱신.
 
 ## 팔로우 인증 흐름
 

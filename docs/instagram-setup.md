@@ -30,14 +30,20 @@
 
 1. https://developers.facebook.com → 내 앱 → **앱 만들기**
 2. 사용 사례: **"Instagram에서 메시지 및 콘텐츠 관리"** → 앱 이름 아무거나(예: okaystra)
-3. 앱 대시보드 → **Instagram → "Instagram 로그인을 통한 API 설정"**
-   1. **액세스 토큰 생성**: "계정 추가" → @ok_aystra 로 로그인 → 토큰 복사 (장기 토큰, 60일)
-   2. **웹훅 구성**
+3. 앱 대시보드 → **Use cases → Customize → API setup with Unified login** (새 앱은 "Instagram 로그인" 방식이 아니라 이 메뉴만 나와요)
+   - 위쪽 **Redirect URL** 칸은 쓰지 않으니 비워 둬도 돼요 (OAuth 로그인을 안 씀).
+   1. **테스터 등록** (개발 모드 필수): **Add account** 를 누르면 "Add people to your app" 창이 떠요 → **Instagram Tester** 선택 → 인스타 아이디(`@` 빼고) 입력 → 목록에서 계정 클릭 → Add.
+      - **@ok_aystra** 와 **테스트로 DM 보낼 다른 계정** 둘 다 추가해야 해요.
+      - 각 계정으로 로그인해서 초대 **수락**: https://www.instagram.com/accounts/manage_access/ → **테스터 초대** 탭 (웹에만 있고 모바일 앱엔 안 보일 수 있어요. 다른 계정이 로그인돼 있으면 시크릿 창에서).
+   2. **액세스 토큰 생성**: 수락 후 새로고침 → 목록의 **ok_aystra** 줄에서 **Generate token** → "I understand" 체크 → **Copy** (한 번만 보여줘요, Done 누르기 전에 Vercel 에 붙여넣기). 장기 토큰, 60일. 토큰은 `EAAS…` 로 시작해요.
+   3. **웹훅 구성**
       - 콜백 URL: `https://kongkong-drum.vercel.app/webhook`
       - 확인 토큰: `okaystra-Apkm9hqeZCdQ` (`api/server.js` 의 `IG_VERIFY_TOKEN`)
-      - **확인 및 저장** → 성공하면 필드 목록에서 **messages 구독**
+      - **Verify and save** → 성공하면 필드 목록에서 **messages 구독** 토글 On
       - (1번 Neon 연결이 먼저 돼 있어야 확인이 통과해요)
-   3. 같은 페이지의 **Instagram 앱 시크릿** 복사
+      - 필드 목록의 **messages → Test → Send to server** 로 서버까지 오는지 먼저 확인할 수 있어요 (Vercel Logs 에 `POST /webhook`).
+   4. ★ **계정별 웹훅 구독**: 2번 토큰 목록의 **ok_aystra 줄 "Webhook Subscription" 토글을 On**. 이게 꺼져 있으면 진짜 DM 이 서버로 아예 안 와요 (Test 는 와도).
+   5. **앱 시크릿**: 앱 설정 → 기본 설정(**App settings → Basic**)의 **App secret → Show** 복사. (Instagram 설정 화면에 "Instagram app secret" 이 따로 보이면 그 값)
 
 ## 4. 비밀값 넣기 (Vercel)
 
@@ -45,10 +51,18 @@ kongkong-drum → **Settings → Environment Variables** → 추가 (Production,
 
 | 이름 | 값 |
 |---|---|
-| `IG_ACCESS_TOKEN` | 3-3-1 에서 복사한 토큰 |
-| `IG_APP_SECRET` | 3-3-3 의 Instagram 앱 시크릿 |
+| `IG_ACCESS_TOKEN` | 3-2 에서 복사한 토큰 |
+| `IG_APP_SECRET` | 3-5 의 앱 시크릿 |
 
-저장 후 **Redeploy**. (`SESSION_SECRET` 은 안 넣어도 됨 — DB 에 자동 생성)
+그리고 일반(Config) 변수 하나 더 — 토큰이 `EAAS…` 형식이라 Facebook 쪽 주소로 불러야 해요:
+
+| 이름 | 값 |
+|---|---|
+| `IG_GRAPH_HOST` | `graph.facebook.com` |
+
+(토큰이 `IGAA…` 로 시작하는 Instagram 로그인 방식 토큰이면 기본값 `graph.instagram.com` 그대로 두면 돼요.)
+
+저장 후 **Redeploy** — 환경변수는 새 배포부터 적용돼요. 로그의 배포 ID(`dpl_…`)가 바뀌었는지 보면 확인할 수 있어요. (`SESSION_SECRET` 은 안 넣어도 됨 — DB 에 자동 생성)
 
 ## 5. 테스트 (개발 모드)
 
@@ -61,7 +75,9 @@ kongkong-drum → **Settings → Environment Variables** → 추가 (Production,
 | 로그 | 뜻 / 할 일 |
 |---|---|
 | 아무것도 안 찍힘 | 웹훅 구독(messages) 확인, 테스터 초대 수락 확인, 인스타 "연결된 도구 허용" 확인 |
+| `/webhook` 요청이 아예 없음 (Meta 의 Test 는 옴) | 3-4 계정별 Webhook Subscription 이 Off, 또는 보낸 계정이 테스터가 아님/초대 미수락 |
 | `서명 불일치` (401) | `IG_APP_SECRET` 이 틀림. 앱 설정 → 기본 설정 → 앱 시크릿 값으로도 시도 |
+| `Invalid OAuth access token - Cannot parse access token` (190) | 토큰 값이 틀리게 들어갔거나(공백·잘림·시크릿을 넣음), `EAAS…` 토큰인데 `IG_GRAPH_HOST=graph.facebook.com` 이 없음. 수정 후 Redeploy |
 | `is_user_follow_business 값이 오지 않았습니다` | 권한 부족 → 6번(앱 심사)에서 Advanced Access 필요 |
 | `IG_ACCESS_TOKEN 이 설정되지 않았습니다` | 4번 비밀값 + Redeploy 확인 |
 | `DM verified` | 성공 🎉 |
@@ -79,6 +95,8 @@ kongkong-drum → **Settings → Environment Variables** → 추가 (Production,
 
 ## 운영 팁
 
+- 인증(`verified`)은 사이트가 **쿠키로 기억**해요. 이미 열린 기기에서는 나중에 언팔로우해도 계속 열려 있어요(인증 순간에만 확인). 언팔로우 상태를 테스트하려면 시크릿 창 등 새 세션으로.
+- DM 은 보낸 사람이 DM 을 보내는 동안 사이트 탭을 닫아도 돼요. 코드는 10분 유효, 같은 브라우저 세션에서 열어야 인증이 이어져요(인스타 인앱 브라우저는 닫으면 세션이 바뀔 수 있으니 사파리/크롬 권장).
 - 장기 토큰은 **60일**이면 만료돼요. 만료 전에 3-3-1 에서 다시 생성해서 `IG_ACCESS_TOKEN` 바꾸고 Redeploy.
 - 코드가 없는 일반 DM 에는 서버가 답장하지 않아요.
 - 랭킹 1위를 릴스에 쓰기 전엔 그 계정에 DM 으로 한 번 확인하세요.
