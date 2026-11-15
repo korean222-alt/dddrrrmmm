@@ -933,25 +933,46 @@ function openFollowGate(level, onDone, { early = false } = {}) {
     : `<b>${igWho()}</b> 팔로우하면 ${f <= 1 ? '모든 단계가' : `${f}~${LEVELS.length}단계가`} 바로 열려요. 새 곡도 인스타에 제일 먼저 올라와요!`;
   $('#follow-level').textContent = `${lv.id}단계 · ${lv.composer} ${lv.name}`;
   $('#follow-mascots').innerHTML = mascotSVG('kong', 'idle') + mascotSVG('jjak', 'idle');
-  $('#follow-done').hidden = true;
+  // '확인 중' 연출로 바뀌었던 버튼을 처음 모양으로
+  const btn = $('#follow-go');
+  if (followGoHtml === null) followGoHtml = btn.innerHTML;
+  btn.innerHTML = followGoHtml;
+  btn.disabled = false;
   openModal('modal-follow');
 }
 
-// 팔로우하러 가기를 누르고 이만큼(ms)은 지나야 '시작하기'가 열려요 (눌러보기만 하고 바로 돌아오는 걸 막음)
-const FOLLOW_WAIT_MS = 5000;
+// 팔로우하러 가기를 누르면 '확인 중이에요 (최대 10초)' 로 바뀌었다가 이만큼(ms) 뒤에 다음으로 넘어가요.
+// 진짜 팔로우 확인은 아니고(인스타가 확인 방법을 안 줌) 연출이에요. 진짜 확인은 랭킹 참여자를 운영자가 직접 해요.
+const FOLLOW_CHECK_MS = 15000;
+let followGoHtml = null;
 
 function followGo() {
+  const f = state.follow;
+  if (f && f.pending) return; // 이미 확인 중
   const url = handle() ? `https://www.instagram.com/${handle()}/` : 'https://www.instagram.com/';
-  if (state.follow) {
-    state.follow.pending = true;
-    state.follow.at = Date.now();
+  if (f) {
+    f.pending = true;
+    f.at = Date.now();
+    const btn = $('#follow-go');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> 확인 중이에요… (최대 10초)';
+    setTimeout(() => {
+      if (state.follow === f && f.pending) btn.innerHTML = '<span class="spinner"></span> 거의 다 됐어요…';
+    }, 10000);
+    setTimeout(() => tryFinishFollow(f), FOLLOW_CHECK_MS);
   }
   save('softPending', { at: Date.now(), levelId: state.levelId });
   const w = window.open(url, '_blank');
   setTimeout(() => {
     if (!w) location.href = url;
   }, 50);
-  setTimeout(() => ($('#follow-done').hidden = false), FOLLOW_WAIT_MS);
+}
+
+/** 15초가 지났고 이 화면을 보고 있을 때만 넘어감 (인스타 보는 중이면 돌아올 때 넘어감) */
+function tryFinishFollow(f) {
+  if (!f || state.follow !== f || !f.pending || document.hidden) return;
+  if (Date.now() - f.at < FOLLOW_CHECK_MS - 100) return;
+  completeFollow();
 }
 
 function completeFollow(silent) {
@@ -1460,7 +1481,6 @@ const ACTIONS = {
   },
   'follow-go': followGo,
   'early-follow': () => earlyFollow(getLevel(gateFrom())),
-  'follow-done': () => completeFollow(),
   'close-follow': () => {
     state.follow = null;
     closeModal('modal-follow');
@@ -1606,9 +1626,8 @@ function bindActions() {
         openModal('modal-pause');
       }
     } else {
-      // 인스타에서 팔로우하고 돌아옴
-      // 5초가 안 지났으면 기다림 (시간이 되면 '시작하기' 버튼이 뜸)
-      if (state.follow && state.follow.pending && Date.now() - state.follow.at >= FOLLOW_WAIT_MS) completeFollow();
+      // 인스타에서 돌아옴: 15초가 지났으면 바로 넘어가고, 아니면 남은 시간 뒤에 넘어감
+      tryFinishFollow(state.follow);
     }
   });
   let rz;

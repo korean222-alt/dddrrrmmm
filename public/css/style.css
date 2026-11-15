@@ -420,3 +420,6 @@ input[type='range'] { width: 100%; accent-color: var(--grass); height: 28px; }
 #join-insta { margin-bottom: 12px; text-decoration: none; }
 #join-form + .muted { margin-top: 14px; }
 .rank-row .g.endless { width: auto; color: #7a3cc4; white-space: nowrap; }
+
+#follow-go:disabled { opacity: 1; cursor: default; }
+#follow-go .spinner { display: inline-block; vertical-align: -3px; margin-right: 6px; border-color: rgba(255, 255, 255, 0.35); border-top-color: #fff; }
