@@ -325,6 +325,11 @@ let startSeq = 0;
 async function startLevel(id) {
   const lv = playable(id);
   if (!lv) return;
+  // 처음 한 번은 박자 보정을 꼭 하고 시작 (영상 찍기·자동 연주는 제외)
+  if (needsCalibration()) {
+    openCalibration({ required: true, after: () => startLevel(id) });
+    return;
+  }
   const seq = ++startSeq;
   const stale = () => seq !== startSeq;
   state.levelId = id;
@@ -1040,7 +1045,28 @@ function bindSettings() {
   });
 }
 
-const calib = { taps: [], clicks: [], active: false };
+const calib = { taps: [], clicks: [], active: false, required: false, after: null, fails: 0 };
+
+/** 박자 보정을 한 번도 안 했고 직접 맞춘 값도 없으면 필수 (이번 접속에서 '나중에'를 눌렀으면 넘어감) */
+function needsCalibration() {
+  if (state.studio.active || state.auto || state.calibSkipped) return false;
+  return !load('calibrated', false) && !state.settings.offsetMs;
+}
+
+/** 보정 창 열기. required 면 닫을 수 없고, 성공하면 after() 로 이어서 시작 */
+function openCalibration({ required = false, after = null } = {}) {
+  Object.assign(calib, { required, after, fails: 0, active: false });
+  $('#calib-title').textContent = required ? '처음 한 번! 박자 맞추기' : '싱크 보정';
+  $('#calib-desc').innerHTML = required
+    ? '폰·이어폰마다 소리가 조금씩 늦게 들려요. <b>똑 소리(또는 반짝임)에 맞춰</b> 아래 드럼을 <b>8번</b> 탭하면 내 폰에 딱 맞게 보정돼요. 10초면 끝!'
+    : '"똑" 소리에 맞춰 아래 드럼을 탭하세요. (8번)';
+  $('#calib-count').textContent = '준비';
+  $('#calib-result').textContent = '';
+  $('#calib-close').hidden = required;
+  $('#calib-skip').hidden = true;
+  $('[data-action="calib-start"]').textContent = '시작';
+  openModal('modal-calibrate');
+}
 async function startCalibration() {
   await audio.unlock();
   calib.taps = [];
@@ -1070,7 +1096,10 @@ function finishCalibration() {
   }
   $('#calib-count').textContent = '끝!';
   if (diffs.length < 4) {
-    $('#calib-result').textContent = '탭이 너무 적어요. 다시 해볼까요?';
+    $('#calib-result').textContent = '탭이 너무 적어요. 소리(또는 반짝임)에 맞춰 8번 눌러 주세요!';
+    $('[data-action="calib-start"]').textContent = '다시 하기';
+    // 계속 안 되는 폰(소리 꺼짐·터치 문제)이 갇히지 않게, 3번 실패하면 이번 접속만 건너뛸 수 있음
+    if (++calib.fails >= 3 && calib.required) $('#calib-skip').hidden = false;
     return;
   }
   diffs.sort((a, b) => a - b);
@@ -1078,9 +1107,20 @@ function finishCalibration() {
   const ms = Math.max(-200, Math.min(200, Math.round((med * 1000) / 5) * 5));
   state.settings.offsetMs = ms;
   saveSettings(state.settings);
+  save('calibrated', true);
   $('#set-offset').value = ms;
   updateSettingLabels();
-  $('#calib-result').textContent = `보정값 ${ms > 0 ? '+' : ''}${ms}ms 저장했어요`;
+  $('#calib-result').textContent = `보정값 ${ms > 0 ? '+' : ''}${ms}ms 저장했어요${calib.required ? ' · 곧 시작해요!' : ''}`;
+  // 필수 보정이었으면 잠깐 결과를 보여주고 하려던 곡을 이어서 시작
+  if (calib.required) {
+    const after = calib.after;
+    calib.required = false;
+    calib.after = null;
+    setTimeout(() => {
+      closeModal('modal-calibrate');
+      if (after) after();
+    }, 1300);
+  }
 }
 
 // ---------------- 영상 찍기 ----------------
@@ -1350,6 +1390,7 @@ const ACTIONS = {
     if (!b) return;
     state.settings.offsetMs = clampOffset(Number(b.dataset.offset));
     saveSettings(state.settings);
+    save('calibrated', true);
     b.remove();
     toast(`박자 보정 ${state.settings.offsetMs > 0 ? '+' : ''}${state.settings.offsetMs}ms 저장! 다시 해 보세요`, 2800);
   },
@@ -1390,11 +1431,14 @@ const ACTIONS = {
   'close-rank': () => closeModal('modal-rank'),
   'close-settings': () => closeModal('modal-settings'),
   'close-share': () => closeModal('modal-share'),
-  'close-calibrate': () => closeModal('modal-calibrate'),
-  calibrate: () => {
-    $('#calib-count').textContent = '준비';
-    $('#calib-result').textContent = '';
-    openModal('modal-calibrate');
+  'close-calibrate': () => !calib.required && closeModal('modal-calibrate'),
+  calibrate: () => openCalibration(),
+  'calib-skip': () => {
+    state.calibSkipped = true;
+    const after = calib.after;
+    Object.assign(calib, { required: false, after: null });
+    closeModal('modal-calibrate');
+    if (after) after();
   },
   'calib-start': startCalibration,
   logout: async () => {
@@ -1465,7 +1509,7 @@ function bindActions() {
   // 모달 바깥 탭 → 닫기 (일시정지 모달 제외)
   $$('.modal').forEach((m) =>
     m.addEventListener('click', (e) => {
-      if (e.target !== m || m.id === 'modal-pause' || m.id === 'modal-continue' || m.id === 'modal-ad') return;
+      if (e.target !== m || m.id === 'modal-pause' || m.id === 'modal-continue' || m.id === 'modal-ad' || (m.id === 'modal-calibrate' && calib.required)) return;
       if (m.id === 'modal-follow') state.follow = null;
       m.hidden = true;
     })

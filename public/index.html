@@ -277,13 +277,14 @@
 
   <div class="modal" id="modal-calibrate" hidden>
     <div class="sheet small">
-      <h3>싱크 보정</h3>
-      <p class="muted">"똑" 소리에 맞춰 아래 드럼을 탭하세요. (8번)</p>
+      <h3 id="calib-title">싱크 보정</h3>
+      <p class="muted" id="calib-desc">"똑" 소리에 맞춰 아래 드럼을 탭하세요. (8번)</p>
       <button class="calib-pad" id="calib-pad" aria-label="박자에 맞춰 탭"><span id="calib-count">준비</span></button>
       <p class="calib-result" id="calib-result"></p>
       <div class="stack">
         <button class="btn btn-primary" data-action="calib-start">시작</button>
-        <button class="btn btn-ghost" data-action="close-calibrate">닫기</button>
+        <button class="btn btn-ghost" data-action="close-calibrate" id="calib-close">닫기</button>
+        <button class="btn btn-ghost" data-action="calib-skip" id="calib-skip" hidden>이번엔 건너뛸게요</button>
       </div>
     </div>
   </div>
