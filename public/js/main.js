@@ -922,15 +922,21 @@ function openFollowGate(level, onDone, { early = false } = {}) {
   openModal('modal-follow');
 }
 
+// 팔로우하러 가기를 누르고 이만큼(ms)은 지나야 '시작하기'가 열려요 (눌러보기만 하고 바로 돌아오는 걸 막음)
+const FOLLOW_WAIT_MS = 5000;
+
 function followGo() {
   const url = handle() ? `https://www.instagram.com/${handle()}/` : 'https://www.instagram.com/';
-  if (state.follow) state.follow.pending = true;
+  if (state.follow) {
+    state.follow.pending = true;
+    state.follow.at = Date.now();
+  }
   save('softPending', { at: Date.now(), levelId: state.levelId });
   const w = window.open(url, '_blank');
   setTimeout(() => {
     if (!w) location.href = url;
   }, 50);
-  setTimeout(() => ($('#follow-done').hidden = false), 1200);
+  setTimeout(() => ($('#follow-done').hidden = false), FOLLOW_WAIT_MS);
 }
 
 function completeFollow(silent) {
@@ -1571,7 +1577,8 @@ function bindActions() {
       }
     } else {
       // 인스타에서 팔로우하고 돌아옴
-      if (state.follow && state.follow.pending) completeFollow();
+      // 5초가 안 지났으면 기다림 (시간이 되면 '시작하기' 버튼이 뜸)
+      if (state.follow && state.follow.pending && Date.now() - state.follow.at >= FOLLOW_WAIT_MS) completeFollow();
     }
   });
   let rz;
