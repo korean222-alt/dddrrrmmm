@@ -282,7 +282,8 @@
       <button class="calib-pad" id="calib-pad" aria-label="박자에 맞춰 탭"><span id="calib-count">준비</span></button>
       <p class="calib-result" id="calib-result"></p>
       <div class="stack">
-        <button class="btn btn-primary" data-action="calib-start">시작</button>
+        <button class="btn btn-primary" data-action="calib-done" id="calib-done" hidden>이 값으로 시작하기</button>
+        <button class="btn btn-primary" data-action="calib-start" id="calib-start">시작</button>
         <button class="btn btn-ghost" data-action="close-calibrate" id="calib-close">닫기</button>
         <button class="btn btn-ghost" data-action="calib-skip" id="calib-skip" hidden>이번엔 건너뛸게요</button>
       </div>

@@ -1064,11 +1064,17 @@ function openCalibration({ required = false, after = null } = {}) {
   $('#calib-result').textContent = '';
   $('#calib-close').hidden = required;
   $('#calib-skip').hidden = true;
-  $('[data-action="calib-start"]').textContent = '시작';
+  $('#calib-done').hidden = true;
+  $('#calib-start').textContent = '시작';
+  $('#calib-start').classList.add('btn-primary');
+  $('#calib-start').classList.remove('btn-ghost');
   openModal('modal-calibrate');
 }
 async function startCalibration() {
+  if (calib.active) return; // 측정 중에 또 누르면 무시
   await audio.unlock();
+  $('#calib-done').hidden = true;
+  $('#calib-skip').hidden = true;
   calib.taps = [];
   calib.active = true;
   const clicks = playMetronome(audio, 100, 12);
@@ -1097,9 +1103,11 @@ function finishCalibration() {
   $('#calib-count').textContent = '끝!';
   if (diffs.length < 4) {
     $('#calib-result').textContent = '탭이 너무 적어요. 소리(또는 반짝임)에 맞춰 8번 눌러 주세요!';
-    $('[data-action="calib-start"]').textContent = '다시 하기';
+    $('#calib-start').textContent = '다시 하기';
     // 계속 안 되는 폰(소리 꺼짐·터치 문제)이 갇히지 않게, 3번 실패하면 이번 접속만 건너뛸 수 있음
     if (++calib.fails >= 3 && calib.required) $('#calib-skip').hidden = false;
+    // 이미 한 번 성공해서 저장된 값이 있으면 그 값으로 시작할 수도 있음
+    if (calib.required && load('calibrated', false)) $('#calib-done').hidden = false;
     return;
   }
   diffs.sort((a, b) => a - b);
@@ -1110,17 +1118,12 @@ function finishCalibration() {
   save('calibrated', true);
   $('#set-offset').value = ms;
   updateSettingLabels();
-  $('#calib-result').textContent = `보정값 ${ms > 0 ? '+' : ''}${ms}ms 저장했어요${calib.required ? ' · 곧 시작해요!' : ''}`;
-  // 필수 보정이었으면 잠깐 결과를 보여주고 하려던 곡을 이어서 시작
-  if (calib.required) {
-    const after = calib.after;
-    calib.required = false;
-    calib.after = null;
-    setTimeout(() => {
-      closeModal('modal-calibrate');
-      if (after) after();
-    }, 1300);
-  }
+  $('#calib-result').textContent = `보정값 ${ms > 0 ? '+' : ''}${ms}ms 저장했어요. 잘못 쳤다면 다시 할 수 있어요!`;
+  // 결과를 보고 다시 할 수 있게: '다시 하기'는 보조 버튼으로, 필수 보정이면 '이 값으로 시작하기'로 이어감
+  $('#calib-start').textContent = '다시 하기';
+  $('#calib-start').classList.remove('btn-primary');
+  $('#calib-start').classList.add('btn-ghost');
+  if (calib.required) $('#calib-done').hidden = false;
 }
 
 // ---------------- 영상 찍기 ----------------
@@ -1433,6 +1436,12 @@ const ACTIONS = {
   'close-share': () => closeModal('modal-share'),
   'close-calibrate': () => !calib.required && closeModal('modal-calibrate'),
   calibrate: () => openCalibration(),
+  'calib-done': () => {
+    const after = calib.after;
+    Object.assign(calib, { required: false, after: null });
+    closeModal('modal-calibrate');
+    if (after) after();
+  },
   'calib-skip': () => {
     state.calibSkipped = true;
     const after = calib.after;
