@@ -67,7 +67,6 @@ const state = {
   game: null,
   lastResult: null,
   runToken: null,
-  verify: null,
   rankLevel: 1,
   vs: null, // 받은 도전장 { name, levelId, score, stars, grade, accuracy, timeline }
 };
@@ -126,16 +125,10 @@ const devParam = (k) => (isLocalDev() ? params.get(k) : null);
 const demoOnly = () => state.api && state.api.mode === 'mock' && !isLocalDev();
 const SOON = () => `랭킹은 곧 열려요! ${atHandle()} 팔로우하고 기다려 주세요`;
 
-/** 운영자가 DM 을 직접 보고 승인하는 모드 (메타 자동 확인 없이) */
-const manualVerify = () => state.cfg.followCheckMode === 'manual';
 const gateFrom = () => Number(state.cfg.gateFromLevel) || GATE_FROM_LEVEL;
-/** 아직 팔로우 안 한 상태인지 (soft: 팔로우 버튼 눌렀는지 / follow: DM 인증했는지) */
+/** 아직 팔로우 안 한 상태인지 (팔로우 버튼 눌렀는지. 진짜 확인은 아님) */
 function needsFollow() {
-  const m = state.cfg.gateMode;
-  if (state.me.verified) return false;
-  if (m === 'follow') return true;
-  if (m === 'soft') return !load('softFollowed', false);
-  return false;
+  return state.cfg.gateMode === 'soft' && !load('softFollowed', false);
 }
 function isLocked(level) {
   return isGated(level, gateFrom()) && needsFollow();
@@ -166,10 +159,9 @@ function earlyFollow(level) {
   requireFollow(lv, after, { early: progressLocked(lv.id) });
 }
 
-/** 잠긴 단계를 누르면: soft 는 팔로우 안내, follow 는 DM 인증 */
+/** 잠긴 단계를 누르면 팔로우 안내 */
 function requireFollow(level, onDone, opts = {}) {
-  if (state.cfg.gateMode === 'follow') openVerify('unlock', onDone, level, null, opts);
-  else openFollowGate(level, onDone, opts);
+  openFollowGate(level, onDone, opts);
 }
 
 // ---------------- 타이틀 ----------------
@@ -237,8 +229,8 @@ function refreshTitle() {
   refreshQuick();
   const foot = $('#title-foot');
   const free = freeRangeText();
-  if (state.me.verified) {
-    foot.innerHTML = `<b>@${escapeHtml(state.me.player?.username || '')}</b> 님, 오늘도 쿵짝!`;
+  if (state.me.guest) {
+    foot.innerHTML = `<b>${escapeHtml(state.me.player?.username || '')}</b> 님, 오늘도 쿵짝!`;
   } else if (needsFollow()) {
     foot.innerHTML = `${free ? free + ' 바로! ' : ''}<b>${gateFrom()}단계부터는 ${igWho()} 팔로우</b>하면 열려요`;
   } else {
@@ -630,6 +622,8 @@ function showResult(res) {
   if (next) nb.innerHTML = `다음 ${next.id}단계 ${isLocked(next) || progressLocked(next.id) ? icon('lock') : ''}`;
   else nb.innerHTML = `💎 무제한 모드 ${progressLocked(ENDLESS_ID) ? icon('lock') : ''}`;
   $('#btn-rank').hidden = state.auto || res.failed;
+  // 끝까지 친 판은 알아서 랭킹에 올림 (점수 올라가는 연출이 끝날 즈음)
+  if (!state.auto && !res.failed) setTimeout(() => submitRank(res), 1800);
   $('#btn-vs').hidden = state.auto || res.failed;
   // 박자가 계속 한쪽으로 밀리면 (블루투스 이어폰 등) 한 번에 맞추기
   const hits = (res.counts.perfect || 0) + (res.counts.great || 0) + (res.counts.good || 0);
@@ -815,21 +809,16 @@ function openIncomingVs(ch) {
   openModal('modal-vs');
 }
 
-async function submitRank() {
-  const r = state.lastResult;
-  if (!r || r.auto) return;
-  if (demoOnly()) {
-    toast(SOON(), 3000);
+/** 랭킹에 내 점수 올리기. 끝까지 친 판은 결과가 뜨면 알아서 올라가요 (닉네임이 있을 때) */
+async function submitRank(r = state.lastResult) {
+  if (!r || r.auto || r.challenge || r.failed || r.submitted || r.submitting) return;
+  if (demoOnly() || state.api.mode !== 'server') return;
+  if (!state.me.guest) {
+    askNickname();
     return;
   }
-  if (!state.me.verified && !state.me.guest) {
-    openJoin();
-    return;
-  }
-  if (!r.runToken) {
-    toast('기록 확인용 정보가 없어요. 한 판 더 해서 등록해 주세요!');
-    return;
-  }
+  if (!r.runToken) return;
+  r.submitting = true;
   try {
     const out = await state.api.submitScore({
       runToken: r.runToken,
@@ -839,18 +828,26 @@ async function submitRank() {
       counts: r.counts,
     });
     r.submitted = true;
-    toast(out.improved ? `등록 완료! 현재 ${out.rank}위` : `최고 기록(${fmt(out.best)})보다 낮아서 유지돼요 · ${out.rank}위`);
-    openRank(r.levelId);
+    toast(out.improved ? `랭킹에 올라갔어요! 현재 ${out.rank}위 🏆` : `내 최고 기록(${fmt(out.best)})이 그대로 유지돼요 · ${out.rank}위`, 3000);
   } catch (e) {
     if (e.status === 401) {
       state.me = { verified: false };
-      openJoin();
-    } else if (e.message === 'run_used') toast('이미 등록한 판이에요.');
-    else toast('이 기록은 등록할 수 없어요. 다시 플레이해 주세요.');
+      askNickname();
+    }
+    // 그 밖의 실패(이미 올린 판, 검증 실패 등)는 조용히 넘어감
+  } finally {
+    r.submitting = false;
   }
 }
 
-// 랭킹 닉네임 등록 (인스타 인증 없이 바로) 또는 인스타 아이디로
+/** 닉네임이 아직 없으면 한 번 물어봄 (이번 접속에서 닫으면 다시 안 물음) */
+function askNickname(force = false) {
+  if (!force && state.nickAsked) return;
+  state.nickAsked = true;
+  openJoin();
+}
+
+// 랭킹 닉네임 정하기
 function openJoin() {
   $('#join-err').hidden = true;
   $('#join-name').value = state.me.player?.username || load('lastNick', '');
@@ -869,10 +866,11 @@ async function submitJoin() {
     state.me = await state.api.guest(name);
     save('lastNick', name);
     closeModal('modal-join');
-    toast(`${name} 님으로 참여해요!`);
+    refreshTitle();
+    toast(`${name} 님으로 랭킹에 참여해요!`);
     submitRank();
   } catch (e) {
-    err(e.status === 429 ? '잠시 후 다시 시도해 주세요.' : e.status === 409 ? '이미 인스타 아이디로 인증돼 있어요.' : '등록하지 못했어요. 다시 시도해 주세요.');
+    err(e.status === 429 ? '잠시 후 다시 시도해 주세요.' : '등록하지 못했어요. 다시 시도해 주세요.');
   }
 }
 
@@ -947,150 +945,6 @@ function completeFollow(silent) {
   toast(silent ? `${gateFrom()}단계부터 열렸어요! 팔로우 고마워요 🎉` : `팔로우 고마워요! ${gateFrom()}단계부터 열렸어요 🎉`, 2600);
 }
 
-// ---------------- 팔로우 인증 (DM 코드) ----------------
-function setVerifyStatus(st, text) {
-  const el = $('#verify-status');
-  el.dataset.state = st;
-  $('#verify-status-text').innerHTML = text;
-}
-
-async function openVerify(purpose, onDone, level, existing, { early = false } = {}) {
-  stopPolling();
-  state.verify = { purpose, onDone, code: null };
-  const lv = level || getLevel(gateFrom()) || LEVELS[0];
-  $('#verify-title').textContent = purpose === 'ranking' ? '랭킹에 내 인스타 아이디 올리기' : `${gateFrom()}단계부터는 인스타 팔로우!`;
-  $('#verify-desc').textContent =
-    purpose === 'ranking'
-      ? '팔로우하고 아래 코드를 DM으로 보내면 인스타 아이디로 점수가 올라가요. 1위는 릴스에 소개될 수도!'
-      : early
-      ? `${gateFrom() - 1}단계를 아직 안 깼어도 지금 연결해 둘 수 있어요. 팔로우하고 아래 코드를 DM으로 보내면 끝! 딱 한 번이면 돼요.`
-      : '팔로우하고 아래 코드를 DM으로 보내면 바로 열려요. 딱 한 번이면 돼요.';
-  if (manualVerify()) {
-    $('#verify-desc').textContent =
-      purpose === 'ranking'
-        ? '팔로우하고 아래 코드를 DM으로 보내주세요. 운영자가 팔로우를 확인하고 승인하면 인스타 아이디로 랭킹에 올라가요.'
-        : '팔로우하고 아래 코드를 DM으로 보내주세요. 운영자가 확인하고 승인해요.';
-    $('#verify-step3').textContent = '승인되면 자동으로 바뀌어요 (보통 하루 안에 · 창 닫아도 OK)';
-  } else $('#verify-step3').textContent = '이 화면으로 돌아오면 자동으로 열려요';
-  const f = $('#verify-follow');
-  f.textContent = atHandle();
-  f.href = handle() ? `https://instagram.com/${handle()}` : '#';
-  $('#verify-mascots').innerHTML = mascotSVG('kong', 'idle') + mascotSVG('jjak', 'idle');
-  $('#verify-dev').hidden = !state.cfg.devSimulate || !isLocalDev();
-  openModal('modal-verify');
-  if (existing) {
-    state.verify.code = existing.code;
-    $('#verify-code').textContent = existing.display;
-    setVerifyStatus('pending', pendingText());
-    startPolling();
-    return;
-  }
-  $('#verify-code').textContent = '······';
-  setVerifyStatus('pending', '코드 만드는 중…');
-  try {
-    const rec = await state.api.createCode(purpose);
-    state.verify.code = rec.code;
-    $('#verify-code').textContent = rec.display;
-    save('pendingCode', { code: rec.code, display: rec.display, purpose, levelId: lv.id, expiresAt: rec.expiresAt });
-    setVerifyStatus('pending', pendingText());
-    startPolling();
-  } catch (e) {
-    setVerifyStatus('error', e.status === 429 ? '잠시 후 다시 시도해 주세요.' : '서버에 연결하지 못했어요. 잠시 후 다시 시도해 주세요.');
-  }
-}
-
-const pendingText = () => (manualVerify() ? '승인 기다리는 중… DM 보냈다면 창을 닫아도 돼요' : 'DM 기다리는 중… 보내면 몇 초 안에 열려요');
-
-function stopPolling() {
-  if (state.verify && state.verify.timer) clearInterval(state.verify.timer);
-  if (state.verify) state.verify.timer = null;
-}
-function startPolling() {
-  stopPolling();
-  state.verify.timer = setInterval(pollVerify, manualVerify() ? 6000 : 2000);
-  pollVerify();
-}
-
-async function pollVerify() {
-  const v = state.verify;
-  if (!v || !v.code || v.busy) return;
-  v.busy = true;
-  try {
-    const r = await state.api.pollCode(v.code);
-    handleVerifyStatus(r);
-  } catch {
-    /* 네트워크 일시 오류는 다음 폴링에서 재시도 */
-  } finally {
-    v.busy = false;
-  }
-}
-
-function handleVerifyStatus(r) {
-  const v = state.verify;
-  if (!v) return;
-  if (r.status === 'verified') {
-    stopPolling();
-    remove('pendingCode');
-    state.me = { verified: true, player: r.player };
-    setVerifyStatus('verified', `팔로우 확인 완료! <b>@${r.player?.username || ''}</b> 님 환영해요`);
-    $('#verify-mascots').innerHTML = mascotSVG('kong', 'cheer') + mascotSVG('jjak', 'cheer');
-    renderLevels();
-    refreshTitle();
-    const done = v.onDone;
-    state.verify = null;
-    setTimeout(() => {
-      closeModal('modal-verify');
-      if (done) done();
-    }, 1300);
-  } else if (r.status === 'not_following') {
-    setVerifyStatus('not_following', `아직 팔로우가 확인되지 않았어요.<br><b>${atHandle()}</b> 팔로우하고 같은 코드를 한 번 더 보내주세요!`);
-    $('#verify-mascots').innerHTML = mascotSVG('kong', 'miss') + mascotSVG('jjak', 'miss');
-  } else if (r.status === 'expired') {
-    stopPolling();
-    remove('pendingCode');
-    setVerifyStatus('expired', '코드가 만료됐어요. <button class="link" data-action="new-code">새 코드 받기</button>');
-  } else {
-    setVerifyStatus('pending', pendingText());
-  }
-}
-
-async function openDm() {
-  const code = $('#verify-code').textContent;
-  const ok = await copyText(code);
-  toast(ok ? `${code} 복사했어요! DM 창에 붙여넣기 하세요` : `DM에 ${code} 를 보내주세요`);
-  const url = handle() ? `https://ig.me/m/${handle()}` : 'https://www.instagram.com/direct/inbox/';
-  setTimeout(() => {
-    const w = window.open(url, '_blank');
-    if (!w) location.href = url;
-  }, 350);
-}
-
-async function restorePending() {
-  const p = load('pendingCode', null);
-  if (!p) return;
-  if (p.expiresAt && p.expiresAt < Date.now()) {
-    remove('pendingCode');
-    return;
-  }
-  try {
-    const r = await state.api.pollCode(p.code);
-    if (r.status === 'verified') {
-      remove('pendingCode');
-      state.me = { verified: true, player: r.player };
-      toast(p.purpose === 'ranking' ? `인스타 인증 완료! 이제 @${r.player?.username || ''} 로 랭킹에 올라가요 🎉` : `팔로우 확인 완료! ${gateFrom()}~${LEVELS.length}단계가 열렸어요 🎉`, 3200);
-      renderLevels();
-      refreshTitle();
-    } else if ((r.status === 'pending' || r.status === 'not_following') && manualVerify()) {
-      // 운영자 승인 대기: 화면을 막지 않고 랭킹 창에서 코드만 다시 보여줌
-    } else if (r.status === 'pending' || r.status === 'not_following') {
-      const lv = getLevel(p.levelId) || getLevel(gateFrom()) || LEVELS[0];
-      const after = p.purpose === 'ranking' ? submitRank : () => (progressLocked(lv.id) ? renderLevels() : startLevel(lv.id));
-      await openVerify(p.purpose, after, lv, p);
-      handleVerifyStatus(r);
-    } else remove('pendingCode');
-  } catch {}
-}
-
 // ---------------- 랭킹 ----------------
 async function openRank(levelId) {
   state.rankLevel = levelId || state.rankLevel || 1;
@@ -1117,18 +971,15 @@ async function loadRank() {
         .slice(0, 50)
         .map(
           (e) => `<div class="rank-row ${e.rank <= 3 ? 'top' + e.rank : ''} ${e.me ? 'me' : ''}">
-          <span class="r">${e.rank}</span><span class="u">${e.verified ? `@${escapeHtml(e.username)}${icon('insta').replace('class="i"', 'class="i ig"')}` : escapeHtml(e.username)}</span>
+          <span class="r">${e.rank}</span><span class="u">${escapeHtml(e.username)}</span>
           <span class="s">${fmt(e.score)}</span><span class="g" style="color:${gradeColor(e.grade)}">${e.grade || ''}</span></div>`
         )
         .join('');
     const foot = [];
     if (data.sample && isLocalDev()) foot.push('(개발 모드: 서버 없이 내 기록만 보여요)');
     if (data.me) foot.push(`내 순위: ${data.me.rank}위.`);
-    const pend = load('pendingCode', null);
-    if (!state.me.verified && pend && pend.expiresAt > Date.now())
-      foot.push(`인스타 인증 승인 대기 중 (코드 <b>${escapeHtml(pend.display)}</b>). <button class="link" data-action="rank-insta">코드 다시 보기</button>`);
-    else if (state.me.guest) foot.push(`<b>${escapeHtml(state.me.player?.username)}</b> 님으로 참여 중. <button class="link" data-action="rank-insta">인스타 아이디로 바꾸기</button>`);
-    else if (!state.me.verified) foot.push('결과 화면에서 "랭킹 등록"을 누르면 닉네임이나 인스타 아이디로 올라가요.');
+    if (state.me.guest) foot.push(`<b>${escapeHtml(state.me.player?.username)}</b> 님으로 참여 중 · 끝까지 치면 점수가 알아서 올라가요.`);
+    else foot.push('닉네임을 정하면 끝까지 친 점수가 알아서 랭킹에 올라가요. <button class="link" data-action="rank-join">닉네임 정하기</button>');
     $('#rank-foot').innerHTML = foot.join(' ');
   } catch {
     list.innerHTML = '<div class="rank-empty">랭킹을 불러오지 못했어요.</div>';
@@ -1149,13 +1000,9 @@ function openSettings() {
   $('#set-vibrate').checked = !!s.vibrate;
   $$('#set-band button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.band === (s.band || 'orch')));
   updateSettingLabels();
-  $('#settings-account').innerHTML = state.me.verified
-    ? `@${escapeHtml(state.me.player?.username)} 로 인증됨 · <button class="link" data-action="logout">인증 해제</button>`
-    : state.me.guest
+  $('#settings-account').innerHTML = state.me.guest
     ? `랭킹 닉네임: <b>${escapeHtml(state.me.player?.username)}</b> · <button class="link" data-action="logout">닉네임 지우기</button>`
-    : state.cfg.gateMode === 'soft' && load('softFollowed', false)
-      ? `팔로우 고마워요! 랭킹 등록 때 DM 인증을 한 번 더 해요.`
-      : `팔로우 인증 전이에요. ${gateFrom()}단계 도전이나 랭킹 등록 때 인증할 수 있어요.`;
+    : `랭킹 닉네임이 없어요. 끝까지 친 판이 끝나면 정할 수 있어요 · <button class="link" data-action="rank-join">지금 정하기</button>`;
   openModal('modal-settings');
 }
 function updateSettingLabels() {
@@ -1532,53 +1379,18 @@ const ACTIONS = {
     show('screen-levels');
   },
   next: () => (typeof state.levelId === 'number' && getLevel(state.levelId + 1) ? tryStart(state.levelId + 1) : tryStart(ENDLESS_ID)),
-  'submit-rank': submitRank,
+  'submit-rank': () => openRank(state.lastResult && typeof state.lastResult.levelId === 'number' ? state.lastResult.levelId : 1),
   'close-join': () => closeModal('modal-join'),
-  'join-insta': () => {
-    closeModal('modal-join');
-    openVerify('ranking', submitRank);
-  },
-  'rank-insta': async () => {
+  'rank-join': () => {
     closeModal('modal-rank');
-    const p = load('pendingCode', null);
-    if (p && p.expiresAt > Date.now()) {
-      await openVerify(p.purpose, null, getLevel(p.levelId), p);
-      pollVerify();
-    } else openVerify('ranking', null);
+    closeModal('modal-settings');
+    askNickname(true);
   },
   share: shareResult,
-  'close-verify': () => {
-    stopPolling();
-    closeModal('modal-verify');
-  },
   'close-rank': () => closeModal('modal-rank'),
   'close-settings': () => closeModal('modal-settings'),
   'close-share': () => closeModal('modal-share'),
   'close-calibrate': () => closeModal('modal-calibrate'),
-  'copy-code': async () => {
-    const ok = await copyText($('#verify-code').textContent);
-    toast(ok ? '복사했어요!' : '코드를 길게 눌러 복사해 주세요');
-  },
-  'open-dm': openDm,
-  'new-code': () => state.verify && openVerify(state.verify.purpose, state.verify.onDone),
-  'sim-follow': async () => {
-    if (!state.verify?.code) return;
-    try {
-      await state.api.simulateDm(state.verify.code);
-    } catch (e) {
-      toast('테스트 처리 실패: ' + e.message);
-    }
-    pollVerify();
-  },
-  'sim-nofollow': async () => {
-    if (!state.verify?.code) return;
-    try {
-      await state.api.simulateDm(state.verify.code, { notFollowing: true });
-    } catch (e) {
-      toast('테스트 처리 실패: ' + e.message);
-    }
-    pollVerify();
-  },
   calibrate: () => {
     $('#calib-count').textContent = '준비';
     $('#calib-result').textContent = '';
@@ -1593,7 +1405,7 @@ const ACTIONS = {
     closeModal('modal-settings');
     renderLevels();
     refreshTitle();
-    toast('인증을 해제했어요');
+    toast('닉네임을 지웠어요');
   },
   studio: openStudio,
   'studio-start': studioStart,
@@ -1654,7 +1466,6 @@ function bindActions() {
   $$('.modal').forEach((m) =>
     m.addEventListener('click', (e) => {
       if (e.target !== m || m.id === 'modal-pause' || m.id === 'modal-continue' || m.id === 'modal-ad') return;
-      if (m.id === 'modal-verify') stopPolling();
       if (m.id === 'modal-follow') state.follow = null;
       m.hidden = true;
     })
@@ -1679,7 +1490,6 @@ function bindActions() {
         openModal('modal-pause');
       }
     } else {
-      if (state.verify && state.verify.code) pollVerify();
       // 인스타에서 팔로우하고 돌아옴
       if (state.follow && state.follow.pending) completeFollow();
     }
@@ -1711,12 +1521,14 @@ async function boot() {
   state.api = await createApi(CONFIG);
   try {
     const sc = await state.api.config();
-    for (const k of ['gateMode', 'gateFromLevel', 'instagramHandle', 'devSimulate', 'codePrefix', 'siteUrl', 'followCheckMode']) {
+    for (const k of ['gateMode', 'gateFromLevel', 'instagramHandle', 'siteUrl']) {
       if (sc[k] !== undefined && sc[k] !== '' && sc[k] !== null) state.cfg[k] = sc[k];
     }
+    // DM 코드 인증은 없앰: 예전 'follow' 설정은 팔로우 안내(soft)로
+    if (state.cfg.gateMode === 'follow') state.cfg.gateMode = 'soft';
   } catch {}
   const g = devParam('gate');
-  if (g === 'follow' || g === 'open' || g === 'soft') state.cfg.gateMode = g;
+  if (g === 'open' || g === 'soft') state.cfg.gateMode = g;
   if (devParam('gatefrom')) state.cfg.gateFromLevel = Number(devParam('gatefrom'));
   initAds(state.cfg);
   initTracker({ enabled: state.api.mode === 'server' });
@@ -1727,7 +1539,6 @@ async function boot() {
   }
   refreshTitle();
   renderLevels();
-  restorePending();
   // 팔로우하러 인스타로 갔다가 페이지가 새로 열린 경우
   const sp = load('softPending', null);
   if (sp && state.cfg.gateMode === 'soft') {

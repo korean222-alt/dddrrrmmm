@@ -35,14 +35,6 @@
     {
       "source": "/api/:path*",
       "destination": "/api/server"
-    },
-    {
-      "source": "/webhook",
-      "destination": "/api/server"
-    },
-    {
-      "source": "/webhook/:path*",
-      "destination": "/api/server"
     }
   ]
 }

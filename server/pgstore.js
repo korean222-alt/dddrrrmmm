@@ -3,10 +3,6 @@
 //   시각(ms)은 BIGINT 라서 드라이버가 문자열/BigInt 로 줄 수 있어 Number() 로 바꿔 씀
 
 const SCHEMA = [
-  `CREATE TABLE IF NOT EXISTS codes (
-     code TEXT PRIMARY KEY, purpose TEXT NOT NULL, session_id TEXT NOT NULL, status TEXT NOT NULL,
-     created_at BIGINT NOT NULL, expires_at BIGINT NOT NULL, igsid TEXT, username TEXT,
-     verified_at BIGINT, last_error TEXT, last_error_at BIGINT)`,
   `CREATE TABLE IF NOT EXISTS players (igsid TEXT PRIMARY KEY, username TEXT, follow_verified_at BIGINT)`,
   `CREATE TABLE IF NOT EXISTS scores (
      igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, grade TEXT, max_combo INTEGER,
@@ -29,30 +25,7 @@ const SCHEMA = [
 // 이용 통계는 1년 보관
 const STATS_KEEP_MS = 400 * 24 * 3600 * 1000;
 
-// codes 테이블: JS 이름 ↔ 열 이름
-const CODE_COLS = {
-  code: 'code',
-  purpose: 'purpose',
-  sessionId: 'session_id',
-  status: 'status',
-  createdAt: 'created_at',
-  expiresAt: 'expires_at',
-  igsid: 'igsid',
-  username: 'username',
-  verifiedAt: 'verified_at',
-  lastError: 'last_error',
-  lastErrorAt: 'last_error_at',
-};
-const NUM_COLS = new Set(['created_at', 'expires_at', 'verified_at', 'last_error_at']);
-
 const num = (v) => (v === null || v === undefined ? v : Number(v));
-
-function codeFromRow(r) {
-  if (!r) return null;
-  const out = {};
-  for (const [k, col] of Object.entries(CODE_COLS)) if (r[col] !== null && r[col] !== undefined) out[k] = NUM_COLS.has(col) ? Number(r[col]) : r[col];
-  return out;
-}
 
 export class PgStore {
   /** @param {(text: string, params?: any[]) => Promise<any[]>} q */
@@ -62,7 +35,25 @@ export class PgStore {
 
   async init() {
     for (const s of SCHEMA) await this.q(s);
+    await this.removeInstagramData();
     return this;
+  }
+
+  /**
+   * 인스타 아이디 등록 기능을 없애면서, 그동안 등록된 인스타 계정 기록을 한 번 지움:
+   *   - 인스타로 인증된 플레이어(follow_verified_at 이 있는 사람)와 그 점수
+   *   - DM 인증 코드 테이블(codes) 전체 (인스타 아이디·ID 가 들어 있음)
+   * 닉네임으로 참여한 사람의 기록은 그대로. 한 번 하고 나면 표시를 남겨서 다시 안 돌림.
+   */
+  async removeInstagramData() {
+    const FLAG = 'migration:remove-instagram-v1';
+    if (await this.one('SELECT value FROM settings WHERE key = $1', [FLAG])) return;
+    const gone = await this.q('SELECT igsid FROM players WHERE follow_verified_at IS NOT NULL');
+    await this.q('DELETE FROM scores WHERE igsid IN (SELECT igsid FROM players WHERE follow_verified_at IS NOT NULL)');
+    await this.q('DELETE FROM players WHERE follow_verified_at IS NOT NULL');
+    await this.q('DROP TABLE IF EXISTS codes');
+    await this.q('INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING', [FLAG, String(Date.now())]);
+    console.log(`[store] 인스타 등록 기록 삭제: 플레이어 ${gone.length}명 + 점수 + 인증 코드`);
   }
 
   async one(text, params) {
@@ -80,59 +71,16 @@ export class PgStore {
     return (await this.one('SELECT value FROM settings WHERE key = $1', [key])).value;
   }
 
-  // ----- codes -----
-  async createCode(rec) {
-    const keys = Object.keys(CODE_COLS).filter((k) => rec[k] !== undefined);
-    const cols = keys.map((k) => CODE_COLS[k]);
-    const sets = cols.filter((c) => c !== 'code').map((c) => `${c} = EXCLUDED.${c}`);
-    await this.q(
-      `INSERT INTO codes (${cols.join(', ')}) VALUES (${cols.map((_, i) => '$' + (i + 1)).join(', ')})
-       ON CONFLICT (code) DO UPDATE SET ${sets.join(', ')}`,
-      keys.map((k) => rec[k])
-    );
-    return rec;
-  }
-  async getCode(code) {
-    return codeFromRow(await this.one('SELECT * FROM codes WHERE code = $1', [code]));
-  }
-  async updateCode(code, patch) {
-    const keys = Object.keys(patch).filter((k) => CODE_COLS[k] && k !== 'code');
-    if (keys.length) {
-      await this.q(
-        `UPDATE codes SET ${keys.map((k, i) => `${CODE_COLS[k]} = $${i + 1}`).join(', ')} WHERE code = $${keys.length + 1}`,
-        [...keys.map((k) => (patch[k] === undefined ? null : patch[k])), code]
-      );
-    }
-    return this.getCode(code);
-  }
-  /** 승인 기다리는 코드 (관리자 페이지용) */
-  async listPendingCodes(now = Date.now(), limit = 100) {
-    const rows = await this.q(
-      `SELECT * FROM codes WHERE status IN ('pending', 'not_following') AND expires_at > $1 ORDER BY created_at DESC LIMIT $2`,
-      [now, limit]
-    );
-    return rows.map(codeFromRow);
-  }
-  /** 오래된 코드/사용한 판 토큰 정리 */
-  async prune(now = Date.now()) {
-    const del = await this.q('DELETE FROM codes WHERE expires_at + 86400000 < $1 RETURNING code', [now]);
-    await this.q('DELETE FROM used_runs WHERE expires_at < $1', [now]);
-    await this.q('DELETE FROM plays WHERE started_at < $1', [now - STATS_KEEP_MS]);
-    await this.q('DELETE FROM sessions WHERE started_at < $1', [now - STATS_KEEP_MS]);
-    return del.length;
-  }
-
   // ----- players -----
   async getPlayer(igsid) {
     const r = await this.one('SELECT * FROM players WHERE igsid = $1', [igsid]);
-    return r ? { igsid: r.igsid, username: r.username, followVerifiedAt: num(r.follow_verified_at) } : null;
+    return r ? { igsid: r.igsid, username: r.username } : null;
   }
   async upsertPlayer(igsid, patch) {
     await this.q(
-      `INSERT INTO players (igsid, username, follow_verified_at) VALUES ($1, $2, $3)
-       ON CONFLICT (igsid) DO UPDATE SET username = COALESCE(EXCLUDED.username, players.username),
-         follow_verified_at = COALESCE(EXCLUDED.follow_verified_at, players.follow_verified_at)`,
-      [igsid, patch.username ?? null, patch.followVerifiedAt ?? null]
+      `INSERT INTO players (igsid, username) VALUES ($1, $2)
+       ON CONFLICT (igsid) DO UPDATE SET username = COALESCE(EXCLUDED.username, players.username)`,
+      [igsid, patch.username ?? null]
     );
     return this.getPlayer(igsid);
   }
@@ -152,12 +100,12 @@ export class PgStore {
   }
   async leaderboard(level, limit = 50) {
     const rows = await this.q(
-      `SELECT s.igsid, p.username, p.follow_verified_at, s.score, s.grade, s.at FROM scores s JOIN players p ON p.igsid = s.igsid
+      `SELECT s.igsid, p.username, s.score, s.grade, s.at FROM scores s JOIN players p ON p.igsid = s.igsid
        WHERE s.level = $1 AND p.username IS NOT NULL ORDER BY s.score DESC, s.at ASC LIMIT $2`,
       [level, limit]
     );
     return {
-      rows: rows.map(({ follow_verified_at, ...r }, i) => ({ ...r, verified: follow_verified_at != null, score: Number(r.score), at: Number(r.at), rank: i + 1 })),
+      rows: rows.map((r, i) => ({ ...r, score: Number(r.score), at: Number(r.at), rank: i + 1 })),
     };
   }
   async rankOf(level, igsid) {

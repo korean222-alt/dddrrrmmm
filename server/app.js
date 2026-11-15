@@ -1,12 +1,11 @@
-// Node HTTP 서버 (외부 의존성 없음): 정적 파일 + /api + /webhook
-// /api 와 /webhook 은 server/handler.js (Cloudflare Worker 와 같은 코드)로 넘김
+// Node HTTP 서버 (외부 의존성 없음): 정적 파일 + /api
+// /api 는 server/handler.js (Vercel 함수와 같은 코드)로 넘김
 
 import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 
 import { JsonStore } from './store.js';
-import { createInstagram } from './instagram.js';
 import { createHandler, validateScore } from './handler.js';
 
 export { validateScore };
@@ -30,10 +29,9 @@ export const SECURITY_HEADERS = {
   'Referrer-Policy': 'strict-origin-when-cross-origin',
 };
 
-export function createApp(cfg, { store, ig } = {}) {
+export function createApp(cfg, { store } = {}) {
   store = store || new JsonStore(cfg.dataFile).init();
-  ig = ig || createInstagram(cfg);
-  const handle = createHandler(cfg, { store, ig });
+  const handle = createHandler(cfg, { store });
   const pruneTimer = setInterval(() => store.prune(), 30 * 60 * 1000);
   pruneTimer.unref?.();
 
@@ -111,7 +109,7 @@ export function createApp(cfg, { store, ig } = {}) {
       return res.end();
     }
     try {
-      if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/webhook')) return await bridge(req, res, url);
+      if (url.pathname.startsWith('/api/')) return await bridge(req, res, url);
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         res.writeHead(405);
         return res.end();
@@ -129,5 +127,5 @@ export function createApp(cfg, { store, ig } = {}) {
     clearInterval(pruneTimer);
     store.flush();
   });
-  return { server, store, ig };
+  return { server, store };
 }

@@ -60,7 +60,7 @@
 
 9단계부터 악기가 하나씩 늘어요. 화면은 왼쪽부터 **크래시 · 킥 | 스네어 · 하이햇**. 왼쪽 엄지가 크래시·킥, 오른쪽 엄지가 스네어·하이햇을 맡고, 같은 엄지 악기끼리는 동시에 나오지 않습니다. 터치 구역은 화면을 레인 수만큼 세로로 나눈 칸입니다. 하이햇·크래시를 내가 치는 단계에선 반주의 하이햇·크래시가 쉬어요.
 
-랭킹 등록은 DM 팔로우 인증이 필요합니다. 인스타 아이디로 올라갑니다.
+랭킹은 **닉네임**으로 참여해요. 한 번 닉네임을 정하면, 끝까지 친 판의 점수가 결과 화면에서 **자동으로** 올라갑니다(등록 버튼 없음). 인스타 아이디·DM 인증은 없어요.
 
 ### 곡 저작권
 
@@ -99,7 +99,7 @@ npm test                  # 테스트
 
 | 주소 | 용도 |
 |---|---|
-| `/?gate=follow` | DM 인증 잠금 흐름 미리보기 |
+| `/?gate=soft` | 4단계부터 팔로우 안내 잠금 미리보기 |
 | `/?gate=open` | 잠금 없이 전부 열기 (localhost 전용) |
 | `/?gatefrom=1` | 1단계부터 팔로우 잠금 미리보기 |
 | `/?level=3` | "바로 시작" 버튼이 3단계로 (릴스 링크에 써도 됨) |
@@ -121,31 +121,18 @@ PC에서는 `F`/`←` = 킥, `J`/`→` = 스네어, `Space` = 동시, `Esc` = �
 
 ## 만드는 순서 (지금 어디까지 왔나)
 
-1. ✅ **게임만** — 1~6단계, 쿵/짝 두 레인, 콤보, 점수, 등급, 결과 카드 공유
-2. ✅ **서버 인터페이스** — `checkFollow(igsid)`는 지금 **항상 "확인됨"** 을 돌려주는 가짜(`FOLLOW_CHECK_MODE=fake`). 게임은 모두 이 함수를 거칩니다.
-3. ✅ **서버 붙이기** — Vercel 함수 + Neon Postgres (Neon 연결만 하면 랭킹·인증 저장)
-4. ✅ **진짜 팔로우 확인** — Meta 앱 연결 완료, 테스터 계정으로 DM 인증 → 4단계 열림 확인됨 (`GATE_MODE=follow` + `FOLLOW_CHECK_MODE=real`) → [docs/instagram-setup.md](docs/instagram-setup.md).
-   지금은 앱이 **개발 모드**라 테스터로 등록한 계정만 인증돼요. 영상 찍기는 잠금 없이 됨.
-5. ⏳ **모든 사람에게 열기** — 앱 심사(Advanced Access) + 라이브 모드 전환 (문서 6번). 토큰은 60일마다 갱신.
+1. ✅ **게임만** — 1~14단계, 쿵/짝 레인, 콤보, 점수, 등급, 결과 카드 공유
+2. ✅ **서버 붙이기** — Vercel 함수 + Neon Postgres (Neon 연결만 하면 랭킹 저장)
+3. ✅ **랭킹** — 닉네임으로 참여, 끝까지 친 판은 자동 등록
+4. ✅ **이용 통계** — `/admin.html` 에서 방문자·플레이 횟수·접속 시간·단계별 완주율 (익명)
 
-## 팔로우 인증 흐름
+> 인스타 DM 인증으로 아이디를 랭킹에 올리던 기능(웹훅·코드·관리자 승인)은 **삭제**했어요. 4단계 잠금은 "팔로우하러 가기" 버튼을 누르면 열리는 안내(`GATE_MODE=soft`)만 남았고, 진짜 팔로우 확인은 하지 않습니다.
 
-```
-[사이트] 4단계 도전 / 랭킹 등록 누름
-   → 일회용 코드 표시 (예: OK-K7P2, 10분 유효)
-   → "코드 복사하고 DM 열기" (ig.me 링크)
-[인스타] 유저가 코드를 DM으로 보냄
-   → Meta 웹훅 → POST /webhook
-   → 서버가 코드를 찾고 checkFollow(보낸사람 IGSID)
-        팔로우 중  → 코드 verified + DM "확인 완료!"
-        아님       → DM "팔로우하고 다시 보내줘" (같은 코드 재전송 가능)
-[사이트] 2초마다 코드 상태 확인 → verified 면 서명 쿠키(180일) 발급 → 4단계 열림
-```
+## 이용 통계 (익명)
 
-- 코드는 **발급받은 브라우저에서만** 조회됩니다(남이 코드를 보고 가로챌 수 없음).
-- 한 번 인증하면 쿠키로 기억. 폰을 바꾸면 다시 인증하면 됩니다.
-- DM 앱으로 갔다가 돌아오면서 페이지가 새로 열려도, 대기 중인 코드를 기억해서 이어서 확인합니다.
-- 서버 저장 데이터는 딱 두 가지: `codes`(코드, 상태) · `players`(인스타 아이디, 레벨별 최고 점수, 팔로우 확인 시각).
+- 브라우저마다 무작위 번호(`kk_vid` 쿠키, 1년)를 붙여 **접속 시간 · 곡 시작/끝과 결과 · 점수 · 유입 경로 · 기기**를 `sessions`/`plays` 테이블에 모읍니다. 이름·IP 는 저장하지 않아요. 1년 뒤 자동 삭제.
+- 보는 곳: `/admin.html` (환경변수 `ADMIN_TOKEN` 비밀번호). 릴스 링크에 `?utm_source=릴스이름` 을 붙이면 어느 영상에서 왔는지 보여요.
+- 영상 찍기·자동 연주는 통계에 안 셉니다.
 
 ## 점수 위조 방지 (최소한)
 
@@ -175,13 +162,12 @@ public/                 정적 사이트 (이것만 올려도 게임은 됨)
     sharecard.js        결과 공유 이미지 (스토리 1080x1920)
     config.js           기본 설정
 server/
-  app.js                HTTP 서버: 정적 파일 + /api + /webhook
-  instagram.js          ★ checkFollow(igsid) — fake/real 교체 지점
-  verify.js             DM 코드 처리
-  store.js              JSON 파일 저장소 (나중에 DB로 교체 가능)
-  codes.js session.js config.js index.js
+  app.js                HTTP 서버: 정적 파일 + /api
+  handler.js            /api 전부 (Vercel 함수와 공용)
+  stats.js              이용 통계 집계
+  store.js pgstore.js   저장소: JSON 파일(로컬) / Postgres(Vercel)
+  session.js config.js settings.js index.js
 scripts/
-  ig-profile.js         IGSID로 is_user_follow_business 값이 오는지 점검
   make-assets.js        아이콘·OG 이미지 재생성 (Playwright 필요)
 test/                   node:test
 ```
@@ -215,12 +201,12 @@ song: {
 
 **https://kongkong-drum.vercel.app** — Vercel. 이 브랜치(`claude/eloquent-hamilton-5w1xwr`)에 push 하면 자동 배포.
 
-- 사이트 = `public/` (정적), 서버 = **Vercel 함수** `api/server.js` (`vercel.json` 의 rewrites 가 `/api/*`, `/webhook` 을 여기로), DB = **Neon Postgres**.
+- 사이트 = `public/` (정적), 서버 = **Vercel 함수** `api/server.js` (`vercel.json` 의 rewrites 가 `/api/*` 를 여기로), DB = **Neon Postgres**.
 - 서버 코드는 `server/handler.js` 하나를 Node(`npm start`)와 Vercel 함수가 같이 씀. 저장소만 다름: Node = JSON 파일(`server/store.js`), Vercel = Postgres(`server/pgstore.js`). 테이블은 처음 요청 때 자동 생성.
 - 함수 지역은 싱가포르(`sin1`). Neon DB 도 **싱가포르(AWS ap-southeast-1)** 로 만들어야 빨라요.
 - **Neon 연결 전**에는 `/api/health` 가 503 → 사이트는 서버 없는 모드(랭킹 '곧 오픈', 4단계부터 잠김)로 그대로 돌아감.
-- 기본 설정은 `api/server.js` 의 `DEFAULTS` (4단계부터 진짜 팔로우 확인). Vercel 환경변수로 같은 이름을 넣으면 그 값이 우선.
-- 비밀값 두 개는 Vercel → Settings → Environment Variables (Sensitive): `IG_ACCESS_TOKEN`, `IG_APP_SECRET` → [docs/instagram-setup.md](docs/instagram-setup.md). `SESSION_SECRET` 은 DB 에 자동 생성.
+- 기본 설정은 `api/server.js` 의 `DEFAULTS` (4단계부터 팔로우 안내). Vercel 환경변수로 같은 이름을 넣으면 그 값이 우선.
+- 비밀값: `ADMIN_TOKEN` (관리자 페이지 비밀번호, Sensitive). `SESSION_SECRET` 은 DB 에 자동 생성.
 - 테스트: `npm test` 가 JSON 저장소와 Postgres 저장소(메모리 Postgres PGlite) 둘 다 같은 흐름으로 시험.
 
 ## 실기기 테스트 체크리스트 (중요)
@@ -233,7 +219,7 @@ song: {
 - [ ] 영상 찍기 → 파일 저장이 아이폰/안드로이드에서 되는지
 - [ ] 판정이 계속 늦거나 빠르면 ⚙ 설정 → "박자 맞춰서 자동 보정"
 - [ ] 블루투스 이어폰이면 지연이 커서 보정값이 크게 나올 수 있음
-- [ ] DM 열기 → 코드 보내기 → 다시 돌아왔을 때 자동으로 열리는지
+- [ ] 끝까지 치면 닉네임 입력 → 결과 화면에서 알아서 랭킹에 올라가는지
 - [ ] 결과 공유: 이미지 길게 눌러 저장 → 스토리 업로드
 
 화면 안내: 인스타 앱 안에서 열면 "외부 브라우저로 열기" 안내가 자동으로 뜹니다.

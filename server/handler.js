@@ -1,17 +1,13 @@
-// /api + /webhook 처리 (fetch 방식: Request → Response)
-// Node 서버(server/app.js)와 Cloudflare Worker(worker/index.js)가 같이 씁니다.
+// /api 처리 (fetch 방식: Request → Response)
+// Node 서버(server/app.js)와 Vercel 함수(api/server.js)가 같이 씁니다.
 // 저장소(store)는 메서드가 값이나 Promise 를 돌려줘도 되게 전부 await 로 부름
-//   - Node: JsonStore (파일 하나) / Cloudflare: D1Store (SQLite)
+//   - Node: JsonStore (파일 하나) / Vercel: PgStore (Neon Postgres)
 
-import { generateCode, displayCode, isCode } from './codes.js';
 import { sign, unsign, parseCookies, cookie, newId } from './session.js';
-import { messagesFromWebhook, processDm } from './verify.js';
-import { verifySignature } from './instagram.js';
 import { buildStats } from './stats.js';
-import { getLevel, isGated, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur } from '../public/js/charts.js';
+import { getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur } from '../public/js/charts.js';
 
 const PLAYER_COOKIE = 'kk_player';
-const SID_COOKIE = 'kk_sid';
 const VID_COOKIE = 'kk_vid'; // 익명 방문자 번호 (이용 통계용, 1년)
 const VID_MAX_AGE = 365 * 24 * 3600;
 const PLAYER_MAX_AGE = 180 * 24 * 3600;
@@ -42,11 +38,11 @@ class HttpError extends Error {
 
 /**
  * @param {object} cfg  makeConfig() 결과 (sessionSecret 필수)
- * @param {{store, ig}} deps
- * @returns {(request: Request, opts?: {ip?: string, waitUntil?: (p: Promise<any>) => void}) => Promise<Response>}
+ * @param {{store}} deps
+ * @returns {(request: Request, opts?: {ip?: string}) => Promise<Response>}
  */
-export function createHandler(cfg, { store, ig }) {
-  const limitCodes = rateLimiter(15, 10 * 60 * 1000);
+export function createHandler(cfg, { store }) {
+  const limitGuest = rateLimiter(15, 10 * 60 * 1000);
   const limitScores = rateLimiter(60, 10 * 60 * 1000);
   const limitAdmin = rateLimiter(30, 10 * 60 * 1000);
   const limitTrack = rateLimiter(200, 10 * 60 * 1000);
@@ -61,7 +57,7 @@ export function createHandler(cfg, { store, ig }) {
     return d === 0;
   }
 
-  return async function handle(request, { ip = '?', waitUntil } = {}) {
+  return async function handle(request, { ip = '?' } = {}) {
     const url = new URL(request.url);
     const setCookies = [];
     const json = (status, data, extra = {}) => {
@@ -72,7 +68,6 @@ export function createHandler(cfg, { store, ig }) {
     const text = (status, body = '') => new Response(body, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
     try {
       if (url.pathname.startsWith('/api/')) return await api(request, url, ip, json, setCookies);
-      if (url.pathname === '/webhook' || url.pathname === '/webhook/instagram') return await webhook(request, url, text, waitUntil);
       return text(404, 'not found');
     } catch (e) {
       if (!e.status) console.error(e);
@@ -99,16 +94,7 @@ export function createHandler(cfg, { store, ig }) {
     const p = unsign(cookiesOf(request)[PLAYER_COOKIE], cfg.sessionSecret);
     if (!p || !p.igsid) return null;
     const rec = await store.getPlayer(p.igsid);
-    return rec ? { igsid: rec.igsid, username: rec.username, followVerifiedAt: rec.followVerifiedAt, guest: !rec.followVerifiedAt } : null;
-  }
-
-  function getSid(request, setCookies) {
-    let sid = unsign(cookiesOf(request)[SID_COOKIE], cfg.sessionSecret)?.sid;
-    if (!sid) {
-      sid = newId();
-      setCookies.push(cookie(SID_COOKIE, sign({ sid }, cfg.sessionSecret), { secure: cfg.cookieSecure, maxAge: 7 * 24 * 3600 }));
-    }
-    return sid;
+    return rec && rec.username ? { igsid: rec.igsid, username: rec.username } : null;
   }
 
   // ------------------- API -------------------
@@ -123,17 +109,15 @@ export function createHandler(cfg, { store, ig }) {
         gateMode: cfg.gateMode,
         gateFromLevel: cfg.gateFromLevel,
         instagramHandle: cfg.instagramHandle,
-        followCheckMode: cfg.followCheckMode,
-        devSimulate: cfg.devSimulate,
-        codePrefix: cfg.codePrefix,
         siteUrl: cfg.siteUrl,
       });
     }
 
+    // 랭킹 닉네임이 있으면 guest:true (인스타 아이디 인증은 없어짐)
     if (p === '/api/me' && m === 'GET') {
       const pl = await getPlayer(request);
       if (!pl) return json(200, { verified: false });
-      return json(200, { verified: !pl.guest, guest: pl.guest, player: { username: pl.username } });
+      return json(200, { verified: false, guest: true, player: { username: pl.username } });
     }
 
     if (p === '/api/logout' && m === 'POST') {
@@ -141,31 +125,13 @@ export function createHandler(cfg, { store, ig }) {
       return json(200, { ok: true });
     }
 
-    // 1) 일회용 코드 발급
-    if (p === '/api/codes' && m === 'POST') {
-      if (!limitCodes(ip)) return json(429, { error: 'rate_limited' });
-      const body = await readJson(request);
-      const purpose = body.purpose === 'ranking' ? 'ranking' : 'unlock';
-      const sid = getSid(request, setCookies);
-      let code;
-      for (let i = 0; i < 20; i++) {
-        code = generateCode();
-        const ex = await store.getCode(code);
-        if (!ex || ex.expiresAt < Date.now()) break;
-      }
-      const now = Date.now();
-      await store.createCode({ code, purpose, sessionId: sid, status: 'pending', createdAt: now, expiresAt: now + cfg.codeTtlMs });
-      return json(200, { code, display: displayCode(code, cfg.codePrefix), purpose, expiresAt: now + cfg.codeTtlMs });
-    }
-
-    // 랭킹용 닉네임 (인스타 인증 없이 랭킹 참여). 인증된 사람은 그대로
+    // 랭킹용 닉네임. 이미 있으면 새 이름으로 바꿈 (기록은 그대로)
     if (p === '/api/guest' && m === 'POST') {
-      if (!limitCodes(ip)) return json(429, { error: 'rate_limited' });
+      if (!limitGuest(ip)) return json(429, { error: 'rate_limited' });
       const body = await readJson(request);
       const name = cleanNickname(body.name);
       if (!name) return json(400, { error: 'bad_name' });
       const pl = await getPlayer(request);
-      if (pl && !pl.guest) return json(409, { error: 'already_verified' });
       const igsid = pl ? pl.igsid : 'g_' + newId().replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
       await store.upsertPlayer(igsid, { username: name });
       if (!pl) setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
@@ -194,14 +160,10 @@ export function createHandler(cfg, { store, ig }) {
       return json(200, { ok: true });
     }
 
-    // 관리자: 승인 기다리는 코드 목록 / 코드 승인 (인스타 앱에서 DM·팔로우를 직접 보고 승인)
+    // 관리자 (비밀번호 필요)
     if (p.startsWith('/api/admin/')) {
       if (!limitAdmin(ip) && !isAdmin(request)) return json(429, { error: 'rate_limited' });
       if (!isAdmin(request)) return json(401, { error: 'admin_required' });
-      if (p === '/api/admin/codes' && m === 'GET') {
-        const rows = await store.listPendingCodes(Date.now(), 100);
-        return json(200, { codes: rows.map((r) => ({ code: r.code, display: displayCode(r.code, cfg.codePrefix), purpose: r.purpose, createdAt: r.createdAt, expiresAt: r.expiresAt })) });
-      }
       // 이용 통계: ?days=7 (1~90). 오늘 포함 최근 N일
       if (p === '/api/admin/stats' && m === 'GET') {
         const days = Math.min(90, Math.max(1, Math.floor(Number(url.searchParams.get('days'))) || 7));
@@ -213,64 +175,7 @@ export function createHandler(cfg, { store, ig }) {
         const from = todayStart - (days - 1) * dayMs;
         return json(200, { days, ...buildStats(await store.statsRaw(from, now + 1), { from, to: now, tzMin }) });
       }
-      if (p === '/api/admin/approve' && m === 'POST') {
-        const body = await readJson(request);
-        const code = String(body.code || '').toUpperCase().replace(/[\s]/g, '').replace(/^.*-/, '');
-        const username = String(body.username || '').trim().replace(/^@/, '').toLowerCase();
-        if (!/^[a-z0-9._]{1,30}$/.test(username)) return json(400, { error: 'bad_username' });
-        const rec = isCode(code) ? await store.getCode(code) : null;
-        if (!rec) return json(404, { error: 'code_not_found' });
-        if (rec.status === 'verified') return json(409, { error: 'already_verified', username: rec.username });
-        const now = Date.now();
-        if (now > rec.expiresAt) return json(410, { error: 'expired' });
-        const igsid = 'm_' + username;
-        await store.upsertPlayer(igsid, { username, followVerifiedAt: now });
-        await store.updateCode(code, { status: 'verified', igsid, username, verifiedAt: now });
-        return json(200, { ok: true, code, username });
-      }
       return json(404, { error: 'not_found' });
-    }
-
-    // 2) 코드 상태 확인 (발급받은 브라우저만)
-    const cm = p.match(/^\/api\/codes\/([^/]+)$/);
-    if (cm && m === 'GET') {
-      const code = decodeURIComponent(cm[1]).toUpperCase().replace(/^.*-/, '');
-      const rec = isCode(code) ? await store.getCode(code) : null;
-      const sid = unsign(cookiesOf(request)[SID_COOKIE], cfg.sessionSecret)?.sid;
-      if (!rec || rec.sessionId !== sid) return json(404, { status: 'expired' });
-      if ((rec.status === 'pending' || rec.status === 'not_following') && Date.now() > rec.expiresAt) {
-        await store.updateCode(code, { status: 'expired' });
-        rec.status = 'expired';
-      }
-      if (rec.status === 'verified') {
-        // 닉네임(게스트)으로 쌓은 기록은 인증된 아이디로 옮김
-        const prev = await getPlayer(request);
-        if (prev && prev.guest && prev.igsid !== rec.igsid) await store.moveScores(prev.igsid, rec.igsid);
-        const player = await store.getPlayer(rec.igsid);
-        const token = sign({ igsid: rec.igsid, v: rec.verifiedAt }, cfg.sessionSecret);
-        setCookies.push(cookie(PLAYER_COOKIE, token, { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
-        return json(200, { status: 'verified', player: { username: player?.username || rec.username } });
-      }
-      return json(200, { status: rec.status });
-    }
-
-    // 개발용: DM 보낸 척 (FAKE 테스트)
-    if (p === '/api/dev/simulate-dm' && m === 'POST') {
-      if (!cfg.devSimulate) return json(404, { error: 'not_found' });
-      const body = await readJson(request);
-      const code = String(body.code || '').toUpperCase().replace(/^.*-/, '');
-      const rec = await store.getCode(code);
-      const sid = unsign(cookiesOf(request)[SID_COOKIE], cfg.sessionSecret)?.sid;
-      if (!rec || rec.sessionId !== sid) return json(404, { error: 'code_not_found' });
-      const igsid = String(body.igsid || 'dev_' + sid.replace(/[^A-Za-z0-9]/g, '').slice(0, 10));
-      const checkFollow = body.notFollowing
-        ? async () => ({ following: false, username: 'dev_tester' })
-        : async (id) => {
-            const r = await ig.checkFollow(id);
-            return { ...r, username: body.username || (r.username?.startsWith('player_') ? 'dev_tester' : r.username) };
-          };
-      const out = await processDm({ igsid, text: `${cfg.codePrefix}-${code}` }, { store, ig: { ...ig, sendDm: async () => ({}) }, cfg, checkFollow });
-      return json(200, { ok: true, ...out });
     }
 
     // 3) 판 시작 토큰 (점수 위조 방지용 최소 장치)
@@ -278,7 +183,6 @@ export function createHandler(cfg, { store, ig }) {
       const body = await readJson(request);
       const level = getLevel(body.level);
       if (!level) return json(400, { error: 'bad_level' });
-      if (isGated(level, cfg.gateFromLevel) && cfg.gateMode === 'follow' && !(await getPlayer(request))?.followVerifiedAt) return json(403, { error: 'follow_required' });
       const runToken = sign({ l: level.id, t: Date.now(), n: newId() }, cfg.sessionSecret);
       return json(200, { runToken });
     }
@@ -302,60 +206,12 @@ export function createHandler(cfg, { store, ig }) {
       if (!level) return json(400, { error: 'bad_level' });
       const pl = await getPlayer(request);
       const lb = await store.leaderboard(level.id, 50);
-      const entries = lb.rows.map((r) => ({ rank: r.rank, username: r.username, verified: !!r.verified, score: r.score, grade: r.grade, me: pl ? r.igsid === pl.igsid : false }));
+      const entries = lb.rows.map((r) => ({ rank: r.rank, username: r.username, score: r.score, grade: r.grade, me: pl ? r.igsid === pl.igsid : false }));
       const mine = pl ? await store.rankOf(level.id, pl.igsid) : null;
       return json(200, { level: level.id, entries, me: mine ? { rank: mine.rank, score: mine.score } : null });
     }
 
     return json(404, { error: 'not_found' });
-  }
-
-  // ------------------- 인스타 웹훅 -------------------
-  async function webhook(request, url, text, waitUntil) {
-    if (request.method === 'GET') {
-      // Meta 웹훅 등록 시 확인 요청
-      const q = url.searchParams;
-      if (q.get('hub.mode') === 'subscribe' && cfg.ig.verifyToken && q.get('hub.verify_token') === cfg.ig.verifyToken) {
-        return text(200, q.get('hub.challenge') || '');
-      }
-      return text(403);
-    }
-    if (request.method !== 'POST') return text(405);
-    const raw = new Uint8Array(await request.arrayBuffer());
-    if (raw.length > 1024 * 1024) return text(413);
-    if (cfg.ig.appSecret) {
-      if (!verifySignature(raw, request.headers.get('x-hub-signature-256'), cfg.ig.appSecret)) {
-        console.warn('[webhook] 서명 불일치 — 무시');
-        return text(401);
-      }
-    } else if (cfg.prod) {
-      console.error('[webhook] IG_APP_SECRET 이 없어 웹훅을 거부합니다');
-      return text(500);
-    }
-    let body;
-    try {
-      body = JSON.parse(new TextDecoder().decode(raw));
-    } catch {
-      return text(200, 'EVENT_RECEIVED');
-    }
-    if (cfg.ig.debug) console.log('[webhook]', JSON.stringify(body));
-    // 수동 승인 모드: DM 은 운영자가 직접 보고 승인하므로 자동 처리 안 함
-    if (cfg.followCheckMode === 'manual') return text(200, 'EVENT_RECEIVED');
-    // Meta 는 빠른 200 을 원함 → 응답은 바로, 처리는 뒤에서
-    const work = (async () => {
-      for (const dm of messagesFromWebhook(body)) {
-        try {
-          const out = await processDm(dm, { store, ig, cfg });
-          if (out.result !== 'no_code') console.log('[webhook] DM', dm.igsid, out.result, out.code || '');
-        } catch (e) {
-          console.error('[webhook] 처리 실패', e);
-        }
-      }
-    })();
-    // 응답 뒤 처리를 맡길 곳이 없으면(Vercel 함수는 응답하면 멈출 수 있음) 끝까지 처리하고 응답 (보통 1~2초)
-    if (waitUntil) waitUntil(work);
-    else await work;
-    return text(200, 'EVENT_RECEIVED');
   }
 }
 

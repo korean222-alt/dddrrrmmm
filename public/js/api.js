@@ -1,7 +1,6 @@
 // 서버 통신. 서버가 없으면(정적 호스팅/로컬 파일) 브라우저 안 가짜 API로 동작합니다.
 //
-// 흐름: createCode() → 사용자가 코드를 인스타 DM 으로 보냄 → 서버 웹훅이 받아서
-//       checkFollow(igsid) → pollCode() 가 'verified' 를 받으면 쿠키로 기억
+// 랭킹: guest(닉네임) → startRun() 으로 판 토큰 → submitScore() (끝까지 친 판은 알아서 올림)
 
 import { load, save } from './storage.js';
 import { gradeFor } from './charts.js';
@@ -31,10 +30,7 @@ function serverApi() {
     mode: 'server',
     config: () => http('GET', '/api/config'),
     me: () => http('GET', '/api/me'),
-    createCode: (purpose) => http('POST', '/api/codes', { purpose }),
     guest: (name) => http('POST', '/api/guest', { name }),
-    pollCode: (code) => http('GET', `/api/codes/${encodeURIComponent(code)}`),
-    simulateDm: (code, opts = {}) => http('POST', '/api/dev/simulate-dm', { code, ...opts }),
     startRun: (level) => http('POST', '/api/runs', { level }),
     submitScore: (payload) => http('POST', '/api/scores', payload),
     leaderboard: (level) => http('GET', `/api/leaderboard?level=${level}`),
@@ -45,20 +41,12 @@ function serverApi() {
 // ---------------- 서버 없는 모드 (정적 호스팅) ----------------
 // 랭킹·DM 인증은 서버가 있어야 진짜로 동작. 이 모드에선 화면에 '곧 오픈'으로 나오고,
 // 아래 흐름은 내 컴퓨터(localhost)에서 개발할 때만 씀.
-const ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-
-/** 서버의 checkFollow 와 같은 모양. 지금은 항상 "팔로우 확인됨" */
-export async function mockCheckFollow(igsid) {
-  return { following: true, username: 'tester', igsid };
-}
-
 function mockApi(cfg) {
-  const codes = new Map();
   const getPlayer = () => load('mockPlayer', null);
   return {
     mode: 'mock',
     async config() {
-      return { gateMode: cfg.gateMode, gateFromLevel: cfg.gateFromLevel, instagramHandle: cfg.instagramHandle, followCheckMode: 'fake', devSimulate: true, codePrefix: cfg.codePrefix };
+      return { gateMode: cfg.gateMode, gateFromLevel: cfg.gateFromLevel, instagramHandle: cfg.instagramHandle, };
     },
     async me() {
       const p = getPlayer();
@@ -68,30 +56,6 @@ function mockApi(cfg) {
       const p = { username: String(name).trim(), guest: true };
       save('mockPlayer', p);
       return { verified: false, guest: true, player: p };
-    },
-    async createCode(purpose) {
-      let c = '';
-      for (let i = 0; i < 4; i++) c += ALPHABET[Math.floor(Math.random() * ALPHABET.length)];
-      const rec = { code: c, display: `${cfg.codePrefix}-${c}`, purpose, status: 'pending', expiresAt: Date.now() + 10 * 60 * 1000 };
-      codes.set(c, rec);
-      return rec;
-    },
-    async pollCode(code) {
-      const rec = codes.get(code);
-      if (!rec) return { status: 'expired' };
-      if (rec.status === 'pending' && Date.now() > rec.expiresAt) rec.status = 'expired';
-      return { status: rec.status, player: rec.player };
-    },
-    async simulateDm(code, opts = {}) {
-      const rec = codes.get(code);
-      if (!rec) throw new Error('코드 없음');
-      const r = opts.notFollowing ? { following: false, username: 'tester' } : await mockCheckFollow('mock-igsid');
-      if (r.following) {
-        rec.status = 'verified';
-        rec.player = { username: r.username };
-        save('mockPlayer', rec.player);
-      } else rec.status = 'not_following';
-      return { ok: true, status: rec.status };
     },
     async startRun(level) {
       return { runToken: `mock.${level}.${Date.now()}` };

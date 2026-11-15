@@ -16,7 +16,7 @@ export const STATS_KEEP_MS = 400 * 24 * 3600 * 1000;
 export class JsonStore {
   constructor(file) {
     this.file = file;
-    this.data = { codes: {}, players: {}, usedRuns: {}, sessions: {}, plays: {} };
+    this.data = { players: {}, usedRuns: {}, sessions: {}, plays: {} };
     this._timer = null;
   }
 
@@ -24,7 +24,9 @@ export class JsonStore {
     try {
       const raw = fs.readFileSync(this.file, 'utf8');
       const d = JSON.parse(raw);
-      this.data = { codes: d.codes || {}, players: d.players || {}, usedRuns: d.usedRuns || {}, sessions: d.sessions || {}, plays: d.plays || {} };
+      this.data = { players: d.players || {}, usedRuns: d.usedRuns || {}, sessions: d.sessions || {}, plays: d.plays || {} };
+      // 인스타 아이디 등록 기능을 없앴으므로, 예전에 인증된 인스타 계정 기록과 인증 코드는 지움
+      for (const [k, p] of Object.entries(this.data.players)) if (p.followVerifiedAt) delete this.data.players[k];
     } catch (e) {
       if (e.code !== 'ENOENT') console.error('[store] 읽기 실패, 새로 시작:', e.message);
     }
@@ -48,52 +50,12 @@ export class JsonStore {
     }
   }
 
-  // ----- codes -----
-  createCode(rec) {
-    this.data.codes[rec.code] = rec;
-    this._save();
-    return rec;
-  }
-  getCode(code) {
-    return this.data.codes[code] || null;
-  }
-  updateCode(code, patch) {
-    const rec = this.data.codes[code];
-    if (!rec) return null;
-    Object.assign(rec, patch);
-    this._save();
-    return rec;
-  }
-  /** 승인 기다리는 코드 (관리자 페이지용) */
-  listPendingCodes(now = Date.now(), limit = 100) {
-    return Object.values(this.data.codes)
-      .filter((r) => (r.status === 'pending' || r.status === 'not_following') && r.expiresAt > now)
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .slice(0, limit);
-  }
-  /** 오래된 코드/사용한 판 토큰 정리 */
-  prune(now = Date.now()) {
-    let n = 0;
-    for (const [k, r] of Object.entries(this.data.codes)) {
-      if (r.expiresAt + 24 * 3600 * 1000 < now) {
-        delete this.data.codes[k];
-        n++;
-      }
-    }
-    for (const [k, exp] of Object.entries(this.data.usedRuns)) if (exp < now) delete this.data.usedRuns[k];
-    const old = now - STATS_KEEP_MS;
-    for (const [k, r] of Object.entries(this.data.sessions)) if (r.startedAt < old) delete this.data.sessions[k];
-    for (const [k, r] of Object.entries(this.data.plays)) if (r.startedAt < old) delete this.data.plays[k];
-    if (n) this._save();
-    return n;
-  }
-
   // ----- players -----
   getPlayer(igsid) {
     return this.data.players[igsid] || null;
   }
   upsertPlayer(igsid, patch) {
-    const p = this.data.players[igsid] || { igsid, username: null, followVerifiedAt: null, bests: {} };
+    const p = this.data.players[igsid] || { igsid, username: null, bests: {} };
     Object.assign(p, patch);
     this.data.players[igsid] = p;
     this._save();
@@ -114,7 +76,7 @@ export class JsonStore {
     const rows = [];
     for (const p of Object.values(this.data.players)) {
       const b = p.bests[level];
-      if (b && p.username) rows.push({ igsid: p.igsid, username: p.username, verified: !!p.followVerifiedAt, score: b.score, grade: b.grade, at: b.at });
+      if (b && p.username) rows.push({ igsid: p.igsid, username: p.username, score: b.score, grade: b.grade, at: b.at });
     }
     rows.sort((a, b) => b.score - a.score || a.at - b.at);
     rows.forEach((r, i) => (r.rank = i + 1));

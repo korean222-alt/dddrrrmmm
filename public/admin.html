@@ -64,11 +64,6 @@
     </div>
 
     <div id="app" hidden>
-      <div class="tabs">
-        <button type="button" data-tab="stats" class="on">이용 통계</button>
-        <button type="button" data-tab="approve">인증 승인</button>
-      </div>
-
       <section id="tab-stats">
         <div class="tabs" id="ranges">
           <button type="button" data-days="1">오늘</button>
@@ -87,28 +82,6 @@
         <p class="note" id="stats-note"></p>
       </section>
 
-      <section id="tab-approve" hidden>
-      <p>인스타 앱에서 DM 을 보고, 보낸 사람이 팔로우 중이면 여기서 승인하세요.</p>
-      <div class="card">
-        <ol>
-          <li style="display:list-item;border:0;padding:0">DM 으로 온 코드(예: OK-ABC123)와 보낸 사람 아이디 확인</li>
-          <li style="display:list-item;border:0;padding:0">그 사람 프로필에서 나를 팔로우 중인지 확인</li>
-          <li style="display:list-item;border:0;padding:0">아래에 코드와 아이디 넣고 승인 → 그 사람 화면이 자동으로 바뀌어요</li>
-        </ol>
-      </div>
-      <form class="card" id="approve">
-        <div class="row">
-          <div><label for="code">코드</label><input id="code" placeholder="OK-ABC123" autocapitalize="characters" autocomplete="off" /></div>
-          <div><label for="user">인스타 아이디</label><input id="user" placeholder="@아이디" autocapitalize="off" autocomplete="off" /></div>
-        </div>
-        <button type="submit">승인</button>
-        <div class="msg" id="msg"></div>
-      </form>
-      <div class="card">
-        <div class="head"><b>승인 기다리는 코드</b><button class="ghost" id="reload" type="button">새로고침</button></div>
-        <ul id="list"></ul>
-      </div>
-      </section>
     </div>
   </main>
   <script>
@@ -126,11 +99,6 @@
       try { data = await res.json(); } catch {}
       return { status: res.status, data: data || {} };
     }
-
-    const ago = (t) => {
-      const m = Math.round((Date.now() - t) / 60000);
-      return m < 1 ? '방금' : m < 60 ? `${m}분 전` : m < 1440 ? `${Math.round(m / 60)}시간 전` : `${Math.round(m / 1440)}일 전`;
-    };
 
     // ---------- 이용 통계 ----------
     const fmtN = (n) => Number(n || 0).toLocaleString('ko-KR');
@@ -183,14 +151,6 @@
       $('#stats-note').textContent = `방문자 = 브라우저(기기) 기준 익명 번호 · 이용 시간 = 화면을 보며 만진 시간만 (1분 넘게 안 만지면 제외) · 날짜는 한국시간 기준 · 업데이트 ${new Date().toLocaleTimeString('ko-KR')}`;
     }
 
-    function setTab(name) {
-      $('#tab-stats').hidden = name !== 'stats';
-      $('#tab-approve').hidden = name !== 'approve';
-      document.querySelectorAll('[data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === name));
-      if (name === 'stats') loadStats();
-      else load();
-    }
-    document.querySelectorAll('[data-tab]').forEach((b) => b.addEventListener('click', () => setTab(b.dataset.tab)));
     $('#ranges').addEventListener('click', (e) => {
       const b = e.target.closest('[data-days]');
       if (!b) return;
@@ -198,21 +158,6 @@
       document.querySelectorAll('#ranges [data-days]').forEach((x) => x.classList.toggle('on', x === b));
       loadStats();
     });
-
-    async function load() {
-      const r = await call('GET', '/api/admin/codes');
-      if (r.status === 401) return logout('비밀번호가 맞지 않아요.');
-      const list = $('#list');
-      if (r.status !== 200) {
-        list.innerHTML = '<li class="empty">불러오지 못했어요.</li>';
-        return;
-      }
-      list.innerHTML = r.data.codes.length
-        ? r.data.codes
-            .map((c) => `<li><div><div class="code">${c.display}</div><div class="meta">${c.purpose === 'ranking' ? '랭킹' : '단계 열기'} · ${ago(c.createdAt)}</div></div><button class="ghost" data-code="${c.display}" type="button">선택</button></li>`)
-            .join('')
-        : '<li class="empty">지금은 없어요.</li>';
-    }
 
     function logout(text) {
       token = '';
@@ -226,51 +171,14 @@
     async function login() {
       token = $('#token').value.trim() || token;
       if (!token) return;
-      const r = await call('GET', '/api/admin/codes');
+      const r = await call('GET', '/api/admin/stats?days=1');
       if (r.status !== 200) return logout(r.status === 401 ? '비밀번호가 맞지 않아요.' : '서버에 연결하지 못했어요.');
       try { localStorage.setItem('adminToken', token); } catch {}
       $('#login').hidden = true;
       $('#app').hidden = false;
-      setTab('stats');
+      loadStats();
     }
 
-    const ERR = {
-      bad_username: '아이디 형식이 이상해요 (영문·숫자·._ 만).',
-      code_not_found: '없는 코드예요. 다시 확인해 주세요.',
-      already_verified: '이미 승인된 코드예요.',
-      expired: '만료된 코드예요. 새 코드를 받아 다시 보내 달라고 해 주세요.',
-    };
-
-    $('#approve').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const msg = $('#msg');
-      const code = $('#code').value.trim();
-      const username = $('#user').value.trim();
-      if (!code || !username) {
-        msg.textContent = '코드와 아이디를 둘 다 넣어 주세요.';
-        msg.className = 'msg bad';
-        return;
-      }
-      const r = await call('POST', '/api/admin/approve', { code, username });
-      if (r.status === 200) {
-        msg.textContent = `승인했어요: @${r.data.username}`;
-        msg.className = 'msg ok';
-        $('#code').value = '';
-        $('#user').value = '';
-        load();
-      } else if (r.status === 401) logout('비밀번호가 맞지 않아요.');
-      else {
-        msg.textContent = ERR[r.data.error] || '승인하지 못했어요.';
-        msg.className = 'msg bad';
-      }
-    });
-    $('#list').addEventListener('click', (e) => {
-      const b = e.target.closest('[data-code]');
-      if (!b) return;
-      $('#code').value = b.dataset.code;
-      $('#user').focus();
-    });
-    $('#reload').addEventListener('click', load);
     $('#login-btn').addEventListener('click', login);
     $('#token').addEventListener('keydown', (e) => e.key === 'Enter' && login());
     if (token) login();

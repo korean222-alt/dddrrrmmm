@@ -1,13 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import crypto from 'node:crypto';
 
 import { LEVELS, levelLanes, HAT, CRASH, buildNotes, noteCount, maxScore, gradeFor, scoreBounds, pointsFor, isGated, parseMelody, parseChord, chordAt, noteToMidi, starsFor, accuracy } from '../public/js/charts.js';
-import { extractCodes, generateCode, isCode } from '../server/codes.js';
-import { verifySignature, createInstagram } from '../server/instagram.js';
 import { sign, unsign } from '../server/session.js';
-import { messagesFromWebhook, processDm } from '../server/verify.js';
-import { JsonStore } from '../server/store.js';
 
 test('채보: 모든 마디가 16칸, 허용 문자만', () => {
   LEVELS.forEach((lv, i) => {
@@ -91,95 +86,11 @@ test('점수: 만점, 등급, 범위', () => {
   assert.ok(b.min <= s && s <= b.max);
 });
 
-test('DM 코드 인식', () => {
-  assert.deepEqual(extractCodes('OK-K7P2'), ['K7P2']);
-  assert.deepEqual(extractCodes('안녕하세요! ok k7p2 보냅니다'), ['K7P2']);
-  assert.deepEqual(extractCodes('k7p2'), ['K7P2']);
-  assert.deepEqual(extractCodes('OK–K7P2입니다'.replace('입니다', ' 입니다')), ['K7P2']);
-  assert.deepEqual(extractCodes('그냥 잡담이에요'), []);
-  assert.deepEqual(extractCodes('K0O1'), []); // 0,O,1 은 코드에 안 씀
-  for (let i = 0; i < 50; i++) assert.ok(isCode(generateCode()));
-});
-
-test('웹훅 서명 검증', () => {
-  const body = Buffer.from('{"a":1}');
-  const sig = 'sha256=' + crypto.createHmac('sha256', 'secret').update(body).digest('hex');
-  assert.ok(verifySignature(body, sig, 'secret'));
-  assert.ok(!verifySignature(body, sig, 'other'));
-  assert.ok(!verifySignature(body, 'sha256=abc', 'secret'));
-  assert.ok(!verifySignature(body, undefined, 'secret'));
-});
-
 test('서명 토큰', () => {
   const t = sign({ igsid: '1' }, 'k');
   assert.deepEqual(unsign(t, 'k'), { igsid: '1' });
   assert.equal(unsign(t, 'x'), null);
   assert.equal(unsign(t.slice(0, -2) + 'aa', 'k'), null);
-});
-
-test('웹훅 본문 파싱: 에코/내 계정/텍스트 없음 제외', () => {
-  const body = {
-    object: 'instagram',
-    entry: [
-      {
-        id: 'BIZ',
-        messaging: [
-          { sender: { id: 'U1' }, recipient: { id: 'BIZ' }, message: { mid: 'm1', text: 'OK-K7P2' } },
-          { sender: { id: 'BIZ' }, recipient: { id: 'U1' }, message: { mid: 'm2', text: '답장', is_echo: true } },
-          { sender: { id: 'U2' }, recipient: { id: 'BIZ' }, message: { mid: 'm3', attachments: [] } },
-        ],
-      },
-    ],
-  };
-  assert.deepEqual(messagesFromWebhook(body), [{ igsid: 'U1', text: 'OK-K7P2' }]);
-});
-
-function fakeDeps(following) {
-  const store = new JsonStore('/dev/null');
-  store._save = () => {};
-  const sent = [];
-  const cfg = { codePrefix: 'OK', instagramHandle: 'ok_aystra', followCheckMode: 'fake', ig: {} };
-  const ig = { sendDm: async (id, text) => sent.push({ id, text }), checkFollow: async () => ({ following, username: 'alice' }) };
-  return { store, ig, cfg, sent };
-}
-
-test('DM 처리: 팔로우 중이면 verified + 플레이어 저장', async () => {
-  const d = fakeDeps(true);
-  d.store.createCode({ code: 'K7P2', purpose: 'unlock', sessionId: 's', status: 'pending', createdAt: Date.now(), expiresAt: Date.now() + 60000 });
-  const out = await processDm({ igsid: 'U1', text: 'OK-K7P2' }, d);
-  assert.equal(out.result, 'verified');
-  assert.equal(d.store.getCode('K7P2').status, 'verified');
-  assert.equal(d.store.getPlayer('U1').username, 'alice');
-  assert.equal(d.sent.length, 1);
-});
-
-test('DM 처리: 팔로우 안 하면 not_following → 팔로우 후 재전송하면 verified', async () => {
-  const d = fakeDeps(false);
-  d.store.createCode({ code: 'AB23', purpose: 'unlock', sessionId: 's', status: 'pending', createdAt: Date.now(), expiresAt: Date.now() + 60000 });
-  assert.equal((await processDm({ igsid: 'U1', text: 'AB23' }, d)).result, 'not_following');
-  assert.match(d.sent[0].text, /@ok_aystra/);
-  d.ig.checkFollow = async () => ({ following: true, username: 'alice' });
-  assert.equal((await processDm({ igsid: 'U1', text: 'AB23' }, d)).result, 'verified');
-});
-
-test('DM 처리: 만료 코드 / 없는 코드', async () => {
-  const d = fakeDeps(true);
-  d.store.createCode({ code: 'ZZ99', purpose: 'unlock', sessionId: 's', status: 'pending', createdAt: 0, expiresAt: 1 });
-  assert.equal((await processDm({ igsid: 'U1', text: 'ZZ99' }, d)).result, 'expired');
-  assert.equal((await processDm({ igsid: 'U1', text: '안녕하세요' }, d)).result, 'no_code');
-});
-
-test('checkFollow: fake 는 항상 확인됨, real 은 is_user_follow_business 사용', async () => {
-  const base = { followCheckMode: 'fake', ig: { graphHost: 'graph.instagram.com', apiVersion: 'v23.0', accessToken: '' } };
-  assert.equal((await createInstagram(base).checkFollow('123456')).following, true);
-
-  const fetchOk = async () => ({ ok: true, status: 200, json: async () => ({ username: 'bob', is_user_follow_business: false }) });
-  const real = createInstagram({ ...base, followCheckMode: 'real', ig: { ...base.ig, accessToken: 't' } }, fetchOk);
-  assert.deepEqual(await real.checkFollow('1'), { following: false, username: 'bob', source: 'real' });
-
-  const fetchMissing = async () => ({ ok: true, status: 200, json: async () => ({ username: 'bob' }) });
-  const real2 = createInstagram({ ...base, followCheckMode: 'real', ig: { ...base.ig, accessToken: 't' } }, fetchMissing);
-  await assert.rejects(real2.checkFollow('1'), /is_user_follow_business/);
 });
 
 test('1:1 도전장: 링크로 주고받기 + 위조/깨진 값 거부', async () => {

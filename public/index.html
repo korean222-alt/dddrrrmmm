@@ -149,7 +149,7 @@
         <div class="res-actions">
           <button class="btn btn-primary" data-action="retry"><span data-icon="retry"></span> 다시 하기</button>
           <button class="btn btn-hot" data-action="next" id="btn-next">다음 단계</button>
-          <button class="btn btn-ghost" data-action="submit-rank" id="btn-rank"><span data-icon="trophy"></span> 랭킹 등록</button>
+          <button class="btn btn-ghost" data-action="submit-rank" id="btn-rank"><span data-icon="trophy"></span> 랭킹 보기</button>
           <button class="btn btn-ghost" data-action="share"><span data-icon="share"></span> 결과 공유</button>
           <button class="btn btn-vs" data-action="send-vs" id="btn-vs"><span data-icon="swords"></span> 친구에게 1:1 도전장</button>
         </div>
@@ -230,35 +230,6 @@
     </div>
   </div>
 
-  <div class="modal" id="modal-verify" hidden>
-    <div class="sheet">
-      <button class="icon-btn close" data-action="close-verify" aria-label="닫기"><span data-icon="close"></span></button>
-      <div class="verify-mascots" id="verify-mascots"></div>
-      <h3 id="verify-title">팔로워 전용 단계예요!</h3>
-      <p class="muted" id="verify-desc">팔로우하고 아래 코드를 DM으로 보내면 바로 열려요.</p>
-      <ol class="steps">
-        <li><b>1</b><span><a id="verify-follow" target="_blank" rel="noopener"></a> 팔로우</span></li>
-        <li><b>2</b><span>아래 코드를 <b>DM</b>으로 보내기</span></li>
-        <li><b>3</b><span id="verify-step3">이 화면으로 돌아오면 자동으로 열려요</span></li>
-      </ol>
-      <div class="code-box">
-        <div class="code" id="verify-code">······</div>
-        <button class="btn btn-sm btn-ink" data-action="copy-code"><span data-icon="copy"></span> 복사</button>
-      </div>
-      <button class="btn btn-insta" data-action="open-dm"><span data-icon="send"></span> 코드 복사하고 DM 열기</button>
-      <div class="verify-status" id="verify-status" data-state="pending">
-        <span class="spinner"></span><span id="verify-status-text">DM 기다리는 중…</span>
-      </div>
-      <div class="dev-tools" id="verify-dev" hidden>
-        <small>테스트용 (서버 FAKE 모드)</small>
-        <div class="row">
-          <button class="btn btn-ghost btn-sm" data-action="sim-follow">DM 보낸 걸로 처리</button>
-          <button class="btn btn-ghost btn-sm" data-action="sim-nofollow">팔로우 안 한 경우</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <div class="modal" id="modal-join" hidden>
     <div class="sheet">
       <button class="icon-btn close" data-action="close-join" aria-label="닫기"><span data-icon="close"></span></button>
@@ -267,11 +238,9 @@
       <form id="join-form" class="stack">
         <label class="field"><span>닉네임 <small class="muted">2~12자</small></span><input type="text" id="join-name" maxlength="12" autocomplete="nickname" placeholder="예: 쿵짝왕" /></label>
         <p class="join-err small" id="join-err" hidden></p>
-        <button class="btn btn-primary" type="submit">이 이름으로 등록</button>
+        <button class="btn btn-primary" type="submit">이 이름으로 시작</button>
       </form>
-      <div class="join-or"><span>또는</span></div>
-      <button class="btn btn-insta" data-action="join-insta"><span data-icon="insta"></span> 인스타 아이디로 올리기</button>
-      <p class="muted small">인스타 아이디는 팔로워 확인 후 올라가요. 닉네임으로 먼저 올려도 나중에 바꿀 수 있어요.</p>
+      <p class="muted small">끝까지 친 판의 점수가 이 이름으로 랭킹에 자동으로 올라가요.</p>
     </div>
   </div>
 
