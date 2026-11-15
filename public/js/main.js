@@ -419,7 +419,7 @@ async function startLevel(id) {
   if (state.game) state.game.stop();
   state.runToken = null;
   // 영상 찍기는 팔로우 잠금 없이 (계정 주인이 촬영용으로 씀) → 서버 판 토큰도 안 받음
-  if ((!lv.challenge || lv.id === ENDLESS_ID) && !st.active) state.api
+  if ((!lv.challenge || lv.endless) && !st.active) state.api
     .startRun(id)
     .then((r) => (state.runToken = r.runToken))
     .catch((e) => {
@@ -869,7 +869,8 @@ function openIncomingVs(ch) {
 /** 랭킹에 내 점수 올리기. 끝까지 친 판은 결과가 뜨면 알아서 올라가요 (닉네임이 있을 때) */
 async function submitRank(r = state.lastResult) {
   // 무제한 모드는 목숨이 다해 끝나도 올림 (최소 Lv.1 은 깨야). 영상용 챌린지(ch4 등)는 안 올림
-  const endless = !!r && r.levelId === ENDLESS_ID;
+  // 무제한(그리그·단계별)은 곡마다 따로 랭킹
+  const endless = !!r && (r.levelId === ENDLESS_ID || !!levelEndlessBase(r.levelId));
   if (!r || r.auto || (r.challenge && !endless) || (r.failed && !endless) || r.submitted || r.submitting) return;
   if (endless && !(r.roundsCleared >= 1)) return;
   if (demoOnly() || state.api.mode !== 'server') return;
@@ -883,7 +884,7 @@ async function submitRank(r = state.lastResult) {
   try {
     const out = await state.api.submitScore(
       endless
-        ? { runToken: r.runToken, level: ENDLESS_ID, rounds: r.roundsCleared, score: r.score }
+        ? { runToken: r.runToken, level: r.levelId, rounds: r.roundsCleared, score: r.score }
         : { runToken: r.runToken, level: r.levelId, score: r.score, maxCombo: r.maxCombo, counts: r.counts }
     );
     r.submitted = true;
@@ -1043,14 +1044,27 @@ function completeFollow(silent) {
 }
 
 // ---------------- 랭킹 ----------------
+/** 이 랭킹 칸이 무제한 랭킹인지 ('endless' 또는 'e5' 같은 단계별 무제한) */
+const isEndlessRank = (id) => id === ENDLESS_ID || !!levelEndlessBase(id);
+
 async function openRank(levelId) {
   state.rankLevel = levelId || state.rankLevel || 1;
-  $('#rank-tabs').innerHTML =
-    `<button role="tab" data-rank="total" aria-selected="${state.rankLevel === 'total'}">🏆 총 등수</button>` +
-    `<button role="tab" data-rank="endless" aria-selected="${state.rankLevel === ENDLESS_ID}">💎 무제한</button>` +
-    LEVELS.map((l) => `<button role="tab" data-rank="${l.id}" aria-selected="${l.id === state.rankLevel}">${l.id}단계</button>`).join('');
+  renderRankTabs();
   openModal('modal-rank');
   await loadRank();
+}
+
+/** 위: 🎵 단계 / 💎 무제한 전환. 아래: 그 안의 탭 (단계 = 총 등수 + 1~14단계, 무제한 = 그리그 + 단계별 무제한) */
+function renderRankTabs() {
+  const cur = state.rankLevel;
+  const endless = isEndlessRank(cur);
+  $$('#rank-mode button').forEach((b) => b.setAttribute('aria-selected', String((b.dataset.rankMode === 'endless') === endless)));
+  const tab = (id, label) => `<button role="tab" data-rank="${id}" aria-selected="${id === cur}">${label}</button>`;
+  $('#rank-tabs').innerHTML = endless
+    ? tab(ENDLESS_ID, '♾️ 그리그') + LEVELS.map((l) => tab(levelEndlessId(l.id), `${l.id}단계 ∞`)).join('')
+    : tab('total', '🏆 총 등수') + LEVELS.map((l) => tab(l.id, `${l.id}단계`)).join('');
+  const sel = $('#rank-tabs [aria-selected="true"]');
+  if (sel) sel.scrollIntoView({ block: 'nearest', inline: 'center' });
 }
 
 async function loadRank() {
@@ -1064,7 +1078,7 @@ async function loadRank() {
   try {
     const data = await state.api.leaderboard(state.rankLevel);
     const total = state.rankLevel === 'total';
-    const endless = state.rankLevel === ENDLESS_ID;
+    const endless = isEndlessRank(state.rankLevel);
     if (!data.entries.length) list.innerHTML = '<div class="rank-empty">아직 아무도 없어요. 첫 1위의 주인공이 되어보세요!</div>';
     else if (total) list.innerHTML = totalRankHtml(data);
     else if (endless)
@@ -1088,7 +1102,10 @@ async function loadRank() {
     const foot = [];
     if (data.sample && isLocalDev()) foot.push('(개발 모드: 서버 없이 내 기록만 보여요)');
     if (total) foot.push('단계별 최고점을 모두 더한 점수예요. 더 많은 단계를 높은 점수로 칠수록 올라가요!');
-    if (endless) foot.push('무제한 모드 랭킹이에요. 더 높은 단계(Lv.)까지 깬 사람이 위, 같으면 점수가 높은 사람이 위예요.');
+    if (endless) {
+      const eb = levelEndlessBase(state.rankLevel);
+      foot.push(`${eb ? `${eb.id}단계 ${escapeHtml(eb.name)} 무제한` : '그리그 무제한 모드'} 랭킹이에요. 더 높은 단계(Lv.)까지 깬 사람이 위, 같으면 점수가 높은 사람이 위예요.`);
+    }
     if (data.me) foot.push(`내 순위: ${data.me.rank}위.`);
     if (state.me.guest) foot.push(`<b>${escapeHtml(state.me.player?.username)}</b> 님으로 참여 중 · 끝까지 치면 점수가 알아서 올라가요.`);
     else foot.push('닉네임을 정하면 끝까지 친 점수가 알아서 랭킹에 올라가요. <button class="link" data-action="rank-join">닉네임 정하기</button>');
@@ -1639,6 +1656,16 @@ function bindActions() {
     if (sm) {
       state.studio.mode = sm.dataset.mode;
       $$('#studio-mode button').forEach((b) => b.setAttribute('aria-pressed', b === sm));
+      return;
+    }
+    const rm = e.target.closest('[data-rank-mode]');
+    if (rm) {
+      const want = rm.dataset.rankMode === 'endless';
+      if (want !== isEndlessRank(state.rankLevel)) {
+        state.rankLevel = want ? ENDLESS_ID : 'total';
+        renderRankTabs();
+        loadRank();
+      }
       return;
     }
     const tab = e.target.closest('[data-rank]');

@@ -41,6 +41,8 @@ function serverApi() {
 // ---------------- 서버 없는 모드 (정적 호스팅) ----------------
 // 랭킹·DM 인증은 서버가 있어야 진짜로 동작. 이 모드에선 화면에 '곧 오픈'으로 나오고,
 // 아래 흐름은 내 컴퓨터(localhost)에서 개발할 때만 씀.
+const isEndless = (level) => level === 'endless' || /^e\d+$/.test(String(level));
+
 function mockApi(cfg) {
   const getPlayer = () => load('mockPlayer', null);
   return {
@@ -68,12 +70,12 @@ function mockApi(cfg) {
         throw e;
       }
       const board = load('mockBoard', {});
-      if (level === 'endless') {
-        const prev = board.endless;
+      if (isEndless(level)) {
+        const prev = board[level];
         const improved = !prev || rounds > prev.rounds || (rounds === prev.rounds && score > prev.score);
-        if (improved) board.endless = { username: p.username, rounds, score, at: Date.now() };
+        if (improved) board[level] = { username: p.username, rounds, score, at: Date.now() };
         save('mockBoard', board);
-        return { improved, best: board.endless.score, rounds: board.endless.rounds, rank: 1 };
+        return { improved, best: board[level].score, rounds: board[level].rounds, rank: 1 };
       }
       const prev = board[level];
       const improved = !prev || score > prev.score;
@@ -83,21 +85,21 @@ function mockApi(cfg) {
       return { best: improved ? score : prev.score, improved, rank: lb.me ? lb.me.rank : null };
     },
     async leaderboard(level) {
-      if (level === 'endless') {
-        const mine = load('mockBoard', {}).endless;
+      if (isEndless(level)) {
+        const mine = load('mockBoard', {})[level];
         const entries = mine ? [{ rank: 1, username: mine.username, rounds: mine.rounds, score: mine.score, me: true }] : [];
-        return { level: 'endless', entries, me: mine ? { rank: 1, rounds: mine.rounds, score: mine.score } : null, sample: true };
+        return { level, entries, me: mine ? { rank: 1, rounds: mine.rounds, score: mine.score } : null, sample: true };
       }
       if (level === 'total') {
         const p = getPlayer();
-        const bs = Object.entries(load('mockBoard', {})).filter(([k]) => k !== 'endless').map(([, v]) => v);
+        const bs = Object.entries(load('mockBoard', {})).filter(([k]) => /^\d+$/.test(k)).map(([, v]) => v);
         const me = p && bs.length ? { rank: 1, score: bs.reduce((a, b) => a + b.score, 0), levels: bs.length } : null;
         const entries = me ? [{ rank: 1, username: p.username, score: me.score, levels: me.levels, me: true }] : [];
         return { level: 'total', levels: 14, entries, me, sample: true };
       }
       const entries = [];
       const mine = load('mockBoard', {})[level];
-      if (mine && level !== 'endless') entries.push({ ...mine, me: true });
+      if (mine && !isEndless(level)) entries.push({ ...mine, me: true });
       entries.sort((a, b) => b.score - a.score);
       entries.forEach((e, i) => (e.rank = i + 1));
       const me = entries.find((e) => e.me) || null;

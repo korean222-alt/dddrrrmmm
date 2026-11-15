@@ -5,10 +5,21 @@
 
 import { sign, unsign, parseCookies, cookie, newId } from './session.js';
 import { buildStats } from './stats.js';
-import { LEVELS, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur, ENDLESS_ID, ROUND_BARS, roundBpm, pointsFor } from '../public/js/charts.js';
+import { LEVELS, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur, ENDLESS_ID, ROUND_BARS, roundBpm, pointsFor, levelEndlessBase, LEVEL_ENDLESS_STEP } from '../public/js/charts.js';
 
-// 무제한 모드 랭킹은 저장소의 level 0 칸에 '깬 단계 × 1,000,000 + 점수' 한 숫자로 저장 (단계가 먼저, 같으면 점수)
+// 무제한 모드 랭킹은 저장소의 level 칸에 '깬 단계 × 1,000,000 + 점수' 한 숫자로 저장 (단계가 먼저, 같으면 점수)
+//   그리그 무제한('endless') = level 0, 단계별 무제한('e5') = level -5. 총 등수는 level > 0 만 더함
 export const ENDLESS_LEVEL = 0;
+/**
+ * 무제한 판 id → { id, slot(저장소 level 칸), bpmOf(단계), notes(단계당 최대 노트 수) } (무제한이 아니면 null)
+ */
+export function endlessMode(id) {
+  if (id === ENDLESS_ID) return { id, slot: ENDLESS_LEVEL, bpmOf: roundBpm, notes: 100 };
+  const base = levelEndlessBase(id);
+  if (!base) return null;
+  // 단계별 무제한: 원래 곡 4마디(최대 4×16칸 × 동시치기 2개)를 되풀이, 4마디마다 BPM +LEVEL_ENDLESS_STEP
+  return { id: `e${base.id}`, slot: -base.id, bpmOf: (r) => base.bpm + LEVEL_ENDLESS_STEP * (r - 1), notes: 130 };
+}
 const ENDLESS_MULT = 1_000_000;
 export const endlessKey = (rounds, score) => rounds * ENDLESS_MULT + Math.min(score, ENDLESS_MULT - 1);
 export const endlessParts = (v) => ({ rounds: Math.floor(v / ENDLESS_MULT), score: v % ENDLESS_MULT });
@@ -203,7 +214,7 @@ export function createHandler(cfg, { store }) {
     // 3) 판 시작 토큰 (점수 위조 방지용 최소 장치)
     if (p === '/api/runs' && m === 'POST') {
       const body = await readJson(request);
-      const level = body.level === ENDLESS_ID ? { id: ENDLESS_ID } : getLevel(body.level);
+      const level = endlessMode(body.level) || getLevel(body.level);
       if (!level) return json(400, { error: 'bad_level' });
       const runToken = sign({ l: level.id, t: Date.now(), n: newId() }, cfg.sessionSecret);
       return json(200, { runToken });
@@ -215,12 +226,13 @@ export function createHandler(cfg, { store }) {
       const pl = await getPlayer(request);
       if (!pl) return json(401, { error: 'verify_required' });
       const body = await readJson(request);
-      if (body.level === ENDLESS_ID) {
+      const em = endlessMode(body.level);
+      if (em) {
         const e = validateEndless(body, cfg);
         if (!e.ok) return json(400, { error: e.error });
         if (!(await store.useRun(e.nonce, Date.now() + 2 * 24 * 3600 * 1000))) return json(409, { error: 'run_used' });
-        const out = await store.recordScore(pl.igsid, ENDLESS_LEVEL, { score: endlessKey(e.rounds, e.score), grade: null, maxCombo: 0 });
-        const mine = await store.rankOf(ENDLESS_LEVEL, pl.igsid);
+        const out = await store.recordScore(pl.igsid, em.slot, { score: endlessKey(e.rounds, e.score), grade: null, maxCombo: 0 });
+        const mine = await store.rankOf(em.slot, pl.igsid);
         const best = endlessParts(out.best);
         return json(200, { improved: out.improved, best: best.score, rounds: best.rounds, rank: mine ? mine.rank : null });
       }
@@ -240,12 +252,13 @@ export function createHandler(cfg, { store }) {
       return json(200, { level: 'total', levels: LEVELS.length, entries, me: mine });
     }
 
-    if (p === '/api/leaderboard' && m === 'GET' && url.searchParams.get('level') === ENDLESS_ID) {
+    const lbEndless = p === '/api/leaderboard' && m === 'GET' ? endlessMode(url.searchParams.get('level')) : null;
+    if (lbEndless) {
       const pl = await getPlayer(request);
-      const lb = await store.leaderboard(ENDLESS_LEVEL, 50);
+      const lb = await store.leaderboard(lbEndless.slot, 50);
       const entries = lb.rows.map((r) => ({ rank: r.rank, username: r.username, ...endlessParts(r.score), me: pl ? r.igsid === pl.igsid : false }));
-      const mine = pl ? await store.rankOf(ENDLESS_LEVEL, pl.igsid) : null;
-      return json(200, { level: ENDLESS_ID, entries, me: mine ? { rank: mine.rank, ...endlessParts(mine.score) } : null });
+      const mine = pl ? await store.rankOf(lbEndless.slot, pl.igsid) : null;
+      return json(200, { level: lbEndless.id, entries, me: mine ? { rank: mine.rank, ...endlessParts(mine.score) } : null });
     }
 
     if (p === '/api/leaderboard' && m === 'GET') {
@@ -308,19 +321,21 @@ export function cleanInstagram(v) {
 /** 무제한 모드 점수 검증: 서명된 판 토큰 + 그 단계까지 치려면 걸리는 최소 시간 + 점수 상한 */
 export function validateEndless(body, cfg, now = Date.now()) {
   const run = unsign(body.runToken, cfg.sessionSecret);
-  if (!run || run.l !== ENDLESS_ID) return { ok: false, error: 'bad_run' };
+  const em = endlessMode(body.level);
+  // 판 토큰은 같은 무제한(그리그 / 같은 단계)용이어야 함
+  if (!run || !em || run.l !== em.id) return { ok: false, error: 'bad_run' };
   const rounds = body.rounds;
   if (!Number.isInteger(rounds) || rounds < 1 || rounds > 200) return { ok: false, error: 'bad_rounds' };
   const elapsed = (now - run.t) / 1000;
   if (elapsed > 6 * 3600) return { ok: false, error: 'run_expired' };
   // 단계 하나 = ROUND_BARS 마디 × 4박. 깬 단계 전부를 치는 데 걸리는 최소 시간
   let minSec = 0;
-  for (let r = 1; r <= rounds; r++) minSec += (ROUND_BARS * 4 * 60) / roundBpm(r);
+  for (let r = 1; r <= rounds; r++) minSec += (ROUND_BARS * 4 * 60) / em.bpmOf(r);
   if (elapsed < minSec * cfg.minRunRatio) return { ok: false, error: 'too_fast' };
-  // 점수 상한: 단계마다 노트 100개를 전부 PERFECT + 최대 콤보, 빠른 단계 점수 배율(1 + 0.1 × (단계-1))까지
+  // 점수 상한: 단계마다 노트 em.notes 개를 전부 PERFECT + 최대 콤보, 빠른 단계 점수 배율(1 + 0.1 × (단계-1))까지
   const score = body.score;
   let max = 0;
-  for (let r = 1; r <= rounds + 1; r++) max += 100 * pointsFor('perfect', 100) * (1 + 0.1 * (r - 1));
+  for (let r = 1; r <= rounds + 1; r++) max += em.notes * pointsFor('perfect', 100) * (1 + 0.1 * (r - 1));
   if (!Number.isInteger(score) || score < 0 || score > max) return { ok: false, error: 'bad_score' };
   return { ok: true, rounds, score, nonce: run.n };
 }

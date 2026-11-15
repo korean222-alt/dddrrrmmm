@@ -76,7 +76,7 @@ export class JsonStore {
     const rows = [];
     for (const p of Object.values(this.data.players)) {
       if (!p.username) continue;
-      const bs = Object.entries(p.bests || {}).filter(([lv]) => lv !== '0');
+      const bs = Object.entries(p.bests || {}).filter(([lv]) => Number(lv) > 0);
       rows.push({
         igsid: p.igsid, username: p.username, ig: p.ig || null, createdAt: p.createdAt || null, checkedAt: p.checkedAt || null,
         total: bs.reduce((a, [, b]) => a + b.score, 0), levels: bs.length, endless: p.bests && p.bests[0] ? p.bests[0].score : null,
@@ -123,7 +123,7 @@ export class JsonStore {
   totalLeaderboard(limit = 50) {
     const rows = [];
     for (const p of Object.values(this.data.players)) {
-      const bs = Object.entries(p.bests || {}).filter(([lv]) => lv !== '0').map(([, b]) => b); // 0 = 무제한 모드 (따로 랭킹)
+      const bs = Object.entries(p.bests || {}).filter(([lv]) => Number(lv) > 0).map(([, b]) => b); // 0 이하 = 무제한 (따로 랭킹)
       if (!bs.length || !p.username) continue;
       rows.push({
         igsid: p.igsid, username: p.username, score: bs.reduce((a, b) => a + b.score, 0),

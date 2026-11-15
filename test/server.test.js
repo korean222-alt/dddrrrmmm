@@ -176,6 +176,33 @@ test('무제한 모드: 따로 랭킹 (깬 단계 먼저, 같으면 점수) · �
   assert.ok(!tot.entries.some((e) => e.username === '무제한왕'));
 });
 
+test('단계별 무제한: 곡마다 따로 랭킹 (그리그 무제한·다른 단계·총 등수와 안 섞임)', async () => {
+  const c = client();
+  await c('POST', '/api/guest', { name: '오단계무한', ig: 'e5_king' });
+  const run = (await c('POST', '/api/runs', { level: 'e5' })).json.runToken;
+  assert.ok(run);
+  // 없는 단계, 다른 무제한용 토큰은 거부
+  assert.equal((await c('POST', '/api/runs', { level: 'e99' })).status, 400);
+  const grieg = (await c('POST', '/api/runs', { level: 'endless' })).json.runToken;
+  assert.equal((await c('POST', '/api/scores', { runToken: grieg, level: 'e5', rounds: 3, score: 1000 })).status, 400);
+  assert.equal((await c('POST', '/api/scores', { runToken: run, level: 'e6', rounds: 3, score: 1000 })).status, 400);
+  const ok = await c('POST', '/api/scores', { runToken: run, level: 'e5', rounds: 7, score: 52000 });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.json.rounds, 7);
+  assert.equal(ok.json.rank, 1);
+  const lb = (await c('GET', '/api/leaderboard?level=e5')).json;
+  assert.equal(lb.level, 'e5');
+  assert.equal(lb.entries[0].username, '오단계무한');
+  assert.equal(lb.entries[0].rounds, 7);
+  assert.equal(lb.entries[0].score, 52000);
+  assert.equal(lb.me.rank, 1);
+  // 다른 랭킹에는 안 보임
+  for (const lv of ['e6', 'endless', '5', 'total']) {
+    const other = (await c('GET', `/api/leaderboard?level=${lv}`)).json;
+    assert.ok(!other.entries.some((e) => e.username === '오단계무한'), lv);
+  }
+});
+
 test('관리자: 랭킹 참여자 목록(인스타 아이디) → 확인함 → 삭제', async () => {
   const adm = { 'x-admin-token': 'admin-pw' };
   const c = client();

@@ -253,6 +253,10 @@
     <div class="sheet tall">
       <button class="icon-btn close" data-action="close-rank" aria-label="닫기"><span data-icon="close"></span></button>
       <h3>랭킹</h3>
+      <div class="tabs mode-tabs" id="rank-mode" role="tablist">
+        <button role="tab" data-rank-mode="normal" aria-selected="true">🎵 단계</button>
+        <button role="tab" data-rank-mode="endless" aria-selected="false">💎 무제한</button>
+      </div>
       <div class="tabs" id="rank-tabs" role="tablist"></div>
       <div class="rank-list" id="rank-list"></div>
       <p class="muted small" id="rank-foot"></p>
