@@ -882,10 +882,11 @@ export class Renderer {
     const L = this.L;
     const p = clamp((rt - this.comboPopAt) / 0.15, 0, 1);
     const sc = 1 + (1 - easeOut(p)) * 0.22;
-    const y = L.topY + (L.strikeY - L.topY) * 0.24;
-    const size = L.GW * 0.14 * sc;
+    // 악보(노트)가 가려지지 않게: 작고 흐리게, 노트 뒤에 깔림
+    const y = L.topY + (L.strikeY - L.topY) * 0.2;
+    const size = L.GW * 0.09 * sc;
     ctx.save();
-    ctx.globalAlpha = 0.92;
+    ctx.globalAlpha = 0.4;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = `${Math.round(size)}px ${FONT}`;
@@ -943,26 +944,23 @@ export class Renderer {
     this.fx.banners = this.fx.banners.filter((b) => rt - b.t0 < 1.1);
     for (const b of this.fx.banners) {
       const t = (rt - b.t0) / 1.1;
-      const size = L.GW * 0.09;
-      const pop = t < 0.15 ? easeOut(t / 0.15) : t > 0.8 ? 1 - easeOut((t - 0.8) / 0.2) : 1;
-      const y = L.topY + (L.strikeY - L.topY) * 0.55;
+      // 악보를 가리지 않게: 판정선 아래 엄지 자리 쪽이 아니라, 노트가 아직 작은 길 맨 위쪽에 작고 반투명하게
+      const size = L.GW * 0.055;
+      const pop = t < 0.15 ? easeOut(t / 0.15) : t > 0.6 ? 1 - easeOut((t - 0.6) / 0.4) : 1;
+      const y = L.topY + (L.strikeY - L.topY) * 0.07;
       ctx.save();
+      ctx.globalAlpha = 0.7 * pop;
       ctx.translate(L.cx, y);
-      ctx.scale(pop, pop);
-      ctx.rotate(-0.05);
-      const w = L.GW * 0.7;
-      const h = size * 1.4;
-      rr(ctx, -w / 2, -h / 2, w, h, h / 2);
-      ctx.fillStyle = '#FF5FA2';
-      ctx.fill();
-      ctx.lineWidth = 3;
-      ctx.strokeStyle = INK;
-      ctx.stroke();
+      ctx.scale(0.8 + 0.2 * pop, 0.8 + 0.2 * pop);
       ctx.font = `${Math.round(size)}px ${FONT}`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillStyle = '#FFFFFF';
-      ctx.fillText(b.text, 0, size * 0.05);
+      ctx.lineJoin = 'round';
+      ctx.lineWidth = size * 0.2;
+      ctx.strokeStyle = INK;
+      ctx.strokeText(b.text, 0, 0);
+      ctx.fillStyle = '#FF9CC8';
+      ctx.fillText(b.text, 0, 0);
       ctx.restore();
     }
   }
