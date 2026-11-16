@@ -127,62 +127,37 @@ const demoOnly = () => state.api && state.api.mode === 'mock' && !isLocalDev();
 const SOON = () => `랭킹은 곧 열려요! ${atHandle()} 팔로우하고 기다려 주세요`;
 
 // ---------------- 팔로워 인증 (12단계 · 무제한 모드) ----------------
-// 운영자가 관리자 화면에서 인스타 팔로우를 직접 확인하고 '인증 완료'를 누르면 열림 (최대 24시간)
-/** 팔로워 인증 완료 (서버 없는 모드에선 확인할 방법이 없어서 열어 둠) */
+// 닉네임 + 인스타 아이디로 인증을 신청하면 바로 열림. 운영자는 관리자 화면에서 신청자의 팔로우를 나중에 확인해서, 안 했으면 랭킹에서 내림(→ 다시 잠김)
+/** 팔로워 인증 신청 완료 (서버 없는 모드에선 확인할 방법이 없어서 열어 둠) */
 function isVerified() {
   if (!state.api || state.api.mode !== 'server') return true;
   return !!(state.me && state.me.guest && state.me.checked);
 }
 const verifyLocked = (id) => state.cfg.gateMode !== 'open' && needsVerify(id) && !isVerified();
-/** 인증 신청은 했고 운영자 확인을 기다리는 중 */
-const verifyPending = () => !!(state.me && state.me.guest && !state.me.needsIg && !state.me.hidden && !state.me.checked);
 const VERIFY_WHAT = () => `${VERIFY_LEVELS.join('·')}단계와 💎 그리그 무제한 모드`;
 /** 모두에게 잠긴 것 (9·13·14단계, 단계별 무제한). 개발용 ?gate=open 에선 풀림 */
 const closedLocked = (id) => state.cfg.gateMode !== 'open' && isClosed(id);
 
 function openVerify(id) {
   state.verifyFor = id ?? state.verifyFor ?? null;
-  const pending = verifyPending();
   const lv = id == null ? null : id === ENDLESS_ID ? { label: '💎 무제한 모드 · 그리그' } : levelEndlessBase(id) ? { label: `💎 ${levelEndlessBase(id).id}단계 무제한 · ${levelEndlessBase(id).name}` } : getLevel(id) ? { label: `${id}단계 · ${getLevel(id).composer} ${getLevel(id).name}` } : null;
   $('#verify-level').hidden = !lv;
   if (lv) $('#verify-level').textContent = lv.label;
-  $('#verify-mascots').innerHTML = mascotSVG('kong', pending ? 'idle' : 'cheer') + mascotSVG('jjak', 'idle');
-  $('#verify-title').textContent = pending ? '인증 확인 중이에요 ⏳' : '팔로워 인증이 필요해요';
-  $('#verify-desc').innerHTML = pending
-    ? `<b>@${escapeHtml(state.me.player?.ig || '')}</b> 로 신청됐어요. 운영자가 ${atHandle()} 팔로우를 확인하면 ${VERIFY_WHAT()}가 열려요.`
-    : `${VERIFY_WHAT()}는 <b>${igWho()} 팔로워 인증</b>을 받은 사람만 할 수 있어요.`;
+  $('#verify-mascots').innerHTML = mascotSVG('kong', 'cheer') + mascotSVG('jjak', 'idle');
+  $('#verify-title').textContent = '팔로워 인증이 필요해요';
+  $('#verify-desc').innerHTML = `${VERIFY_WHAT()}는 <b>${igWho()} 팔로워 인증</b>을 신청한 사람만 할 수 있어요. 신청하면 바로 열려요!`;
   const joined = !!(state.me && state.me.guest && !state.me.needsIg && !state.me.hidden);
   const step = (n, text, done) => `<li class="${done ? 'done' : ''}"><b>${done ? '✓' : n}</b><span>${text}</span></li>`;
   $('#verify-steps').innerHTML = [
     step(1, `${atHandle()} 팔로우하기`, joined),
     step(2, '닉네임 + 내 인스타 아이디 적어서 신청', joined),
-    step(3, '운영자가 팔로우 확인 → <b>인증 완료!</b>', false),
+    step(3, '바로 열려요! (운영자가 나중에 팔로우 확인)', false),
   ].join('');
   const url = handle() ? `https://www.instagram.com/${handle()}/` : 'https://www.instagram.com/';
-  $('#verify-acts').innerHTML = pending
-    ? `<a class="btn btn-insta" href="${url}" target="_blank" rel="noopener">${icon('insta')} 팔로우 했는지 한 번 더 확인</a>
-       <button class="btn btn-ghost" data-action="verify-join">인스타 아이디 고치기</button>`
-    : `<a class="btn btn-insta" href="${url}" target="_blank" rel="noopener">${icon('insta')} 1. 팔로우하러 가기</a>
+  $('#verify-acts').innerHTML = `<a class="btn btn-insta" href="${url}" target="_blank" rel="noopener">${icon('insta')} 1. 팔로우하러 가기</a>
        <button class="btn btn-primary" data-action="verify-join">2. 인증 신청하기</button>`;
   $('#a2hs-inapp').hidden = !isInApp();
-  $('#verify-a2hs').open = pending;
   openModal('modal-verify');
-}
-
-/** 다른 앱(인스타)에 갔다 돌아왔을 때 인증이 끝났는지 다시 확인 (30초에 한 번) */
-let lastMeCheck = 0;
-async function recheckVerify() {
-  if (!state.api || state.api.mode !== 'server' || !verifyPending() || Date.now() - lastMeCheck < 30000) return;
-  lastMeCheck = Date.now();
-  try {
-    const me = await state.api.me();
-    if (!me.checked) return;
-    state.me = me;
-    refreshTitle();
-    renderLevels();
-    closeModal('modal-verify');
-    toast(`🎉 팔로워 인증 완료! ${VERIFY_WHAT()}가 열렸어요`, 3600);
-  } catch {}
 }
 
 /** 단계 id → 칠 판 (숫자 = 일반 단계, 'endless' = 무제한 모드, 'e13' = 13단계 무제한, 'ch4' = 영상용 레벨업 챌린지 4단계까지) */
@@ -203,7 +178,7 @@ function progressLockText(id) {
   return `${prevOpenId(id)}단계를 별 1개 이상으로 깨면 ${id}단계가 열려요`;
 }
 const LOCK_FROM_PREV = (id) => (id === ENDLESS_ID ? `${ENDLESS_FROM}단계 깨면 열림` : `${prevOpenId(id)}단계 깨면 열림`);
-const CLOSED_META = () => `<span class="lockline">${icon('lock')} 준비 중</span>`;
+const CLOSED_META = () => `<span class="lockline">${icon('lock')} 잠김</span>`;
 
 // ---------------- 타이틀 ----------------
 function buildTitle() {
@@ -263,14 +238,13 @@ function refreshFollowChip() {
     el.classList.toggle('warn', !!me.hidden);
     el.classList.toggle('todo', !me.hidden && (!me.guest || !!me.needsIg));
     el.classList.toggle('ok', !me.hidden && !!me.checked);
-    el.classList.toggle('wait', verifyPending());
     el.textContent = me.hidden
       ? '⚠️ 팔로우 확인 안 됨'
       : !me.guest || me.needsIg
         ? `📸 팔로워 인증 받기 · 랭킹 참여`
         : me.checked
           ? `✅ @${me.player?.ig || ''} 팔로워 인증 완료`
-          : `⏳ 인증 확인 중 (최대 24시간)`;
+          : `📸 팔로워 인증 받기 · 랭킹 참여`;
   }
 }
 
@@ -329,7 +303,7 @@ function renderEndlessLevels(bests) {
   }
   $('#level-list').innerHTML = list.join('');
   refreshToday();
-  $('#levels-foot').innerHTML = `${isVerified() ? '' : `💎 그리그 무제한 모드는 <b>${igWho()} 팔로워 인증</b>을 받으면 열려요 (신청 후 최대 24시간).<br>`}12단계를 깨면 그리그 무제한이 열려요. 목숨이 다 떨어질 때까지 계속!<br>단계별 무제한은 준비 중이에요.<br>💎 Lv.4 · 💎💎 Lv.7 · 💎💎💎 Lv.10 클리어`;
+  $('#levels-foot').innerHTML = `${isVerified() ? '' : `💎 그리그 무제한 모드는 <b>${igWho()} 팔로워 인증</b>을 받으면 열려요 (신청하면 바로).<br>`}12단계를 깨면 그리그 무제한이 열려요. 목숨이 다 떨어질 때까지 계속!<br>단계별 무제한은 잠겨 있어요.<br>💎 Lv.4 · 💎💎 Lv.7 · 💎💎💎 Lv.10 클리어`;
 }
 
 function renderLevels() {
@@ -365,7 +339,7 @@ function renderLevels() {
   list.push(grieggCardHTML(bests));
   $('#level-list').innerHTML = list.join('');
   refreshToday();
-  $('#levels-foot').innerHTML = `${isVerified() ? '' : `🔒 <b>${VERIFY_WHAT()}</b>는 팔로워 인증을 받으면 열려요 (신청 후 최대 24시간). <button class="link" data-action="verify-open">인증 신청</button><br>`}앞 단계를 별 1개 이상으로 깨면 다음 단계가 열려요. 9·13·14단계와 단계별 무제한은 준비 중이에요.<br>별 3개: ${STAR_RULES[0].text}`;
+  $('#levels-foot').innerHTML = `${isVerified() ? '' : `🔒 <b>${VERIFY_WHAT()}</b>는 팔로워 인증을 신청하면 바로 열려요. <button class="link" data-action="verify-open">인증 신청</button><br>`}앞 단계를 별 1개 이상으로 깨면 다음 단계가 열려요. 9·13·14단계와 단계별 무제한은 잠겨 있어요.<br>별 3개: ${STAR_RULES[0].text}`;
 }
 
 // ---------------- 게임 ----------------
@@ -373,7 +347,7 @@ function renderLevels() {
 async function tryStart(id, { free = false } = {}) {
   // 9·13·14단계와 단계별 무제한은 모두에게 잠김
   if (closedLocked(id)) {
-    toast('아직 준비 중이에요 🔒 곧 열려요!', 2600);
+    toast('이 곡은 지금 잠겨 있어요 🔒', 2600);
     return;
   }
   // 팔로워 인증 단계는 앞 단계를 안 깼어도 신청은 미리 할 수 있게 먼저 안내
@@ -994,9 +968,8 @@ async function submitJoin() {
     refreshTitle();
     refreshFollowChip();
     renderLevels();
-    if (state.me.checked) toast(`${name} 님, 반가워요! 팔로워 인증 완료 상태예요 ✅`, 3000);
-    else if (state.verifyFor !== undefined && state.verifyFor !== null) openVerify();
-    else toast(`${name} 님으로 신청됐어요! 팔로우 확인 후 최대 24시간 안에 인증이 완료돼요 🙏`, 3600);
+    if (state.me.checked) toast(`🎉 ${name} 님, 팔로워 인증 완료! ${VERIFY_WHAT()}가 열렸어요`, 3600);
+    else toast(`${name} 님, 반가워요!`, 3000);
     submitRank();
   } catch (e) {
     err(e.status === 429 ? '잠시 후 다시 시도해 주세요.' : e.data && e.data.error === 'bad_ig' ? '인스타 아이디를 정확히 써 주세요.' : '등록하지 못했어요. 다시 시도해 주세요.');
@@ -1560,9 +1533,7 @@ const ACTIONS = {
   'rank-join': () => {
     closeModal('modal-rank');
     closeModal('modal-settings');
-    // 신청을 했으면 인증 상태 창, 아니면 신청(닉네임·아이디) 창
-    if (verifyPending()) openVerify(null);
-    else askNickname(true);
+    askNickname(true);
   },
   'verify-open': () => openVerify(null),
   'verify-join': () => {
@@ -1701,8 +1672,6 @@ function bindActions() {
         openModal('modal-pause');
       }
     } else {
-      // 인스타에서 돌아옴: 인증이 끝났는지 다시 확인
-      recheckVerify();
     }
   });
   let rz;

@@ -71,27 +71,34 @@ function client() {
 }
 
 const adm = { 'x-admin-token': 'admin-pw' };
-/** 운영자가 이 인스타 아이디를 '인증 완료' 처리 (12단계 · 무제한용) */
+/** 운영자가 이 인스타 아이디의 팔로우를 '확인함' 처리 (신청만 해도 열리지만 운영자 확인 표시) */
 async function verifyIg(ig) {
   const c = client();
   const p = (await c('GET', '/api/admin/players', null, adm)).json.players.find((x) => x.ig === ig);
   assert.equal((await c('POST', '/api/admin/players/check', { igsid: p.igsid, checked: true }, adm)).json.ok, true);
 }
 
-test('팔로워 인증: 12단계 · 그리그 무제한만 인증으로 열림 / 9·13·14단계·단계별 무제한은 모두 잠김 / 나머지는 누구나', async () => {
+test('팔로워 인증: 신청(아이디 제출)하면 바로 12단계 · 그리그 무제한만 열림 / 9·13·14단계·단계별 무제한은 계속 잠김 / 나머지는 누구나', async () => {
   const c = client();
   for (const lv of [12, 'endless']) assert.equal((await c('POST', '/api/runs', { level: lv })).json.error, 'verify_required');
   // 9·13·14단계와 단계별 무제한은 모두에게 잠김
   for (const lv of [9, 13, 14, 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).json.error, 'closed');
   for (const lv of [1, 4, 8, 10, 11]) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200);
+  // 인증 신청만 하면(운영자 확인 전) 바로 열림
   const g = await c('POST', '/api/guest', { name: '인증대기', ig: 'wait.me' });
-  assert.equal(g.json.checked, false);
-  assert.equal((await c('POST', '/api/runs', { level: 12 })).json.error, 'verify_required');
-  await verifyIg('wait.me');
+  assert.equal(g.json.checked, true);
+  assert.equal(g.json.confirmed, false);
   assert.equal((await c('GET', '/api/me')).json.checked, true);
+  // 관리자 목록엔 신청한 사람이 보임
+  const listed = (await c('GET', '/api/admin/players', null, adm)).json.players.find((x) => x.ig === 'wait.me');
+  assert.ok(listed && !listed.checkedAt && !listed.hiddenAt);
   for (const lv of [12, 'endless']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200);
   // 인증을 받아도 잠긴 건 그대로
   for (const lv of [9, 13, 14, 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 403);
+  // 운영자가 '확인함'을 눌러도 그대로 열려 있음
+  await verifyIg('wait.me');
+  assert.equal((await c('GET', '/api/me')).json.confirmed, true);
+  assert.equal((await c('POST', '/api/runs', { level: 12 })).status, 200);
   // 랭킹에서 내리면 인증도 풀림
   const p = (await c('GET', '/api/admin/players', null, adm)).json.players.find((x) => x.ig === 'wait.me');
   await c('POST', '/api/admin/players/hide', { igsid: p.igsid, hidden: true }, adm);

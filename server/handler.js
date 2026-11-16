@@ -89,11 +89,11 @@ export function createHandler(cfg, { store }) {
     }
   }
 
-  /** 팔로워 인증 완료 = 운영자가 '인증 완료'를 눌렀고, 랭킹에서 내려가 있지 않음 */
-  const isVerified = (pl) => !!(pl && pl.checkedAt && !pl.hiddenAt);
+  /** 팔로워 인증 = 인스타 아이디를 적어 신청했고(운영자 확인 전이어도 바로 열림), 랭킹에서 내려가 있지 않음 */
+  const isVerified = (pl) => !!(pl && pl.ig && !pl.hiddenAt);
   /** /api/me · /api/guest 응답 */
   const meOf = (pl) => ({
-    verified: false, guest: true, needsIg: !pl.ig, checked: isVerified(pl),
+    verified: false, guest: true, needsIg: !pl.ig, checked: isVerified(pl), confirmed: !!pl.checkedAt,
     hidden: pl.hiddenAt ? { deleteAt: pl.hiddenAt + HIDE_KEEP_MS } : null,
     player: { username: pl.username, ig: pl.ig },
   });
@@ -159,7 +159,7 @@ export function createHandler(cfg, { store }) {
       if (!pl) return json(200, { verified: false });
       await purgeMaybe();
       // hidden: 운영자가 팔로우 확인이 안 돼서 랭킹에서 내림 → 화면에 알리고 아이디를 다시 받음. deleteAt 에 지워짐
-      // checked: 팔로워 인증 완료 → 9·12·13·14단계 · 무제한 모드가 열림
+      // checked: 인증 신청함(아이디 적음) → 12단계 · 그리그 무제한이 열림 / confirmed: 운영자가 팔로우를 확인함
       return json(200, meOf(pl));
     }
 
