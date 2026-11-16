@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { LEVELS, levelLanes, HAT, CRASH, buildNotes, noteCount, maxScore, gradeFor, scoreBounds, pointsFor, needsVerify, VERIFY_LEVELS, parseMelody, parseChord, chordAt, noteToMidi, starsFor, accuracy } from '../public/js/charts.js';
+import { LEVELS, levelLanes, HAT, CRASH, buildNotes, noteCount, maxScore, gradeFor, scoreBounds, pointsFor, needsVerify, VERIFY_LEVELS, CLOSED_LEVELS, isClosed, parseMelody, parseChord, chordAt, noteToMidi, starsFor, accuracy } from '../public/js/charts.js';
 import { sign, unsign } from '../server/session.js';
 
 test('채보: 모든 마디가 16칸, 허용 문자만', () => {
@@ -47,10 +47,14 @@ test('악기: 1~8단계 킥·스네어, 9단계 +하이햇, 12단계 +크래시'
   }
 });
 
-test('팔로워 인증은 12단계 + 무제한 모드만, 나머지 단계는 누구나', () => {
+test('팔로워 인증으로 열리는 건 12단계 + 그리그 무제한만, 9·13·14단계와 단계별 무제한은 모두에게 잠김', () => {
   assert.deepEqual(VERIFY_LEVELS, [12]);
   assert.deepEqual(LEVELS.filter((l) => needsVerify(l.id)).map((l) => l.id), [12]);
-  for (const id of ['endless', 'e1', 'e13']) assert.ok(needsVerify(id), id);
+  assert.ok(needsVerify('endless'));
+  assert.deepEqual(CLOSED_LEVELS, [9, 13, 14]);
+  assert.deepEqual(LEVELS.filter((l) => isClosed(l.id)).map((l) => l.id), [9, 13, 14]);
+  for (const id of ['e1', 'e5', 'e13']) assert.ok(isClosed(id) && !needsVerify(id), id);
+  for (const id of [1, 8, 10, 11, 12, 'endless']) assert.ok(!isClosed(id), String(id));
 });
 
 test('별: 3개는 미스·헛침 없이 90%+, 헛침은 정확도 깎음', () => {

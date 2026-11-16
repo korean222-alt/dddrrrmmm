@@ -78,16 +78,20 @@ async function verifyIg(ig) {
   assert.equal((await c('POST', '/api/admin/players/check', { igsid: p.igsid, checked: true }, adm)).json.ok, true);
 }
 
-test('팔로워 인증: 12단계 · 무제한만 운영자가 인증 완료해야 시작 가능 (나머지 단계는 누구나)', async () => {
+test('팔로워 인증: 12단계 · 그리그 무제한만 인증으로 열림 / 9·13·14단계·단계별 무제한은 모두 잠김 / 나머지는 누구나', async () => {
   const c = client();
-  for (const lv of [12, 'endless', 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 403);
-  for (const lv of [1, 4, 9, 10, 13, 14]) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200);
+  for (const lv of [12, 'endless']) assert.equal((await c('POST', '/api/runs', { level: lv })).json.error, 'verify_required');
+  // 9·13·14단계와 단계별 무제한은 모두에게 잠김
+  for (const lv of [9, 13, 14, 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).json.error, 'closed');
+  for (const lv of [1, 4, 8, 10, 11]) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200);
   const g = await c('POST', '/api/guest', { name: '인증대기', ig: 'wait.me' });
   assert.equal(g.json.checked, false);
   assert.equal((await c('POST', '/api/runs', { level: 12 })).json.error, 'verify_required');
   await verifyIg('wait.me');
   assert.equal((await c('GET', '/api/me')).json.checked, true);
-  for (const lv of [12, 'endless', 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200);
+  for (const lv of [12, 'endless']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200);
+  // 인증을 받아도 잠긴 건 그대로
+  for (const lv of [9, 13, 14, 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 403);
   // 랭킹에서 내리면 인증도 풀림
   const p = (await c('GET', '/api/admin/players', null, adm)).json.players.find((x) => x.ig === 'wait.me');
   await c('POST', '/api/admin/players/hide', { igsid: p.igsid, hidden: true }, adm);
@@ -203,10 +207,34 @@ test('무제한 모드: 따로 랭킹 (깬 단계 먼저, 같으면 점수) · �
   assert.ok(!tot.entries.some((e) => e.username === '무제한왕'));
 });
 
-test('단계별 무제한: 곡마다 따로 랭킹 (그리그 무제한·다른 단계·총 등수와 안 섞임)', async () => {
+test('단계별 무제한: 지금은 모두에게 잠김 (인증을 받아도 판 시작 안 됨)', async () => {
+  const c = client();
+  await c('POST', '/api/guest', { name: '잠금확인', ig: 'closed.check' });
+  await verifyIg('closed.check');
+  const r = await c('POST', '/api/runs', { level: 'e5' });
+  assert.equal(r.status, 403);
+  assert.equal(r.json.error, 'closed');
+});
+
+test('단계별 무제한: 곡마다 따로 랭킹 (그리그 무제한·다른 단계·총 등수와 안 섞임) — 잠금을 푼(GATE_MODE=open) 서버로', async (t) => {
+  if (process.env.TEST_BASE) return t.skip('이미 떠 있는 서버엔 잠금 해제 설정을 못 줌');
+  const tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), 'kk2-'));
+  const { server: s2 } = createApp(loadConfig({ SESSION_SECRET: 'test-secret-2', DATA_FILE: path.join(tmp2, 'db.json'), GATE_MODE: 'open', INSTAGRAM_HANDLE: 'ok_aystra', MIN_RUN_RATIO: '0', ADMIN_TOKEN: 'admin-pw' }));
+  await new Promise((r) => s2.listen(0, r));
+  const saved = base;
+  base = `http://127.0.0.1:${s2.address().port}`;
+  try {
+    await perStageEndlessRanking();
+  } finally {
+    base = saved;
+    s2.close();
+    fs.rmSync(tmp2, { recursive: true, force: true });
+  }
+});
+
+async function perStageEndlessRanking() {
   const c = client();
   await c('POST', '/api/guest', { name: '오단계무한', ig: 'e5_king' });
-  await verifyIg('e5_king');
   const run = (await c('POST', '/api/runs', { level: 'e5' })).json.runToken;
   assert.ok(run);
   // 없는 단계, 다른 무제한용 토큰은 거부
@@ -229,7 +257,7 @@ test('단계별 무제한: 곡마다 따로 랭킹 (그리그 무제한·다른 
     const other = (await c('GET', `/api/leaderboard?level=${lv}`)).json;
     assert.ok(!other.entries.some((e) => e.username === '오단계무한'), lv);
   }
-});
+}
 
 test('관리자: 랭킹에서 내리기 → 랭킹에서 안 보임 → 다시 들어와 아이디를 넣으면 돌아옴', async () => {
   const adm = { 'x-admin-token': 'admin-pw' };

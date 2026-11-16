@@ -3,7 +3,7 @@
 import {
   LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES,
   ENDLESS_ID, LAST_LEVEL_ID, makeEndless, isUnlocked, nextChallenge, DIAMOND_RULES, roundInfo,
-  ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, VERIFY_LEVELS,
+  ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, VERIFY_LEVELS, isClosed, prevOpenId, nextOpenId,
 } from './charts.js';
 import { AudioEngine, playMetronome } from './audio.js';
 import { Renderer } from './render.js';
@@ -136,7 +136,9 @@ function isVerified() {
 const verifyLocked = (id) => state.cfg.gateMode !== 'open' && needsVerify(id) && !isVerified();
 /** 인증 신청은 했고 운영자 확인을 기다리는 중 */
 const verifyPending = () => !!(state.me && state.me.guest && !state.me.needsIg && !state.me.hidden && !state.me.checked);
-const VERIFY_WHAT = () => `${VERIFY_LEVELS.join('·')}단계와 💎 무제한 모드`;
+const VERIFY_WHAT = () => `${VERIFY_LEVELS.join('·')}단계와 💎 그리그 무제한 모드`;
+/** 모두에게 잠긴 것 (9·13·14단계, 단계별 무제한). 개발용 ?gate=open 에선 풀림 */
+const closedLocked = (id) => state.cfg.gateMode !== 'open' && isClosed(id);
 
 function openVerify(id) {
   state.verifyFor = id ?? state.verifyFor ?? null;
@@ -198,9 +200,10 @@ function progressLockText(id) {
   if (id === ENDLESS_ID) return `${ENDLESS_FROM}단계 ${getLevel(ENDLESS_FROM).name}을 깨면 무제한 모드가 열려요 💎`;
   const eb = levelEndlessBase(id);
   if (eb) return `${eb.id}단계 ${eb.name}을 별 1개 이상으로 깨면 무제한이 열려요 💎`;
-  return `${id - 1}단계를 별 1개 이상으로 깨면 ${id}단계가 열려요`;
+  return `${prevOpenId(id)}단계를 별 1개 이상으로 깨면 ${id}단계가 열려요`;
 }
-const LOCK_FROM_PREV = (id) => (id === ENDLESS_ID ? `${ENDLESS_FROM}단계 깨면 열림` : `${id - 1}단계 깨면 열림`);
+const LOCK_FROM_PREV = (id) => (id === ENDLESS_ID ? `${ENDLESS_FROM}단계 깨면 열림` : `${prevOpenId(id)}단계 깨면 열림`);
+const CLOSED_META = () => `<span class="lockline">${icon('lock')} 준비 중</span>`;
 
 // ---------------- 타이틀 ----------------
 function buildTitle() {
@@ -238,7 +241,7 @@ function buildTitle() {
 /** '바로 시작': 릴스 링크(?level=N)로 온 곡이 열려 있으면 그 곡, 아니면 아직 안 깬 첫 단계 */
 function refreshQuick() {
   const q = getLevel(params.get('level'));
-  const id = q && !progressLocked(q.id) ? q.id : nextChallenge(loadBests());
+  const id = q && !progressLocked(q.id) && !closedLocked(q.id) ? q.id : nextChallenge(loadBests());
   state.quickId = id;
   $('[data-action="quickstart"]').innerHTML =
     id === ENDLESS_ID ? `${icon('play')} 바로 시작 <small>무제한 모드</small>` : `${icon('play')} 바로 시작 <small>${id}단계</small>`;
@@ -289,16 +292,31 @@ function levelMode() {
   return load('levelMode', 'normal') === 'endless' ? 'endless' : 'normal';
 }
 
-/** 무제한 보기: 맨 위에 그리그 무제한(랭킹) + 단계마다 그 곡으로 무제한 (그 단계를 깨면 열림) */
+/** 그리그 무제한 모드 카드 (12단계를 깨고 팔로워 인증을 받으면 열림) */
+function grieggCardHTML(bests) {
+  const eVLock = verifyLocked(ENDLESS_ID);
+  const eLock = eVLock || !isUnlocked(ENDLESS_ID, bests);
+  const eb = bests[ENDLESS_ID];
+  return `<button class="level-card endless-card ${eLock ? 'locked' : ''}" data-level="${ENDLESS_ID}">
+      <div class="lv"><span>∞</span></div>
+      <div class="info"><h4>무제한 모드 <small>그리그</small></h4><p>깰수록 BPM +10 · 속도 한도 없음</p><p class="gem-rule">💎 Lv.4 · 💎💎 Lv.7 · 💎💎💎 Lv.10 클리어</p></div>
+      <div class="meta">${eLock ? `<span class="lockline">${icon('lock')} ${eVLock ? '팔로워 인증' : LOCK_FROM_PREV(ENDLESS_ID)}</span>` : `${gemsHTML(eb ? eb.diamonds || 0 : 0, 'sm')}<span>${eb ? `최고 Lv.${eb.roundsCleared || 0} 클리어` : 'NEW'}</span>`}</div>
+    </button>`;
+}
+
+/** 무제한 보기: 맨 위에 그리그 무제한(랭킹) + 단계별 무제한 (지금은 전부 준비 중) */
 function renderEndlessLevels(bests) {
-  const list = [];
+  const list = [grieggCardHTML(bests)];
   for (const lv of LEVELS) {
     const id = levelEndlessId(lv.id);
+    const closed = closedLocked(id);
     const prevLock = !isUnlocked(id, bests);
     const vLock = verifyLocked(id);
-    const locked = prevLock || vLock;
+    const locked = closed || prevLock || vLock;
     const b = bests[id];
-    const meta = vLock
+    const meta = closed
+      ? CLOSED_META()
+      : vLock
       ? `<span class="lockline">${icon('lock')} 팔로워 인증</span>`
       : prevLock
       ? `<span class="lockline">${icon('lock')} ${lv.id}단계 깨면 열림</span>`
@@ -311,7 +329,7 @@ function renderEndlessLevels(bests) {
   }
   $('#level-list').innerHTML = list.join('');
   refreshToday();
-  $('#levels-foot').innerHTML = `${isVerified() ? '' : `💎 무제한 모드는 <b>${igWho()} 팔로워 인증</b>을 받으면 열려요 (신청 후 최대 24시간).<br>`}단계를 별 1개 이상으로 깨면 그 곡의 무제한이 열려요. 목숨이 다 떨어질 때까지 계속!<br>💎 Lv.4 · 💎💎 Lv.7 · 💎💎💎 Lv.10 클리어`;
+  $('#levels-foot').innerHTML = `${isVerified() ? '' : `💎 그리그 무제한 모드는 <b>${igWho()} 팔로워 인증</b>을 받으면 열려요 (신청 후 최대 24시간).<br>`}12단계를 깨면 그리그 무제한이 열려요. 목숨이 다 떨어질 때까지 계속!<br>단계별 무제한은 준비 중이에요.<br>💎 Lv.4 · 💎💎 Lv.7 · 💎💎💎 Lv.10 클리어`;
 }
 
 function renderLevels() {
@@ -324,10 +342,13 @@ function renderLevels() {
   }
   const list = LEVELS.map((lv) => {
     const prevLock = !isUnlocked(lv.id, bests);
+    const closed = closedLocked(lv.id);
     const vLock = verifyLocked(lv.id);
-    const locked = prevLock || vLock;
+    const locked = closed || prevLock || vLock;
     const b = bests[lv.id];
-    const meta = vLock
+    const meta = closed
+      ? CLOSED_META()
+      : vLock
       ? `<span class="lockline">${icon('lock')} 팔로워 인증</span>`
       : prevLock
       ? `<span class="lockline">${icon('lock')} ${LOCK_FROM_PREV(lv.id)}</span>`
@@ -340,23 +361,21 @@ function renderLevels() {
       <div class="meta">${meta}</div>
     </button>`;
   });
-  // 맨 아래: 무제한 모드 (13단계 깨면 열림)
-  const eVLock = verifyLocked(ENDLESS_ID);
-  const eLock = eVLock || !isUnlocked(ENDLESS_ID, bests);
-  const eb = bests[ENDLESS_ID];
-  list.push(`<button class="level-card endless-card ${eLock ? 'locked' : ''}" data-level="${ENDLESS_ID}">
-      <div class="lv"><span>∞</span></div>
-      <div class="info"><h4>무제한 모드 <small>그리그</small></h4><p>깰수록 BPM +10 · 속도 한도 없음</p><p class="gem-rule">💎 Lv.4 · 💎💎 Lv.7 · 💎💎💎 Lv.10 클리어</p></div>
-      <div class="meta">${eLock ? `<span class="lockline">${icon('lock')} ${eVLock ? '팔로워 인증' : LOCK_FROM_PREV(ENDLESS_ID)}</span>` : `${gemsHTML(eb ? eb.diamonds || 0 : 0, 'sm')}<span>${eb ? `최고 Lv.${eb.roundsCleared || 0} 클리어` : 'NEW'}</span>`}</div>
-    </button>`);
+  // 맨 아래: 그리그 무제한 모드 (12단계 깨면 열림)
+  list.push(grieggCardHTML(bests));
   $('#level-list').innerHTML = list.join('');
   refreshToday();
-  $('#levels-foot').innerHTML = `${isVerified() ? '' : `🔒 <b>${VERIFY_WHAT()}</b>는 팔로워 인증을 받으면 열려요 (신청 후 최대 24시간). <button class="link" data-action="verify-open">인증 신청</button><br>`}앞 단계를 별 1개 이상으로 깨면 다음 단계가 열려요. 깬 단계는 위 <b>💎 무제한</b> 탭에서 끝없이 칠 수 있어요!<br>별 3개: ${STAR_RULES[0].text}`;
+  $('#levels-foot').innerHTML = `${isVerified() ? '' : `🔒 <b>${VERIFY_WHAT()}</b>는 팔로워 인증을 받으면 열려요 (신청 후 최대 24시간). <button class="link" data-action="verify-open">인증 신청</button><br>`}앞 단계를 별 1개 이상으로 깨면 다음 단계가 열려요. 9·13·14단계와 단계별 무제한은 준비 중이에요.<br>별 3개: ${STAR_RULES[0].text}`;
 }
 
 // ---------------- 게임 ----------------
 /** free: 오늘의 노래·친구 도전장은 앞 단계를 안 깼어도 칠 수 있음 */
 async function tryStart(id, { free = false } = {}) {
+  // 9·13·14단계와 단계별 무제한은 모두에게 잠김
+  if (closedLocked(id)) {
+    toast('아직 준비 중이에요 🔒 곧 열려요!', 2600);
+    return;
+  }
   // 팔로워 인증 단계는 앞 단계를 안 깼어도 신청은 미리 할 수 있게 먼저 안내
   if (verifyLocked(id)) {
     openVerify(id);
@@ -666,13 +685,14 @@ function showResult(res) {
     return;
   }
   const lv = getLevel(res.levelId);
-  const wasOpen = { next: !progressLocked(res.levelId + 1), endless: !progressLocked(ENDLESS_ID) };
+  const nextId = nextOpenId(res.levelId);
+  const wasOpen = { next: nextId == null || !progressLocked(nextId), endless: !progressLocked(ENDLESS_ID) };
   // 목숨 다 써서 끝난 판은 최고 기록에 안 들어감
   const best = state.auto || res.failed ? { isNew: false } : saveBest(res);
   // 이번 판으로 새로 열린 단계 알림
   if (!state.auto && !res.failed) {
     if (res.levelId === ENDLESS_FROM && !wasOpen.endless && !progressLocked(ENDLESS_ID)) setTimeout(() => toast('💎 무제한 모드가 열렸어요! 깰수록 빨라져요', 3200), 2600);
-    else if (getLevel(res.levelId + 1) && !wasOpen.next && !progressLocked(res.levelId + 1)) setTimeout(() => toast(`🔓 ${res.levelId + 1}단계가 열렸어요!`, 2600), 2600);
+    else if (nextId != null && !wasOpen.next && !progressLocked(nextId)) setTimeout(() => toast(`🔓 ${nextId}단계가 열렸어요!`, 2600), 2600);
   }
   $('#res-level').textContent = `${lv.id}단계 · ${lv.composer} ${lv.name}`;
   $('#screen-result').classList.toggle('failed', !!res.failed);
@@ -697,7 +717,7 @@ function showResult(res) {
   const timing =
     Math.abs(res.avgOffsetMs) < 15 ? '타이밍 딱 좋아요' : res.avgOffsetMs < 0 ? `평균 ${-res.avgOffsetMs}ms 빨라요` : `평균 ${res.avgOffsetMs}ms 늦어요`;
   $('#res-meta').innerHTML = `정확도 ${(res.accuracy * 100).toFixed(1)}% · 최대 콤보 ${res.maxCombo} · ${timing}${state.auto ? '<br>(자동 연주 — 기록 저장 안 됨)' : ''}`;
-  const next = getLevel(lv.id + 1);
+  const next = getLevel(nextOpenId(lv.id));
   const nb = $('#btn-next');
   nb.hidden = false;
   if (next) nb.innerHTML = `다음 ${next.id}단계 ${progressLocked(next.id) ? icon('lock') : ''}`;
@@ -1029,7 +1049,7 @@ function renderRankTabs() {
   $$('#rank-mode button').forEach((b) => b.setAttribute('aria-selected', String((b.dataset.rankMode === 'endless') === endless)));
   const tab = (id, label) => `<button role="tab" data-rank="${id}" aria-selected="${id === cur}">${label}</button>`;
   $('#rank-tabs').innerHTML = endless
-    ? tab(ENDLESS_ID, '♾️ 그리그') + LEVELS.map((l) => tab(levelEndlessId(l.id), `${l.id}단계 ∞`)).join('')
+    ? tab(ENDLESS_ID, '♾️ 그리그') + LEVELS.filter((l) => !closedLocked(levelEndlessId(l.id))).map((l) => tab(levelEndlessId(l.id), `${l.id}단계 ∞`)).join('')
     : tab('total', '🏆 총 등수') + LEVELS.map((l) => tab(l.id, `${l.id}단계`)).join('');
   const sel = $('#rank-tabs [aria-selected="true"]');
   if (sel) sel.scrollIntoView({ block: 'nearest', inline: 'center' });
@@ -1531,7 +1551,7 @@ const ACTIONS = {
     renderLevels();
     show('screen-levels');
   },
-  next: () => (typeof state.levelId === 'number' && getLevel(state.levelId + 1) ? tryStart(state.levelId + 1) : tryStart(ENDLESS_ID)),
+  next: () => (typeof state.levelId === 'number' && nextOpenId(state.levelId) ? tryStart(nextOpenId(state.levelId)) : tryStart(ENDLESS_ID)),
   'submit-rank': () => {
     const id = state.lastResult && state.lastResult.levelId;
     openRank(id === ENDLESS_ID || typeof id === 'number' ? id : 1);

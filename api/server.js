@@ -13,7 +13,7 @@ import { PgStore } from '../server/pgstore.js';
 const DEFAULTS = {
   NODE_ENV: 'production',
   INSTAGRAM_HANDLE: 'ok_aystra',
-  // 12단계·무제한 모드는 팔로워 인증(운영자 확인)을 받은 사람만
+  // 12단계·그리그 무제한만 팔로워 인증(운영자 확인)으로 열림, 9·13·14단계·단계별 무제한은 모두 잠김
   GATE_MODE: 'soft',
 };
 

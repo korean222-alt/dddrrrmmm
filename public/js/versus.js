@@ -4,7 +4,7 @@
 // 친구가 같은 곡을 칠 때 화면 위에 내 점수가 실시간으로 같이 올라가서 경주하듯 겨룸.
 // 링크 내용은 누구나 고칠 수 있으니 랭킹처럼 '공식 기록'으로 쓰지는 않습니다.
 
-import { LEVELS, getLevel, maxScore } from './charts.js';
+import { LEVELS, getLevel, maxScore, isClosed } from './charts.js';
 
 const DAY_MS = 86400000;
 /** 날마다 돌아가며 나오는 순서 (같은 곡이 이틀 연속 안 나오게) */
@@ -20,8 +20,9 @@ export function kstDateKey(d = new Date()) {
 /** 오늘의 노래 (한국 시간 자정에 바뀜) */
 export function todayLevel(d = new Date()) {
   const day = Math.floor((d.getTime() + 9 * 3600000) / DAY_MS);
-  const order = TODAY_ORDER.filter((id) => getLevel(id));
-  const ids = order.length ? order : LEVELS.map((l) => l.id);
+  // 잠긴 단계(9·13·14)는 오늘의 노래로 안 나옴
+  const order = TODAY_ORDER.filter((id) => getLevel(id) && !isClosed(id));
+  const ids = order.length ? order : LEVELS.filter((l) => !isClosed(l.id)).map((l) => l.id);
   return getLevel(ids[((day % ids.length) + ids.length) % ids.length]);
 }
 

@@ -124,11 +124,22 @@ test('진행 잠금: 앞 단계를 별 1개 이상으로 깨야 열림, 마지�
   for (const l of LEVELS) bests[l.id] = { stars: 2 };
   assert.ok(isUnlocked(ENDLESS_ID, bests));
   assert.equal(nextChallenge(bests), ENDLESS_ID);
-  // 14단계가 생겨도 13단계까지 깬 사람의 무제한은 그대로 열려 있음
-  delete bests[14];
-  assert.equal(ENDLESS_FROM, 13);
-  assert.ok(isUnlocked(ENDLESS_ID, bests));
-  assert.equal(nextChallenge(bests), 14);
+  // 잠긴 단계(9·13·14)는 건너뜀: 10단계는 8단계를, 그리그 무제한은 12단계를 깨면 열림
+  assert.equal(ENDLESS_FROM, 12);
+  const b2 = { 1: { stars: 1 }, 2: { stars: 1 }, 3: { stars: 1 }, 4: { stars: 1 }, 5: { stars: 1 }, 6: { stars: 1 }, 7: { stars: 1 } };
+  assert.ok(!isUnlocked(10, b2));
+  assert.equal(nextChallenge(b2), 8);
+  b2[8] = { stars: 1 };
+  assert.ok(isUnlocked(10, b2), '9단계가 잠겨 있어도 8단계를 깨면 10단계');
+  assert.equal(nextChallenge(b2), 10);
+  b2[10] = { stars: 1 };
+  b2[11] = { stars: 1 };
+  assert.ok(isUnlocked(12, b2));
+  assert.ok(!isUnlocked(ENDLESS_ID, b2));
+  assert.equal(nextChallenge(b2), 12);
+  b2[12] = { stars: 1 };
+  assert.ok(isUnlocked(ENDLESS_ID, b2), '13·14단계 없이 12단계만 깨도 그리그 무제한');
+  assert.equal(nextChallenge(b2), ENDLESS_ID);
 });
 
 test('단계별 무제한: 그 단계를 깨면 열림, 그 곡 채보를 4마디씩 끝없이, 4마디마다 빨라짐', () => {

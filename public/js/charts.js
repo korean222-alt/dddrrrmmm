@@ -606,12 +606,31 @@ export const LEVELS = [
   },
 ];
 
-/** 팔로워 인증(운영자가 인스타 팔로우를 직접 확인)을 받은 사람만 하는 단계. 무제한 모드(그리그·단계별)도 전부. 나머지 단계는 누구나 */
+/** 팔로워 인증(운영자가 인스타 팔로우를 직접 확인)을 받은 사람에게만 열리는 것: 12단계 + 그리그 무제한 모드 딱 두 개 */
 export const VERIFY_LEVELS = [12];
 /** 판 id(숫자 단계 / 'endless' / 'e5') 가 팔로워 인증이 필요한지 */
 export function needsVerify(id) {
-  if (id === 'endless' || (typeof id === 'string' && /^e\d+$/.test(id))) return true;
-  return VERIFY_LEVELS.includes(Number(id));
+  return id === 'endless' || VERIFY_LEVELS.includes(Number(id));
+}
+
+/** 모두에게 잠겨 있는 단계 (인증을 받아도 안 열림). 진행 순서에서는 건너뜀: 8단계 → 10단계 */
+export const CLOSED_LEVELS = [9, 13, 14];
+/** 판 id 가 잠긴 것인지: CLOSED_LEVELS 단계 + 단계별 무제한('e5' 등) 전부 */
+export function isClosed(id) {
+  if (typeof id === 'string' && /^e\d+$/.test(id)) return true;
+  return CLOSED_LEVELS.includes(Number(id));
+}
+/** 이 단계 앞에서 깨야 하는 단계 번호 (잠긴 단계는 건너뜀). 1단계는 null */
+export function prevOpenId(id) {
+  let n = Number(id) - 1;
+  while (n >= 1 && CLOSED_LEVELS.includes(n)) n--;
+  return n >= 1 ? n : null;
+}
+/** 다음에 칠 수 있는 단계 번호 (잠긴 단계는 건너뜀). 없으면 null */
+export function nextOpenId(id) {
+  let n = Number(id) + 1;
+  while (CLOSED_LEVELS.includes(n)) n++;
+  return getLevel(n) ? n : null;
 }
 
 // ---------- 음이름 / 코드 해석 ----------
@@ -851,20 +870,20 @@ export function isClearBest(best) {
   return !!best && (best.stars || 0) >= 1;
 }
 export const LAST_LEVEL_ID = LEVELS[LEVELS.length - 1].id;
-/** 무제한 모드(그리그)는 13단계를 깨면 열림 (14단계를 추가하기 전에 이미 연 사람이 다시 잠기지 않게) */
-export const ENDLESS_FROM = 13;
+/** 무제한 모드(그리그)는 12단계를 깨면 열림 (13·14단계는 잠겨 있어서) */
+export const ENDLESS_FROM = 12;
 /** bests = { [levelId]: best } 일 때 이 단계가 열려 있는지 (1단계는 항상)
  *  단계별 무제한('e5' 등)은 그 단계를 깨면 열림 */
 export function isUnlocked(levelId, bests) {
   if (levelId === ENDLESS_ID) return isClearBest(bests[ENDLESS_FROM]);
   const base = levelEndlessBase(levelId);
   if (base) return isClearBest(bests[base.id]);
-  const id = Number(levelId);
-  return id <= 1 || isClearBest(bests[id - 1]);
+  const prev = prevOpenId(levelId);
+  return prev === null || isClearBest(bests[prev]);
 }
-/** 아직 안 깬 첫 단계 (다 깼으면 무제한 모드) */
+/** 아직 안 깬 첫 단계 (잠긴 단계는 건너뜀. 다 깼으면 무제한 모드) */
 export function nextChallenge(bests) {
-  const lv = LEVELS.find((l) => !isClearBest(bests[l.id]));
+  const lv = LEVELS.find((l) => !CLOSED_LEVELS.includes(l.id) && !isClearBest(bests[l.id]));
   return lv ? lv.id : ENDLESS_ID;
 }
 

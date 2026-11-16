@@ -5,7 +5,7 @@
 
 import { sign, unsign, parseCookies, cookie, newId } from './session.js';
 import { buildStats } from './stats.js';
-import { LEVELS, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur, ENDLESS_ID, ROUND_BARS, roundBpm, pointsFor, levelEndlessBase, LEVEL_ENDLESS_STEP, needsVerify } from '../public/js/charts.js';
+import { LEVELS, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur, ENDLESS_ID, ROUND_BARS, roundBpm, pointsFor, levelEndlessBase, LEVEL_ENDLESS_STEP, needsVerify, isClosed } from '../public/js/charts.js';
 
 // 무제한 모드 랭킹은 저장소의 level 칸에 '깬 단계 × 1,000,000 + 점수' 한 숫자로 저장 (단계가 먼저, 같으면 점수)
 //   그리그 무제한('endless') = level 0, 단계별 무제한('e5') = level -5. 총 등수는 level > 0 만 더함
@@ -251,7 +251,8 @@ export function createHandler(cfg, { store }) {
       const body = await readJson(request);
       const level = endlessMode(body.level) || getLevel(body.level);
       if (!level) return json(400, { error: 'bad_level' });
-      // 12단계 · 무제한 모드는 팔로워 인증을 받은 사람만 (GATE_MODE=open 이면 잠금 없음, 개발용)
+      // 9·13·14단계, 단계별 무제한은 모두에게 잠김 / 12단계 · 그리그 무제한은 팔로워 인증을 받은 사람만 (GATE_MODE=open 이면 잠금 없음, 개발용)
+      if (cfg.gateMode !== 'open' && isClosed(level.id)) return json(403, { error: 'closed' });
       if (cfg.gateMode !== 'open' && needsVerify(level.id) && !isVerified(await getPlayer(request))) return json(403, { error: 'verify_required' });
       const runToken = sign({ l: level.id, t: Date.now(), n: newId() }, cfg.sessionSecret);
       return json(200, { runToken });
