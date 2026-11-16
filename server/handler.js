@@ -91,9 +91,11 @@ export function createHandler(cfg, { store }) {
 
   /** 팔로워 인증 = 인스타 아이디를 적어 신청했고(운영자 확인 전이어도 바로 열림), 랭킹에서 내려가 있지 않음 */
   const isVerified = (pl) => !!(pl && pl.ig && !pl.hiddenAt);
+  /** 운영자가 팔로우를 직접 확인함('확인함') → 9·13·14단계 · 단계별 무제한까지 열림 */
+  const isConfirmed = (pl) => isVerified(pl) && !!pl.checkedAt;
   /** /api/me · /api/guest 응답 */
   const meOf = (pl) => ({
-    verified: false, guest: true, needsIg: !pl.ig, checked: isVerified(pl), confirmed: !!pl.checkedAt,
+    verified: false, guest: true, needsIg: !pl.ig, checked: isVerified(pl), confirmed: isConfirmed(pl),
     hidden: pl.hiddenAt ? { deleteAt: pl.hiddenAt + HIDE_KEEP_MS } : null,
     player: { username: pl.username, ig: pl.ig },
   });
@@ -159,7 +161,8 @@ export function createHandler(cfg, { store }) {
       if (!pl) return json(200, { verified: false });
       await purgeMaybe();
       // hidden: 운영자가 팔로우 확인이 안 돼서 랭킹에서 내림 → 화면에 알리고 아이디를 다시 받음. deleteAt 에 지워짐
-      // checked: 인증 신청함(아이디 적음) → 12단계 · 그리그 무제한이 열림 / confirmed: 운영자가 팔로우를 확인함
+      // checked: 인증 신청함(아이디 적음) → 12단계 · 그리그 무제한이 열림
+      // confirmed: 운영자가 팔로우를 확인함(인증 완료) → 9·13·14단계 · 단계별 무제한까지 열림
       return json(200, meOf(pl));
     }
 
@@ -251,9 +254,13 @@ export function createHandler(cfg, { store }) {
       const body = await readJson(request);
       const level = endlessMode(body.level) || getLevel(body.level);
       if (!level) return json(400, { error: 'bad_level' });
-      // 9·13·14단계, 단계별 무제한은 모두에게 잠김 / 12단계 · 그리그 무제한은 팔로워 인증을 받은 사람만 (GATE_MODE=open 이면 잠금 없음, 개발용)
-      if (cfg.gateMode !== 'open' && isClosed(level.id)) return json(403, { error: 'closed' });
-      if (cfg.gateMode !== 'open' && needsVerify(level.id) && !isVerified(await getPlayer(request))) return json(403, { error: 'verify_required' });
+      // 12단계 · 그리그 무제한은 인증 신청한 사람 / 9·13·14단계 · 단계별 무제한은 운영자가 팔로우를 확인한(인증 완료) 사람만
+      // (GATE_MODE=open 이면 잠금 없음, 개발용)
+      if (cfg.gateMode !== 'open' && (isClosed(level.id) || needsVerify(level.id))) {
+        const pl = await getPlayer(request);
+        if (isClosed(level.id) && !isConfirmed(pl)) return json(403, { error: isVerified(pl) ? 'confirm_pending' : 'confirm_required' });
+        if (needsVerify(level.id) && !isVerified(pl)) return json(403, { error: 'verify_required' });
+      }
       const runToken = sign({ l: level.id, t: Date.now(), n: newId() }, cfg.sessionSecret);
       return json(200, { runToken });
     }

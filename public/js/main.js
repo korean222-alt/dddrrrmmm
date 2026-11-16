@@ -3,7 +3,7 @@
 import {
   LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES,
   ENDLESS_ID, LAST_LEVEL_ID, makeEndless, isUnlocked, nextChallenge, DIAMOND_RULES, roundInfo,
-  ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, VERIFY_LEVELS, isClosed, prevOpenId, nextOpenId,
+  ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, VERIFY_LEVELS, CLOSED_LEVELS, isClosed, prevOpenId, nextOpenId,
 } from './charts.js';
 import { AudioEngine, playMetronome } from './audio.js';
 import { Renderer } from './render.js';
@@ -135,8 +135,18 @@ function isVerified() {
 }
 const verifyLocked = (id) => state.cfg.gateMode !== 'open' && needsVerify(id) && !isVerified();
 const VERIFY_WHAT = () => `${VERIFY_LEVELS.join('·')}단계와 💎 그리그 무제한 모드`;
-/** 모두에게 잠긴 것 (9·13·14단계, 단계별 무제한). 개발용 ?gate=open 에선 풀림 */
-const closedLocked = (id) => state.cfg.gateMode !== 'open' && isClosed(id);
+/** 운영자가 팔로우를 확인함 = 인증 완료 (서버 없는 모드에선 확인할 방법이 없어서 잠가 둠) */
+function isConfirmed() {
+  return !!(state.api && state.api.mode === 'server' && isVerified() && state.me.confirmed);
+}
+const CONFIRM_WHAT = () => `${CLOSED_LEVELS.join('·')}단계와 💎 단계별 무제한`;
+/** 인증 완료(운영자 확인) 전엔 잠긴 것 (9·13·14단계, 단계별 무제한). 개발용 ?gate=open 에선 풀림 */
+const closedLocked = (id) => state.cfg.gateMode !== 'open' && isClosed(id) && !isConfirmed();
+/** 인증 완료 전 잠김 안내 */
+function confirmLockToast() {
+  if (isVerified()) toast(`인증 신청 완료! 운영자가 팔로우를 확인하면 ${CONFIRM_WHAT()}이 열려요 ⏳`, 3400);
+  else toast(`${CONFIRM_WHAT()}은 팔로워 인증이 완료되면 열려요 🔒`, 3000);
+}
 
 function openVerify(id) {
   state.verifyFor = id ?? state.verifyFor ?? null;
@@ -145,13 +155,14 @@ function openVerify(id) {
   if (lv) $('#verify-level').textContent = lv.label;
   $('#verify-mascots').innerHTML = mascotSVG('kong', 'cheer') + mascotSVG('jjak', 'idle');
   $('#verify-title').textContent = '팔로워 인증이 필요해요';
-  $('#verify-desc').innerHTML = `${VERIFY_WHAT()}는 <b>${igWho()} 팔로워 인증</b>을 신청한 사람만 할 수 있어요. 신청하면 바로 열려요!`;
+  $('#verify-desc').innerHTML = `${VERIFY_WHAT()}는 <b>${igWho()} 팔로워 인증</b>을 신청하면 바로 열려요!<br>운영자가 팔로우를 확인해 <b>인증이 완료</b>되면 ${CONFIRM_WHAT()}까지 열려요.`;
   const joined = !!(state.me && state.me.guest && !state.me.needsIg && !state.me.hidden);
   const step = (n, text, done) => `<li class="${done ? 'done' : ''}"><b>${done ? '✓' : n}</b><span>${text}</span></li>`;
   $('#verify-steps').innerHTML = [
     step(1, `${atHandle()} 팔로우하기`, joined),
     step(2, '닉네임 + 내 인스타 아이디 적어서 신청', joined),
-    step(3, '바로 열려요! (운영자가 나중에 팔로우 확인)', false),
+    step(3, `신청하면 바로 ${VERIFY_WHAT()} 열림`, joined),
+    step(4, `운영자가 팔로우 확인 → 인증 완료! ${CONFIRM_WHAT()} 열림`, isConfirmed()),
   ].join('');
   const url = handle() ? `https://www.instagram.com/${handle()}/` : 'https://www.instagram.com/';
   $('#verify-acts').innerHTML = `<a class="btn btn-insta" href="${url}" target="_blank" rel="noopener">${icon('insta')} 1. 팔로우하러 가기</a>
@@ -178,7 +189,7 @@ function progressLockText(id) {
   return `${prevOpenId(id)}단계를 별 1개 이상으로 깨면 ${id}단계가 열려요`;
 }
 const LOCK_FROM_PREV = (id) => (id === ENDLESS_ID ? `${ENDLESS_FROM}단계 깨면 열림` : `${prevOpenId(id)}단계 깨면 열림`);
-const CLOSED_META = () => `<span class="lockline">${icon('lock')} 잠김</span>`;
+const CLOSED_META = () => `<span class="lockline">${icon('lock')} ${isVerified() ? '확인 대기' : '인증 완료'}</span>`;
 
 // ---------------- 타이틀 ----------------
 function buildTitle() {
@@ -237,14 +248,16 @@ function refreshFollowChip() {
     el.hidden = !on;
     el.classList.toggle('warn', !!me.hidden);
     el.classList.toggle('todo', !me.hidden && (!me.guest || !!me.needsIg));
-    el.classList.toggle('ok', !me.hidden && !!me.checked);
+    el.classList.toggle('ok', !me.hidden && !!me.confirmed);
     el.textContent = me.hidden
       ? '⚠️ 팔로우 확인 안 됨'
       : !me.guest || me.needsIg
         ? `📸 팔로워 인증 받기 · 랭킹 참여`
-        : me.checked
+        : me.confirmed
           ? `✅ @${me.player?.ig || ''} 팔로워 인증 완료`
-          : `📸 팔로워 인증 받기 · 랭킹 참여`;
+          : me.checked
+            ? `⏳ @${me.player?.ig || ''} 인증 신청됨 · 운영자 확인 중`
+            : `📸 팔로워 인증 받기 · 랭킹 참여`;
   }
 }
 
@@ -303,7 +316,7 @@ function renderEndlessLevels(bests) {
   }
   $('#level-list').innerHTML = list.join('');
   refreshToday();
-  $('#levels-foot').innerHTML = `${isVerified() ? '' : `💎 그리그 무제한 모드는 <b>${igWho()} 팔로워 인증</b>을 받으면 열려요 (신청하면 바로).<br>`}12단계를 깨면 그리그 무제한이 열려요. 목숨이 다 떨어질 때까지 계속!<br>단계별 무제한은 잠겨 있어요.<br>💎 Lv.4 · 💎💎 Lv.7 · 💎💎💎 Lv.10 클리어`;
+  $('#levels-foot').innerHTML = `${isVerified() ? '' : `💎 그리그 무제한 모드는 <b>${igWho()} 팔로워 인증</b>을 받으면 열려요 (신청하면 바로).<br>`}12단계를 깨면 그리그 무제한이 열려요. 목숨이 다 떨어질 때까지 계속!<br>${isConfirmed() ? '단계별 무제한은 그 단계를 깨면 열려요.' : '단계별 무제한은 팔로워 인증이 완료되면(운영자 확인) 열려요.'}<br>💎 Lv.4 · 💎💎 Lv.7 · 💎💎💎 Lv.10 클리어`;
 }
 
 function renderLevels() {
@@ -339,15 +352,16 @@ function renderLevels() {
   list.push(grieggCardHTML(bests));
   $('#level-list').innerHTML = list.join('');
   refreshToday();
-  $('#levels-foot').innerHTML = `${isVerified() ? '' : `🔒 <b>${VERIFY_WHAT()}</b>는 팔로워 인증을 신청하면 바로 열려요. <button class="link" data-action="verify-open">인증 신청</button><br>`}앞 단계를 별 1개 이상으로 깨면 다음 단계가 열려요. 9·13·14단계와 단계별 무제한은 잠겨 있어요.<br>별 3개: ${STAR_RULES[0].text}`;
+  $('#levels-foot').innerHTML = `${isVerified() ? '' : `🔒 <b>${VERIFY_WHAT()}</b>는 팔로워 인증을 신청하면 바로 열려요. <button class="link" data-action="verify-open">인증 신청</button><br>`}앞 단계를 별 1개 이상으로 깨면 다음 단계가 열려요.${isConfirmed() ? '' : ` ${CONFIRM_WHAT()}은 팔로워 인증이 완료되면(운영자 확인) 열려요.`}<br>별 3개: ${STAR_RULES[0].text}`;
 }
 
 // ---------------- 게임 ----------------
 /** free: 오늘의 노래·친구 도전장은 앞 단계를 안 깼어도 칠 수 있음 */
 async function tryStart(id, { free = false } = {}) {
-  // 9·13·14단계와 단계별 무제한은 모두에게 잠김
+  // 9·13·14단계와 단계별 무제한은 운영자가 팔로우를 확인(인증 완료)해야 열림
   if (closedLocked(id)) {
-    toast('이 곡은 지금 잠겨 있어요 🔒', 2600);
+    if (!isVerified()) openVerify(id);
+    else confirmLockToast();
     return;
   }
   // 팔로워 인증 단계는 앞 단계를 안 깼어도 신청은 미리 할 수 있게 먼저 안내
@@ -434,6 +448,12 @@ async function startLevel(id) {
           state.me = { ...state.me, checked: false };
           renderLevels();
           openVerify(id);
+          return;
+        }
+        if (e.data && /^confirm_/.test(e.data.error)) {
+          state.me = { ...state.me, confirmed: false };
+          renderLevels();
+          confirmLockToast();
           return;
         }
         toast('판을 시작하지 못했어요. 다시 해 보세요', 2600);
@@ -1718,6 +1738,19 @@ async function boot() {
   renderLevels();
   // 운영자가 팔로우 확인이 안 돼서 랭킹에서 내린 사람: 들어오자마자 알림 (아이디를 다시 넣을 기회)
   if (state.me.hidden) setTimeout(() => askNickname(true), 600);
+  // 앱으로 돌아올 때 인증 상태 다시 받기 (운영자가 '확인함'을 누르면 새로고침 없이 바로 열림)
+  document.addEventListener('visibilitychange', async () => {
+    if (document.hidden || state.api.mode !== 'server') return;
+    try {
+      const me = await state.api.me();
+      if (!me || (me.confirmed === state.me.confirmed && me.checked === state.me.checked && !!me.hidden === !!state.me.hidden)) return;
+      const nowConfirmed = me.confirmed && !state.me.confirmed;
+      state.me = me;
+      refreshTitle();
+      renderLevels();
+      if (nowConfirmed) toast(`✅ 팔로워 인증 완료! ${CONFIRM_WHAT()}이 열렸어요`, 3400);
+    } catch {}
+  });
   if (params.get('screen') === 'levels') show('screen-levels');
   // 친구가 보낸 1:1 도전장 링크로 들어옴
   if (params.get('vs')) {

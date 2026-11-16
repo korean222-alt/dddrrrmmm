@@ -613,9 +613,9 @@ export function needsVerify(id) {
   return id === 'endless' || VERIFY_LEVELS.includes(Number(id));
 }
 
-/** 모두에게 잠겨 있는 단계 (인증을 받아도 안 열림). 진행 순서에서는 건너뜀: 8단계 → 10단계 */
+/** 운영자가 팔로우를 확인한(인증 완료) 사람에게만 열리는 단계. 진행 순서에서는 건너뜀: 8단계 → 10단계 (9단계는 8단계를 깨면) */
 export const CLOSED_LEVELS = [9, 13, 14];
-/** 판 id 가 잠긴 것인지: CLOSED_LEVELS 단계 + 단계별 무제한('e5' 등) 전부 */
+/** 판 id 가 인증 완료가 필요한지: CLOSED_LEVELS 단계 + 단계별 무제한('e5' 등) 전부 */
 export function isClosed(id) {
   if (typeof id === 'string' && /^e\d+$/.test(id)) return true;
   return CLOSED_LEVELS.includes(Number(id));

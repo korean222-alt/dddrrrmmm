@@ -78,11 +78,11 @@ async function verifyIg(ig) {
   assert.equal((await c('POST', '/api/admin/players/check', { igsid: p.igsid, checked: true }, adm)).json.ok, true);
 }
 
-test('팔로워 인증: 신청(아이디 제출)하면 바로 12단계 · 그리그 무제한만 열림 / 9·13·14단계·단계별 무제한은 계속 잠김 / 나머지는 누구나', async () => {
+test('팔로워 인증: 신청하면 12단계 · 그리그 무제한 / 운영자 확인(인증 완료)하면 9·13·14단계 · 단계별 무제한까지 / 나머지는 누구나', async () => {
   const c = client();
   for (const lv of [12, 'endless']) assert.equal((await c('POST', '/api/runs', { level: lv })).json.error, 'verify_required');
-  // 9·13·14단계와 단계별 무제한은 모두에게 잠김
-  for (const lv of [9, 13, 14, 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).json.error, 'closed');
+  // 9·13·14단계와 단계별 무제한은 인증 완료 전엔 잠김
+  for (const lv of [9, 13, 14, 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).json.error, 'confirm_required');
   for (const lv of [1, 4, 8, 10, 11]) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200);
   // 인증 신청만 하면(운영자 확인 전) 바로 열림
   const g = await c('POST', '/api/guest', { name: '인증대기', ig: 'wait.me' });
@@ -93,17 +93,18 @@ test('팔로워 인증: 신청(아이디 제출)하면 바로 12단계 · 그리
   const listed = (await c('GET', '/api/admin/players', null, adm)).json.players.find((x) => x.ig === 'wait.me');
   assert.ok(listed && !listed.checkedAt && !listed.hiddenAt);
   for (const lv of [12, 'endless']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200);
-  // 인증을 받아도 잠긴 건 그대로
-  for (const lv of [9, 13, 14, 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 403);
-  // 운영자가 '확인함'을 눌러도 그대로 열려 있음
+  // 신청만 해선(확인 전) 9·13·14단계·단계별 무제한은 아직 잠김
+  for (const lv of [9, 13, 14, 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).json.error, 'confirm_pending');
+  // 운영자가 '확인함'을 누르면 인증 완료 → 전부 열림
   await verifyIg('wait.me');
   assert.equal((await c('GET', '/api/me')).json.confirmed, true);
-  assert.equal((await c('POST', '/api/runs', { level: 12 })).status, 200);
+  for (const lv of [12, 'endless', 9, 13, 14, 'e3', 'e13']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200, String(lv));
   // 랭킹에서 내리면 인증도 풀림
   const p = (await c('GET', '/api/admin/players', null, adm)).json.players.find((x) => x.ig === 'wait.me');
   await c('POST', '/api/admin/players/hide', { igsid: p.igsid, hidden: true }, adm);
   assert.equal((await c('GET', '/api/me')).json.checked, false);
-  assert.equal((await c('POST', '/api/runs', { level: 12 })).status, 403);
+  assert.equal((await c('GET', '/api/me')).json.confirmed, false);
+  for (const lv of [12, 9, 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 403);
 });
 
 test('정적 파일과 헬스체크', async () => {
@@ -214,13 +215,14 @@ test('무제한 모드: 따로 랭킹 (깬 단계 먼저, 같으면 점수) · �
   assert.ok(!tot.entries.some((e) => e.username === '무제한왕'));
 });
 
-test('단계별 무제한: 지금은 모두에게 잠김 (인증을 받아도 판 시작 안 됨)', async () => {
+test('단계별 무제한: 인증 신청만으론 잠김, 운영자 확인(인증 완료)하면 판 시작됨', async () => {
   const c = client();
   await c('POST', '/api/guest', { name: '잠금확인', ig: 'closed.check' });
-  await verifyIg('closed.check');
   const r = await c('POST', '/api/runs', { level: 'e5' });
   assert.equal(r.status, 403);
-  assert.equal(r.json.error, 'closed');
+  assert.equal(r.json.error, 'confirm_pending');
+  await verifyIg('closed.check');
+  assert.equal((await c('POST', '/api/runs', { level: 'e5' })).status, 200);
 });
 
 test('단계별 무제한: 곡마다 따로 랭킹 (그리그 무제한·다른 단계·총 등수와 안 섞임) — 잠금을 푼(GATE_MODE=open) 서버로', async (t) => {
