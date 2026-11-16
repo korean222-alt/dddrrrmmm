@@ -5,7 +5,7 @@
 
 import { sign, unsign, parseCookies, cookie, newId } from './session.js';
 import { buildStats } from './stats.js';
-import { LEVELS, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur, ENDLESS_ID, ROUND_BARS, roundBpm, pointsFor, levelEndlessBase, LEVEL_ENDLESS_STEP } from '../public/js/charts.js';
+import { LEVELS, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur, ENDLESS_ID, ROUND_BARS, roundBpm, pointsFor, levelEndlessBase, LEVEL_ENDLESS_STEP, needsVerify } from '../public/js/charts.js';
 
 // 무제한 모드 랭킹은 저장소의 level 칸에 '깬 단계 × 1,000,000 + 점수' 한 숫자로 저장 (단계가 먼저, 같으면 점수)
 //   그리그 무제한('endless') = level 0, 단계별 무제한('e5') = level -5. 총 등수는 level > 0 만 더함
@@ -89,6 +89,15 @@ export function createHandler(cfg, { store }) {
     }
   }
 
+  /** 팔로워 인증 완료 = 운영자가 '인증 완료'를 눌렀고, 랭킹에서 내려가 있지 않음 */
+  const isVerified = (pl) => !!(pl && pl.checkedAt && !pl.hiddenAt);
+  /** /api/me · /api/guest 응답 */
+  const meOf = (pl) => ({
+    verified: false, guest: true, needsIg: !pl.ig, checked: isVerified(pl),
+    hidden: pl.hiddenAt ? { deleteAt: pl.hiddenAt + HIDE_KEEP_MS } : null,
+    player: { username: pl.username, ig: pl.ig },
+  });
+
   return async function handle(request, { ip = '?' } = {}) {
     const url = new URL(request.url);
     const setCookies = [];
@@ -126,7 +135,7 @@ export function createHandler(cfg, { store }) {
     const p = unsign(cookiesOf(request)[PLAYER_COOKIE], cfg.sessionSecret);
     if (!p || !p.igsid) return null;
     const rec = await store.getPlayer(p.igsid);
-    return rec && rec.username ? { igsid: rec.igsid, username: rec.username, ig: rec.ig || null, hiddenAt: rec.hiddenAt || null } : null;
+    return rec && rec.username ? { igsid: rec.igsid, username: rec.username, ig: rec.ig || null, hiddenAt: rec.hiddenAt || null, checkedAt: rec.checkedAt || null } : null;
   }
 
   // ------------------- API -------------------
@@ -151,8 +160,8 @@ export function createHandler(cfg, { store }) {
       if (!pl) return json(200, { verified: false });
       await purgeMaybe();
       // hidden: 운영자가 팔로우 확인이 안 돼서 랭킹에서 내림 → 화면에 알리고 아이디를 다시 받음. deleteAt 에 지워짐
-      const hidden = pl.hiddenAt ? { deleteAt: pl.hiddenAt + HIDE_KEEP_MS } : null;
-      return json(200, { verified: false, guest: true, needsIg: !pl.ig, hidden, player: { username: pl.username, ig: pl.ig } });
+      // checked: 팔로워 인증 완료 → 9·12·13·14단계 · 무제한 모드가 열림
+      return json(200, meOf(pl));
     }
 
     if (p === '/api/logout' && m === 'POST') {
@@ -172,9 +181,9 @@ export function createHandler(cfg, { store }) {
       const ig = cleanInstagram(body.ig);
       if (!ig && !(pl && pl.ig)) return json(400, { error: 'bad_ig' });
       const igsid = pl ? pl.igsid : 'g_' + newId().replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
-      await store.upsertPlayer(igsid, { username: name, ig });
+      const rec = await store.upsertPlayer(igsid, { username: name, ig });
       if (!pl) setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
-      return json(200, { verified: false, guest: true, needsIg: false, hidden: null, player: { username: name, ig: ig || (pl && pl.ig) } });
+      return json(200, meOf({ username: name, ig: (rec && rec.ig) || ig, checkedAt: rec && rec.checkedAt, hiddenAt: rec && rec.hiddenAt }));
     }
 
     // 이용 통계 (익명): 접속 시간 + 곡 시작/끝. 이름·아이디·IP 는 저장하지 않음
@@ -243,6 +252,8 @@ export function createHandler(cfg, { store }) {
       const body = await readJson(request);
       const level = endlessMode(body.level) || getLevel(body.level);
       if (!level) return json(400, { error: 'bad_level' });
+      // 9·12·13·14단계 · 무제한 모드는 팔로워 인증을 받은 사람만
+      if (cfg.gateMode !== 'open' && needsVerify(level.id) && !isVerified(await getPlayer(request))) return json(403, { error: 'verify_required' });
       const runToken = sign({ l: level.id, t: Date.now(), n: newId() }, cfg.sessionSecret);
       return json(200, { runToken });
     }

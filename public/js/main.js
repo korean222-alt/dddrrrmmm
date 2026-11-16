@@ -3,7 +3,7 @@
 import {
   LEVELS, getLevel, levelLanes, isGated, GATE_FROM_LEVEL, DIFFICULTY_WORDS, STAR_RULES,
   ENDLESS_ID, LAST_LEVEL_ID, makeEndless, isUnlocked, nextChallenge, DIAMOND_RULES, roundInfo,
-  ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId,
+  ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, VERIFY_LEVELS,
 } from './charts.js';
 import { AudioEngine, playMetronome } from './audio.js';
 import { Renderer } from './render.js';
@@ -129,11 +129,68 @@ const SOON = () => `랭킹은 곧 열려요! ${atHandle()} 팔로우하고 기�
 const gateFrom = () => Number(state.cfg.gateFromLevel) || GATE_FROM_LEVEL;
 /** 아직 팔로우 안 한 상태인지 (팔로우 버튼 눌렀는지. 진짜 확인은 아님) */
 function needsFollow() {
-  return state.cfg.gateMode === 'soft' && !load('softFollowed', false);
+  return state.cfg.gateMode === 'soft' && !load('softFollowed', false) && !(state.me && state.me.checked);
 }
 function isLocked(level) {
   return isGated(level, gateFrom()) && needsFollow();
 }
+// ---------------- 팔로워 인증 (9·12·13·14단계 · 무제한 모드) ----------------
+// 운영자가 관리자 화면에서 인스타 팔로우를 직접 확인하고 '인증 완료'를 누르면 열림 (최대 24시간)
+/** 팔로워 인증 완료 (서버 없는 모드에선 확인할 방법이 없어서 열어 둠) */
+function isVerified() {
+  if (!state.api || state.api.mode !== 'server') return true;
+  return !!(state.me && state.me.guest && state.me.checked);
+}
+const verifyLocked = (id) => state.cfg.gateMode !== 'open' && needsVerify(id) && !isVerified();
+/** 인증 신청은 했고 운영자 확인을 기다리는 중 */
+const verifyPending = () => !!(state.me && state.me.guest && !state.me.needsIg && !state.me.hidden && !state.me.checked);
+const VERIFY_WHAT = () => `${VERIFY_LEVELS.join('·')}단계와 💎 무제한 모드`;
+
+function openVerify(id) {
+  state.verifyFor = id ?? state.verifyFor ?? null;
+  const pending = verifyPending();
+  const lv = id == null ? null : id === ENDLESS_ID ? { label: '💎 무제한 모드 · 그리그' } : levelEndlessBase(id) ? { label: `💎 ${levelEndlessBase(id).id}단계 무제한 · ${levelEndlessBase(id).name}` } : getLevel(id) ? { label: `${id}단계 · ${getLevel(id).composer} ${getLevel(id).name}` } : null;
+  $('#verify-level').hidden = !lv;
+  if (lv) $('#verify-level').textContent = lv.label;
+  $('#verify-mascots').innerHTML = mascotSVG('kong', pending ? 'idle' : 'cheer') + mascotSVG('jjak', 'idle');
+  $('#verify-title').textContent = pending ? '인증 확인 중이에요 ⏳' : '팔로워 인증이 필요해요';
+  $('#verify-desc').innerHTML = pending
+    ? `<b>@${escapeHtml(state.me.player?.ig || '')}</b> 로 신청됐어요. 운영자가 ${atHandle()} 팔로우를 확인하면 ${VERIFY_WHAT()}가 열려요.`
+    : `${VERIFY_WHAT()}는 <b>${igWho()} 팔로워 인증</b>을 받은 사람만 할 수 있어요.`;
+  const joined = !!(state.me && state.me.guest && !state.me.needsIg && !state.me.hidden);
+  const step = (n, text, done) => `<li class="${done ? 'done' : ''}"><b>${done ? '✓' : n}</b><span>${text}</span></li>`;
+  $('#verify-steps').innerHTML = [
+    step(1, `${atHandle()} 팔로우하기`, joined),
+    step(2, '닉네임 + 내 인스타 아이디 적어서 신청', joined),
+    step(3, '운영자가 팔로우 확인 → <b>인증 완료!</b>', false),
+  ].join('');
+  const url = handle() ? `https://www.instagram.com/${handle()}/` : 'https://www.instagram.com/';
+  $('#verify-acts').innerHTML = pending
+    ? `<a class="btn btn-insta" href="${url}" target="_blank" rel="noopener">${icon('insta')} 팔로우 했는지 한 번 더 확인</a>
+       <button class="btn btn-ghost" data-action="verify-join">인스타 아이디 고치기</button>`
+    : `<a class="btn btn-insta" href="${url}" target="_blank" rel="noopener">${icon('insta')} 1. 팔로우하러 가기</a>
+       <button class="btn btn-primary" data-action="verify-join">2. 인증 신청하기</button>`;
+  $('#a2hs-inapp').hidden = !isInApp();
+  $('#verify-a2hs').open = pending;
+  openModal('modal-verify');
+}
+
+/** 다른 앱(인스타)에 갔다 돌아왔을 때 인증이 끝났는지 다시 확인 (30초에 한 번) */
+let lastMeCheck = 0;
+async function recheckVerify() {
+  if (!state.api || state.api.mode !== 'server' || !verifyPending() || Date.now() - lastMeCheck < 30000) return;
+  lastMeCheck = Date.now();
+  try {
+    const me = await state.api.me();
+    if (!me.checked) return;
+    state.me = me;
+    refreshTitle();
+    renderLevels();
+    closeModal('modal-verify');
+    toast(`🎉 팔로워 인증 완료! ${VERIFY_WHAT()}가 열렸어요`, 3600);
+  } catch {}
+}
+
 /** 단계 id → 칠 판 (숫자 = 일반 단계, 'endless' = 무제한 모드, 'e13' = 13단계 무제한, 'ch4' = 영상용 레벨업 챌린지 4단계까지) */
 function playable(id) {
   if (id === ENDLESS_ID) return makeEndless();
@@ -237,11 +294,15 @@ function refreshFollowChip() {
     el.hidden = !on;
     el.classList.toggle('warn', !!me.hidden);
     el.classList.toggle('todo', !me.hidden && (!me.guest || !!me.needsIg));
+    el.classList.toggle('ok', !me.hidden && !!me.checked);
+    el.classList.toggle('wait', verifyPending());
     el.textContent = me.hidden
       ? '⚠️ 팔로우 확인 안 됨'
       : !me.guest || me.needsIg
-        ? `📸 ${atHandle()} 팔로우 · 랭킹 참여`
-        : `📸 @${me.player?.ig || ''} 랭킹 참여 중`;
+        ? `📸 팔로워 인증 받기 · 랭킹 참여`
+        : me.checked
+          ? `✅ @${me.player?.ig || ''} 팔로워 인증 완료`
+          : `⏳ 인증 확인 중 (최대 24시간)`;
   }
 }
 
@@ -272,9 +333,12 @@ function renderEndlessLevels(bests) {
   for (const lv of LEVELS) {
     const id = levelEndlessId(lv.id);
     const prevLock = !isUnlocked(id, bests);
-    const locked = prevLock || isLocked(lv);
+    const vLock = verifyLocked(id);
+    const locked = prevLock || vLock || isLocked(lv);
     const b = bests[id];
-    const meta = prevLock
+    const meta = vLock
+      ? `<span class="lockline">${icon('lock')} 팔로워 인증</span>`
+      : prevLock
       ? `<span class="lockline">${icon('lock')} ${lv.id}단계 깨면 열림</span>`
       : locked
         ? `<span class="lockline">${icon('lock')} 인스타 팔로우</span>`
@@ -287,7 +351,7 @@ function renderEndlessLevels(bests) {
   }
   $('#level-list').innerHTML = list.join('');
   refreshToday();
-  $('#levels-foot').innerHTML = `단계를 별 1개 이상으로 깨면 그 곡의 무제한이 열려요. 목숨이 다 떨어질 때까지 계속!<br>💎 Lv.4 · 💎💎 Lv.7 · 💎💎💎 Lv.10 클리어`;
+  $('#levels-foot').innerHTML = `${isVerified() ? '' : `💎 무제한 모드는 <b>${igWho()} 팔로워 인증</b>을 받으면 열려요 (신청 후 최대 24시간).<br>`}단계를 별 1개 이상으로 깨면 그 곡의 무제한이 열려요. 목숨이 다 떨어질 때까지 계속!<br>💎 Lv.4 · 💎💎 Lv.7 · 💎💎💎 Lv.10 클리어`;
 }
 
 function renderLevels() {
@@ -301,9 +365,12 @@ function renderLevels() {
   let gateShown = false;
   const list = LEVELS.map((lv) => {
     const prevLock = !isUnlocked(lv.id, bests);
-    const locked = prevLock || isLocked(lv);
+    const vLock = verifyLocked(lv.id);
+    const locked = prevLock || vLock || isLocked(lv);
     const b = bests[lv.id];
-    const meta = prevLock
+    const meta = vLock
+      ? `<span class="lockline">${icon('lock')} 팔로워 인증</span>`
+      : prevLock
       ? `<span class="lockline">${icon('lock')} ${LOCK_FROM_PREV(lv.id)}</span>`
       : locked
       ? `<span class="lockline">${icon('lock')} 인스타 팔로우</span>`
@@ -325,24 +392,30 @@ function renderLevels() {
     </button>`;
   });
   // 맨 아래: 무제한 모드 (13단계 깨면 열림)
-  const eLock = !isUnlocked(ENDLESS_ID, bests);
+  const eVLock = verifyLocked(ENDLESS_ID);
+  const eLock = eVLock || !isUnlocked(ENDLESS_ID, bests);
   const eb = bests[ENDLESS_ID];
   list.push(`<button class="level-card endless-card ${eLock ? 'locked' : ''}" data-level="${ENDLESS_ID}">
       <div class="lv"><span>∞</span></div>
       <div class="info"><h4>무제한 모드 <small>그리그</small></h4><p>깰수록 BPM +10 · 속도 한도 없음</p><p class="gem-rule">💎 Lv.4 · 💎💎 Lv.7 · 💎💎💎 Lv.10 클리어</p></div>
-      <div class="meta">${eLock ? `<span class="lockline">${icon('lock')} ${LOCK_FROM_PREV(ENDLESS_ID)}</span>` : `${gemsHTML(eb ? eb.diamonds || 0 : 0, 'sm')}<span>${eb ? `최고 Lv.${eb.roundsCleared || 0} 클리어` : 'NEW'}</span>`}</div>
+      <div class="meta">${eLock ? `<span class="lockline">${icon('lock')} ${eVLock ? '팔로워 인증' : LOCK_FROM_PREV(ENDLESS_ID)}</span>` : `${gemsHTML(eb ? eb.diamonds || 0 : 0, 'sm')}<span>${eb ? `최고 Lv.${eb.roundsCleared || 0} 클리어` : 'NEW'}</span>`}</div>
     </button>`);
   $('#level-list').innerHTML = list.join('');
   refreshToday();
   const free = freeRangeText();
   $('#levels-foot').innerHTML = needsFollow()
     ? `${free ? free + ' 누구나 바로! ' : ''}${gateFrom()}단계부터는 ${igWho()} 팔로우하면 열려요.<br>앞 단계를 별 1개 이상으로 깨면 다음 단계가 열려요. 별 3개: ${STAR_RULES[0].text}`
-    : `앞 단계를 별 1개 이상으로 깨면 다음 단계가 열려요. 깬 단계는 위 <b>💎 무제한</b> 탭에서 끝없이 칠 수 있어요!<br>별 3개: ${STAR_RULES[0].text}`;
+    : `${isVerified() ? '' : `🔒 <b>${VERIFY_WHAT()}</b>는 팔로워 인증을 받으면 열려요 (신청 후 최대 24시간). <button class="link" data-action="verify-open">인증 신청</button><br>`}앞 단계를 별 1개 이상으로 깨면 다음 단계가 열려요. 깬 단계는 위 <b>💎 무제한</b> 탭에서 끝없이 칠 수 있어요!<br>별 3개: ${STAR_RULES[0].text}`;
 }
 
 // ---------------- 게임 ----------------
 /** free: 오늘의 노래·친구 도전장은 앞 단계를 안 깼어도 칠 수 있음 (팔로우 잠금은 그대로) */
 async function tryStart(id, { free = false } = {}) {
+  // 팔로워 인증 단계는 앞 단계를 안 깼어도 신청은 미리 할 수 있게 먼저 안내
+  if (verifyLocked(id)) {
+    openVerify(id);
+    return;
+  }
   if (!free && progressLocked(id)) {
     const glv = levelEndlessBase(id) ? null : getLevel(id);
     // 팔로우 잠금 단계면 앞 단계를 안 깼어도 인스타 연결은 미리 할 수 있게
@@ -434,8 +507,14 @@ async function startLevel(id) {
     .catch((e) => {
       if (e.status === 403 && state.game && state.game.level.id === id) {
         state.game.stop();
-        state.me = { verified: false };
         show('screen-levels');
+        if (e.data && e.data.error === 'verify_required') {
+          state.me = { ...state.me, checked: false };
+          renderLevels();
+          openVerify(id);
+          return;
+        }
+        state.me = { verified: false };
         renderLevels();
         requireFollow(lv, () => startLevel(id));
       }
@@ -954,8 +1033,11 @@ async function submitJoin() {
     save('lastIg', ig);
     closeModal('modal-join');
     refreshTitle();
-    toast(`${name} 님으로 랭킹에 참여해요! ${atHandle()} 팔로우 꼭 해주세요 🙏`, 3200);
     refreshFollowChip();
+    renderLevels();
+    if (state.me.checked) toast(`${name} 님, 반가워요! 팔로워 인증 완료 상태예요 ✅`, 3000);
+    else if (state.verifyFor !== undefined && state.verifyFor !== null) openVerify();
+    else toast(`${name} 님으로 신청됐어요! 팔로우 확인 후 최대 24시간 안에 인증이 완료돼요 🙏`, 3600);
     submitRank();
   } catch (e) {
     err(e.status === 429 ? '잠시 후 다시 시도해 주세요.' : e.data && e.data.error === 'bad_ig' ? '인스타 아이디를 정확히 써 주세요.' : '등록하지 못했어요. 다시 시도해 주세요.');
@@ -998,7 +1080,7 @@ function openFollowGate(level, onDone, { early = false } = {}) {
   $('#follow-title').textContent = f <= 1 ? '인스타 팔로우하고 시작해요!' : `${f}단계부터는 인스타 팔로우!`;
   $('#follow-desc').innerHTML = early
     ? `${f - 1}단계를 아직 안 깼어도 <b>${igWho()}</b> 연결은 지금 해둘 수 있어요. 미리 팔로우해 두면 앞 단계 깨는 순간 바로 이어서 칠 수 있어요!`
-    : `<b>${igWho()}</b> 팔로우하면 ${f <= 1 ? '모든 단계가' : `${f}~${LEVELS.length}단계가`} 바로 열려요. 새 곡도 인스타에 제일 먼저 올라와요!`;
+    : `<b>${igWho()}</b> 팔로우하면 ${f <= 1 ? '단계들이' : `${f}단계부터`} 바로 열려요. (${VERIFY_LEVELS.join('·')}단계·무제한은 팔로워 인증 후) 새 곡도 인스타에 제일 먼저 올라와요!`;
   $('#follow-level').textContent = `${lv.id}단계 · ${lv.composer} ${lv.name}`;
   $('#follow-mascots').innerHTML = mascotSVG('kong', 'idle') + mascotSVG('jjak', 'idle');
   // '확인 중' 연출로 바뀌었던 버튼을 처음 모양으로
@@ -1057,7 +1139,7 @@ function completeFollow(silent) {
       if (done) done();
     }, 700);
   }
-  toast(silent ? `${gateFrom()}단계부터 열렸어요! 팔로우 고마워요 🎉` : `팔로우 고마워요! ${gateFrom()}단계부터 열렸어요 🎉`, 2600);
+  toast(silent ? `${gateFrom()}단계부터 열렸어요! 팔로우 고마워요 🎉` : `팔로우 고마워요! ${gateFrom()}단계부터 열렸어요 🎉 (${VERIFY_LEVELS.join('·')}단계·무제한은 팔로워 인증)`, 3200);
 }
 
 // ---------------- 랭킹 ----------------
@@ -1595,7 +1677,18 @@ const ACTIONS = {
   'rank-join': () => {
     closeModal('modal-rank');
     closeModal('modal-settings');
+    // 신청을 했으면 인증 상태 창, 아니면 신청(닉네임·아이디) 창
+    if (verifyPending()) openVerify(null);
+    else askNickname(true);
+  },
+  'verify-open': () => openVerify(null),
+  'verify-join': () => {
+    closeModal('modal-verify');
     askNickname(true);
+  },
+  'close-verify': () => {
+    state.verifyFor = null;
+    closeModal('modal-verify');
   },
   share: shareResult,
   'close-rank': () => closeModal('modal-rank'),
@@ -1728,6 +1821,7 @@ function bindActions() {
     } else {
       // 인스타에서 돌아옴: 15초가 지났으면 바로 넘어가고, 아니면 남은 시간 뒤에 넘어감
       tryFinishFollow(state.follow);
+      recheckVerify();
     }
   });
   let rz;

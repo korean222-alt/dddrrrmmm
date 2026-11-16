@@ -609,6 +609,14 @@ export const LEVELS = [
   },
 ];
 
+/** 팔로워 인증(운영자가 인스타 팔로우를 직접 확인)을 받은 사람만 하는 단계. 무제한 모드(그리그·단계별)도 전부 */
+export const VERIFY_LEVELS = [9, 12, 13, 14];
+/** 판 id(숫자 단계 / 'endless' / 'e5') 가 팔로워 인증이 필요한지 */
+export function needsVerify(id) {
+  if (id === 'endless' || (typeof id === 'string' && /^e\d+$/.test(id))) return true;
+  return VERIFY_LEVELS.includes(Number(id));
+}
+
 /** 이 단계가 팔로우 잠금 대상인지 */
 export function isGated(level, from = GATE_FROM_LEVEL) {
   return !!level && level.id >= from;

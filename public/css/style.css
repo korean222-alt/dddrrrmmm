@@ -436,3 +436,16 @@ input[type='range'] { width: 100%; accent-color: var(--grass); height: 28px; }
 .mode-tabs button { flex: 1; font-size: 16px; padding: 9px 12px; }
 .level-card.lv-endless .lv { background: #9a7bff; font-size: 26px; }
 .level-card.lv-endless .lv small { color: #fff; -webkit-text-stroke: 0; font-size: 14px; }
+
+/* 팔로워 인증 (9·12·13·14단계 · 무제한) */
+.verify-time { margin: 12px 0 8px; padding: 10px 12px; border-radius: 12px; background: #fff4cc; text-align: center; font-size: 15px; }
+.steps li.done { opacity: 0.6; }
+.steps li.done > b { background: var(--ink); }
+.a2hs { background: var(--cream); border-radius: 14px; padding: 10px 12px; margin-top: 6px; }
+.a2hs summary { cursor: pointer; font-size: 15px; }
+.a2hs-os h4 { margin: 10px 0 4px; font-size: 15px; }
+.a2hs-os ol { margin: 0; padding-left: 20px; line-height: 1.6; font-size: 14px; }
+.a2hs .small { margin-top: 8px; }
+.follow-chip.ok { background: #e3f6e5; color: #1f6b2b; border-color: #1f6b2b; }
+.follow-chip.wait { background: #fff4cc; }
+#verify-acts a { text-decoration: none; }

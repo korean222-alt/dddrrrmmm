@@ -70,6 +70,31 @@ function client() {
   };
 }
 
+const adm = { 'x-admin-token': 'admin-pw' };
+/** 운영자가 이 인스타 아이디를 '인증 완료' 처리 (9·12·13·14단계 · 무제한용) */
+async function verifyIg(ig) {
+  const c = client();
+  const p = (await c('GET', '/api/admin/players', null, adm)).json.players.find((x) => x.ig === ig);
+  assert.equal((await c('POST', '/api/admin/players/check', { igsid: p.igsid, checked: true }, adm)).json.ok, true);
+}
+
+test('팔로워 인증: 9·12·13·14단계 · 무제한은 운영자가 인증 완료해야 시작 가능', async () => {
+  const c = client();
+  for (const lv of [9, 12, 13, 14, 'endless', 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 403);
+  assert.equal((await c('POST', '/api/runs', { level: 10 })).status, 200);
+  const g = await c('POST', '/api/guest', { name: '인증대기', ig: 'wait.me' });
+  assert.equal(g.json.checked, false);
+  assert.equal((await c('POST', '/api/runs', { level: 9 })).json.error, 'verify_required');
+  await verifyIg('wait.me');
+  assert.equal((await c('GET', '/api/me')).json.checked, true);
+  for (const lv of [9, 14, 'endless', 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200);
+  // 랭킹에서 내리면 인증도 풀림
+  const p = (await c('GET', '/api/admin/players', null, adm)).json.players.find((x) => x.ig === 'wait.me');
+  await c('POST', '/api/admin/players/hide', { igsid: p.igsid, hidden: true }, adm);
+  assert.equal((await c('GET', '/api/me')).json.checked, false);
+  assert.equal((await c('POST', '/api/runs', { level: 9 })).status, 403);
+});
+
 test('정적 파일과 헬스체크', async () => {
   const c = client();
   assert.equal((await c('GET', '/api/health')).json.app, 'okaystra');
@@ -144,6 +169,8 @@ test('무제한 모드: 따로 랭킹 (깬 단계 먼저, 같으면 점수) · �
   const d = client();
   await c('POST', '/api/guest', { name: '무제한왕', ig: 'endless_king' });
   await d('POST', '/api/guest', { name: '둘째', ig: 'second.one' });
+  await verifyIg('endless_king');
+  await verifyIg('second.one');
   const run = (await c('POST', '/api/runs', { level: 'endless' })).json.runToken;
   assert.ok(run);
   // 조작 거부: 단계 0, 말도 안 되는 점수, 다른 단계용 토큰
@@ -179,6 +206,7 @@ test('무제한 모드: 따로 랭킹 (깬 단계 먼저, 같으면 점수) · �
 test('단계별 무제한: 곡마다 따로 랭킹 (그리그 무제한·다른 단계·총 등수와 안 섞임)', async () => {
   const c = client();
   await c('POST', '/api/guest', { name: '오단계무한', ig: 'e5_king' });
+  await verifyIg('e5_king');
   const run = (await c('POST', '/api/runs', { level: 'e5' })).json.runToken;
   assert.ok(run);
   // 없는 단계, 다른 무제한용 토큰은 거부
