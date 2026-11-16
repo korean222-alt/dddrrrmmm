@@ -148,7 +148,6 @@ export function createHandler(cfg, { store }) {
     if (p === '/api/config' && m === 'GET') {
       return json(200, {
         gateMode: cfg.gateMode,
-        gateFromLevel: cfg.gateFromLevel,
         instagramHandle: cfg.instagramHandle,
         siteUrl: cfg.siteUrl,
       });
@@ -252,7 +251,7 @@ export function createHandler(cfg, { store }) {
       const body = await readJson(request);
       const level = endlessMode(body.level) || getLevel(body.level);
       if (!level) return json(400, { error: 'bad_level' });
-      // 9·12·13·14단계 · 무제한 모드는 팔로워 인증을 받은 사람만
+      // 12단계 · 무제한 모드는 팔로워 인증을 받은 사람만 (GATE_MODE=open 이면 잠금 없음, 개발용)
       if (cfg.gateMode !== 'open' && needsVerify(level.id) && !isVerified(await getPlayer(request))) return json(403, { error: 'verify_required' });
       const runToken = sign({ l: level.id, t: Date.now(), n: newId() }, cfg.sessionSecret);
       return json(200, { runToken });

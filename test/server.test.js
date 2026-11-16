@@ -71,28 +71,28 @@ function client() {
 }
 
 const adm = { 'x-admin-token': 'admin-pw' };
-/** 운영자가 이 인스타 아이디를 '인증 완료' 처리 (9·12·13·14단계 · 무제한용) */
+/** 운영자가 이 인스타 아이디를 '인증 완료' 처리 (12단계 · 무제한용) */
 async function verifyIg(ig) {
   const c = client();
   const p = (await c('GET', '/api/admin/players', null, adm)).json.players.find((x) => x.ig === ig);
   assert.equal((await c('POST', '/api/admin/players/check', { igsid: p.igsid, checked: true }, adm)).json.ok, true);
 }
 
-test('팔로워 인증: 9·12·13·14단계 · 무제한은 운영자가 인증 완료해야 시작 가능', async () => {
+test('팔로워 인증: 12단계 · 무제한만 운영자가 인증 완료해야 시작 가능 (나머지 단계는 누구나)', async () => {
   const c = client();
-  for (const lv of [9, 12, 13, 14, 'endless', 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 403);
-  assert.equal((await c('POST', '/api/runs', { level: 10 })).status, 200);
+  for (const lv of [12, 'endless', 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 403);
+  for (const lv of [1, 4, 9, 10, 13, 14]) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200);
   const g = await c('POST', '/api/guest', { name: '인증대기', ig: 'wait.me' });
   assert.equal(g.json.checked, false);
-  assert.equal((await c('POST', '/api/runs', { level: 9 })).json.error, 'verify_required');
+  assert.equal((await c('POST', '/api/runs', { level: 12 })).json.error, 'verify_required');
   await verifyIg('wait.me');
   assert.equal((await c('GET', '/api/me')).json.checked, true);
-  for (const lv of [9, 14, 'endless', 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200);
+  for (const lv of [12, 'endless', 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200);
   // 랭킹에서 내리면 인증도 풀림
   const p = (await c('GET', '/api/admin/players', null, adm)).json.players.find((x) => x.ig === 'wait.me');
   await c('POST', '/api/admin/players/hide', { igsid: p.igsid, hidden: true }, adm);
   assert.equal((await c('GET', '/api/me')).json.checked, false);
-  assert.equal((await c('POST', '/api/runs', { level: 9 })).status, 403);
+  assert.equal((await c('POST', '/api/runs', { level: 12 })).status, 403);
 });
 
 test('정적 파일과 헬스체크', async () => {

@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { LEVELS, levelLanes, HAT, CRASH, buildNotes, noteCount, maxScore, gradeFor, scoreBounds, pointsFor, isGated, parseMelody, parseChord, chordAt, noteToMidi, starsFor, accuracy } from '../public/js/charts.js';
+import { LEVELS, levelLanes, HAT, CRASH, buildNotes, noteCount, maxScore, gradeFor, scoreBounds, pointsFor, needsVerify, VERIFY_LEVELS, parseMelody, parseChord, chordAt, noteToMidi, starsFor, accuracy } from '../public/js/charts.js';
 import { sign, unsign } from '../server/session.js';
 
 test('채보: 모든 마디가 16칸, 허용 문자만', () => {
@@ -47,10 +47,10 @@ test('악기: 1~8단계 킥·스네어, 9단계 +하이햇, 12단계 +크래시'
   }
 });
 
-test('Lv.1~3 공개, Lv.4+ 잠금 대상 (기준 단계 바꾸기 가능)', () => {
-  assert.deepEqual(LEVELS.filter((l) => !isGated(l)).map((l) => l.id), [1, 2, 3]);
-  assert.ok(isGated(LEVELS.find((l) => l.id === 4)));
-  assert.equal(LEVELS.filter((l) => !isGated(l, 1)).length, 0);
+test('팔로워 인증은 12단계 + 무제한 모드만, 나머지 단계는 누구나', () => {
+  assert.deepEqual(VERIFY_LEVELS, [12]);
+  assert.deepEqual(LEVELS.filter((l) => needsVerify(l.id)).map((l) => l.id), [12]);
+  for (const id of ['endless', 'e1', 'e13']) assert.ok(needsVerify(id), id);
 });
 
 test('별: 3개는 미스·헛침 없이 90%+, 헛침은 정확도 깎음', () => {

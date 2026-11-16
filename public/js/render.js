@@ -816,6 +816,22 @@ export class Renderer {
       ctx.strokeText(LANE[lane].short, x, ly);
       ctx.fillStyle = LANE[lane].light;
       ctx.fillText(LANE[lane].short, x, ly);
+      // 컴퓨터(키보드) 쓰는 사람용: 줄마다 어떤 키인지 키캡으로
+      const kc = this.keyLabels && this.keyLabels[lane];
+      if (kc) {
+        const ks = Math.round(fs * 1.25);
+        const ky = Math.min(L.H - ks * 0.7, ly + fs * 1.15 + ks * 0.55);
+        ctx.fillStyle = 'rgba(255,255,255,0.92)';
+        ctx.strokeStyle = INK;
+        ctx.lineWidth = Math.max(2, ks * 0.1);
+        ctx.beginPath();
+        ctx.roundRect(x - ks * 0.62, ky - ks * 0.62, ks * 1.24, ks * 1.24, ks * 0.26);
+        ctx.fill();
+        ctx.stroke();
+        ctx.fillStyle = INK;
+        ctx.font = `${ks}px ${FONT}`;
+        ctx.fillText(kc, x, ky + ks * 0.04);
+      }
       ctx.restore();
     }
   }
@@ -1010,6 +1026,12 @@ export class Renderer {
     const zy = L.strikeY + L.instR * 1.55 + (L.H - L.strikeY - L.instR * 1.55) * 0.3;
     for (const i of this.laneOrder) {
       ctx.fillStyle = `rgba(255,255,255,${0.8 * fade})`;
+      if (this.keyLabels) {
+        // 컴퓨터: 손가락 대신 키 안내 (키캡은 줄 아래에 항상 떠 있음)
+        ctx.font = `${zs}px ${FONT}`;
+        ctx.fillText(`${this.keyLabels[i]} 키 · 클릭도 OK`, L.laneX[i], zy + zs * 1.5);
+        continue;
+      }
       ctx.font = `${Math.round(zs * 1.5)}px ${FONT}`;
       ctx.fillText('👆', L.laneX[i], zy + Math.sin(rt * 6) * zs * 0.2);
       ctx.font = `${zs}px ${FONT}`;

@@ -6,10 +6,8 @@ export function makeConfig(env = {}) {
   return {
     prod,
     sessionSecret: env.SESSION_SECRET || '',
-    // soft: "팔로우하고 오세요" 안내만 (버튼 누르면 열림) / open: 잠금 없음
+    // soft(기본): 12단계·무제한 모드는 팔로워 인증을 받은 사람만 / open: 잠금 없음 (개발용)
     gateMode: env.GATE_MODE === 'open' ? 'open' : 'soft',
-    // 몇 단계부터 팔로우가 필요한지 (1 = 처음부터)
-    gateFromLevel: Math.max(1, Number(env.GATE_FROM_LEVEL) || 4),
     // /admin.html (이용 통계) 비밀번호. 비어 있으면 관리자 기능 꺼짐
     adminToken: env.ADMIN_TOKEN || '',
     // 이용 통계에서 '하루'를 나누는 시간대 (UTC 와의 차이, 분). 기본 한국 +540
