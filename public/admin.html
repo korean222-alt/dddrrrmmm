@@ -49,7 +49,9 @@
     .hours-l { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 2px; }
     h2 { font-size: 15px; margin: 0 0 8px; }
     .note { font-size: 12px; color: var(--muted); margin: 8px 0 0; }
-    @media (max-width: 420px) { .row { grid-template-columns: 1fr; } }
+    .acts { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+    .acts button { padding: 8px 10px; font-size: 13px; }
+    @media (max-width: 420px) { .row { grid-template-columns: 1fr; } li { flex-wrap: wrap; } }
   </style>
 </head>
 <body>
@@ -69,7 +71,7 @@
         <button type="button" data-tab="players">랭킹 참여자</button>
       </div>
       <section id="tab-players" hidden>
-        <p>인스타 아이디를 눌러 팔로우했는지 확인하세요. 안 했으면 <b>삭제</b> (랭킹과 점수가 같이 지워져요), 했으면 <b>확인함</b>을 누르면 아래로 내려가요. 가입 후 24시간이 넘은 미확인 참여자는 빨간 글씨로 보여요.</p>
+        <p>인스타 아이디를 눌러 팔로우했는지 확인하세요. 했으면 <b>확인함</b>. 안 했거나 아이디가 없으면 <b>랭킹에서 내리기</b> → 바로 랭킹에서 안 보이고, 그 사람이 다시 들어오면 "팔로우 확인이 안 됐어요" 창이 떠서 아이디를 다시 적을 수 있어요. <b>5일</b> 안에 안 적으면 자동으로 삭제돼요. <b>삭제</b>는 바로 지워요. 가입 후 24시간이 넘은 미확인 참여자는 빨간 글씨로 보여요.</p>
         <div class="card"><div class="head"><b id="players-count"></b><button type="button" class="ghost" id="players-reload">새로고침</button></div><ul id="players"></ul></div>
       </section>
       <section id="tab-stats">
@@ -181,17 +183,20 @@
         return;
       }
       const ps = r.data.players || [];
-      const todo = ps.filter((p) => !p.checkedAt).length;
-      $('#players-count').textContent = `참여자 ${ps.length}명 · 확인 필요 ${todo}명`;
+      const todo = ps.filter((p) => !p.checkedAt && !p.hiddenAt).length;
+      const hid = ps.filter((p) => p.hiddenAt).length;
+      $('#players-count').textContent = `참여자 ${ps.length}명 · 확인 필요 ${todo}명 · 내림 ${hid}명`;
+      const keep = (r.data.keepDays || 5) * 86400000;
+      const left = (p) => Math.max(0, Math.ceil((p.hiddenAt + keep - Date.now()) / 86400000));
       $('#players').innerHTML = ps.length
         ? ps.map((p) => {
-            const late = !p.checkedAt && p.createdAt && Date.now() - p.createdAt > 24 * 3600 * 1000;
+            const late = !p.checkedAt && !p.hiddenAt && p.createdAt && Date.now() - p.createdAt > 24 * 3600 * 1000;
             const id = p.ig
               ? `<a href="https://www.instagram.com/${esc(p.ig)}/" target="_blank" rel="noopener" style="color:var(--pink)">@${esc(p.ig)}</a>`
               : '<span class="meta">인스타 아이디 없음 (예전 참여자)</span>';
             return `<li data-igsid="${esc(p.igsid)}"><div><div><b>${esc(p.username)}</b> ${id}</div>
-              <div class="meta" ${late ? 'style="color:var(--bad)"' : ''}>${p.checkedAt ? '✅ 확인함' : '확인 필요'} · ${ago(p.createdAt)} · 총 ${fmtN(p.total)}점 (${p.levels}단계)${p.endless != null ? ' · 무제한 Lv.' + Math.floor(p.endless / 1000000) : ''}</div></div>
-              <div style="display:flex;gap:6px">${p.checkedAt ? '<button type="button" class="ghost" data-do="uncheck">확인 취소</button>' : '<button type="button" data-do="check">확인함</button>'}<button type="button" class="ghost" data-do="delete" style="color:var(--bad)">삭제</button></div></li>`;
+              <div class="meta" ${late || p.hiddenAt ? 'style="color:var(--bad)"' : ''}>${p.hiddenAt ? `⬇️ 랭킹에서 내림 · ${left(p)}일 뒤 삭제` : p.checkedAt ? '✅ 확인함' : '확인 필요'} · ${ago(p.createdAt)} · 총 ${fmtN(p.total)}점 (${p.levels}단계)${p.endless != null ? ' · 무제한 Lv.' + Math.floor(p.endless / 1000000) : ''}</div></div>
+              <div class="acts">${p.hiddenAt ? '<button type="button" class="ghost" data-do="unhide">되돌리기</button>' : `${p.checkedAt ? '<button type="button" class="ghost" data-do="uncheck">확인 취소</button>' : '<button type="button" data-do="check">확인함</button>'}<button type="button" class="ghost" data-do="hide">랭킹에서 내리기</button>`}<button type="button" class="ghost" data-do="delete" style="color:var(--bad)">삭제</button></div></li>`;
           }).join('')
         : '<li class="empty">아직 참여자가 없어요.</li>';
     }
@@ -204,6 +209,8 @@
       if (b.dataset.do === 'delete') {
         if (!confirm(`"${name}" 님을 삭제할까요?\n닉네임과 모든 랭킹 기록이 지워져요.`)) return;
         await call('POST', '/api/admin/players/delete', { igsid });
+      } else if (b.dataset.do === 'hide' || b.dataset.do === 'unhide') {
+        await call('POST', '/api/admin/players/hide', { igsid, hidden: b.dataset.do === 'hide' });
       } else {
         await call('POST', '/api/admin/players/check', { igsid, checked: b.dataset.do === 'check' });
       }

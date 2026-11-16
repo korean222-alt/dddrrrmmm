@@ -56,3 +56,28 @@ test('JSON 저장소: 인증된 인스타 플레이어는 시작할 때 지움',
   assert.equal(JSON.parse(fs.readFileSync(file, 'utf8')).codes, undefined);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('랭킹에서 내린 참여자는 5일 지나면 자동 삭제 (JSON · Postgres 저장소 둘 다)', async () => {
+  const { PGlite } = await import('@electric-sql/pglite');
+  const { PgStore } = await import('../server/pgstore.js');
+  const db = new PGlite();
+  const pg = await new PgStore(async (text, params) => (await db.query(text, params)).rows).init();
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kk-hide-'));
+  const js = new JsonStore(path.join(dir, 'db.json')).init();
+  const DAY = 86400000;
+  const t0 = Date.UTC(2026, 10, 1);
+  for (const store of [js, pg]) {
+    await store.upsertPlayer('g_a', { username: '내림', ig: 'a' });
+    await store.upsertPlayer('g_b', { username: '그대로', ig: 'b' });
+    await store.recordScore('g_a', 2, { score: 500, grade: 'A', maxCombo: 1 });
+    await store.setHidden('g_a', true, t0);
+    assert.equal((await store.leaderboard(2, 50)).rows.length, 0, '내린 사람은 랭킹에서 안 보임');
+    assert.equal(await store.purgeHidden(t0 + 4 * DAY), 0, '4일째엔 안 지움');
+    assert.ok(await store.getPlayer('g_a'));
+    assert.equal(await store.purgeHidden(t0 + 5 * DAY + 1), 1, '5일 지나면 지움');
+    assert.equal(await store.getPlayer('g_a'), null);
+    assert.ok(await store.getPlayer('g_b'));
+  }
+  js.flush();
+  fs.rmSync(dir, { recursive: true, force: true });
+});

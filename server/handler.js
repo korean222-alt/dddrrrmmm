@@ -46,6 +46,8 @@ function rateLimiter(limit, windowMs) {
   };
 }
 
+export const HIDE_KEEP_MS = 5 * 24 * 3600 * 1000;
+
 class HttpError extends Error {
   constructor(status, message) {
     super(message);
@@ -72,6 +74,19 @@ export function createHandler(cfg, { store }) {
     let d = 0;
     for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ t.charCodeAt(i);
     return d === 0;
+  }
+
+  // 랭킹에서 내린 지 5일 지난 참여자 지우기: 접속(/api/me) 때 인스턴스마다 10분에 한 번만
+  let lastPurge = 0;
+  async function purgeMaybe() {
+    const now = Date.now();
+    if (now - lastPurge < 10 * 60 * 1000) return;
+    lastPurge = now;
+    try {
+      await store.purgeHidden(now);
+    } catch (e) {
+      console.error('[purge]', e);
+    }
   }
 
   return async function handle(request, { ip = '?' } = {}) {
@@ -111,7 +126,7 @@ export function createHandler(cfg, { store }) {
     const p = unsign(cookiesOf(request)[PLAYER_COOKIE], cfg.sessionSecret);
     if (!p || !p.igsid) return null;
     const rec = await store.getPlayer(p.igsid);
-    return rec && rec.username ? { igsid: rec.igsid, username: rec.username, ig: rec.ig || null } : null;
+    return rec && rec.username ? { igsid: rec.igsid, username: rec.username, ig: rec.ig || null, hiddenAt: rec.hiddenAt || null } : null;
   }
 
   // ------------------- API -------------------
@@ -134,7 +149,10 @@ export function createHandler(cfg, { store }) {
     if (p === '/api/me' && m === 'GET') {
       const pl = await getPlayer(request);
       if (!pl) return json(200, { verified: false });
-      return json(200, { verified: false, guest: true, needsIg: !pl.ig, player: { username: pl.username } });
+      await purgeMaybe();
+      // hidden: 운영자가 팔로우 확인이 안 돼서 랭킹에서 내림 → 화면에 알리고 아이디를 다시 받음. deleteAt 에 지워짐
+      const hidden = pl.hiddenAt ? { deleteAt: pl.hiddenAt + HIDE_KEEP_MS } : null;
+      return json(200, { verified: false, guest: true, needsIg: !pl.ig, hidden, player: { username: pl.username, ig: pl.ig } });
     }
 
     if (p === '/api/logout' && m === 'POST') {
@@ -156,7 +174,7 @@ export function createHandler(cfg, { store }) {
       const igsid = pl ? pl.igsid : 'g_' + newId().replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
       await store.upsertPlayer(igsid, { username: name, ig });
       if (!pl) setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
-      return json(200, { verified: false, guest: true, needsIg: false, player: { username: name } });
+      return json(200, { verified: false, guest: true, needsIg: false, hidden: null, player: { username: name, ig: ig || (pl && pl.ig) } });
     }
 
     // 이용 통계 (익명): 접속 시간 + 곡 시작/끝. 이름·아이디·IP 는 저장하지 않음
@@ -197,7 +215,16 @@ export function createHandler(cfg, { store }) {
         return json(200, { days, ...buildStats(await store.statsRaw(from, now + 1), { from, to: now, tzMin }) });
       }
       // 랭킹 참여자 (인스타 아이디로 팔로우 확인 → 안 했으면 삭제)
-      if (p === '/api/admin/players' && m === 'GET') return json(200, { players: await store.listPlayers() });
+      if (p === '/api/admin/players' && m === 'GET') {
+        await store.purgeHidden();
+        return json(200, { players: await store.listPlayers(), keepDays: HIDE_KEEP_MS / 86400000 });
+      }
+      // 랭킹에서 내리기 (5일 뒤 자동 삭제, 그 사이 다시 들어와 아이디를 넣으면 돌아옴) / 되돌리기
+      if (p === '/api/admin/players/hide' && m === 'POST') {
+        const b = await readJson(request);
+        if (typeof b.igsid !== 'string' || !b.igsid) return json(400, { error: 'bad_igsid' });
+        return json(200, { ok: await store.setHidden(b.igsid, b.hidden !== false) });
+      }
       if (p === '/api/admin/players/delete' && m === 'POST') {
         const b = await readJson(request);
         if (typeof b.igsid !== 'string' || !b.igsid) return json(400, { error: 'bad_igsid' });

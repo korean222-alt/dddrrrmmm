@@ -8,6 +8,8 @@ const SCHEMA = [
   `ALTER TABLE players ADD COLUMN IF NOT EXISTS ig TEXT`,
   `ALTER TABLE players ADD COLUMN IF NOT EXISTS created_at BIGINT`,
   `ALTER TABLE players ADD COLUMN IF NOT EXISTS checked_at BIGINT`,
+  // hidden_at = 운영자가 '팔로우 확인 안 됨'으로 랭킹에서 내린 시각. HIDE_KEEP_MS 뒤 자동 삭제
+  `ALTER TABLE players ADD COLUMN IF NOT EXISTS hidden_at BIGINT`,
   `CREATE TABLE IF NOT EXISTS scores (
      igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, grade TEXT, max_combo INTEGER,
      at BIGINT NOT NULL, PRIMARY KEY (igsid, level))`,
@@ -28,6 +30,9 @@ const SCHEMA = [
 
 // 이용 통계는 1년 보관
 const STATS_KEEP_MS = 400 * 24 * 3600 * 1000;
+
+/** 랭킹에서 내린 참여자를 이만큼 뒤에 지움 (그 사이 다시 들어와 아이디를 넣으면 살아남) */
+export const HIDE_KEEP_MS = 5 * 24 * 3600 * 1000;
 
 const num = (v) => (v === null || v === undefined ? v : Number(v));
 
@@ -78,14 +83,15 @@ export class PgStore {
   // ----- players -----
   async getPlayer(igsid) {
     const r = await this.one('SELECT * FROM players WHERE igsid = $1', [igsid]);
-    return r ? { igsid: r.igsid, username: r.username, ig: r.ig || null } : null;
+    return r ? { igsid: r.igsid, username: r.username, ig: r.ig || null, hiddenAt: num(r.hidden_at) ?? null } : null;
   }
   async upsertPlayer(igsid, patch) {
     // 인스타 아이디가 바뀌면 운영자가 팔로우를 다시 확인해야 함 (checked_at 비움)
     await this.q(
       `INSERT INTO players (igsid, username, ig, created_at) VALUES ($1, $2, $3, $4)
        ON CONFLICT (igsid) DO UPDATE SET username = COALESCE(EXCLUDED.username, players.username),
-         checked_at = CASE WHEN EXCLUDED.ig IS NOT NULL AND EXCLUDED.ig IS DISTINCT FROM players.ig THEN NULL ELSE players.checked_at END,
+         checked_at = CASE WHEN EXCLUDED.ig IS NOT NULL AND (EXCLUDED.ig IS DISTINCT FROM players.ig OR players.hidden_at IS NOT NULL) THEN NULL ELSE players.checked_at END,
+         hidden_at = CASE WHEN EXCLUDED.ig IS NOT NULL THEN NULL ELSE players.hidden_at END,
          ig = COALESCE(EXCLUDED.ig, players.ig)`,
       [igsid, patch.username ?? null, patch.ig ?? null, Date.now()]
     );
@@ -94,15 +100,16 @@ export class PgStore {
   /** 관리자용 참여자 목록 (확인 안 한 사람 먼저, 최근 가입 순) */
   async listPlayers() {
     const rows = await this.q(
-      `SELECT p.igsid, p.username, p.ig, p.created_at, p.checked_at,
+      `SELECT p.igsid, p.username, p.ig, p.created_at, p.checked_at, p.hidden_at,
          COALESCE(SUM(s.score) FILTER (WHERE s.level > 0), 0) AS total, COUNT(s.level) FILTER (WHERE s.level > 0) AS levels,
          MAX(s.score) FILTER (WHERE s.level = 0) AS endless
        FROM players p LEFT JOIN scores s ON s.igsid = p.igsid WHERE p.username IS NOT NULL
-       GROUP BY p.igsid, p.username, p.ig, p.created_at, p.checked_at
-       ORDER BY (p.checked_at IS NULL) DESC, p.created_at DESC NULLS LAST LIMIT 1000`
+       GROUP BY p.igsid, p.username, p.ig, p.created_at, p.checked_at, p.hidden_at
+       ORDER BY (p.hidden_at IS NOT NULL), (p.checked_at IS NULL) DESC, p.created_at DESC NULLS LAST LIMIT 1000`
     );
     return rows.map((r) => ({
       igsid: r.igsid, username: r.username, ig: r.ig || null, createdAt: num(r.created_at) ?? null, checkedAt: num(r.checked_at) ?? null,
+      hiddenAt: num(r.hidden_at) ?? null,
       total: Number(r.total), levels: Number(r.levels), endless: r.endless == null ? null : Number(r.endless),
     }));
   }
@@ -111,8 +118,21 @@ export class PgStore {
     const r = await this.q('DELETE FROM players WHERE igsid = $1 RETURNING igsid', [igsid]);
     return r.length === 1;
   }
+  /** 랭킹에서 내리기(on) / 되돌리기. 내린 사람은 HIDE_KEEP_MS 뒤 purgeHidden 이 지움 */
+  async setHidden(igsid, on, now = Date.now()) {
+    const r = await this.q('UPDATE players SET hidden_at = $2, checked_at = NULL WHERE igsid = $1 RETURNING igsid', [igsid, on ? now : null]);
+    return r.length === 1;
+  }
+  /** 내린 지 HIDE_KEEP_MS 지난 참여자를 점수와 함께 삭제. 지운 수 */
+  async purgeHidden(now = Date.now()) {
+    const cut = now - HIDE_KEEP_MS;
+    await this.q('DELETE FROM scores WHERE igsid IN (SELECT igsid FROM players WHERE hidden_at IS NOT NULL AND hidden_at < $1)', [cut]);
+    const r = await this.q('DELETE FROM players WHERE hidden_at IS NOT NULL AND hidden_at < $1 RETURNING igsid', [cut]);
+    return r.length;
+  }
   async setChecked(igsid, on) {
-    const r = await this.q('UPDATE players SET checked_at = $2 WHERE igsid = $1 RETURNING igsid', [igsid, on ? Date.now() : null]);
+    // 확인함 = 숨김도 풀림
+    const r = await this.q('UPDATE players SET checked_at = $2, hidden_at = CASE WHEN $2::BIGINT IS NULL THEN hidden_at ELSE NULL END WHERE igsid = $1 RETURNING igsid', [igsid, on ? Date.now() : null]);
     return r.length === 1;
   }
   async recordScore(igsid, level, entry) {
@@ -132,7 +152,7 @@ export class PgStore {
   async leaderboard(level, limit = 50) {
     const rows = await this.q(
       `SELECT s.igsid, p.username, s.score, s.grade, s.at FROM scores s JOIN players p ON p.igsid = s.igsid
-       WHERE s.level = $1 AND p.username IS NOT NULL ORDER BY s.score DESC, s.at ASC LIMIT $2`,
+       WHERE s.level = $1 AND p.username IS NOT NULL AND p.hidden_at IS NULL ORDER BY s.score DESC, s.at ASC LIMIT $2`,
       [level, limit]
     );
     return {
@@ -143,7 +163,7 @@ export class PgStore {
   async totalLeaderboard(limit = 50) {
     const rows = await this.q(
       `SELECT s.igsid, p.username, SUM(s.score) AS score, COUNT(*) AS levels, MAX(s.at) AS at
-       FROM scores s JOIN players p ON p.igsid = s.igsid WHERE p.username IS NOT NULL AND s.level > 0
+       FROM scores s JOIN players p ON p.igsid = s.igsid WHERE p.username IS NOT NULL AND p.hidden_at IS NULL AND s.level > 0
        GROUP BY s.igsid, p.username ORDER BY score DESC, at ASC LIMIT $1`,
       [limit]
     );
@@ -152,23 +172,26 @@ export class PgStore {
   async totalRankOf(igsid) {
     const mine = await this.one(
       `SELECT SUM(s.score) AS score, COUNT(*) AS levels, MAX(s.at) AS at FROM scores s JOIN players p ON p.igsid = s.igsid
-       WHERE s.igsid = $1 AND p.username IS NOT NULL AND s.level > 0`,
+       WHERE s.igsid = $1 AND p.username IS NOT NULL AND p.hidden_at IS NULL AND s.level > 0`,
       [igsid]
     );
     if (!mine || mine.score == null) return null;
     const ahead = await this.one(
       `SELECT COUNT(*) AS n FROM (SELECT SUM(s.score) AS t, MAX(s.at) AS a FROM scores s JOIN players p ON p.igsid = s.igsid
-         WHERE p.username IS NOT NULL AND s.level > 0 GROUP BY s.igsid) x WHERE x.t > $1 OR (x.t = $1 AND x.a < $2)`,
+         WHERE p.username IS NOT NULL AND p.hidden_at IS NULL AND s.level > 0 GROUP BY s.igsid) x WHERE x.t > $1 OR (x.t = $1 AND x.a < $2)`,
       [Number(mine.score), Number(mine.at)]
     );
     return { rank: Number(ahead ? ahead.n : 0) + 1, score: Number(mine.score), levels: Number(mine.levels) };
   }
   async rankOf(level, igsid) {
-    const mine = await this.one('SELECT score, at FROM scores WHERE igsid = $1 AND level = $2', [igsid, level]);
+    const mine = await this.one(
+      'SELECT s.score, s.at FROM scores s JOIN players p ON p.igsid = s.igsid WHERE s.igsid = $1 AND s.level = $2 AND p.hidden_at IS NULL',
+      [igsid, level]
+    );
     if (!mine) return null;
     const ahead = await this.one(
       `SELECT COUNT(*) AS n FROM scores s JOIN players p ON p.igsid = s.igsid
-       WHERE s.level = $1 AND p.username IS NOT NULL AND (s.score > $2 OR (s.score = $2 AND s.at < $3))`,
+       WHERE s.level = $1 AND p.username IS NOT NULL AND p.hidden_at IS NULL AND (s.score > $2 OR (s.score = $2 AND s.at < $3))`,
       [level, mine.score, mine.at]
     );
     return { rank: Number(ahead ? ahead.n : 0) + 1, score: Number(mine.score) };

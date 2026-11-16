@@ -424,6 +424,13 @@ input[type='range'] { width: 100%; accent-color: var(--grass); height: 28px; }
 #follow-go:disabled { opacity: 1; cursor: default; }
 #follow-go .spinner { display: inline-block; vertical-align: -3px; margin-right: 6px; border-color: rgba(255, 255, 255, 0.35); border-top-color: #fff; }
 
+/* 팔로우·랭킹 참여 작은 버튼 (항상 보임) */
+.follow-chip { align-self: center; max-width: 60%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; padding: 6px 11px; border-radius: 99px; background: rgba(255, 255, 255, 0.92); color: var(--ink); border: 2px solid var(--ink); }
+.follow-chip.todo { background: linear-gradient(90deg, #f9a03f, #e1306c, #833ab4); color: #fff; }
+.follow-chip.warn { background: #ffe1d6; color: #c2410c; border-color: #c2410c; }
+.follow-chip-wide { justify-self: center; margin: 0 auto 2px; }
+.join-warn { margin: 0 0 8px; padding: 10px 12px; border-radius: 12px; background: #ffe1d6; color: #9a3412; line-height: 1.55; font-size: 15px; }
+
 /* 단계 목록: 일반 / 무제한 보기 */
 .mode-tabs { margin-bottom: 4px; }
 .mode-tabs button { flex: 1; font-size: 16px; padding: 9px 12px; }

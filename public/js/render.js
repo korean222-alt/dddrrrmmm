@@ -1046,7 +1046,8 @@ export class Renderer {
   /** 새 단계 배너: "Lv.3" + "엇박 들어갑니다 · 110 BPM" (+ 경고) — 1.8초 */
   _drawRound(st, rt) {
     const f = this.roundFx;
-    if (!f || st.countIn) return;
+    // 게임 중엔 노트를 가려서 안 띄움 (단계·BPM 은 위쪽 HUD 에 나옴). 영상 찍기 화면에서만
+    if (!f || st.countIn || !this.studio) return;
     const age = rt - f.t0;
     const D = 1.3;
     if (age > D) return;

@@ -13,9 +13,11 @@ import path from 'node:path';
 
 // 이용 통계는 1년 보관
 export const STATS_KEEP_MS = 400 * 24 * 3600 * 1000;
+/** 랭킹에서 내린 참여자를 이만큼 뒤에 지움 */
+export const HIDE_KEEP_MS = 5 * 24 * 3600 * 1000;
 
 /** 관리자 목록 정렬: 아직 확인 안 한 사람 먼저, 그 안에선 최근 가입 순 */
-export const sortPlayers = (rows) => rows.sort((a, b) => !!a.checkedAt - !!b.checkedAt || (b.createdAt || 0) - (a.createdAt || 0));
+export const sortPlayers = (rows) => rows.sort((a, b) => !!a.hiddenAt - !!b.hiddenAt || !!a.checkedAt - !!b.checkedAt || (b.createdAt || 0) - (a.createdAt || 0));
 
 export class JsonStore {
   constructor(file) {
@@ -62,10 +64,11 @@ export class JsonStore {
     const p = this.data.players[igsid] || { igsid, username: null, ig: null, createdAt: Date.now(), checkedAt: null, bests: {} };
     const { ig, ...rest } = patch;
     Object.assign(p, rest);
-    // 인스타 아이디가 바뀌면 운영자가 팔로우를 다시 확인해야 함
-    if (ig && ig !== p.ig) {
+    // 인스타 아이디가 바뀌거나, 랭킹에서 내려진 사람이 아이디를 다시 넣으면 → 다시 랭킹에 + 운영자가 다시 확인
+    if (ig && (ig !== p.ig || p.hiddenAt)) {
       p.ig = ig;
       p.checkedAt = null;
+      p.hiddenAt = null;
     }
     this.data.players[igsid] = p;
     this._save();
@@ -79,6 +82,7 @@ export class JsonStore {
       const bs = Object.entries(p.bests || {}).filter(([lv]) => Number(lv) > 0);
       rows.push({
         igsid: p.igsid, username: p.username, ig: p.ig || null, createdAt: p.createdAt || null, checkedAt: p.checkedAt || null,
+        hiddenAt: p.hiddenAt || null,
         total: bs.reduce((a, [, b]) => a + b.score, 0), levels: bs.length, endless: p.bests && p.bests[0] ? p.bests[0].score : null,
       });
     }
@@ -90,10 +94,30 @@ export class JsonStore {
     if (had) this._save();
     return had;
   }
+  setHidden(igsid, on, now = Date.now()) {
+    const p = this.data.players[igsid];
+    if (!p) return false;
+    p.hiddenAt = on ? now : null;
+    p.checkedAt = null;
+    this._save();
+    return true;
+  }
+  purgeHidden(now = Date.now()) {
+    let n = 0;
+    for (const [k, p] of Object.entries(this.data.players)) {
+      if (p.hiddenAt && p.hiddenAt < now - HIDE_KEEP_MS) {
+        delete this.data.players[k];
+        n++;
+      }
+    }
+    if (n) this._save();
+    return n;
+  }
   setChecked(igsid, on) {
     const p = this.data.players[igsid];
     if (!p) return false;
     p.checkedAt = on ? Date.now() : null;
+    if (on) p.hiddenAt = null;
     this._save();
     return true;
   }
@@ -112,7 +136,7 @@ export class JsonStore {
     const rows = [];
     for (const p of Object.values(this.data.players)) {
       const b = p.bests[level];
-      if (b && p.username) rows.push({ igsid: p.igsid, username: p.username, score: b.score, grade: b.grade, at: b.at });
+      if (b && p.username && !p.hiddenAt) rows.push({ igsid: p.igsid, username: p.username, score: b.score, grade: b.grade, at: b.at });
     }
     rows.sort((a, b) => b.score - a.score || a.at - b.at);
     rows.forEach((r, i) => (r.rank = i + 1));
@@ -124,7 +148,7 @@ export class JsonStore {
     const rows = [];
     for (const p of Object.values(this.data.players)) {
       const bs = Object.entries(p.bests || {}).filter(([lv]) => Number(lv) > 0).map(([, b]) => b); // 0 이하 = 무제한 (따로 랭킹)
-      if (!bs.length || !p.username) continue;
+      if (!bs.length || !p.username || p.hiddenAt) continue;
       rows.push({
         igsid: p.igsid, username: p.username, score: bs.reduce((a, b) => a + b.score, 0),
         levels: bs.length, at: Math.max(...bs.map((b) => b.at || 0)),

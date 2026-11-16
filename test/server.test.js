@@ -203,6 +203,32 @@ test('단계별 무제한: 곡마다 따로 랭킹 (그리그 무제한·다른 
   }
 });
 
+test('관리자: 랭킹에서 내리기 → 랭킹에서 안 보임 → 다시 들어와 아이디를 넣으면 돌아옴', async () => {
+  const adm = { 'x-admin-token': 'admin-pw' };
+  const c = client();
+  await c('POST', '/api/guest', { name: '숨김대상', ig: 'hide.me' });
+  const run = (await c('POST', '/api/runs', { level: 3 })).json.runToken;
+  await c('POST', '/api/scores', { runToken: run, level: 3, ...perfectRun(3) });
+  const me = (await c('GET', '/api/admin/players', null, adm)).json.players.find((p) => p.username === '숨김대상');
+  assert.equal((await c('POST', '/api/admin/players/hide', { igsid: me.igsid }, adm)).json.ok, true);
+  // 랭킹(단계·총 등수)에서 사라짐, 기록은 남아 있음
+  assert.ok(!(await c('GET', '/api/leaderboard?level=3')).json.entries.some((e) => e.username === '숨김대상'));
+  assert.ok(!(await c('GET', '/api/leaderboard?level=total')).json.entries.some((e) => e.username === '숨김대상'));
+  const listed = (await c('GET', '/api/admin/players', null, adm)).json.players.find((p) => p.igsid === me.igsid);
+  assert.ok(listed.hiddenAt);
+  // 다시 접속하면 알림 정보 (5일 뒤 삭제)
+  const m1 = (await c('GET', '/api/me')).json;
+  assert.ok(m1.hidden);
+  assert.ok(Math.abs(m1.hidden.deleteAt - listed.hiddenAt - 5 * 86400000) < 1000);
+  // 아이디를 다시 적으면 랭킹에 돌아오고, 다시 확인 대상
+  assert.equal((await c('POST', '/api/guest', { name: '숨김대상', ig: 'hide.me' })).status, 200);
+  assert.equal((await c('GET', '/api/me')).json.hidden, null);
+  assert.ok((await c('GET', '/api/leaderboard?level=3')).json.entries.some((e) => e.username === '숨김대상'));
+  const back = (await c('GET', '/api/admin/players', null, adm)).json.players.find((p) => p.igsid === me.igsid);
+  assert.equal(back.hiddenAt, null);
+  assert.equal(back.checkedAt, null);
+});
+
 test('관리자: 랭킹 참여자 목록(인스타 아이디) → 확인함 → 삭제', async () => {
   const adm = { 'x-admin-token': 'admin-pw' };
   const c = client();

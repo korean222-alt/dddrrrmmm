@@ -229,7 +229,24 @@ function hotLevel() {
   return LEVELS.find((l) => l.id >= gateFrom() && l.difficulty >= 4) || getLevel(gateFrom()) || LEVELS[LEVELS.length - 1];
 }
 
+/** 시작 화면·단계 고르기의 작은 '팔로우·랭킹 참여' 버튼 */
+function refreshFollowChip() {
+  const me = state.me || {};
+  const on = state.api && state.api.mode === 'server';
+  for (const el of $$('.follow-chip')) {
+    el.hidden = !on;
+    el.classList.toggle('warn', !!me.hidden);
+    el.classList.toggle('todo', !me.hidden && (!me.guest || !!me.needsIg));
+    el.textContent = me.hidden
+      ? '⚠️ 팔로우 확인 안 됨'
+      : !me.guest || me.needsIg
+        ? `📸 ${atHandle()} 팔로우 · 랭킹 참여`
+        : `📸 @${me.player?.ig || ''} 랭킹 참여 중`;
+  }
+}
+
 function refreshTitle() {
+  refreshFollowChip();
   refreshToday();
   refreshQuick();
   const foot = $('#title-foot');
@@ -880,7 +897,8 @@ async function submitRank(r = state.lastResult) {
         : { runToken: r.runToken, level: r.levelId, score: r.score, maxCombo: r.maxCombo, counts: r.counts }
     );
     r.submitted = true;
-    if (endless) toast(out.improved ? `무제한 랭킹에 올라갔어요! Lv.${out.rounds} 클리어 · ${out.rank}위 🏆` : `내 최고 기록(Lv.${out.rounds} 클리어)이 그대로 유지돼요 · ${out.rank}위`, 3200);
+    if (out.rank == null) toast('팔로우 확인이 안 돼서 지금은 랭킹에 안 보여요. 위 ⚠️ 버튼을 눌러 주세요', 3200);
+    else if (endless) toast(out.improved ? `무제한 랭킹에 올라갔어요! Lv.${out.rounds} 클리어 · ${out.rank}위 🏆` : `내 최고 기록(Lv.${out.rounds} 클리어)이 그대로 유지돼요 · ${out.rank}위`, 3200);
     else toast(out.improved ? `랭킹에 올라갔어요! 현재 ${out.rank}위 🏆` : `내 최고 기록(${fmt(out.best)})이 그대로 유지돼요 · ${out.rank}위`, 3000);
   } catch (e) {
     if (e.status === 401) {
@@ -904,7 +922,13 @@ function askNickname(force = false) {
 function openJoin() {
   $('#join-err').hidden = true;
   $('#join-name').value = state.me.player?.username || load('lastNick', '');
-  $('#join-ig').value = load('lastIg', '');
+  $('#join-ig').value = state.me.player?.ig || load('lastIg', '');
+  const h = state.me.hidden;
+  $('#join-warn').hidden = !h;
+  if (h) {
+    const d = new Date(h.deleteAt);
+    $('#join-warn').innerHTML = `⚠️ <b>팔로우 확인이 안 됐어요.</b> 그래서 지금은 랭킹에서 내려가 있어요.<br>${atHandle()} 팔로우하고 인스타 아이디를 다시 적으면 랭킹에 돌아와요. <b>${d.getMonth() + 1}월 ${d.getDate()}일</b>까지 안 하면 기록이 지워져요.`;
+  }
   $('#join-rule-handle').textContent = atHandle();
   $('#join-insta').href = handle() ? `https://www.instagram.com/${handle()}/` : 'https://www.instagram.com/';
   openModal('modal-join');
@@ -931,6 +955,7 @@ async function submitJoin() {
     closeModal('modal-join');
     refreshTitle();
     toast(`${name} 님으로 랭킹에 참여해요! ${atHandle()} 팔로우 꼭 해주세요 🙏`, 3200);
+    refreshFollowChip();
     submitRank();
   } catch (e) {
     err(e.status === 429 ? '잠시 후 다시 시도해 주세요.' : e.data && e.data.error === 'bad_ig' ? '인스타 아이디를 정확히 써 주세요.' : '등록하지 못했어요. 다시 시도해 주세요.');
@@ -1750,6 +1775,8 @@ async function boot() {
   }
   refreshTitle();
   renderLevels();
+  // 운영자가 팔로우 확인이 안 돼서 랭킹에서 내린 사람: 들어오자마자 알림 (아이디를 다시 넣을 기회)
+  if (state.me.hidden) setTimeout(() => askNickname(true), 600);
   // 팔로우하러 인스타로 갔다가 페이지가 새로 열린 경우
   const sp = load('softPending', null);
   if (sp && state.cfg.gateMode === 'soft') {
