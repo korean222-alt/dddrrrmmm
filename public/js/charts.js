@@ -607,14 +607,16 @@ export const LEVELS = [
 ];
 
 /** 팔로워 인증(운영자가 인스타 팔로우를 직접 확인)을 받은 사람에게만 열리는 것: 12단계 + 그리그 무제한 모드 딱 두 개 */
-export const VERIFY_LEVELS = [12];
+export const VERIFY_LEVELS = [9, 12];
 /** 판 id(숫자 단계 / 'endless' / 'e5') 가 팔로워 인증이 필요한지 */
 export function needsVerify(id) {
   return id === 'endless' || VERIFY_LEVELS.includes(Number(id));
 }
 
 /** 운영자가 팔로우를 확인한(인증 완료) 사람에게만 열리는 단계. 진행 순서에서는 건너뜀: 8단계 → 10단계 (9단계는 8단계를 깨면) */
-export const CLOSED_LEVELS = [9, 13, 14];
+export const CLOSED_LEVELS = [13, 14];
+/** 진행 순서에서 건너뛰는 단계 (앞 단계 조건에서 빠짐): 8단계를 깨면 10단계, 9단계는 8단계를 깨면 따로 열림 */
+export const SKIP_LEVELS = [9, 13, 14];
 /** 판 id 가 인증 완료가 필요한지: CLOSED_LEVELS 단계 + 단계별 무제한('e5' 등) 전부 */
 export function isClosed(id) {
   if (typeof id === 'string' && /^e\d+$/.test(id)) return true;
@@ -623,13 +625,13 @@ export function isClosed(id) {
 /** 이 단계 앞에서 깨야 하는 단계 번호 (잠긴 단계는 건너뜀). 1단계는 null */
 export function prevOpenId(id) {
   let n = Number(id) - 1;
-  while (n >= 1 && CLOSED_LEVELS.includes(n)) n--;
+  while (n >= 1 && SKIP_LEVELS.includes(n)) n--;
   return n >= 1 ? n : null;
 }
 /** 다음에 칠 수 있는 단계 번호 (잠긴 단계는 건너뜀). 없으면 null */
 export function nextOpenId(id) {
   let n = Number(id) + 1;
-  while (CLOSED_LEVELS.includes(n)) n++;
+  while (SKIP_LEVELS.includes(n)) n++;
   return getLevel(n) ? n : null;
 }
 
@@ -883,7 +885,7 @@ export function isUnlocked(levelId, bests) {
 }
 /** 아직 안 깬 첫 단계 (잠긴 단계는 건너뜀. 다 깼으면 무제한 모드) */
 export function nextChallenge(bests) {
-  const lv = LEVELS.find((l) => !CLOSED_LEVELS.includes(l.id) && !isClearBest(bests[l.id]));
+  const lv = LEVELS.find((l) => !SKIP_LEVELS.includes(l.id) && !isClearBest(bests[l.id]));
   return lv ? lv.id : ENDLESS_ID;
 }
 

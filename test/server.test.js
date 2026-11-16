@@ -78,11 +78,11 @@ async function verifyIg(ig) {
   assert.equal((await c('POST', '/api/admin/players/check', { igsid: p.igsid, checked: true }, adm)).json.ok, true);
 }
 
-test('팔로워 인증: 신청하면 12단계 · 그리그 무제한 / 운영자 확인(인증 완료)하면 9·13·14단계 · 단계별 무제한까지 / 나머지는 누구나', async () => {
+test('팔로워 인증: 신청하면 9·12단계 · 그리그 무제한 / 운영자 확인(인증 완료)하면 13·14단계 · 단계별 무제한까지 / 나머지는 누구나', async () => {
   const c = client();
-  for (const lv of [12, 'endless']) assert.equal((await c('POST', '/api/runs', { level: lv })).json.error, 'verify_required');
-  // 9·13·14단계와 단계별 무제한은 인증 완료 전엔 잠김
-  for (const lv of [9, 13, 14, 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).json.error, 'confirm_required');
+  for (const lv of [9, 12, 'endless']) assert.equal((await c('POST', '/api/runs', { level: lv })).json.error, 'verify_required');
+  // 13·14단계와 단계별 무제한은 인증 완료 전엔 잠김
+  for (const lv of [13, 14, 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).json.error, 'confirm_required');
   for (const lv of [1, 4, 8, 10, 11]) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200);
   // 인증 신청만 하면(운영자 확인 전) 바로 열림
   const g = await c('POST', '/api/guest', { name: '인증대기', ig: 'wait.me' });
@@ -92,9 +92,9 @@ test('팔로워 인증: 신청하면 12단계 · 그리그 무제한 / 운영자
   // 관리자 목록엔 신청한 사람이 보임
   const listed = (await c('GET', '/api/admin/players', null, adm)).json.players.find((x) => x.ig === 'wait.me');
   assert.ok(listed && !listed.checkedAt && !listed.hiddenAt);
-  for (const lv of [12, 'endless']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200);
-  // 신청만 해선(확인 전) 9·13·14단계·단계별 무제한은 아직 잠김
-  for (const lv of [9, 13, 14, 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).json.error, 'confirm_pending');
+  for (const lv of [9, 12, 'endless']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200);
+  // 신청만 해선(확인 전) 13·14단계·단계별 무제한은 아직 잠김
+  for (const lv of [13, 14, 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).json.error, 'confirm_pending');
   // 운영자가 '확인함'을 누르면 인증 완료 → 전부 열림
   await verifyIg('wait.me');
   assert.equal((await c('GET', '/api/me')).json.confirmed, true);

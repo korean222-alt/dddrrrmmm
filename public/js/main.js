@@ -140,7 +140,7 @@ function isConfirmed() {
   return !!(state.api && state.api.mode === 'server' && isVerified() && state.me.confirmed);
 }
 const CONFIRM_WHAT = () => `${CLOSED_LEVELS.join('·')}단계와 💎 단계별 무제한`;
-/** 인증 완료(운영자 확인) 전엔 잠긴 것 (9·13·14단계, 단계별 무제한). 개발용 ?gate=open 에선 풀림 */
+/** 인증 완료(운영자 확인) 전엔 잠긴 것 (13·14단계, 단계별 무제한). 개발용 ?gate=open 에선 풀림 */
 const closedLocked = (id) => state.cfg.gateMode !== 'open' && isClosed(id) && !isConfirmed();
 /** 인증 완료 전 잠김 안내 */
 function confirmLockToast() {
@@ -358,7 +358,7 @@ function renderLevels() {
 // ---------------- 게임 ----------------
 /** free: 오늘의 노래·친구 도전장은 앞 단계를 안 깼어도 칠 수 있음 */
 async function tryStart(id, { free = false } = {}) {
-  // 9·13·14단계와 단계별 무제한은 운영자가 팔로우를 확인(인증 완료)해야 열림
+  // 13·14단계와 단계별 무제한은 운영자가 팔로우를 확인(인증 완료)해야 열림
   if (closedLocked(id)) {
     if (!isVerified()) openVerify(id);
     else confirmLockToast();

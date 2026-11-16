@@ -71,7 +71,7 @@
         <button type="button" data-tab="players">인증 신청자</button>
       </div>
       <section id="tab-players" hidden>
-        <p>인증을 <b>신청</b>(닉네임 + 인스타 아이디)한 사람은 확인 전이어도 <b>바로 12단계와 💎 그리그 무제한 모드가 열려요</b>. <br>여기서 인스타 아이디를 눌러 팔로우했는지 확인하세요. 했으면 <b>확인함</b> → 인증 완료, <b>9·13·14단계와 단계별 무제한</b>까지 열려요. 안 했으면 <b>랭킹에서 내리기</b> → 그 사람은 다시 잠기고 랭킹에서도 안 보여요. 다시 들어와 아이디를 적으면 돌아와요. <b>5일</b> 안에 안 적으면 자동으로 삭제돼요. <b>삭제</b>는 바로 지워요. 신청한 지 24시간이 넘었는데 아직 확인 안 한 사람은 빨간 글씨로 보여요.</p>
+        <p>인증을 <b>신청</b>(닉네임 + 인스타 아이디)한 사람은 확인 전이어도 <b>바로 9·12단계와 💎 그리그 무제한 모드가 열려요</b>. <br>여기서 인스타 아이디를 눌러 팔로우했는지 확인하세요. 했으면 <b>확인함</b> → 인증 완료, <b>13·14단계와 단계별 무제한</b>까지 열려요. 안 했으면 <b>랭킹에서 내리기</b> → 그 사람은 다시 잠기고 랭킹에서도 안 보여요. 다시 들어와 아이디를 적으면 돌아와요. <b>5일</b> 안에 안 적으면 자동으로 삭제돼요. <b>삭제</b>는 바로 지워요. 신청한 지 24시간이 넘었는데 아직 확인 안 한 사람은 빨간 글씨로 보여요.</p>
         <div class="card"><div class="head"><b id="players-count"></b><button type="button" class="ghost" id="players-reload">새로고침</button></div><ul id="players"></ul></div>
       </section>
       <section id="tab-stats">
@@ -196,7 +196,7 @@
               ? `<a href="https://www.instagram.com/${esc(p.ig)}/" target="_blank" rel="noopener" style="color:var(--pink)">@${esc(p.ig)}</a>`
               : '<span class="meta">인스타 아이디 없음 (예전 참여자)</span>';
             return `<li data-igsid="${esc(p.igsid)}"><div><div><b>${esc(p.username)}</b> ${id}</div>
-              <div class="meta" ${late || p.hiddenAt ? 'style="color:var(--bad)"' : ''}>${p.hiddenAt ? `⬇️ 랭킹에서 내림 · 잠김 · ${left(p)}일 뒤 삭제` : !p.ig ? '🔒 아이디 없음 · 잠김' : p.checkedAt ? '✅ 인증 완료 · 전부 열림' : '🔓 12단계·그리그만 열림 · 팔로우 확인 전'} · ${ago(p.createdAt)} · 총 ${fmtN(p.total)}점 (${p.levels}단계)${p.endless != null ? ' · 무제한 Lv.' + Math.floor(p.endless / 1000000) : ''}</div></div>
+              <div class="meta" ${late || p.hiddenAt ? 'style="color:var(--bad)"' : ''}>${p.hiddenAt ? `⬇️ 랭킹에서 내림 · 잠김 · ${left(p)}일 뒤 삭제` : !p.ig ? '🔒 아이디 없음 · 잠김' : p.checkedAt ? '✅ 인증 완료 · 전부 열림' : '🔓 9·12단계·그리그만 열림 · 팔로우 확인 전'} · ${ago(p.createdAt)} · 총 ${fmtN(p.total)}점 (${p.levels}단계)${p.endless != null ? ' · 무제한 Lv.' + Math.floor(p.endless / 1000000) : ''}</div></div>
               <div class="acts">${p.hiddenAt ? '<button type="button" class="ghost" data-do="unhide">되돌리기</button>' : `${p.checkedAt ? '<button type="button" class="ghost" data-do="uncheck">확인 취소</button>' : '<button type="button" data-do="check">확인함</button>'}<button type="button" class="ghost" data-do="hide">랭킹에서 내리기</button>`}<button type="button" class="ghost" data-do="delete" style="color:var(--bad)">삭제</button></div></li>`;
           }).join('')
         : '<li class="empty">아직 인증을 신청한 사람이 없어요.</li>';

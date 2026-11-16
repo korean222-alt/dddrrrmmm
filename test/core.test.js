@@ -47,14 +47,14 @@ test('악기: 1~8단계 킥·스네어, 9단계 +하이햇, 12단계 +크래시'
   }
 });
 
-test('팔로워 인증으로 열리는 건 12단계 + 그리그 무제한만, 9·13·14단계와 단계별 무제한은 모두에게 잠김', () => {
-  assert.deepEqual(VERIFY_LEVELS, [12]);
-  assert.deepEqual(LEVELS.filter((l) => needsVerify(l.id)).map((l) => l.id), [12]);
+test('인증 신청으로 9·12단계 + 그리그 무제한, 인증 완료로 13·14단계와 단계별 무제한', () => {
+  assert.deepEqual(VERIFY_LEVELS, [9, 12]);
+  assert.deepEqual(LEVELS.filter((l) => needsVerify(l.id)).map((l) => l.id), [9, 12]);
   assert.ok(needsVerify('endless'));
-  assert.deepEqual(CLOSED_LEVELS, [9, 13, 14]);
-  assert.deepEqual(LEVELS.filter((l) => isClosed(l.id)).map((l) => l.id), [9, 13, 14]);
+  assert.deepEqual(CLOSED_LEVELS, [13, 14]);
+  assert.deepEqual(LEVELS.filter((l) => isClosed(l.id)).map((l) => l.id), [13, 14]);
   for (const id of ['e1', 'e5', 'e13']) assert.ok(isClosed(id) && !needsVerify(id), id);
-  for (const id of [1, 8, 10, 11, 12, 'endless']) assert.ok(!isClosed(id), String(id));
+  for (const id of [1, 8, 9, 10, 11, 12, 'endless']) assert.ok(!isClosed(id), String(id));
 });
 
 test('별: 3개는 미스·헛침 없이 90%+, 헛침은 정확도 깎음', () => {

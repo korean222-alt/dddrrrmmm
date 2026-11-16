@@ -6,7 +6,7 @@ export function makeConfig(env = {}) {
   return {
     prod,
     sessionSecret: env.SESSION_SECRET || '',
-    // soft(기본): 12단계·그리그 무제한은 인증 신청, 9·13·14단계·단계별 무제한은 운영자 확인(인증 완료) / open: 잠금 전부 해제 (개발용)
+    // soft(기본): 9·12단계·그리그 무제한은 인증 신청, 13·14단계·단계별 무제한은 운영자 확인(인증 완료) / open: 잠금 전부 해제 (개발용)
     gateMode: env.GATE_MODE === 'open' ? 'open' : 'soft',
     // /admin.html (이용 통계) 비밀번호. 비어 있으면 관리자 기능 꺼짐
     adminToken: env.ADMIN_TOKEN || '',
