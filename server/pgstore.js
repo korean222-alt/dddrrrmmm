@@ -14,6 +14,14 @@ const SCHEMA = [
      igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, grade TEXT, max_combo INTEGER,
      at BIGINT NOT NULL, PRIMARY KEY (igsid, level))`,
   `CREATE INDEX IF NOT EXISTS scores_rank ON scores (level, score DESC, at)`,
+  // 무제한 기록(level <= 0)은 '깬 단계 × 10억 + 점수' 라 INTEGER(약 21억)를 넘음 → BIGINT
+  `DO $$ BEGIN
+     IF (SELECT data_type FROM information_schema.columns WHERE table_name = 'scores' AND column_name = 'score') = 'integer' THEN
+       ALTER TABLE scores ALTER COLUMN score TYPE BIGINT;
+     END IF;
+   END $$`,
+  // 예전 방식(깬 단계 × 100만 + 점수, 999,999 에서 잘림) → 새 방식. 깬 단계는 1 이상이라 새 방식 값은 항상 10억 이상 → 여러 번 돌려도 안전
+  `UPDATE scores SET score = (score / 1000000) * 1000000000 + score % 1000000 WHERE level <= 0 AND score < 1000000000`,
   `CREATE TABLE IF NOT EXISTS used_runs (nonce TEXT PRIMARY KEY, expires_at BIGINT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
   // 이용 통계 (익명): 접속 1회 / 곡 한 판. vid = 브라우저마다 붙는 무작위 번호
@@ -138,7 +146,7 @@ export class PgStore {
   async recordScore(igsid, level, entry) {
     if (!(await this.getPlayer(igsid))) return null;
     const prev = await this.one('SELECT score FROM scores WHERE igsid = $1 AND level = $2', [igsid, level]);
-    const improved = !prev || entry.score > prev.score;
+    const improved = !prev || entry.score > Number(prev.score);
     if (improved) {
       await this.q(
         `INSERT INTO scores (igsid, level, score, grade, max_combo, at) VALUES ($1, $2, $3, $4, $5, $6)
@@ -147,7 +155,7 @@ export class PgStore {
         [igsid, level, entry.score, entry.grade ?? null, entry.maxCombo ?? 0, Date.now()]
       );
     }
-    return { improved, best: improved ? entry.score : prev.score };
+    return { improved, best: improved ? entry.score : Number(prev.score) };
   }
   async leaderboard(level, limit = 50) {
     const rows = await this.q(

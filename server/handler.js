@@ -7,7 +7,8 @@ import { sign, unsign, parseCookies, cookie, newId } from './session.js';
 import { buildStats } from './stats.js';
 import { LEVELS, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur, ENDLESS_ID, ROUND_BARS, roundBpm, pointsFor, levelEndlessBase, LEVEL_ENDLESS_STEP, needsVerify, isClosed } from '../public/js/charts.js';
 
-// 무제한 모드 랭킹은 저장소의 level 칸에 '깬 단계 × 1,000,000 + 점수' 한 숫자로 저장 (단계가 먼저, 같으면 점수)
+// 무제한 모드 랭킹은 저장소의 level 칸에 '깬 단계 × 1,000,000,000 + 점수' 한 숫자로 저장 (단계가 먼저, 같으면 점수)
+//   (예전엔 × 1,000,000 이라 점수가 999,999 에서 잘렸음 → 저장소 init 때 새 방식으로 옮김)
 //   그리그 무제한('endless') = level 0, 단계별 무제한('e5') = level -5. 총 등수는 level > 0 만 더함
 export const ENDLESS_LEVEL = 0;
 /**
@@ -20,7 +21,7 @@ export function endlessMode(id) {
   // 단계별 무제한: 원래 곡 4마디(최대 4×16칸 × 동시치기 2개)를 되풀이, 4마디마다 BPM +LEVEL_ENDLESS_STEP
   return { id: `e${base.id}`, slot: -base.id, bpmOf: (r) => base.bpm + LEVEL_ENDLESS_STEP * (r - 1), notes: 130 };
 }
-const ENDLESS_MULT = 1_000_000;
+export const ENDLESS_MULT = 1_000_000_000;
 export const endlessKey = (rounds, score) => rounds * ENDLESS_MULT + Math.min(score, ENDLESS_MULT - 1);
 export const endlessParts = (v) => ({ rounds: Math.floor(v / ENDLESS_MULT), score: v % ENDLESS_MULT });
 

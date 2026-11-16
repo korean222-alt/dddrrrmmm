@@ -204,7 +204,7 @@
               ? `<a href="https://www.instagram.com/${esc(p.ig)}/" target="_blank" rel="noopener" style="color:var(--pink)">@${esc(p.ig)}</a>`
               : '<span class="meta">인스타 아이디 없음 (예전 참여자)</span>';
             return `<li data-igsid="${esc(p.igsid)}"><div><div><b>${esc(p.username)}</b> ${id}</div>
-              <div class="meta" ${late || p.hiddenAt ? 'style="color:var(--bad)"' : ''}>${p.hiddenAt ? `⬇️ 랭킹에서 내림 · 잠김 · ${left(p)}일 뒤 삭제` : !p.ig ? '🔒 아이디 없음 · 잠김' : p.checkedAt ? '✅ 인증 완료 · 전부 열림' : '🔓 9·12단계·그리그만 열림 · 팔로우 확인 전'} · ${ago(p.createdAt)} · 총 ${fmtN(p.total)}점 (${p.levels}단계)${p.endless != null ? ' · 무제한 Lv.' + Math.floor(p.endless / 1000000) : ''}</div></div>
+              <div class="meta" ${late || p.hiddenAt ? 'style="color:var(--bad)"' : ''}>${p.hiddenAt ? `⬇️ 랭킹에서 내림 · 잠김 · ${left(p)}일 뒤 삭제` : !p.ig ? '🔒 아이디 없음 · 잠김' : p.checkedAt ? '✅ 인증 완료 · 전부 열림' : '🔓 9·12단계·그리그만 열림 · 팔로우 확인 전'} · ${ago(p.createdAt)} · 총 ${fmtN(p.total)}점 (${p.levels}단계)${p.endless != null ? ' · 무제한 Lv.' + Math.floor(p.endless / 1000000000) : ''}</div></div>
               <div class="acts">${p.hiddenAt ? '<button type="button" class="ghost" data-do="unhide">되돌리기</button>' : `${p.checkedAt ? '<button type="button" class="ghost" data-do="uncheck">확인 취소</button>' : '<button type="button" data-do="check">확인함</button>'}<button type="button" class="ghost" data-do="hide">랭킹에서 내리기</button>`}<button type="button" class="ghost" data-do="delete" style="color:var(--bad)">삭제</button></div></li>`;
           }).join('')
         : `<li class="empty">${old ? '예전 참가자가 없어요.' : '아직 인증을 신청한 사람이 없어요.'}</li>`;

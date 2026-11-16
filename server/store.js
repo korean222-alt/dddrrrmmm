@@ -33,6 +33,9 @@ export class JsonStore {
       this.data = { players: d.players || {}, usedRuns: d.usedRuns || {}, sessions: d.sessions || {}, plays: d.plays || {} };
       // 인스타 아이디 등록 기능을 없앴으므로, 예전에 인증된 인스타 계정 기록과 인증 코드는 지움
       for (const [k, p] of Object.entries(this.data.players)) if (p.followVerifiedAt) delete this.data.players[k];
+      // 무제한 기록(level <= 0): 예전 방식(깬 단계 × 100만 + 점수) → 새 방식(× 10억)
+      for (const p of Object.values(this.data.players))
+        for (const [lv, b] of Object.entries(p.bests || {})) if (Number(lv) <= 0 && b && b.score < 1e9) b.score = Math.floor(b.score / 1e6) * 1e9 + (b.score % 1e6);
     } catch (e) {
       if (e.code !== 'ENOENT') console.error('[store] 읽기 실패, 새로 시작:', e.message);
     }

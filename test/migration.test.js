@@ -81,3 +81,35 @@ test('랭킹에서 내린 참여자는 5일 지나면 자동 삭제 (JSON · Pos
   js.flush();
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('무제한 기록: 예전 방식(깬 단계 × 100만, 점수 999,999 에서 잘림) → 새 방식(× 10억) (JSON · Postgres)', async () => {
+  // Postgres: 예전 DB 는 score 가 INTEGER
+  const db = new PGlite();
+  const q = async (text, params) => (await db.query(text, params)).rows;
+  await q(`CREATE TABLE players (igsid TEXT PRIMARY KEY, username TEXT, follow_verified_at BIGINT)`);
+  await q(`CREATE TABLE scores (igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, grade TEXT, max_combo INTEGER, at BIGINT NOT NULL, PRIMARY KEY (igsid, level))`);
+  await q(`INSERT INTO players VALUES ('g_a', '그리그왕', NULL), ('g_b', '단계왕', NULL)`);
+  // g_a: 그리그 Lv.24 (999,999 에서 잘림) + 7단계 일반 점수 / g_b: 5단계 무제한(level -5) Lv.3 · 41,000
+  await q(`INSERT INTO scores VALUES ('g_a', 0, 24999999, NULL, 0, 1), ('g_a', 7, 650000, 'S', 100, 1), ('g_b', -5, 3041000, NULL, 0, 1)`);
+  const pg = await new PgStore(q).init();
+  await new PgStore(q).init(); // 두 번 돌려도 그대로
+  const rows = Object.fromEntries((await q('SELECT igsid, level, score FROM scores')).map((r) => [`${r.igsid}:${r.level}`, Number(r.score)]));
+  assert.equal(rows['g_a:0'], 24_000_999_999);
+  assert.equal(rows['g_a:7'], 650000, '일반 단계 점수는 안 건드림');
+  assert.equal(rows['g_b:-5'], 3_000_041_000);
+  // 이제 100만 점이 넘어도 그대로 저장
+  const out = await pg.recordScore('g_a', 0, { score: 25 * 1e9 + 1_620_000, grade: null, maxCombo: 0 });
+  assert.equal(out.improved, true);
+  assert.equal((await pg.leaderboard(0, 50)).rows[0].score, 25 * 1e9 + 1_620_000);
+
+  // JSON 저장소
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kk-end-'));
+  const file = path.join(dir, 'db.json');
+  fs.writeFileSync(file, JSON.stringify({ players: { g_a: { igsid: 'g_a', username: '그리그왕', bests: { 0: { score: 24999999 }, 7: { score: 650000 }, '-5': { score: 3041000 } } } } }));
+  const js = new JsonStore(file).init();
+  const b = js.data.players.g_a.bests;
+  assert.equal(b[0].score, 24_000_999_999);
+  assert.equal(b[7].score, 650000);
+  assert.equal(b[-5].score, 3_000_041_000);
+  fs.rmSync(dir, { recursive: true, force: true });
+});

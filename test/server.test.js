@@ -211,7 +211,17 @@ test('무제한 모드: 따로 랭킹 (깬 단계 먼저, 같으면 점수) · �
   assert.equal(low.json.rounds, 5);
   // 총 등수엔 무제한 점수가 안 섞임
   const tot = (await c('GET', '/api/leaderboard?level=total')).json;
-  assert.ok(tot.entries.every((e) => e.score < 1_000_000 * 5));
+  assert.ok(tot.entries.every((e) => e.score < 1_000_000_000));
+  // 점수가 100만을 넘어도 잘리지 않음 (예전엔 999,999 에서 멈췄음)
+  const run5 = (await c('POST', '/api/runs', { level: 'endless' })).json.runToken;
+  const big = await c('POST', '/api/scores', { runToken: run5, level: 'endless', rounds: 24, score: 1_620_000 });
+  assert.equal(big.status, 200);
+  assert.equal(big.json.rounds, 24);
+  assert.equal(big.json.best, 1_620_000);
+  const lb2 = (await c('GET', '/api/leaderboard?level=endless')).json;
+  assert.equal(lb2.entries[0].username, '무제한왕');
+  assert.equal(lb2.entries[0].score, 1_620_000);
+  assert.equal(lb2.entries[0].rounds, 24);
   assert.ok(!tot.entries.some((e) => e.username === '무제한왕'));
 });
 
