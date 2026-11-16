@@ -17,7 +17,7 @@ export const STATS_KEEP_MS = 400 * 24 * 3600 * 1000;
 export const HIDE_KEEP_MS = 5 * 24 * 3600 * 1000;
 
 /** 관리자 목록 정렬: 아직 확인 안 한 사람 먼저, 그 안에선 최근 가입 순 */
-export const sortPlayers = (rows) => rows.sort((a, b) => !!a.hiddenAt - !!b.hiddenAt || !!a.checkedAt - !!b.checkedAt || (b.createdAt || 0) - (a.createdAt || 0));
+export const sortPlayers = (rows) => rows.sort((a, b) => !!a.hiddenAt - !!b.hiddenAt || !a.ig - !b.ig || !!a.checkedAt - !!b.checkedAt || (b.createdAt || 0) - (a.createdAt || 0));
 
 export class JsonStore {
   constructor(file) {

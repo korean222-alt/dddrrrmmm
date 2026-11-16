@@ -105,7 +105,7 @@ export class PgStore {
          MAX(s.score) FILTER (WHERE s.level = 0) AS endless
        FROM players p LEFT JOIN scores s ON s.igsid = p.igsid WHERE p.username IS NOT NULL
        GROUP BY p.igsid, p.username, p.ig, p.created_at, p.checked_at, p.hidden_at
-       ORDER BY (p.hidden_at IS NOT NULL), (p.checked_at IS NULL) DESC, p.created_at DESC NULLS LAST LIMIT 1000`
+       ORDER BY (p.hidden_at IS NOT NULL), (p.ig IS NULL), (p.checked_at IS NULL) DESC, p.created_at DESC NULLS LAST LIMIT 1000`
     );
     return rows.map((r) => ({
       igsid: r.igsid, username: r.username, ig: r.ig || null, createdAt: num(r.created_at) ?? null, checkedAt: num(r.checked_at) ?? null,
