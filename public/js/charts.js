@@ -604,6 +604,72 @@ export const LEVELS = [
       'X...B...X.......',
     ],
   },
+  {
+    id: 15,
+    name: '운명 교향곡',
+    composer: '베토벤',
+    tagline: '빠바바밤! · 웅장한 오케스트라 최종 결전',
+    difficulty: 5,
+    bpm: 150,
+    boss: true,
+    song: {
+      // 교향곡 5번 1악장 '운명' 동기(빠바바밤 · 빠바바밤)를 높이를 바꿔가며 쌓아 올림. 우리 한 마디 = 원곡 2/4 두 마디.
+      // epic: 처음부터 금관·팀파니·튜바가 총출동 (다른 곡은 뒤로 갈수록 악기가 늘어남)
+      epic: true,
+      prog: [
+        'Cm', 'G', 'Cm', 'G', 'Cm G', 'Fm Cm', 'Eb Fm', 'Ab Eb', 'Cm G', 'Eb Fm',
+        'Cm G', 'Cm G', 'Cm G', 'Fm Cm', 'Ab Eb', 'Cm G', 'Cm', 'G', 'Cm G', 'Cm',
+      ],
+      hat: '................',
+      bass: 'x.x.x.x.x.x.x.x.',
+      chord: 'x...x...x...x...',
+      melody: [
+        '_:2 G5:2 G5:2 G5:2 Eb5:8',
+        '_:2 F5:2 F5:2 F5:2 D5:8',
+        '_:2 G5:2 G5:2 G5:2 Eb5:4 _:4',
+        '_:2 F5:2 F5:2 F5:2 D5:4 _:4',
+        'G5:2 G5:2 G5:2 Eb5:2 F5:2 F5:2 F5:2 D5:2',
+        'Ab5:2 Ab5:2 Ab5:2 F5:2 G5:2 G5:2 G5:2 Eb5:2',
+        'Bb5:2 Bb5:2 Bb5:2 G5:2 Ab5:2 Ab5:2 Ab5:2 F5:2',
+        'C6:2 C6:2 C6:2 Ab5:2 Bb5:2 Bb5:2 Bb5:2 G5:2',
+        'C6:2 C6:2 C6:2 G5:2 C6:2 C6:2 C6:2 G5:2',
+        'Bb5:2 Bb5:2 Bb5:2 G5:2 Ab5:2 Ab5:2 Ab5:2 F5:2',
+        'G5:2 G5:2 G5:2 Eb5:2 F5:2 F5:2 F5:2 D5:2',
+        'Eb5:2 Eb5:2 Eb5:2 C5:2 D5:2 D5:2 D5:2 B4:2',
+        'G5:2 G5:2 G5:2 Eb5:2 F5:2 F5:2 F5:2 D5:2',
+        'Ab5:2 Ab5:2 Ab5:2 F5:2 G5:2 G5:2 G5:2 Eb5:2',
+        'C6:2 C6:2 C6:2 Ab5:2 Bb5:2 Bb5:2 Bb5:2 G5:2',
+        'C6:2 C6:2 C6:2 G5:2 C6:2 C6:2 C6:2 G5:2',
+        '_:2 G5:2 G5:2 G5:2 Eb5:8',
+        '_:2 F5:2 F5:2 F5:2 D5:8',
+        'G5:2 G5:2 G5:2 Eb5:2 F5:2 F5:2 F5:2 D5:2',
+        'C6:2 C6:2 C6:2 G5:2 C6:8',
+      ],
+    },
+    bars: [
+      // '빠바바밤' = 8분음표 세 번 + 센 한 방(X). 같은 엄지 16분음표 연타는 없음 (엄지를 번갈아 치는 KSKS 로 몰아침)
+      '..K.K.K.X...K.S.',
+      '..S.S.S.X...KSKS',
+      '..K.K.K.X...S.S.',
+      '..S.S.S.X...K.K.',
+      'K.K.K.X.S.S.S.X.',
+      'KHKHK.X.SKSKS.X.',
+      'J.K.J.X.S.H.S.X.',
+      'C.K.K.X.B.S.S.X.',
+      'X.X.X.B.X.X.X.B.',
+      'KSKSK.X.SKSKS.X.',
+      'K.K.K.X.S.S.S.X.',
+      'KHKHK.X.SKSKS.X.',
+      'J.H.J.X.B.H.S.X.',
+      'X.K.S.X.B.K.S.X.',
+      'KSKSKSKSKSKSKSK.',
+      'X.X.X.B.X.X.X.B.',
+      '..K.K.K.X...K.S.',
+      '..S.S.S.X...KSKS',
+      'K.K.J.X.S.H.S.X.',
+      'X.X.X.B.X.......',
+    ],
+  },
 ];
 
 /** 누구나 칠 수 있는 단계: 1~FREE_UPTO. 그 뒤 단계와 💎 무제한 모드(그리그·단계별)는 전부 팔로워 인증(암호) 필요 */
@@ -615,7 +681,7 @@ export function needsVerify(id) {
 }
 /** 팔로워 인증(인증 완료)이 있어야 열리는 단계 */
 export const CLOSED_LEVELS = LEVELS.filter((l) => l.id > FREE_UPTO).map((l) => l.id);
-/** 진행 순서에서 건너뛰는 단계 (없음: 1→2→…→14 차례로) */
+/** 진행 순서에서 건너뛰는 단계 (없음: 1→2→…→15 차례로) */
 export const SKIP_LEVELS = [];
 /** 판 id 가 팔로워 인증이 필요한지: 4단계부터 + 무제한 모드('endless', 'e5' 등) 전부 */
 export function isClosed(id) {

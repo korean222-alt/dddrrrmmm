@@ -96,7 +96,7 @@ function mockApi(cfg) {
         const bs = Object.entries(load('mockBoard', {})).filter(([k]) => /^\d+$/.test(k)).map(([, v]) => v);
         const me = p && bs.length ? { rank: 1, score: bs.reduce((a, b) => a + b.score, 0), levels: bs.length } : null;
         const entries = me ? [{ rank: 1, username: p.username, score: me.score, levels: me.levels, me: true }] : [];
-        return { level: 'total', levels: 14, entries, me, sample: true };
+        return { level: 'total', levels: 15, entries, me, sample: true };
       }
       const entries = [];
       const mine = load('mockBoard', {})[level];

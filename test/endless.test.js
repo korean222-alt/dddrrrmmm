@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
-  LEVELS, getLevel, levelLanes, buildNotes, stepDur, tempoOf, TempoMap, CRASH, HAT, KICK, SNARE,
+  LEVELS, getLevel, levelLanes, buildNotes, parseMelody, stepDur, tempoOf, TempoMap, CRASH, HAT, KICK, SNARE,
   makeEndless, roundBpm, roundInfo, roundBars, diamondsFor, ROUND_BARS, COUNT_IN_BARS,
   isUnlocked, nextChallenge, ENDLESS_ID, LAST_LEVEL_ID, STEPS_PER_BAR,
   ENDLESS_FROM, makeLevelEndless, levelEndlessBase, levelEndlessId, LEVEL_ENDLESS_STEP,
@@ -38,18 +38,43 @@ test('13단계 왕벌의 비행: 보스, 4악기, 같은 엄지 16분음표 연�
   assertNoSameThumb16th(buildNotes(lv), 'Lv.13');
 });
 
-test('14단계 윌리엄 텔 서곡: 13단계보다 빠르고 촘촘한 진짜 최종 보스, 같은 엄지 16분음표 연타 없음', () => {
+test('14단계 윌리엄 텔 서곡: 13단계보다 빠르고 촘촘한 보스, 같은 엄지 16분음표 연타 없음', () => {
   const lv = getLevel(14);
   const prev = getLevel(13);
   assert.equal(lv.name, '윌리엄 텔 서곡');
-  assert.equal(LAST_LEVEL_ID, 14);
-  assert.ok(LEVELS.every((l) => l.bpm <= lv.bpm), '제일 빠른 곡');
+  assert.ok(LEVELS.filter((l) => l.id <= 14).every((l) => l.bpm <= lv.bpm), '14단계까지 중 제일 빠른 곡');
   assert.ok(lv.bpm > prev.bpm);
   // 1초에 치는 노트 수도 13단계보다 많음
   const density = (l) => buildNotes(l).length / (l.bars.length * (240 / l.bpm));
   assert.ok(density(lv) > density(prev), `14단계 ${density(lv).toFixed(2)} vs 13단계 ${density(prev).toFixed(2)}`);
   assert.deepEqual(levelLanes(lv), [CRASH, KICK, SNARE, HAT]);
   assertNoSameThumb16th(buildNotes(lv), 'Lv.14');
+});
+
+test('15단계 운명 교향곡: 14단계보다 빠르고 촘촘한 최종 보스, 첫 소절은 빠바바밤, 같은 엄지 16분음표 연타 없음', () => {
+  const lv = getLevel(15);
+  const prev = getLevel(14);
+  assert.equal(lv.name, '운명 교향곡');
+  assert.equal(lv.composer, '베토벤');
+  assert.equal(lv.difficulty, 5);
+  assert.ok(lv.boss);
+  assert.equal(LAST_LEVEL_ID, 15);
+  assert.ok(LEVELS.every((l) => l.bpm <= lv.bpm), '제일 빠른 곡');
+  const density = (l) => buildNotes(l).length / (l.bars.length * (240 / l.bpm));
+  assert.ok(density(lv) > density(prev), `15단계 ${density(lv).toFixed(2)} vs 14단계 ${density(prev).toFixed(2)}`);
+  assert.deepEqual(levelLanes(lv), [CRASH, KICK, SNARE, HAT]);
+  assertNoSameThumb16th(buildNotes(lv), 'Lv.15');
+  // 웅장한 오케스트라 곡 표시 + 멜로디·코드가 마디 수와 맞음 (parseMelody 가 16칸 아니면 던짐)
+  assert.ok(lv.song.epic);
+  assert.equal(lv.song.melody.length, lv.bars.length);
+  assert.equal(lv.song.prog.length, lv.bars.length);
+  const mel = parseMelody(lv.song.melody);
+  // 처음 네 음: G G G E♭ (빠바바밤)
+  assert.deepEqual(mel.slice(0, 4).map((n) => n.midi), [79, 79, 79, 75]);
+  // 단계별 무제한(e15)도 같은 곡으로 만들어짐
+  const e = makeLevelEndless(lv);
+  assert.equal(e.id, 'e15');
+  assert.equal(levelEndlessBase('e15').id, 15);
 });
 
 test('박자 시계: 고정 BPM 은 예전 계산과 똑같고, 바뀌는 BPM 도 앞뒤가 맞음', () => {

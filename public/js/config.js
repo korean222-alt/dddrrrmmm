@@ -20,5 +20,7 @@ export const CONFIG = {
     // true: 애드센스 테스트 광고 (승인 전 화면 확인용, 수익 없음)
     test: false,
     houseSeconds: 5,
+    // 광고 대신 나오는 홍보 화면에서 팔로우하러 보낼 인스타 아이디 (@ 빼고). 비우면 instagramHandle.
+    houseHandle: 'goyangi.seom',
   },
 };

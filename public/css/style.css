@@ -364,9 +364,10 @@ input[type='range'] { width: 100%; accent-color: var(--grass); height: 28px; }
 .ad-head .ad-tag { background: #f4c84a; border-color: #f4c84a; }
 .ad-x { margin-left: auto; width: 32px; height: 32px; border-radius: 50%; background: rgba(255, 255, 255, 0.12); color: #fff; font-size: 15px; }
 .ad-body { text-align: center; padding: 18px 6px 6px; display: grid; gap: 10px; justify-items: center; }
-.ad-logo { font-size: 44px; letter-spacing: 1px; }
+.ad-logo { font-size: 56px; line-height: 1; letter-spacing: 1px; }
 .ad-logo .logo-ok { color: #f4c84a; }
-.ad-copy { margin: 0; font-size: 20px; }
+.ad-copy { margin: 0; font-size: 22px; line-height: 1.35; }
+.ad-hot { color: #f4c84a; font-size: 26px; }
 .ad-sub { margin: 0 0 6px; font-size: 14px; color: rgba(255, 255, 255, 0.7); }
 #ad-continue:disabled { opacity: 0.55; box-shadow: 0 5px 0 var(--ink); }
 

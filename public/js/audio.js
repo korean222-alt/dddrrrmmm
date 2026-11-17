@@ -736,6 +736,8 @@ export class SongPlayer {
   intensity(mb) {
     const lv = this.level;
     if (lv.challenge) return Math.min(1, 0.35 + 0.15 * (lv.roundOfBar(mb) - 1));
+    // epic 곡(15단계)은 처음부터 금관·팀파니·튜바가 총출동 (첫 두 마디만 살짝 낮춰 '빠바바밤' 을 또렷하게)
+    if (lv.song.epic) return mb < 2 ? 0.65 : 1;
     const n = lv.bars.length;
     return mb < 4 ? 0.35 : mb < n / 2 ? 0.65 : 1;
   }
@@ -806,8 +808,11 @@ export class SongPlayer {
         // 바이올린 합주: 긴 음은 풍성하게, 16분음표 질주는 살짝만
         if (n.len >= 2) a.orchNote('vln', t, n.midi, n.len * sd, 0.55 + 0.3 * heat, this.bus, 0.03, 0.15);
         else a.orchNote('vln', t, n.midi, sd * 1.4, 0.3 + 0.15 * heat, this.bus, 0.004, 0.06);
-        // 절정: 호른이 한 옥타브 아래로 멜로디를 같이 (긴 음만)
-        if (heat >= 1 && n.len >= 4 && n.midi - 12 >= 45) a.orchNote('br', t, n.midi - 12, n.len * sd, 0.4, this.bus, 0.03, 0.15);
+        // 절정: 호른이 한 옥타브 아래로 멜로디를 같이 (긴 음만. epic 곡은 8분음표까지)
+        const epic = !!song.epic;
+        if (heat >= 1 && n.len >= (epic ? 2 : 4) && n.midi - 12 >= 45) a.orchNote('br', t, n.midi - 12, Math.max(n.len * sd, 0.2), epic ? 0.5 : 0.4, this.bus, 0.03, 0.15);
+        // epic: 짧은 음마다 팀파니가 같이 '두두두 쿵' 말발굽처럼 받쳐 줌
+        if (epic && heat >= 0.65 && n.len <= 2) a.orchNote('timp', t, this._timpPitch(ch.root), 0.6, 0.38, this.bus, 0, 0.3);
       }
     }
     if (orch) this._orchestra(mb, s, t, sd, ch, heat);

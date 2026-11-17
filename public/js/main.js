@@ -1096,7 +1096,7 @@ async function openRank(levelId) {
   await loadRank();
 }
 
-/** 위: 🎵 단계 / 💎 무제한 전환. 아래: 그 안의 탭 (단계 = 총 등수 + 1~14단계, 무제한 = 그리그 + 단계별 무제한) */
+/** 위: 🎵 단계 / 💎 무제한 전환. 아래: 그 안의 탭 (단계 = 총 등수 + 1~15단계, 무제한 = 그리그 + 단계별 무제한) */
 function renderRankTabs() {
   const cur = state.rankLevel;
   const endless = isEndlessRank(cur);

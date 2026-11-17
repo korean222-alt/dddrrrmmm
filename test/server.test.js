@@ -81,7 +81,7 @@ async function verifyIg(ig) {
 
 test('팔로워 인증: 1~3단계는 누구나 / 4단계부터·무제한은 인증 완료한 사람만 / 아이디만 적은 신청으론 안 열림', async () => {
   const c = client();
-  for (const lv of [4, 9, 12, 14, 'endless', 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).json.error, 'confirm_required', String(lv));
+  for (const lv of [4, 9, 12, 14, 15, 'endless', 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).json.error, 'confirm_required', String(lv));
   for (const lv of [1, 2, 3]) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200);
   // 아이디만 적은 신청: 여전히 잠김, 점수도 못 올림
   const g = await c('POST', '/api/guest', { name: '인증대기', ig: 'wait.me' });
@@ -94,7 +94,7 @@ test('팔로워 인증: 1~3단계는 누구나 / 4단계부터·무제한은 인
   // 인증 완료(운영자 확인 또는 암호) → 전부 열림
   await verifyIg('wait.me');
   assert.equal((await c('GET', '/api/me')).json.confirmed, true);
-  for (const lv of [4, 9, 12, 13, 14, 'endless', 'e3', 'e13']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200, String(lv));
+  for (const lv of [4, 9, 12, 13, 14, 15, 'endless', 'e3', 'e13', 'e15']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200, String(lv));
   // 랭킹에서 내리면 다시 잠김
   const p = (await c('GET', '/api/admin/players', null, adm)).json.players.find((x) => x.ig === 'wait.me');
   await c('POST', '/api/admin/players/hide', { igsid: p.igsid, hidden: true }, adm);
@@ -115,7 +115,7 @@ test('팔로워 암호: 틀리면 아무것도 안 생김 / 맞으면 바로 인
   assert.equal(ok.status, 200);
   assert.equal(ok.json.confirmed, true);
   assert.equal(ok.json.player.ig, 'pass.me');
-  for (const lv of [9, 12, 'endless', 13, 14, 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200, String(lv));
+  for (const lv of [9, 12, 'endless', 13, 14, 15, 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200, String(lv));
   const listed = (await c('GET', '/api/admin/players', null, adm)).json.players.find((x) => x.ig === 'pass.me');
   assert.ok(listed && listed.checkedAt);
   // 관리자: 암호 보기 · 바꾸기 (관리자만)

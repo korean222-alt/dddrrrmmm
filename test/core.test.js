@@ -52,7 +52,7 @@ test('1~3단계는 누구나, 4단계부터와 무제한 모드는 전부 팔로
   assert.deepEqual(VERIFY_LEVELS, []);
   assert.deepEqual(CLOSED_LEVELS, LEVELS.filter((l) => l.id >= 4).map((l) => l.id));
   for (const id of [1, 2, 3]) assert.ok(!isClosed(id) && !needsVerify(id), String(id));
-  for (const id of [4, 9, 12, 14, 'endless', 'e1', 'e5', 'e13']) assert.ok(isClosed(id), String(id));
+  for (const id of [4, 9, 12, 14, 15, 'endless', 'e1', 'e5', 'e13', 'e15']) assert.ok(isClosed(id), String(id));
 });
 
 test('별: 3개는 미스·헛침 없이 90%+, 헛침은 정확도 깎음', () => {
