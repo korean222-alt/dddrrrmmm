@@ -169,7 +169,7 @@ export class PgStore {
   async leaderboard(level, limit = 50) {
     const rows = await this.q(
       `SELECT s.igsid, p.username, s.score, s.grade, s.at FROM scores s JOIN players p ON p.igsid = s.igsid
-       WHERE s.level = $1 AND p.username IS NOT NULL AND p.hidden_at IS NULL ORDER BY s.score DESC, s.at ASC LIMIT $2`,
+       WHERE s.level = $1 AND p.username IS NOT NULL AND p.hidden_at IS NULL AND p.checked_at IS NOT NULL ORDER BY s.score DESC, s.at ASC LIMIT $2`,
       [level, limit]
     );
     return {
@@ -180,7 +180,7 @@ export class PgStore {
   async totalLeaderboard(limit = 50) {
     const rows = await this.q(
       `SELECT s.igsid, p.username, SUM(s.score) AS score, COUNT(*) AS levels, MAX(s.at) AS at
-       FROM scores s JOIN players p ON p.igsid = s.igsid WHERE p.username IS NOT NULL AND p.hidden_at IS NULL AND s.level > 0
+       FROM scores s JOIN players p ON p.igsid = s.igsid WHERE p.username IS NOT NULL AND p.hidden_at IS NULL AND p.checked_at IS NOT NULL AND s.level > 0
        GROUP BY s.igsid, p.username ORDER BY score DESC, at ASC LIMIT $1`,
       [limit]
     );
@@ -189,26 +189,26 @@ export class PgStore {
   async totalRankOf(igsid) {
     const mine = await this.one(
       `SELECT SUM(s.score) AS score, COUNT(*) AS levels, MAX(s.at) AS at FROM scores s JOIN players p ON p.igsid = s.igsid
-       WHERE s.igsid = $1 AND p.username IS NOT NULL AND p.hidden_at IS NULL AND s.level > 0`,
+       WHERE s.igsid = $1 AND p.username IS NOT NULL AND p.hidden_at IS NULL AND p.checked_at IS NOT NULL AND s.level > 0`,
       [igsid]
     );
     if (!mine || mine.score == null) return null;
     const ahead = await this.one(
       `SELECT COUNT(*) AS n FROM (SELECT SUM(s.score) AS t, MAX(s.at) AS a FROM scores s JOIN players p ON p.igsid = s.igsid
-         WHERE p.username IS NOT NULL AND p.hidden_at IS NULL AND s.level > 0 GROUP BY s.igsid) x WHERE x.t > $1 OR (x.t = $1 AND x.a < $2)`,
+         WHERE p.username IS NOT NULL AND p.hidden_at IS NULL AND p.checked_at IS NOT NULL AND s.level > 0 GROUP BY s.igsid) x WHERE x.t > $1 OR (x.t = $1 AND x.a < $2)`,
       [Number(mine.score), Number(mine.at)]
     );
     return { rank: Number(ahead ? ahead.n : 0) + 1, score: Number(mine.score), levels: Number(mine.levels) };
   }
   async rankOf(level, igsid) {
     const mine = await this.one(
-      'SELECT s.score, s.at FROM scores s JOIN players p ON p.igsid = s.igsid WHERE s.igsid = $1 AND s.level = $2 AND p.hidden_at IS NULL',
+      'SELECT s.score, s.at FROM scores s JOIN players p ON p.igsid = s.igsid WHERE s.igsid = $1 AND s.level = $2 AND p.hidden_at IS NULL AND p.checked_at IS NOT NULL',
       [igsid, level]
     );
     if (!mine) return null;
     const ahead = await this.one(
       `SELECT COUNT(*) AS n FROM scores s JOIN players p ON p.igsid = s.igsid
-       WHERE s.level = $1 AND p.username IS NOT NULL AND p.hidden_at IS NULL AND (s.score > $2 OR (s.score = $2 AND s.at < $3))`,
+       WHERE s.level = $1 AND p.username IS NOT NULL AND p.hidden_at IS NULL AND p.checked_at IS NOT NULL AND (s.score > $2 OR (s.score = $2 AND s.at < $3))`,
       [level, mine.score, mine.at]
     );
     return { rank: Number(ahead ? ahead.n : 0) + 1, score: Number(mine.score) };

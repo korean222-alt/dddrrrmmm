@@ -148,7 +148,7 @@ export class JsonStore {
     const rows = [];
     for (const p of Object.values(this.data.players)) {
       const b = p.bests[level];
-      if (b && p.username && !p.hiddenAt) rows.push({ igsid: p.igsid, username: p.username, score: b.score, grade: b.grade, at: b.at });
+      if (b && p.username && !p.hiddenAt && p.checkedAt) rows.push({ igsid: p.igsid, username: p.username, score: b.score, grade: b.grade, at: b.at });
     }
     rows.sort((a, b) => b.score - a.score || a.at - b.at);
     rows.forEach((r, i) => (r.rank = i + 1));
@@ -160,7 +160,7 @@ export class JsonStore {
     const rows = [];
     for (const p of Object.values(this.data.players)) {
       const bs = Object.entries(p.bests || {}).filter(([lv]) => Number(lv) > 0).map(([, b]) => b); // 0 이하 = 무제한 (따로 랭킹)
-      if (!bs.length || !p.username || p.hiddenAt) continue;
+      if (!bs.length || !p.username || p.hiddenAt || !p.checkedAt) continue;
       rows.push({
         igsid: p.igsid, username: p.username, score: bs.reduce((a, b) => a + b.score, 0),
         levels: bs.length, at: Math.max(...bs.map((b) => b.at || 0)),

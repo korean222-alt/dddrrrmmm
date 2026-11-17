@@ -3,7 +3,7 @@
 import {
   LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES,
   ENDLESS_ID, LAST_LEVEL_ID, makeEndless, isUnlocked, nextChallenge, DIAMOND_RULES, roundInfo,
-  ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, VERIFY_LEVELS, CLOSED_LEVELS, isClosed, prevOpenId, nextOpenId,
+  ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId,
 } from './charts.js';
 import { AudioEngine, playMetronome } from './audio.js';
 import { Renderer } from './render.js';
@@ -127,20 +127,20 @@ const demoOnly = () => state.api && state.api.mode === 'mock' && !isLocalDev();
 const SOON = () => `랭킹은 곧 열려요! ${atHandle()} 팔로우하고 기다려 주세요`;
 
 // ---------------- 팔로워 인증 (12단계 · 무제한 모드) ----------------
-// 닉네임 + 인스타 아이디로 인증을 신청하면 바로 열림. 운영자는 관리자 화면에서 신청자의 팔로우를 나중에 확인해서, 안 했으면 랭킹에서 내림(→ 다시 잠김)
+// 1~FREE_UPTO 단계는 누구나. 그 뒤 단계·무제한·랭킹은 팔로워 암호(키티챗 DM)로 인증 완료한 사람만
 /** 팔로워 인증 신청 완료 (서버 없는 모드에선 확인할 방법이 없어서 열어 둠) */
 function isVerified() {
   if (!state.api || state.api.mode !== 'server') return true;
   return !!(state.me && state.me.guest && state.me.checked);
 }
 const verifyLocked = (id) => state.cfg.gateMode !== 'open' && needsVerify(id) && !isVerified();
-const VERIFY_WHAT = () => `${VERIFY_LEVELS.join('·')}단계와 💎 그리그 무제한 모드`;
+const VERIFY_WHAT = () => `${FREE_UPTO + 1}단계부터와 💎 무제한 모드`;
 /** 운영자가 팔로우를 확인함 = 인증 완료 (서버 없는 모드에선 확인할 방법이 없어서 잠가 둠) */
 function isConfirmed() {
   return !!(state.api && state.api.mode === 'server' && isVerified() && state.me.confirmed);
 }
-const CONFIRM_WHAT = () => `${CLOSED_LEVELS.join('·')}단계와 💎 단계별 무제한`;
-/** 인증 완료(운영자 확인) 전엔 잠긴 것 (13·14단계, 단계별 무제한). 개발용 ?gate=open 에선 풀림 */
+const CONFIRM_WHAT = VERIFY_WHAT;
+/** 인증 완료 전엔 잠긴 것 (4단계부터, 무제한 전부). 개발용 ?gate=open 에선 풀림 */
 const closedLocked = (id) => state.cfg.gateMode !== 'open' && isClosed(id) && !isConfirmed();
 /** 인스타 댓글에 쓸 키워드 (키티챗 자동 DM 키워드와 같아야 함) */
 const VERIFY_KEYWORD = '쿵';
@@ -155,7 +155,7 @@ function openVerify(id, { pass = '' } = {}) {
   $('#verify-title').textContent = done ? '팔로워 인증 완료!' : '팔로워 인증';
   $('#verify-desc').innerHTML = done
     ? `이미 인증됐어요 🎉 잠긴 단계와 💎 무제한 모드가 전부 열려 있어요.`
-    : `${igWho()} 팔로워라면 <b>암호 하나로 바로</b> 인증돼요!<br>${VERIFY_WHAT()}, ${CONFIRM_WHAT()}까지 전부 열려요.`;
+    : `1~${FREE_UPTO}단계는 맛보기! <b>${VERIFY_WHAT()}</b>는 ${igWho()} 팔로워 인증을 받으면 전부 열려요.<br>랭킹에도 인증한 사람만 올라가요.`;
   const step = (n, text) => `<li class="${done ? 'done' : ''}"><b>${done ? '✓' : n}</b><span>${text}</span></li>`;
   $('#verify-steps').innerHTML = [
     step(1, `${atHandle()} <b>팔로우</b>하기`),
@@ -176,7 +176,6 @@ function openVerify(id, { pass = '' } = {}) {
   $('#verify-ig').value = (me.player && me.player.ig) || load('lastIg', '');
   if (pass) $('#verify-pass').value = pass;
   $('#verify-err').hidden = true;
-  $('#verify-apply-row').hidden = done || isVerified();
   $('#a2hs-inapp').hidden = !isInApp();
   openModal('modal-verify');
 }
@@ -309,7 +308,7 @@ function refreshFollowChip() {
   for (const el of $$('.follow-chip')) {
     el.hidden = !on;
     el.classList.toggle('warn', !!me.hidden);
-    el.classList.toggle('todo', !me.hidden && (!me.guest || !!me.needsIg));
+    el.classList.toggle('todo', !me.hidden && !me.confirmed);
     el.classList.toggle('ok', !me.hidden && !!me.confirmed);
     el.textContent = me.hidden
       ? '⚠️ 팔로우 확인 안 됨'
@@ -317,9 +316,7 @@ function refreshFollowChip() {
         ? `📸 팔로워 인증 받기 · 랭킹 참여`
         : me.confirmed
           ? `✅ @${me.player?.ig || ''} 팔로워 인증 완료`
-          : me.checked
-            ? `⏳ @${me.player?.ig || ''} 인증 신청됨 · 운영자 확인 중`
-            : `📸 팔로워 인증 받기 · 랭킹 참여`;
+          : `📸 팔로워 인증 받기 · 랭킹 참여`;
   }
 }
 
@@ -378,7 +375,7 @@ function renderEndlessLevels(bests) {
   }
   $('#level-list').innerHTML = list.join('');
   refreshToday();
-  $('#levels-foot').innerHTML = `${isVerified() ? '' : `💎 그리그 무제한 모드는 <b>${igWho()} 팔로워 인증</b>을 받으면 열려요.<br>`}12단계를 깨면 그리그 무제한이 열려요. 목숨이 다 떨어질 때까지 계속!<br>${isConfirmed() ? '단계별 무제한은 그 단계를 깨면 열려요.' : '단계별 무제한은 <button class="link" data-action="verify-open">팔로워 암호</button>로 인증하면 열려요.'}<br>💎 Lv.4 · 💎💎 Lv.7 · 💎💎💎 Lv.10 클리어`;
+  $('#levels-foot').innerHTML = `${isConfirmed() ? '' : `🔒 💎 무제한 모드는 <b>${igWho()} 팔로워 인증</b>을 받으면 열려요. <button class="link" data-action="verify-open">팔로워 인증</button><br>`}12단계를 깨면 그리그 무제한이 열려요. 목숨이 다 떨어질 때까지 계속!<br>단계별 무제한은 그 단계를 깨면 열려요.<br>💎 Lv.4 · 💎💎 Lv.7 · 💎💎💎 Lv.10 클리어`;
 }
 
 function renderLevels() {
@@ -414,13 +411,13 @@ function renderLevels() {
   list.push(grieggCardHTML(bests));
   $('#level-list').innerHTML = list.join('');
   refreshToday();
-  $('#levels-foot').innerHTML = `${isConfirmed() ? '' : `🔒 잠긴 단계와 💎 무제한은 <b>팔로워 암호</b>로 인증하면 바로 열려요. <button class="link" data-action="verify-open">팔로워 인증</button><br>`}앞 단계를 별 1개 이상으로 깨면 다음 단계가 열려요.<br>별 3개: ${STAR_RULES[0].text}`;
+  $('#levels-foot').innerHTML = `${isConfirmed() ? '' : `🔒 1~${FREE_UPTO}단계는 맛보기! ${FREE_UPTO + 1}단계부터와 💎 무제한은 <b>팔로워 인증</b>을 받으면 열려요. <button class="link" data-action="verify-open">팔로워 인증</button><br>`}앞 단계를 별 1개 이상으로 깨면 다음 단계가 열려요.<br>별 3개: ${STAR_RULES[0].text}`;
 }
 
 // ---------------- 게임 ----------------
 /** free: 오늘의 노래·친구 도전장은 앞 단계를 안 깼어도 칠 수 있음 */
 async function tryStart(id, { free = false } = {}) {
-  // 13·14단계와 단계별 무제한은 운영자가 팔로우를 확인(인증 완료)해야 열림
+  // 4단계부터와 무제한은 팔로워 인증(인증 완료)해야 열림
   if (closedLocked(id)) {
     openVerify(id);
     return;
@@ -976,8 +973,8 @@ async function submitRank(r = state.lastResult) {
   if (!r || r.auto || (r.challenge && !endless) || (r.failed && !endless) || r.submitted || r.submitting) return;
   if (endless && !(r.roundsCleared >= 1)) return;
   if (demoOnly() || state.api.mode !== 'server') return;
-  // 닉네임·인스타 아이디가 없으면 한 번 물어봄 (예전에 아이디 없이 참여한 사람도)
-  if (!state.me.guest || state.me.needsIg) {
+  // 랭킹은 팔로워 인증(암호)을 받은 사람만 → 안 받았으면 인증 창을 한 번 띄움
+  if (!isConfirmed()) {
     askNickname();
     return;
   }
@@ -994,8 +991,9 @@ async function submitRank(r = state.lastResult) {
     else if (endless) toast(out.improved ? `무제한 랭킹에 올라갔어요! Lv.${out.rounds} 클리어 · ${out.rank}위 🏆` : `내 최고 기록(Lv.${out.rounds} 클리어)이 그대로 유지돼요 · ${out.rank}위`, 3200);
     else toast(out.improved ? `랭킹에 올라갔어요! 현재 ${out.rank}위 🏆` : `내 최고 기록(${fmt(out.best)})이 그대로 유지돼요 · ${out.rank}위`, 3000);
   } catch (e) {
-    if (e.status === 401) {
-      state.me = { verified: false };
+    if (e.status === 401 || (e.status === 403 && e.data && e.data.error === 'verify_required')) {
+      if (e.status === 401) state.me = { verified: false };
+      else state.me = { ...state.me, confirmed: false };
       askNickname();
     }
     // 그 밖의 실패(이미 올린 판, 검증 실패 등)는 조용히 넘어감
@@ -1008,7 +1006,9 @@ async function submitRank(r = state.lastResult) {
 function askNickname(force = false) {
   if (!force && state.nickAsked) return;
   state.nickAsked = true;
-  openJoin();
+  // 인증 완료한 사람은 닉네임 바꾸기, 아니면 팔로워 인증 창
+  if (isConfirmed()) openJoin();
+  else openVerify(null);
 }
 
 // 랭킹 닉네임 정하기
@@ -1198,7 +1198,7 @@ function openSettings() {
   updateSettingLabels();
   $('#settings-account').innerHTML = state.me.guest
     ? `랭킹 닉네임: <b>${escapeHtml(state.me.player?.username)}</b> · <button class="link" data-action="logout">닉네임 지우기</button>`
-    : `랭킹 닉네임이 없어요. 끝까지 친 판이 끝나면 정할 수 있어요 · <button class="link" data-action="rank-join">지금 정하기</button>`;
+    : `랭킹은 팔로워 인증을 받은 사람만 올라가요 · <button class="link" data-action="rank-join">팔로워 인증 받기</button>`;
   openModal('modal-settings');
 }
 function updateSettingLabels() {

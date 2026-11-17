@@ -66,7 +66,20 @@ export function createHandler(cfg, { store }) {
   const limitScores = rateLimiter(60, 10 * 60 * 1000);
   const limitAdmin = rateLimiter(30, 10 * 60 * 1000);
   const limitTrack = rateLimiter(200, 10 * 60 * 1000);
-  const limitPass = rateLimiter(10, 10 * 60 * 1000); // 팔로워 암호 시도: IP 당 10분에 10번
+  // 팔로워 암호: 틀린 시도만 셈. IP 당 10분에 10번 틀리면 잠깐 막음
+  const passFails = new Map();
+  const passBlocked = (ip) => {
+    const h = passFails.get(ip);
+    return !!h && Date.now() < h.reset && h.n >= 10;
+  };
+  const passFail = (ip) => {
+    const now = Date.now();
+    let h = passFails.get(ip);
+    if (!h || now > h.reset) h = { n: 0, reset: now + 10 * 60 * 1000 };
+    h.n++;
+    passFails.set(ip, h);
+    if (passFails.size > 5000) for (const [k, v] of passFails) if (now > v.reset) passFails.delete(k);
+  };
 
   /** 지금 팔로워 암호: 관리자 화면에서 정한 값 → 없으면 환경변수 FOLLOW_PASSWORD. 둘 다 없으면 '' (암호 인증 꺼짐) */
   async function followPassword() {
@@ -199,7 +212,7 @@ export function createHandler(cfg, { store }) {
     // 팔로워 암호로 인증: 키티챗이 팔로워에게만 DM 으로 준 암호를 적으면 바로 '인증 완료'(운영자 확인과 같음)
     //   처음 온 사람은 닉네임 + 인스타 아이디도 같이. 암호가 틀리면 아무것도 저장 안 함
     if (p === '/api/verify/password' && m === 'POST') {
-      if (!limitPass(ip)) return json(429, { error: 'rate_limited' });
+      if (passBlocked(ip)) return json(429, { error: 'rate_limited' });
       const body = await readJson(request);
       const pw = await followPassword();
       if (!pw) return json(503, { error: 'password_off' });
@@ -210,7 +223,10 @@ export function createHandler(cfg, { store }) {
       const ig = body.ig ? cleanInstagram(body.ig) : null;
       if (body.ig && !ig) return json(400, { error: 'bad_ig' });
       if (!ig && !(pl && pl.ig)) return json(400, { error: 'bad_ig' });
-      if (!samePassword(body.password, pw)) return json(403, { error: 'wrong_password' });
+      if (!samePassword(body.password, pw)) {
+        passFail(ip);
+        return json(403, { error: 'wrong_password' });
+      }
       const igsid = pl ? pl.igsid : 'g_' + newId().replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
       await store.upsertPlayer(igsid, { username: name || pl.username, ig });
       if (!pl) setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
@@ -297,7 +313,7 @@ export function createHandler(cfg, { store }) {
       const body = await readJson(request);
       const level = endlessMode(body.level) || getLevel(body.level);
       if (!level) return json(400, { error: 'bad_level' });
-      // 9·12단계 · 그리그 무제한은 인증 신청한 사람 / 13·14단계 · 단계별 무제한은 운영자가 팔로우를 확인한(인증 완료) 사람만
+      // 4단계부터와 무제한(그리그·단계별)은 팔로워 인증(암호 또는 운영자 확인)한 사람만
       // (GATE_MODE=open 이면 잠금 없음, 개발용)
       if (cfg.gateMode !== 'open' && (isClosed(level.id) || needsVerify(level.id))) {
         const pl = await getPlayer(request);
@@ -313,6 +329,8 @@ export function createHandler(cfg, { store }) {
       if (!limitScores(ip)) return json(429, { error: 'rate_limited' });
       const pl = await getPlayer(request);
       if (!pl) return json(401, { error: 'verify_required' });
+      // 랭킹은 팔로워 인증(인증 완료)한 사람만 (GATE_MODE=open 이면 닉네임만 있어도)
+      if (cfg.gateMode !== 'open' && !isConfirmed(pl)) return json(403, { error: 'verify_required' });
       const body = await readJson(request);
       const em = endlessMode(body.level);
       if (em) {

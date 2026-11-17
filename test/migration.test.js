@@ -26,6 +26,7 @@ test('Postgres: 인스타로 인증된 플레이어·점수·인증 코드는 �
   assert.equal((await q('SELECT igsid FROM players ORDER BY igsid')).map((r) => r.igsid).join(), 'g_abc');
   assert.equal((await q('SELECT igsid FROM scores')).map((r) => r.igsid).join(), 'g_abc');
   assert.equal((await q(`SELECT to_regclass('public.codes') AS t`))[0].t, null);
+  await store.setChecked('g_abc', true); // 랭킹엔 팔로워 인증한 사람만
   const lb = await store.leaderboard(2);
   assert.equal(lb.rows.length, 1);
   assert.equal(lb.rows[0].username, '쿵짝왕');
@@ -100,6 +101,7 @@ test('무제한 기록: 예전 방식(깬 단계 × 100만, 점수 999,999 에�
   // 이제 100만 점이 넘어도 그대로 저장
   const out = await pg.recordScore('g_a', 0, { score: 25 * 1e9 + 1_620_000, grade: null, maxCombo: 0 });
   assert.equal(out.improved, true);
+  await pg.setChecked('g_a', true); // 랭킹엔 팔로워 인증한 사람만
   assert.equal((await pg.leaderboard(0, 50)).rows[0].score, 25 * 1e9 + 1_620_000);
 
   // JSON 저장소

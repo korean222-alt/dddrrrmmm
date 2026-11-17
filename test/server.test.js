@@ -79,33 +79,27 @@ async function verifyIg(ig) {
   assert.equal((await c('POST', '/api/admin/players/check', { igsid: p.igsid, checked: true }, adm)).json.ok, true);
 }
 
-test('팔로워 인증: 신청하면 9·12단계 · 그리그 무제한 / 운영자 확인(인증 완료)하면 13·14단계 · 단계별 무제한까지 / 나머지는 누구나', async () => {
+test('팔로워 인증: 1~3단계는 누구나 / 4단계부터·무제한은 인증 완료한 사람만 / 아이디만 적은 신청으론 안 열림', async () => {
   const c = client();
-  for (const lv of [9, 12, 'endless']) assert.equal((await c('POST', '/api/runs', { level: lv })).json.error, 'verify_required');
-  // 13·14단계와 단계별 무제한은 인증 완료 전엔 잠김
-  for (const lv of [13, 14, 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).json.error, 'confirm_required');
-  for (const lv of [1, 4, 8, 10, 11]) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200);
-  // 인증 신청만 하면(운영자 확인 전) 바로 열림
+  for (const lv of [4, 9, 12, 14, 'endless', 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).json.error, 'confirm_required', String(lv));
+  for (const lv of [1, 2, 3]) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200);
+  // 아이디만 적은 신청: 여전히 잠김, 점수도 못 올림
   const g = await c('POST', '/api/guest', { name: '인증대기', ig: 'wait.me' });
-  assert.equal(g.json.checked, true);
   assert.equal(g.json.confirmed, false);
-  assert.equal((await c('GET', '/api/me')).json.checked, true);
-  // 관리자 목록엔 신청한 사람이 보임
-  const listed = (await c('GET', '/api/admin/players', null, adm)).json.players.find((x) => x.ig === 'wait.me');
-  assert.ok(listed && !listed.checkedAt && !listed.hiddenAt);
-  for (const lv of [9, 12, 'endless']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200);
-  // 신청만 해선(확인 전) 13·14단계·단계별 무제한은 아직 잠김
-  for (const lv of [13, 14, 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).json.error, 'confirm_pending');
-  // 운영자가 '확인함'을 누르면 인증 완료 → 전부 열림
+  for (const lv of [4, 12, 'endless', 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).json.error, 'confirm_pending', String(lv));
+  const run1 = (await c('POST', '/api/runs', { level: 1 })).json.runToken;
+  const s1 = await c('POST', '/api/scores', { runToken: run1, level: 1, ...perfectRun(1) });
+  assert.equal(s1.status, 403);
+  assert.equal(s1.json.error, 'verify_required');
+  // 인증 완료(운영자 확인 또는 암호) → 전부 열림
   await verifyIg('wait.me');
   assert.equal((await c('GET', '/api/me')).json.confirmed, true);
-  for (const lv of [12, 'endless', 9, 13, 14, 'e3', 'e13']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200, String(lv));
-  // 랭킹에서 내리면 인증도 풀림
+  for (const lv of [4, 9, 12, 13, 14, 'endless', 'e3', 'e13']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200, String(lv));
+  // 랭킹에서 내리면 다시 잠김
   const p = (await c('GET', '/api/admin/players', null, adm)).json.players.find((x) => x.ig === 'wait.me');
   await c('POST', '/api/admin/players/hide', { igsid: p.igsid, hidden: true }, adm);
-  assert.equal((await c('GET', '/api/me')).json.checked, false);
   assert.equal((await c('GET', '/api/me')).json.confirmed, false);
-  for (const lv of [12, 9, 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 403);
+  for (const lv of [4, 12, 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 403);
 });
 
 test('팔로워 암호: 틀리면 아무것도 안 생김 / 맞으면 바로 인증 완료(전부 열림) / 관리자가 암호 교체', async () => {
@@ -166,7 +160,9 @@ test('닉네임 → 판 시작 → 점수 등록(조작 거부) → 랭킹', asy
   assert.equal((await c('GET', '/api/me')).json.guest, true);
   assert.equal((await c('GET', '/api/me')).json.needsIg, false);
 
-  // 서버는 4단계도 막지 않음 (잠금은 안내일 뿐)
+  // 인증 전엔 4단계 잠김 → 인증 완료하면 열림
+  assert.equal((await c('POST', '/api/runs', { level: 4 })).status, 403);
+  await verifyIg('kong_jjak');
   const run = (await c('POST', '/api/runs', { level: 4 })).json.runToken;
   assert.ok(run);
   const pr = perfectRun(4);
@@ -288,6 +284,7 @@ test('단계별 무제한: 곡마다 따로 랭킹 (그리그 무제한·다른 
 async function perStageEndlessRanking() {
   const c = client();
   await c('POST', '/api/guest', { name: '오단계무한', ig: 'e5_king' });
+  await verifyIg('e5_king'); // 랭킹엔 인증 완료한 사람만
   const run = (await c('POST', '/api/runs', { level: 'e5' })).json.runToken;
   assert.ok(run);
   // 없는 단계, 다른 무제한용 토큰은 거부
@@ -316,6 +313,7 @@ test('관리자: 랭킹에서 내리기 → 랭킹에서 안 보임 → 다시 �
   const adm = { 'x-admin-token': 'admin-pw' };
   const c = client();
   await c('POST', '/api/guest', { name: '숨김대상', ig: 'hide.me' });
+  await verifyIg('hide.me');
   const run = (await c('POST', '/api/runs', { level: 3 })).json.runToken;
   await c('POST', '/api/scores', { runToken: run, level: 3, ...perfectRun(3) });
   const me = (await c('GET', '/api/admin/players', null, adm)).json.players.find((p) => p.username === '숨김대상');
@@ -329,19 +327,24 @@ test('관리자: 랭킹에서 내리기 → 랭킹에서 안 보임 → 다시 �
   const m1 = (await c('GET', '/api/me')).json;
   assert.ok(m1.hidden);
   assert.ok(Math.abs(m1.hidden.deleteAt - listed.hiddenAt - 5 * 86400000) < 1000);
-  // 아이디를 다시 적으면 랭킹에 돌아오고, 다시 확인 대상
+  // 아이디를 다시 적으면 내림은 풀리지만, 다시 인증해야 랭킹에 보임
   assert.equal((await c('POST', '/api/guest', { name: '숨김대상', ig: 'hide.me' })).status, 200);
   assert.equal((await c('GET', '/api/me')).json.hidden, null);
-  assert.ok((await c('GET', '/api/leaderboard?level=3')).json.entries.some((e) => e.username === '숨김대상'));
   const back = (await c('GET', '/api/admin/players', null, adm)).json.players.find((p) => p.igsid === me.igsid);
   assert.equal(back.hiddenAt, null);
   assert.equal(back.checkedAt, null);
+  assert.ok(!(await c('GET', '/api/leaderboard?level=3')).json.entries.some((e) => e.username === '숨김대상'));
+  assert.equal((await c('POST', '/api/verify/password', { password: '시험1234' })).json.confirmed, true);
+  assert.ok((await c('GET', '/api/leaderboard?level=3')).json.entries.some((e) => e.username === '숨김대상'));
 });
 
 test('관리자: 랭킹 참여자 목록(인스타 아이디) → 확인함 → 삭제', async () => {
   const adm = { 'x-admin-token': 'admin-pw' };
   const c = client();
   await c('POST', '/api/guest', { name: '삭제대상', ig: 'del.me' });
+  const pre = (await c('GET', '/api/admin/players', null, adm)).json.players.find((p) => p.username === '삭제대상');
+  assert.equal(pre.checkedAt, null);
+  await verifyIg('del.me');
   const run = (await c('POST', '/api/runs', { level: 2 })).json.runToken;
   await c('POST', '/api/scores', { runToken: run, level: 2, ...perfectRun(2) });
   // 비밀번호 없으면 거부
@@ -349,11 +352,13 @@ test('관리자: 랭킹 참여자 목록(인스타 아이디) → 확인함 → 
   const list = (await c('GET', '/api/admin/players', null, adm)).json.players;
   const me = list.find((p) => p.username === '삭제대상');
   assert.equal(me.ig, 'del.me');
-  assert.equal(me.checkedAt, null);
+  assert.ok(me.checkedAt);
   assert.equal(me.levels, 1);
-  // 확인함 → 아래로 (checkedAt 생김)
+  // 확인 취소 → 랭킹에서 안 보임 / 다시 확인함 → 보임
+  assert.equal((await c('POST', '/api/admin/players/check', { igsid: me.igsid, checked: false }, adm)).json.ok, true);
+  assert.ok(!(await c('GET', '/api/leaderboard?level=2')).json.entries.some((e) => e.username === '삭제대상'));
   assert.equal((await c('POST', '/api/admin/players/check', { igsid: me.igsid, checked: true }, adm)).json.ok, true);
-  assert.ok((await c('GET', '/api/admin/players', null, adm)).json.players.find((p) => p.igsid === me.igsid).checkedAt);
+  assert.ok((await c('GET', '/api/leaderboard?level=2')).json.entries.some((e) => e.username === '삭제대상'));
   // 아이디를 바꾸면 다시 확인 필요
   await c('POST', '/api/guest', { name: '삭제대상', ig: 'other_id' });
   assert.equal((await c('GET', '/api/admin/players', null, adm)).json.players.find((p) => p.igsid === me.igsid).checkedAt, null);
