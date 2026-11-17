@@ -30,6 +30,8 @@ export const DEFAULT_SETTINGS = {
   noteSpeed: 1,
   offsetMs: 0,
   vibrate: true,
+  // 저사양 모드: 그림 해상도 낮추고 반짝이·조명 효과 끔 (렉 걸리는 폰용)
+  lite: false,
   // 반주: 'orch' = 오케스트라(현악·금관·팀파니 + 피아노) / 'piano' = 피아노만
   band: 'orch',
 };

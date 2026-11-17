@@ -78,7 +78,8 @@ export class Renderer {
    * 줄 아무 데나 누르면 그 악기가 울림 (악기를 정확히 안 눌러도 됨).
    */
   async resize(maxDpr = 2) {
-    const dpr = this.studio ? maxDpr : Math.min(window.devicePixelRatio || 1, maxDpr);
+    // 저사양 모드: 화면 픽셀 수를 줄임 (레티나 2~3배 → 1배). 영상 찍기(studio)는 그대로
+    const dpr = this.studio ? maxDpr : Math.min(window.devicePixelRatio || 1, this.lite ? 1 : maxDpr);
     const W = this.canvas.clientWidth || window.innerWidth;
     const H = this.canvas.clientHeight || window.innerHeight;
     this.canvas.width = Math.round(W * dpr);
@@ -293,7 +294,7 @@ export class Renderer {
     } else {
       if (lane === SNARE) this.crackAt = rt;
       const at = [L.laneX[lane], L.strikeY - L.instR * 0.2];
-      const n = judge === 'perfect' ? 12 : 7;
+      const n = this.lite && !this.studio ? 0 : judge === 'perfect' ? 12 : 7;
       for (let i = 0; i < n; i++) {
         const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.4;
         this.fx.sparks.push({
@@ -328,6 +329,10 @@ export class Renderer {
     const ctx = this.ctx;
     const L = this.L;
     if (!L) return;
+    const lite = this.lite && !this.studio;
+    // 저사양 모드: 120Hz 화면에서도 초당 60번까지만 그림 (판정은 그대로)
+    if (lite && rt - (this._lastDraw || 0) < 1 / 65 && rt >= (this._lastDraw || 0)) return;
+    this._lastDraw = rt;
     const pe = Math.exp(-(rt - this.punchAt) * 22) * this.punchPow; // 킥 펀치
     const ce = Math.exp(-(rt - this.crackAt) * 30); // 스네어 크랙
     ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -335,8 +340,10 @@ export class Renderer {
     ctx.setTransform(L.dpr, 0, 0, L.dpr, 0, 0);
     const fever = st.combo >= 30;
 
-    this._drawSpots(st, rt, pe, fever);
-    this._drawLaneFlash(rt);
+    if (!lite) {
+      this._drawSpots(st, rt, pe, fever);
+      this._drawLaneFlash(rt);
+    }
     ctx.save();
     const sc = 1 + pe * 0.012;
     ctx.translate(L.cx, L.strikeY);
@@ -349,11 +356,11 @@ export class Renderer {
     this._drawTargets(st, rt);
     this._drawNotes(st);
     this._drawBursts(rt);
-    this._drawSparks(rt);
+    if (!lite) this._drawSparks(rt);
     this._drawJudges(rt);
     ctx.restore();
 
-    this._drawMascot(st, rt);
+    if (!lite) this._drawMascot(st, rt);
     this._drawBanners(rt);
     if (!this.studio) this._drawRound(st, rt);
     this._drawCountIn(st, rt);
@@ -484,7 +491,7 @@ export class Renderer {
     ctx.strokeStyle = `rgba(255,255,255,${0.35 + pulse * 0.35})`;
     ctx.lineWidth = 3;
     ctx.shadowColor = 'rgba(255,255,255,0.6)';
-    ctx.shadowBlur = 8 * pulse;
+    ctx.shadowBlur = this.lite && !this.studio ? 0 : 8 * pulse;
     ctx.beginPath();
     ctx.moveTo(L.x0, L.strikeY);
     ctx.lineTo(L.x1, L.strikeY);

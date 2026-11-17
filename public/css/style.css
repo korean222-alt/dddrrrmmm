@@ -450,3 +450,10 @@ input[type='range'] { width: 100%; accent-color: var(--grass); height: 28px; }
 #verify-pass { letter-spacing: 1px; }
 .center { text-align: center; }
 #verify-apply-row .link { padding: 4px; font-size: 14px; }
+/* 설정 버튼: 금속 톱니 그림 (한눈에 '설정'으로 보이게) */
+.icon-btn.gear-btn { background: #fff; padding: 0; overflow: visible; }
+.icon-btn.gear-btn img { width: 40px; height: 40px; display: block; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35)); }
+.icon-btn.gear-btn:active img { transform: rotate(30deg); }
+/* 저사양 모드: 계속 도는 꾸밈 애니메이션·그림자 끔 */
+html.lite .kit-drummer, html.lite .res-mascots svg, html.lite .scene-mascot, html.lite .hud-lives.low i.on, html.lite .res-new { animation: none; }
+html.lite .hud-lives i, html.lite .icon-btn.gear-btn img { filter: none; }

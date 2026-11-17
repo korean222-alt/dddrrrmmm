@@ -1194,6 +1194,7 @@ function openSettings() {
   $('#set-speed').value = s.noteSpeed;
   $('#set-offset').value = s.offsetMs;
   $('#set-vibrate').checked = !!s.vibrate;
+  $('#set-lite').checked = !!s.lite;
   $$('#set-band button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.band === (s.band || 'orch')));
   updateSettingLabels();
   $('#settings-account').innerHTML = state.me.guest
@@ -1206,6 +1207,13 @@ function updateSettingLabels() {
   $('#set-speed-val').textContent = `x${Number(s.noteSpeed).toFixed(1)}`;
   $('#set-offset-val').textContent = s.offsetMs === 0 ? '0ms' : `${s.offsetMs > 0 ? '+' : ''}${s.offsetMs}ms`;
 }
+/** 저사양 모드 적용: 게임 그림(해상도·효과) + 화면 꾸밈(애니메이션·그림자) */
+function applyLite() {
+  const on = !!state.settings.lite;
+  renderer.lite = on;
+  document.documentElement.classList.toggle('lite', on);
+  if ($('#screen-game').classList.contains('active')) renderer.resize();
+}
 function bindSettings() {
   const upd = () => {
     const s = state.settings;
@@ -1214,11 +1222,13 @@ function bindSettings() {
     s.noteSpeed = Number($('#set-speed').value);
     s.offsetMs = Number($('#set-offset').value);
     s.vibrate = $('#set-vibrate').checked;
+    s.lite = $('#set-lite').checked;
+    applyLite();
     audio.setVolumes({ music: s.music, sfx: s.sfx });
     saveSettings(s);
     updateSettingLabels();
   };
-  ['#set-music', '#set-sfx', '#set-speed', '#set-offset', '#set-vibrate'].forEach((id) => $(id).addEventListener('input', upd));
+  ['#set-music', '#set-sfx', '#set-speed', '#set-offset', '#set-vibrate', '#set-lite'].forEach((id) => $(id).addEventListener('input', upd));
   $('#set-band').addEventListener('click', async (e) => {
     const b = e.target.closest('[data-band]');
     if (!b) return;
@@ -1776,6 +1786,7 @@ async function boot() {
   bindActions();
   bindGameInput();
   bindSettings();
+  applyLite();
   audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx });
   audio.orchOn = state.settings.band !== 'piano';
   audio.prefetchPiano().then(() => audio.orchOn && audio.prefetchOrch());
