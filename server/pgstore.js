@@ -54,6 +54,7 @@ export class PgStore {
     for (const s of SCHEMA) await this.q(s);
     await this.removeInstagramData();
     await this.shiftLevelsV2();
+    await this.repairShiftedLevels();
     return this;
   }
 
@@ -79,15 +80,17 @@ export class PgStore {
    *   scores.level: 8~14 → 9~15, 단계별 무제한 칸 -8~-14 → -9~-15 (그리그 0·1~7 은 그대로)
    *   plays.level (글자): '8'~'14' → '9'~'15', 'e8'~'e14' → 'e9'~'e15'
    * 표시를 '먼저' 남겨서 서버가 동시에 여러 개 떠도 한 곳만 실행. 기본키(igsid, level)가 겹치지 않게 +1000 으로 잠깐 비켜 놓았다가 돌아옴.
+   * 그 전에 15단계에 남아 있던 어려운 「운명」 점수는 지움 (그 칸은 이제 윌리엄 텔. 안 지우면 기본키가 겹쳐 이전이 통째로 멈춤).
    */
   async shiftLevelsV2() {
     const FLAG = 'migration:insert-level-8-v1';
     const got = await this.q('INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING RETURNING key', [FLAG, String(Date.now())]);
     if (!got.length) return;
+    await this.q('DELETE FROM scores WHERE level IN (15, -15)');
+    await this.q('DELETE FROM plays WHERE level IN (\'15\', \'e15\')');
     await this.q('UPDATE scores SET level = level + 1000 WHERE level BETWEEN 8 AND 14');
     await this.q('UPDATE scores SET level = level - 1000 WHERE level BETWEEN -14 AND -8');
-    await this.q('UPDATE scores SET level = level - 999 WHERE level BETWEEN 1008 AND 1014');
-    await this.q('UPDATE scores SET level = level + 999 WHERE level BETWEEN -1014 AND -1008');
+    await this._settleShifted();
     await this.q(
       `UPDATE plays SET level = CASE
          WHEN level ~ '^[0-9]+$' THEN (level::int + 1)::text
@@ -95,6 +98,93 @@ export class PgStore {
        WHERE (level ~ '^[0-9]+$' AND level::int BETWEEN 8 AND 14) OR (level ~ '^e[0-9]+$' AND substr(level, 2)::int BETWEEN 8 AND 14)`
     );
     console.log('[store] 8단계 신곡 끼움: 8~14단계 기록을 9~15단계로 옮김');
+  }
+
+  /** 잠시 비켜 둔 점수(1008~1014, -1008~-1014)를 제자리(9~15, -9~-15)로. 이미 그 칸에 점수가 있으면 더 높은 쪽만 남김 */
+  async _settleShifted() {
+    await this.q(
+      `INSERT INTO scores (igsid, level, score, grade, max_combo, at)
+       SELECT igsid, level - 999, score, grade, max_combo, at FROM scores WHERE level BETWEEN 1008 AND 1014
+       ON CONFLICT (igsid, level) DO UPDATE SET score = EXCLUDED.score, grade = EXCLUDED.grade, max_combo = EXCLUDED.max_combo, at = EXCLUDED.at
+       WHERE EXCLUDED.score > scores.score`
+    );
+    await this.q('DELETE FROM scores WHERE level BETWEEN 1008 AND 1014');
+    await this.q(
+      `INSERT INTO scores (igsid, level, score, grade, max_combo, at)
+       SELECT igsid, level + 999, score, grade, max_combo, at FROM scores WHERE level BETWEEN -1014 AND -1008
+       ON CONFLICT (igsid, level) DO UPDATE SET score = EXCLUDED.score, grade = EXCLUDED.grade, max_combo = EXCLUDED.max_combo, at = EXCLUDED.at
+       WHERE EXCLUDED.score > scores.score`
+    );
+    await this.q('DELETE FROM scores WHERE level BETWEEN -1014 AND -1008');
+  }
+
+  /**
+   * 복구: 위 이전이 15단계 칸에서 막혀 멈춘 적이 있음 (먼저 넣었던 어려운 「운명」 점수가 15단계에 남아
+   * 윌리엄 텔 점수가 들어갈 때 기본키가 겹침 → 8~14단계 점수가 1008~1014 에 비켜 둔 채 랭킹이 비어 보임).
+   * 비켜 둔 점수가 있을 때만, 한 트랜잭션으로:
+   *   ① 이전 시작 전에 15단계에 있던 점수(없어진 어려운 운명)는 치워 두고
+   *   ② 비켜 둔 점수를 제자리로 (그 뒤에 새로 친 점수와 겹치면 더 높은 쪽)
+   *   ③ 같이 못 옮긴 이용 통계도 옮김
+   * 중간에 죽으면 통째로 롤백돼서 다음 시작이 다시 시도함.
+   */
+  async repairShiftedLevels() {
+    const FLAG = 'migration:insert-level-8-repair-v1';
+    if (await this.one('SELECT 1 AS x FROM settings WHERE key = $1', [FLAG])) return;
+    const stuck = await this.one('SELECT 1 AS x FROM scores WHERE level BETWEEN 1008 AND 1014 OR level BETWEEN -1014 AND -1008 LIMIT 1');
+    await this.q(`DO $$
+DECLARE
+  claimed integer;
+  t bigint;
+BEGIN
+  INSERT INTO settings (key, value) VALUES ('${FLAG}', '${Date.now()}')
+  ON CONFLICT (key) DO NOTHING;
+  GET DIAGNOSTICS claimed = ROW_COUNT;
+  IF claimed = 0 THEN
+    RETURN;
+  END IF;
+
+  SELECT NULLIF(value, '')::bigint INTO t FROM settings WHERE key = 'migration:insert-level-8-v1';
+
+  IF EXISTS (
+    SELECT 1 FROM scores
+    WHERE level BETWEEN 1008 AND 1014 OR level BETWEEN -1014 AND -1008
+  ) THEN
+    IF t IS NOT NULL THEN
+      UPDATE scores
+        SET level = CASE WHEN level = 15 THEN 9015 ELSE -9015 END
+        WHERE level IN (15, -15) AND at < t;
+    END IF;
+
+    INSERT INTO scores (igsid, level, score, grade, max_combo, at)
+    SELECT igsid, level - 999, score, grade, max_combo, at
+    FROM scores WHERE level BETWEEN 1008 AND 1014
+    ON CONFLICT (igsid, level) DO UPDATE
+      SET score = EXCLUDED.score, grade = EXCLUDED.grade, max_combo = EXCLUDED.max_combo, at = EXCLUDED.at
+      WHERE EXCLUDED.score > scores.score;
+    DELETE FROM scores WHERE level BETWEEN 1008 AND 1014;
+
+    INSERT INTO scores (igsid, level, score, grade, max_combo, at)
+    SELECT igsid, level + 999, score, grade, max_combo, at
+    FROM scores WHERE level BETWEEN -1014 AND -1008
+    ON CONFLICT (igsid, level) DO UPDATE
+      SET score = EXCLUDED.score, grade = EXCLUDED.grade, max_combo = EXCLUDED.max_combo, at = EXCLUDED.at
+      WHERE EXCLUDED.score > scores.score;
+    DELETE FROM scores WHERE level BETWEEN -1014 AND -1008;
+
+    DELETE FROM scores WHERE level IN (9015, -9015);
+
+    IF t IS NOT NULL THEN
+      DELETE FROM plays WHERE level IN ('15', 'e15') AND started_at < t;
+      UPDATE plays SET level = CASE
+        WHEN level ~ '^[0-9]+$' THEN (level::int + 1)::text
+        ELSE 'e' || (substr(level, 2)::int + 1)::text END
+      WHERE started_at < t
+        AND ((level ~ '^[0-9]+$' AND level::int BETWEEN 8 AND 14)
+          OR (level ~ '^e[0-9]+$' AND substr(level, 2)::int BETWEEN 8 AND 14));
+    END IF;
+  END IF;
+END $$`);
+    if (stuck) console.log('[store] 8~15단계 랭킹 복구: 멈춘 점수 이전을 마무리함');
   }
 
   async one(text, params) {

@@ -153,3 +153,36 @@ test('8단계에 신곡이 끼면서: 예전 8~14단계 기록이 9~15단계로 
   assert.ok(fresh.data.settings['migration:insert-level-8-v1']);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('8단계 이전이 15단계 칸 충돌로 멈춘 DB 복구: 비켜 둔 점수를 제자리로, 없어진 곡 점수만 지움, 두 번 안 돌림', async () => {
+  const db = new PGlite();
+  const q = async (text, params) => (await db.query(text, params)).rows;
+  await new PgStore(q).init();
+  const T = 1_000_000;
+  // 멈춘 상태: 이전 표시는 있고(T 에 시작), 점수는 1008~1014 에 비켜 있고, 15단계 칸엔 없어진 어려운 운명 점수(T 전) + 이전 뒤 새로 친 점수
+  // 1008 = 예전 8단계 → 9단계, 1014 = 예전 14단계 → 15단계, -1008 = 예전 무제한 8 → -9
+  await q(`DELETE FROM settings`);
+  await q(`INSERT INTO settings VALUES ('migration:insert-level-8-v1', '${T}')`);
+  await q(`INSERT INTO players (igsid, username) VALUES ('a', '가'), ('b', '나'), ('c', '다')`);
+  await q(`INSERT INTO scores VALUES
+    ('a', 7, 70, 'A', 1, 5),
+    ('a', 1008, 90, 'A', 1, 5), ('b', 1008, 10, 'C', 1, 5), ('a', 1014, 140, 'A', 1, 5), ('b', 1014, 100, 'B', 1, 5),
+    ('a', -1008, 9, 'A', 1, 5),
+    ('a', 15, 298926, 'A', 1, ${T - 10}), ('c', 15, 111, 'B', 1, ${T - 5}), ('c', -15, 222, 'B', 1, ${T - 5}),
+    ('b', 15, 120, 'C', 1, ${T + 10}), ('a', 9, 50, 'C', 1, ${T + 20}), ('b', 9, 95, 'S', 1, ${T + 20}), ('a', 8, 80, 'A', 1, ${T + 30})`);
+  await q(`INSERT INTO plays (id, sid, vid, level, started_at) VALUES ('p1', 's', 'v', '14', ${T - 5}), ('p2', 's', 'v', '15', ${T - 5}), ('p4', 's', 'v', 'e14', ${T - 5}), ('p3', 's', 'v', '9', ${T + 5})`);
+  await new PgStore(q).init();
+  await new PgStore(q).init();
+  const sc = Object.fromEntries((await q('SELECT igsid, level, score FROM scores ORDER BY igsid, level')).map((r) => [`${r.igsid}:${r.level}`, Number(r.score)]));
+  assert.deepEqual(sc, {
+    'a:7': 70,
+    'a:8': 80,
+    'a:9': 90,
+    'a:15': 140,
+    'a:-9': 9,
+    'b:9': 95,
+    'b:15': 120,
+  });
+  const pl = Object.fromEntries((await q('SELECT id, level FROM plays')).map((r) => [r.id, r.level]));
+  assert.deepEqual(pl, { p1: '15', p3: '9', p4: 'e15' });
+});
