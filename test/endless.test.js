@@ -112,15 +112,16 @@ test('다이아몬드: Lv.4 / Lv.7 / Lv.10 클리어', () => {
 test('진행 잠금: 앞 단계를 별 1개 이상으로 깨야 열림, 마지막 단계를 깨면 무제한 모드', () => {
   const bests = {};
   assert.ok(isUnlocked(1, bests));
-  assert.ok(!isUnlocked(2, bests));
+  assert.ok(isUnlocked(2, bests) && isUnlocked(3, bests), '1~3단계는 앞 단계 안 깨도 열림');
+  assert.ok(!isUnlocked(4, bests));
   assert.ok(!isUnlocked(ENDLESS_ID, bests));
   assert.equal(nextChallenge(bests), 1);
-  bests[1] = { stars: 0, score: 100 };
-  assert.ok(!isUnlocked(2, bests), '별 0개는 못 깬 것');
-  bests[1].stars = 1;
-  assert.ok(isUnlocked(2, bests));
-  assert.ok(!isUnlocked(3, bests));
-  assert.equal(nextChallenge(bests), 2);
+  bests[3] = { stars: 0, score: 100 };
+  assert.ok(!isUnlocked(4, bests), '별 0개는 못 깬 것');
+  bests[3].stars = 1;
+  assert.ok(isUnlocked(4, bests));
+  assert.ok(!isUnlocked(5, bests));
+  assert.equal(nextChallenge(bests), 1);
   for (const l of LEVELS) bests[l.id] = { stars: 2 };
   assert.ok(isUnlocked(ENDLESS_ID, bests));
   assert.equal(nextChallenge(bests), ENDLESS_ID);

@@ -874,12 +874,15 @@ export function isClearBest(best) {
 export const LAST_LEVEL_ID = LEVELS[LEVELS.length - 1].id;
 /** 무제한 모드(그리그)는 12단계를 깨면 열림 (13·14단계는 잠겨 있어서) */
 export const ENDLESS_FROM = 12;
-/** bests = { [levelId]: best } 일 때 이 단계가 열려 있는지 (1단계는 항상)
+/** 1~3단계는 앞 단계를 안 깨도 바로 칠 수 있음 */
+export const FREE_LEVELS = 3;
+/** bests = { [levelId]: best } 일 때 이 단계가 열려 있는지 (1~3단계는 항상)
  *  단계별 무제한('e5' 등)은 그 단계를 깨면 열림 */
 export function isUnlocked(levelId, bests) {
   if (levelId === ENDLESS_ID) return isClearBest(bests[ENDLESS_FROM]);
   const base = levelEndlessBase(levelId);
   if (base) return isClearBest(bests[base.id]);
+  if (levelId >= 1 && levelId <= FREE_LEVELS) return true;
   const prev = prevOpenId(levelId);
   return prev === null || isClearBest(bests[prev]);
 }
