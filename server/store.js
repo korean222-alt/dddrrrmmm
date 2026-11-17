@@ -22,7 +22,7 @@ export const sortPlayers = (rows) => rows.sort((a, b) => !!a.hiddenAt - !!b.hidd
 export class JsonStore {
   constructor(file) {
     this.file = file;
-    this.data = { players: {}, usedRuns: {}, sessions: {}, plays: {} };
+    this.data = { players: {}, usedRuns: {}, sessions: {}, plays: {}, settings: {} };
     this._timer = null;
   }
 
@@ -30,7 +30,7 @@ export class JsonStore {
     try {
       const raw = fs.readFileSync(this.file, 'utf8');
       const d = JSON.parse(raw);
-      this.data = { players: d.players || {}, usedRuns: d.usedRuns || {}, sessions: d.sessions || {}, plays: d.plays || {} };
+      this.data = { players: d.players || {}, usedRuns: d.usedRuns || {}, sessions: d.sessions || {}, plays: d.plays || {}, settings: d.settings || {} };
       // 인스타 아이디 등록 기능을 없앴으므로, 예전에 인증된 인스타 계정 기록과 인증 코드는 지움
       for (const [k, p] of Object.entries(this.data.players)) if (p.followVerifiedAt) delete this.data.players[k];
       // 무제한 기록(level <= 0): 예전 방식(깬 단계 × 100만 + 점수) → 새 방식(× 10억)
@@ -57,6 +57,15 @@ export class JsonStore {
     } catch (e) {
       console.error('[store] 저장 실패:', e.message);
     }
+  }
+
+  /** 설정값 하나 (없으면 null) */
+  getSetting(key) {
+    return this.data.settings[key] ?? null;
+  }
+  setSetting(key, value) {
+    this.data.settings[key] = String(value);
+    this._save();
   }
 
   // ----- players -----

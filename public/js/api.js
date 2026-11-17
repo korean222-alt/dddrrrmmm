@@ -31,6 +31,7 @@ function serverApi() {
     config: () => http('GET', '/api/config'),
     me: () => http('GET', '/api/me'),
     guest: (name, ig) => http('POST', '/api/guest', { name, ig }),
+    verifyPassword: (body) => http('POST', '/api/verify/password', body),
     startRun: (level) => http('POST', '/api/runs', { level }),
     submitScore: (payload) => http('POST', '/api/scores', payload),
     leaderboard: (level) => http('GET', `/api/leaderboard?level=${level}`),

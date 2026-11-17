@@ -25,6 +25,7 @@ before(async () => {
     INSTAGRAM_HANDLE: 'ok_aystra',
     MIN_RUN_RATIO: '0',
     ADMIN_TOKEN: 'admin-pw',
+    FOLLOW_PASSWORD: '시험1234',
   });
   // TEST_PG=1: Vercel 과 같은 Postgres 저장소(PgStore)를 메모리 Postgres(PGlite)로 시험
   let store;
@@ -105,6 +106,39 @@ test('팔로워 인증: 신청하면 9·12단계 · 그리그 무제한 / 운영
   assert.equal((await c('GET', '/api/me')).json.checked, false);
   assert.equal((await c('GET', '/api/me')).json.confirmed, false);
   for (const lv of [12, 9, 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 403);
+});
+
+test('팔로워 암호: 틀리면 아무것도 안 생김 / 맞으면 바로 인증 완료(전부 열림) / 관리자가 암호 교체', async () => {
+  const c = client();
+  // 처음 온 사람은 닉네임·아이디가 있어야 함
+  assert.equal((await c('POST', '/api/verify/password', { password: '시험1234' })).json.error, 'bad_name');
+  assert.equal((await c('POST', '/api/verify/password', { name: '암호왕', password: '시험1234' })).json.error, 'bad_ig');
+  // 틀린 암호 → 403, 참여자도 안 만들어짐
+  assert.equal((await c('POST', '/api/verify/password', { name: '암호왕', ig: 'pass.me', password: '틀림' })).json.error, 'wrong_password');
+  assert.equal((await c('GET', '/api/me')).json.verified, false);
+  // 띄어쓰기·대소문자 무시
+  const ok = await c('POST', '/api/verify/password', { name: '암호왕', ig: '@pass.me', password: ' 시험 1234 ' });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.json.confirmed, true);
+  assert.equal(ok.json.player.ig, 'pass.me');
+  for (const lv of [9, 12, 'endless', 13, 14, 'e3']) assert.equal((await c('POST', '/api/runs', { level: lv })).status, 200, String(lv));
+  const listed = (await c('GET', '/api/admin/players', null, adm)).json.players.find((x) => x.ig === 'pass.me');
+  assert.ok(listed && listed.checkedAt);
+  // 관리자: 암호 보기 · 바꾸기 (관리자만)
+  assert.equal((await c('GET', '/api/admin/follow-password')).status, 401);
+  assert.deepEqual((await c('GET', '/api/admin/follow-password', null, adm)).json, { password: '시험1234', source: 'env' });
+  assert.equal((await c('POST', '/api/admin/follow-password', { password: '새암호77' }, adm)).json.ok, true);
+  assert.equal((await c('GET', '/api/admin/follow-password', null, adm)).json.source, 'admin');
+  // 이미 참여한 사람은 암호만 (닉네임·아이디 그대로)
+  const c2 = client();
+  await c2('POST', '/api/guest', { name: '신청만', ig: 'apply.only' });
+  assert.equal((await c2('POST', '/api/verify/password', { password: '시험1234' })).json.error, 'wrong_password');
+  const ok2 = await c2('POST', '/api/verify/password', { password: '새암호77' });
+  assert.equal(ok2.json.confirmed, true);
+  assert.equal(ok2.json.player.username, '신청만');
+  // 빈 값이면 환경변수 암호로 돌아감
+  await c('POST', '/api/admin/follow-password', { password: '' }, adm);
+  assert.deepEqual((await c('GET', '/api/admin/follow-password', null, adm)).json, { password: '시험1234', source: 'env' });
 });
 
 test('정적 파일과 헬스체크', async () => {

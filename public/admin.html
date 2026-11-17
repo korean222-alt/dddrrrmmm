@@ -21,6 +21,7 @@
     button:disabled { opacity: 0.5; }
     .msg { margin-top: 10px; font-size: 14px; min-height: 1.5em; }
     .msg.ok { color: var(--ok); }
+    .muted { opacity: .7; font-size: 14px; }
     .msg.bad { color: var(--bad); }
     ul { list-style: none; margin: 0; padding: 0; }
     li { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 0; border-top: 1px solid var(--line); }
@@ -73,7 +74,13 @@
       </div>
       <section id="tab-players" hidden>
         <p id="players-help-old" hidden>인스타 아이디 없이 랭킹에 참여한 <b>예전 참가자</b>예요. 다시 들어와 아이디를 적으면 '인증 신청자' 탭으로 옮겨가요. 필요 없으면 <b>삭제</b>하세요.</p>
-        <p id="players-help">인증을 <b>신청</b>(닉네임 + 인스타 아이디)한 사람은 확인 전이어도 <b>바로 9·12단계와 💎 그리그 무제한 모드가 열려요</b>. <br>여기서 인스타 아이디를 눌러 팔로우했는지 확인하세요. 했으면 <b>확인함</b> → 인증 완료, <b>13·14단계와 단계별 무제한</b>까지 열려요. 안 했으면 <b>랭킹에서 내리기</b> → 그 사람은 다시 잠기고 랭킹에서도 안 보여요. 다시 들어와 아이디를 적으면 돌아와요. <b>5일</b> 안에 안 적으면 자동으로 삭제돼요. <b>삭제</b>는 바로 지워요. 신청한 지 24시간이 넘었는데 아직 확인 안 한 사람은 빨간 글씨로 보여요.</p>
+        <p id="players-help"><b>팔로워 암호</b>를 맞게 적은 사람은 자동으로 <b>확인함</b>(인증 완료)이 돼요. 암호 없이 <b>신청</b>(닉네임 + 인스타 아이디)만 한 사람은 확인 전이어도 <b>바로 9·12단계와 💎 그리그 무제한 모드가 열려요</b>. <br>여기서 인스타 아이디를 눌러 팔로우했는지 확인하세요. 했으면 <b>확인함</b> → 인증 완료, <b>13·14단계와 단계별 무제한</b>까지 열려요. 안 했으면 <b>랭킹에서 내리기</b> → 그 사람은 다시 잠기고 랭킹에서도 안 보여요. 다시 들어와 아이디를 적으면 돌아와요. <b>5일</b> 안에 안 적으면 자동으로 삭제돼요. <b>삭제</b>는 바로 지워요. 신청한 지 24시간이 넘었는데 아직 확인 안 한 사람은 빨간 글씨로 보여요.</p>
+        <div class="card" id="fp-card">
+          <div class="head"><b>🔑 팔로워 암호</b><span class="muted" id="fp-src"></span></div>
+          <p class="muted" style="margin:6px 0">키티챗 DM(팔로워에게만 보이는 버튼)에 넣은 암호예요. 사이트에서 이 암호를 적으면 바로 <b>인증 완료</b>(확인함과 같음). 바꾸면 <b>키티챗 DM 문구도 같이</b> 바꿔 주세요.</p>
+          <div style="display:flex;gap:8px"><input id="fp-input" maxlength="40" autocomplete="off" style="flex:1" /><button type="button" id="fp-save">저장</button></div>
+          <div class="msg" id="fp-msg"></div>
+        </div>
         <div class="card"><div class="head"><b id="players-count"></b><button type="button" class="ghost" id="players-reload">새로고침</button></div><ul id="players"></ul></div>
       </section>
       <section id="tab-stats">
@@ -226,6 +233,19 @@
       loadPlayers();
     });
     $('#players-reload').addEventListener('click', loadPlayers);
+    async function loadFollowPass() {
+      const r = await call('GET', '/api/admin/follow-password');
+      if (r.status !== 200) return;
+      $('#fp-input').value = r.data.password || '';
+      $('#fp-src').textContent = r.data.source === 'admin' ? '여기서 정한 값' : r.data.source === 'env' ? '환경변수 값' : '없음 (암호 인증 꺼짐)';
+    }
+    $('#fp-save').addEventListener('click', async () => {
+      const v = $('#fp-input').value.trim();
+      const r = await call('POST', '/api/admin/follow-password', { password: v });
+      $('#fp-msg').textContent = r.status === 200 ? `저장했어요: ${r.data.password || '(없음)'}` : '2~40자로 적어 주세요.';
+      $('#fp-msg').className = 'msg ' + (r.status === 200 ? 'ok' : 'bad');
+      loadFollowPass();
+    });
     $('#main-tabs').addEventListener('click', (e) => {
       const b = e.target.closest('[data-tab]');
       if (!b) return;
@@ -234,7 +254,9 @@
       $('#tab-players').hidden = b.dataset.tab === 'stats';
       if (b.dataset.tab !== 'stats') {
         playersView = b.dataset.tab === 'old' ? 'old' : 'ig';
+        $('#fp-card').hidden = playersView === 'old';
         loadPlayers();
+        loadFollowPass();
       }
     });
 

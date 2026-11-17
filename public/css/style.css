@@ -445,3 +445,8 @@ input[type='range'] { width: 100%; accent-color: var(--grass); height: 28px; }
 .follow-chip.ok { background: #e3f6e5; color: #1f6b2b; border-color: #1f6b2b; }
 .follow-chip.wait { background: #fff4cc; }
 #verify-acts a { text-decoration: none; }
+#verify-form { margin-top: 12px; }
+.verify-form .field input { font-size: 17px; }
+#verify-pass { letter-spacing: 1px; }
+.center { text-align: center; }
+#verify-apply-row .link { padding: 4px; font-size: 14px; }

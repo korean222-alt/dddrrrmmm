@@ -88,6 +88,15 @@ export class PgStore {
     return (await this.one('SELECT value FROM settings WHERE key = $1', [key])).value;
   }
 
+  /** 설정값 하나 (없으면 null) */
+  async getSetting(key) {
+    const row = await this.one('SELECT value FROM settings WHERE key = $1', ['set:' + key]);
+    return row ? row.value : null;
+  }
+  async setSetting(key, value) {
+    await this.q('INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', ['set:' + key, String(value)]);
+  }
+
   // ----- players -----
   async getPlayer(igsid) {
     const r = await this.one('SELECT * FROM players WHERE igsid = $1', [igsid]);

@@ -142,33 +142,95 @@ function isConfirmed() {
 const CONFIRM_WHAT = () => `${CLOSED_LEVELS.join('·')}단계와 💎 단계별 무제한`;
 /** 인증 완료(운영자 확인) 전엔 잠긴 것 (13·14단계, 단계별 무제한). 개발용 ?gate=open 에선 풀림 */
 const closedLocked = (id) => state.cfg.gateMode !== 'open' && isClosed(id) && !isConfirmed();
-/** 인증 완료 전 잠김 안내 */
-function confirmLockToast() {
-  if (isVerified()) toast(`인증 신청 완료! 운영자가 팔로우를 확인하면 ${CONFIRM_WHAT()}이 열려요 ⏳`, 3400);
-  else toast(`${CONFIRM_WHAT()}은 팔로워 인증이 완료되면 열려요 🔒`, 3000);
-}
+/** 인스타 댓글에 쓸 키워드 (키티챗 자동 DM 키워드와 같아야 함) */
+const VERIFY_KEYWORD = '쿵';
 
-function openVerify(id) {
+function openVerify(id, { pass = '' } = {}) {
   state.verifyFor = id ?? state.verifyFor ?? null;
   const lv = id == null ? null : id === ENDLESS_ID ? { label: '💎 무제한 모드 · 그리그' } : levelEndlessBase(id) ? { label: `💎 ${levelEndlessBase(id).id}단계 무제한 · ${levelEndlessBase(id).name}` } : getLevel(id) ? { label: `${id}단계 · ${getLevel(id).composer} ${getLevel(id).name}` } : null;
   $('#verify-level').hidden = !lv;
   if (lv) $('#verify-level').textContent = lv.label;
-  $('#verify-mascots').innerHTML = mascotSVG('kong', 'cheer') + mascotSVG('jjak', 'idle');
-  $('#verify-title').textContent = '팔로워 인증이 필요해요';
-  $('#verify-desc').innerHTML = `${VERIFY_WHAT()}는 <b>${igWho()} 팔로워 인증</b>을 신청하면 바로 열려요!<br>운영자가 팔로우를 확인해 <b>인증이 완료</b>되면 ${CONFIRM_WHAT()}까지 열려요.`;
-  const joined = !!(state.me && state.me.guest && !state.me.needsIg && !state.me.hidden);
-  const step = (n, text, done) => `<li class="${done ? 'done' : ''}"><b>${done ? '✓' : n}</b><span>${text}</span></li>`;
+  const done = isConfirmed();
+  $('#verify-mascots').innerHTML = mascotSVG('kong', 'cheer') + mascotSVG('jjak', done ? 'cheer' : 'idle');
+  $('#verify-title').textContent = done ? '팔로워 인증 완료!' : '팔로워 인증';
+  $('#verify-desc').innerHTML = done
+    ? `이미 인증됐어요 🎉 잠긴 단계와 💎 무제한 모드가 전부 열려 있어요.`
+    : `${igWho()} 팔로워라면 <b>암호 하나로 바로</b> 인증돼요!<br>${VERIFY_WHAT()}, ${CONFIRM_WHAT()}까지 전부 열려요.`;
+  const step = (n, text) => `<li class="${done ? 'done' : ''}"><b>${done ? '✓' : n}</b><span>${text}</span></li>`;
   $('#verify-steps').innerHTML = [
-    step(1, `${atHandle()} 팔로우하기`, joined),
-    step(2, '닉네임 + 내 인스타 아이디 적어서 신청', joined),
-    step(3, `신청하면 바로 ${VERIFY_WHAT()} 열림`, joined),
-    step(4, `운영자가 팔로우 확인 → 인증 완료! ${CONFIRM_WHAT()} 열림`, isConfirmed()),
+    step(1, `${atHandle()} <b>팔로우</b>하기`),
+    step(2, `아무 게시물·릴스에 <b>「${VERIFY_KEYWORD}」</b> 댓글 달기`),
+    step(3, `DM 이 오면 <b>버튼</b>을 눌러 <b>팔로워 암호</b> 받기`),
+    step(4, '아래에 암호를 적고 <b>인증하기</b>'),
   ].join('');
   const url = handle() ? `https://www.instagram.com/${handle()}/` : 'https://www.instagram.com/';
-  $('#verify-acts').innerHTML = `<a class="btn btn-insta" href="${url}" target="_blank" rel="noopener">${icon('insta')} 1. 팔로우하러 가기</a>
-       <button class="btn btn-primary" data-action="verify-join">2. 인증 신청하기</button>`;
+  $('#verify-acts').innerHTML = done ? '' : `<a class="btn btn-insta" href="${url}" target="_blank" rel="noopener">${icon('insta')} 팔로우 · 댓글 달러 가기</a>`;
+  const me = state.me || {};
+  const hasName = !!(me.guest && me.player && me.player.username);
+  const hasIg = !!(hasName && me.player.ig && !me.hidden);
+  $('#verify-form').hidden = done;
+  $('#verify-note').hidden = done;
+  $('#verify-name-row').hidden = hasName;
+  $('#verify-ig-row').hidden = hasIg;
+  $('#verify-name').value = hasName ? me.player.username : load('lastNick', '');
+  $('#verify-ig').value = (me.player && me.player.ig) || load('lastIg', '');
+  if (pass) $('#verify-pass').value = pass;
+  $('#verify-err').hidden = true;
+  $('#verify-apply-row').hidden = done || isVerified();
   $('#a2hs-inapp').hidden = !isInApp();
   openModal('modal-verify');
+}
+
+async function submitVerify() {
+  const err = (t) => {
+    $('#verify-err').textContent = t;
+    $('#verify-err').hidden = false;
+  };
+  $('#verify-err').hidden = true;
+  const body = { password: $('#verify-pass').value.trim() };
+  if (!$('#verify-name-row').hidden) {
+    const name = $('#verify-name').value.trim();
+    if ([...name].length < 2) return err('닉네임을 2자 이상으로 써 주세요.');
+    if (!/^[\p{L}\p{N}_. ]+$/u.test(name)) return err('닉네임은 한글·영문·숫자·_ . 만 쓸 수 있어요.');
+    body.name = name;
+  }
+  if (!$('#verify-ig-row').hidden) {
+    let ig = $('#verify-ig').value.trim().toLowerCase();
+    const um = ig.match(/instagram\.com\/([^/?#\s]+)/);
+    if (um) ig = um[1];
+    ig = ig.replace(/^@+/, '');
+    if (!/^[a-z0-9._]{1,30}$/.test(ig)) return err('인스타 아이디를 정확히 써 주세요. (영문·숫자·_ . 만)');
+    body.ig = ig;
+  }
+  if (!body.password) return err('DM 으로 받은 팔로워 암호를 적어 주세요.');
+  if (!state.api || state.api.mode !== 'server') return err('지금은 서버에 연결이 안 돼서 인증할 수 없어요. 잠시 후 다시 해 주세요.');
+  const btn = $('#verify-submit');
+  btn.disabled = true;
+  try {
+    state.me = await state.api.verifyPassword(body);
+    if (body.name) save('lastNick', body.name);
+    if (body.ig) save('lastIg', body.ig);
+    $('#verify-pass').value = '';
+    closeModal('modal-verify');
+    refreshTitle();
+    refreshFollowChip();
+    renderLevels();
+    toast(`🎉 팔로워 인증 완료! 잠긴 단계와 💎 무제한 모드가 전부 열렸어요`, 3600);
+    submitRank();
+    state.verifyFor = null;
+  } catch (e) {
+    const c = e.data && e.data.error;
+    err(
+      c === 'wrong_password' ? '암호가 달라요. DM 속 암호를 다시 확인해 주세요. (암호는 매주 바뀌어요)'
+        : c === 'rate_limited' || e.status === 429 ? '너무 여러 번 틀렸어요. 10분 뒤에 다시 해 주세요.'
+        : c === 'bad_ig' ? '인스타 아이디를 정확히 써 주세요.'
+        : c === 'bad_name' ? '닉네임을 2~12자로 써 주세요.'
+        : c === 'password_off' ? '지금은 암호 인증을 쉬고 있어요. 아래 "아이디만 적고 신청하기"를 써 주세요.'
+        : '인증하지 못했어요. 다시 시도해 주세요.'
+    );
+  } finally {
+    btn.disabled = false;
+  }
 }
 
 /** 단계 id → 칠 판 (숫자 = 일반 단계, 'endless' = 무제한 모드, 'e13' = 13단계 무제한, 'ch4' = 영상용 레벨업 챌린지 4단계까지) */
@@ -189,7 +251,7 @@ function progressLockText(id) {
   return `${prevOpenId(id)}단계를 별 1개 이상으로 깨면 ${id}단계가 열려요`;
 }
 const LOCK_FROM_PREV = (id) => (id === ENDLESS_ID ? `${ENDLESS_FROM}단계 깨면 열림` : `${prevOpenId(id)}단계 깨면 열림`);
-const CLOSED_META = () => `<span class="lockline">${icon('lock')} ${isVerified() ? '확인 대기' : '인증 완료'}</span>`;
+const CLOSED_META = () => `<span class="lockline">${icon('lock')} 팔로워 암호</span>`;
 
 // ---------------- 타이틀 ----------------
 function buildTitle() {
@@ -316,7 +378,7 @@ function renderEndlessLevels(bests) {
   }
   $('#level-list').innerHTML = list.join('');
   refreshToday();
-  $('#levels-foot').innerHTML = `${isVerified() ? '' : `💎 그리그 무제한 모드는 <b>${igWho()} 팔로워 인증</b>을 받으면 열려요 (신청하면 바로).<br>`}12단계를 깨면 그리그 무제한이 열려요. 목숨이 다 떨어질 때까지 계속!<br>${isConfirmed() ? '단계별 무제한은 그 단계를 깨면 열려요.' : '단계별 무제한은 팔로워 인증이 완료되면(운영자 확인) 열려요.'}<br>💎 Lv.4 · 💎💎 Lv.7 · 💎💎💎 Lv.10 클리어`;
+  $('#levels-foot').innerHTML = `${isVerified() ? '' : `💎 그리그 무제한 모드는 <b>${igWho()} 팔로워 인증</b>을 받으면 열려요.<br>`}12단계를 깨면 그리그 무제한이 열려요. 목숨이 다 떨어질 때까지 계속!<br>${isConfirmed() ? '단계별 무제한은 그 단계를 깨면 열려요.' : '단계별 무제한은 <button class="link" data-action="verify-open">팔로워 암호</button>로 인증하면 열려요.'}<br>💎 Lv.4 · 💎💎 Lv.7 · 💎💎💎 Lv.10 클리어`;
 }
 
 function renderLevels() {
@@ -352,7 +414,7 @@ function renderLevels() {
   list.push(grieggCardHTML(bests));
   $('#level-list').innerHTML = list.join('');
   refreshToday();
-  $('#levels-foot').innerHTML = `${isVerified() ? '' : `🔒 <b>${VERIFY_WHAT()}</b>는 팔로워 인증을 신청하면 바로 열려요. <button class="link" data-action="verify-open">인증 신청</button><br>`}앞 단계를 별 1개 이상으로 깨면 다음 단계가 열려요.${isConfirmed() ? '' : ` ${CONFIRM_WHAT()}은 팔로워 인증이 완료되면(운영자 확인) 열려요.`}<br>별 3개: ${STAR_RULES[0].text}`;
+  $('#levels-foot').innerHTML = `${isConfirmed() ? '' : `🔒 잠긴 단계와 💎 무제한은 <b>팔로워 암호</b>로 인증하면 바로 열려요. <button class="link" data-action="verify-open">팔로워 인증</button><br>`}앞 단계를 별 1개 이상으로 깨면 다음 단계가 열려요.<br>별 3개: ${STAR_RULES[0].text}`;
 }
 
 // ---------------- 게임 ----------------
@@ -360,8 +422,7 @@ function renderLevels() {
 async function tryStart(id, { free = false } = {}) {
   // 13·14단계와 단계별 무제한은 운영자가 팔로우를 확인(인증 완료)해야 열림
   if (closedLocked(id)) {
-    if (!isVerified()) openVerify(id);
-    else confirmLockToast();
+    openVerify(id);
     return;
   }
   // 팔로워 인증 단계는 앞 단계를 안 깼어도 신청은 미리 할 수 있게 먼저 안내
@@ -453,7 +514,7 @@ async function startLevel(id) {
         if (e.data && /^confirm_/.test(e.data.error)) {
           state.me = { ...state.me, confirmed: false };
           renderLevels();
-          confirmLockToast();
+          openVerify(id);
           return;
         }
         toast('판을 시작하지 못했어요. 다시 해 보세요', 2600);
@@ -1612,6 +1673,10 @@ const ACTIONS = {
 };
 
 function bindActions() {
+  $('#verify-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    submitVerify();
+  });
   $('#join-form').addEventListener('submit', (e) => {
     e.preventDefault();
     submitJoin();
@@ -1752,6 +1817,16 @@ async function boot() {
     } catch {}
   });
   if (params.get('screen') === 'levels') show('screen-levels');
+  // DM 속 링크(/?k=암호)로 들어옴 → 인증 창에 암호를 미리 채워서 염 (주소에선 지움)
+  if (params.get('k')) {
+    const k = params.get('k').slice(0, 40);
+    try {
+      const u = new URL(location.href);
+      u.searchParams.delete('k');
+      history.replaceState(null, '', u.pathname + u.search + u.hash);
+    } catch {}
+    if (!isConfirmed()) setTimeout(() => openVerify(null, { pass: k }), 300);
+  }
   // 친구가 보낸 1:1 도전장 링크로 들어옴
   if (params.get('vs')) {
     const ch = decodeChallenge(params.get('vs'));

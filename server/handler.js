@@ -66,6 +66,13 @@ export function createHandler(cfg, { store }) {
   const limitScores = rateLimiter(60, 10 * 60 * 1000);
   const limitAdmin = rateLimiter(30, 10 * 60 * 1000);
   const limitTrack = rateLimiter(200, 10 * 60 * 1000);
+  const limitPass = rateLimiter(10, 10 * 60 * 1000); // 팔로워 암호 시도: IP 당 10분에 10번
+
+  /** 지금 팔로워 암호: 관리자 화면에서 정한 값 → 없으면 환경변수 FOLLOW_PASSWORD. 둘 다 없으면 '' (암호 인증 꺼짐) */
+  async function followPassword() {
+    const s = await store.getSetting('followPassword');
+    return s || cfg.followPassword || '';
+  }
 
   /** 관리자 비밀번호 확인 (길이 같을 때만 한 글자씩 비교) */
   function isAdmin(request) {
@@ -189,6 +196,29 @@ export function createHandler(cfg, { store }) {
       return json(200, meOf({ username: name, ig: (rec && rec.ig) || ig, checkedAt: rec && rec.checkedAt, hiddenAt: rec && rec.hiddenAt }));
     }
 
+    // 팔로워 암호로 인증: 키티챗이 팔로워에게만 DM 으로 준 암호를 적으면 바로 '인증 완료'(운영자 확인과 같음)
+    //   처음 온 사람은 닉네임 + 인스타 아이디도 같이. 암호가 틀리면 아무것도 저장 안 함
+    if (p === '/api/verify/password' && m === 'POST') {
+      if (!limitPass(ip)) return json(429, { error: 'rate_limited' });
+      const body = await readJson(request);
+      const pw = await followPassword();
+      if (!pw) return json(503, { error: 'password_off' });
+      const pl = await getPlayer(request);
+      const name = body.name === undefined || body.name === '' ? null : cleanNickname(body.name);
+      if (body.name && !name) return json(400, { error: 'bad_name' });
+      if (!pl && !name) return json(400, { error: 'bad_name' });
+      const ig = body.ig ? cleanInstagram(body.ig) : null;
+      if (body.ig && !ig) return json(400, { error: 'bad_ig' });
+      if (!ig && !(pl && pl.ig)) return json(400, { error: 'bad_ig' });
+      if (!samePassword(body.password, pw)) return json(403, { error: 'wrong_password' });
+      const igsid = pl ? pl.igsid : 'g_' + newId().replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
+      await store.upsertPlayer(igsid, { username: name || pl.username, ig });
+      if (!pl) setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
+      await store.setChecked(igsid, true);
+      const rec = await store.getPlayer(igsid);
+      return json(200, meOf({ username: rec.username, ig: rec.ig, checkedAt: rec.checkedAt, hiddenAt: rec.hiddenAt }));
+    }
+
     // 이용 통계 (익명): 접속 시간 + 곡 시작/끝. 이름·아이디·IP 는 저장하지 않음
     if (p === '/api/track' && m === 'POST') {
       if (!limitTrack(ip)) return json(429, { error: 'rate_limited' });
@@ -213,7 +243,7 @@ export function createHandler(cfg, { store }) {
 
     // 관리자 (비밀번호 필요)
     if (p.startsWith('/api/admin/')) {
-      if (!limitAdmin(ip) && !isAdmin(request)) return json(429, { error: 'rate_limited' });
+      if (!isAdmin(request) && !limitAdmin(ip)) return json(429, { error: 'rate_limited' });
       if (!isAdmin(request)) return json(401, { error: 'admin_required' });
       // 이용 통계: ?days=7 (1~90). 오늘 포함 최근 N일
       if (p === '/api/admin/stats' && m === 'GET') {
@@ -246,6 +276,18 @@ export function createHandler(cfg, { store }) {
         const b = await readJson(request);
         if (typeof b.igsid !== 'string' || !b.igsid) return json(400, { error: 'bad_igsid' });
         return json(200, { ok: await store.setChecked(b.igsid, b.checked !== false) });
+      }
+      // 팔로워 암호 보기 / 바꾸기 (주 1회 교체 → 키티챗 DM 문구도 같이 바꾸기). 빈 값이면 환경변수 값으로 돌아감
+      if (p === '/api/admin/follow-password' && m === 'GET') {
+        const s = await store.getSetting('followPassword');
+        return json(200, { password: s || cfg.followPassword || '', source: s ? 'admin' : cfg.followPassword ? 'env' : 'none' });
+      }
+      if (p === '/api/admin/follow-password' && m === 'POST') {
+        const b = await readJson(request);
+        const v = String(b.password ?? '').trim();
+        if (v && ([...v].length < 2 || [...v].length > 40)) return json(400, { error: 'bad_password' });
+        await store.setSetting('followPassword', v);
+        return json(200, { ok: true, password: v || cfg.followPassword || '' });
       }
       return json(404, { error: 'not_found' });
     }
@@ -351,6 +393,17 @@ export function cleanTrack(b) {
     device: ['mobile', 'desktop', 'inapp'].includes(b.device) ? b.device : 'unknown',
     plays,
   };
+}
+
+/** 팔로워 암호 비교: 띄어쓰기·대소문자 무시 (한글 자모 조합 차이도 맞춤) */
+export function samePassword(input, pw) {
+  const n = (v) => String(v ?? '').normalize('NFC').replace(/\s+/g, '').toLowerCase();
+  const a = n(input);
+  const b = n(pw);
+  if (!b || a.length !== b.length) return false;
+  let d = 0;
+  for (let i = 0; i < b.length; i++) d |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return d === 0;
 }
 
 /**

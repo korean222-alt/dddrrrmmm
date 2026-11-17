@@ -12,6 +12,8 @@ export function makeConfig(env = {}) {
     adminToken: env.ADMIN_TOKEN || '',
     // 이용 통계에서 '하루'를 나누는 시간대 (UTC 와의 차이, 분). 기본 한국 +540
     statsTzMin: env.STATS_TZ_MIN && Number.isFinite(Number(env.STATS_TZ_MIN)) ? Number(env.STATS_TZ_MIN) : 540,
+    // 팔로워 암호 (키티챗이 팔로워에게만 DM 으로 주는 암호). 관리자 화면에서 바꾸면 DB 값이 우선
+    followPassword: env.FOLLOW_PASSWORD || '',
     instagramHandle: (env.INSTAGRAM_HANDLE || '').replace(/^@/, ''),
     siteUrl: env.SITE_URL || '',
     cookieSecure: bool(env.COOKIE_SECURE, prod),
