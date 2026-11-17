@@ -69,19 +69,19 @@
     <div id="app" hidden>
       <div class="tabs" id="main-tabs">
         <button type="button" data-tab="stats" class="on">이용 통계</button>
-        <button type="button" data-tab="players">인증 신청자</button>
-        <button type="button" data-tab="old">예전 참가자</button>
+        <button type="button" data-tab="players">랭킹 참여자</button>
+        <button type="button" data-tab="old">미인증</button>
       </div>
       <section id="tab-players" hidden>
-        <p id="players-help-old" hidden>인스타 아이디 없이 랭킹에 참여한 <b>예전 참가자</b>예요. 다시 들어와 아이디를 적으면 '인증 신청자' 탭으로 옮겨가요. 필요 없으면 <b>삭제</b>하세요.</p>
-        <p id="players-help"><b>1~3단계</b>는 누구나, <b>4단계부터와 💎 무제한 모드</b>는 <b>인증 완료</b>한 사람만 칠 수 있고, <b>랭킹에도 인증 완료한 사람만</b> 보여요. <b>팔로워 암호</b>를 맞게 적은 사람은 자동으로 <b>확인함</b>이 돼요. 아이디만 적고 확인 전인 사람은 잠긴 채로 있어요 — 팔로우했으면 <b>확인함</b>, 안 했으면 <b>랭킹에서 내리기</b>(5일 뒤 자동 삭제). <b>삭제</b>는 바로 지워요.</p>
+        <p id="players-help-old" hidden>팔로워 암호로 <b>인증하지 않은</b> 사람이에요 (예전에 아이디만 적었거나 아이디 없이 참여한 사람). 4단계부터 잠겨 있고 <b>랭킹에도 안 보여요</b>. 이 사람이 암호로 인증하면 기록 그대로 '랭킹 참여자'로 옮겨가요. 필요 없으면 <b>삭제</b>하세요.</p>
+        <p id="players-help">팔로워 암호로 인증해서 <b>랭킹에 올라가 있는 사람</b>이에요. 따로 확인할 필요 없어요. 문제 있는 사람만 <b>삭제</b>하세요 (닉네임과 기록이 바로 지워져요).</p>
         <div class="card" id="fp-card">
           <div class="head"><b>🔑 팔로워 암호</b><span class="muted" id="fp-src"></span></div>
-          <p class="muted" style="margin:6px 0">키티챗 DM(팔로워에게만 보이는 버튼)에 넣은 암호예요. 사이트에서 이 암호를 적으면 바로 <b>인증 완료</b>(확인함과 같음). 바꾸면 <b>키티챗 DM 문구도 같이</b> 바꿔 주세요.</p>
+          <p class="muted" style="margin:6px 0">키티챗 DM(팔로워에게만 보이는 버튼)에 넣은 암호예요. 사이트에서 이 암호를 적으면 바로 <b>인증 완료</b> → 랭킹에 올라가요. 바꾸면 <b>키티챗 DM 문구도 같이</b> 바꿔 주세요.</p>
           <div style="display:flex;gap:8px"><input id="fp-input" maxlength="40" autocomplete="off" style="flex:1" /><button type="button" id="fp-save">저장</button></div>
           <div class="msg" id="fp-msg"></div>
         </div>
-        <div class="card"><div class="head"><b id="players-count"></b><button type="button" class="ghost" id="players-reload">새로고침</button></div><ul id="players"></ul></div>
+        <div class="card"><div class="head"><b id="players-count"></b><span><button type="button" class="ghost" id="players-purge" hidden style="color:var(--bad)">미인증 전부 삭제</button> <button type="button" class="ghost" id="players-reload">새로고침</button></span></div><ul id="players"></ul></div>
       </section>
       <section id="tab-stats">
         <div class="tabs" id="ranges">
@@ -198,29 +198,36 @@
         return;
       }
       const all = r.data.players || [];
+      const isOn = (p) => !!p.checkedAt && !p.hiddenAt;
       const old = playersView === 'old';
-      const ps = all.filter((p) => (old ? !p.ig && !p.hiddenAt : p.ig || p.hiddenAt));
+      const ps = all.filter((p) => (old ? !isOn(p) : isOn(p)));
       $('#players-help').hidden = old;
       $('#players-help-old').hidden = !old;
-      document.querySelector('[data-tab="old"]').textContent = `예전 참가자 ${all.filter((p) => !p.ig && !p.hiddenAt).length}`;
-      const todo = ps.filter((p) => p.ig && !p.checkedAt && !p.hiddenAt).length;
-      const hid = ps.filter((p) => p.hiddenAt).length;
-      const opened = ps.filter((p) => p.ig && !p.hiddenAt).length;
-      $('#players-count').textContent = old ? `예전 참가자 ${ps.length}명` : `신청 ${ps.length}명 · 열림 ${opened}명 · 확인 전 ${todo}명 · 내림 ${hid}명`;
-      const keep = (r.data.keepDays || 5) * 86400000;
-      const left = (p) => Math.max(0, Math.ceil((p.hiddenAt + keep - Date.now()) / 86400000));
+      $('#players-purge').hidden = !old || !ps.length;
+      document.querySelector('[data-tab="players"]').textContent = `랭킹 참여자 ${all.filter(isOn).length}`;
+      document.querySelector('[data-tab="old"]').textContent = `미인증 ${all.filter((p) => !isOn(p)).length}`;
+      $('#players-count').textContent = old ? `미인증 ${ps.length}명` : `랭킹 참여자 ${ps.length}명`;
       $('#players').innerHTML = ps.length
         ? ps.map((p) => {
-            const late = p.ig && !p.checkedAt && !p.hiddenAt && p.createdAt && Date.now() - p.createdAt > 24 * 3600 * 1000;
             const id = p.ig
               ? `<a href="https://www.instagram.com/${esc(p.ig)}/" target="_blank" rel="noopener" style="color:var(--pink)">@${esc(p.ig)}</a>`
-              : '<span class="meta">인스타 아이디 없음 (예전 참여자)</span>';
+              : '<span class="meta">인스타 아이디 없음</span>';
             return `<li data-igsid="${esc(p.igsid)}"><div><div><b>${esc(p.username)}</b> ${id}</div>
-              <div class="meta" ${late || p.hiddenAt ? 'style="color:var(--bad)"' : ''}>${p.hiddenAt ? `⬇️ 랭킹에서 내림 · 잠김 · ${left(p)}일 뒤 삭제` : !p.ig ? '🔒 아이디 없음 · 잠김' : p.checkedAt ? '✅ 인증 완료 · 전부 열림' : '🔓 9·12단계·그리그만 열림 · 팔로우 확인 전'} · ${ago(p.createdAt)} · 총 ${fmtN(p.total)}점 (${p.levels}단계)${p.endless != null ? ' · 무제한 Lv.' + Math.floor(p.endless / 1000000000) : ''}</div></div>
-              <div class="acts">${p.hiddenAt ? '<button type="button" class="ghost" data-do="unhide">되돌리기</button>' : `${p.checkedAt ? '<button type="button" class="ghost" data-do="uncheck">확인 취소</button>' : '<button type="button" data-do="check">확인함</button>'}<button type="button" class="ghost" data-do="hide">랭킹에서 내리기</button>`}<button type="button" class="ghost" data-do="delete" style="color:var(--bad)">삭제</button></div></li>`;
+              <div class="meta">${old ? '🔒 미인증' : '✅ 인증'} · ${ago(p.createdAt)} · 총 ${fmtN(p.total)}점 (${p.levels}단계)${p.endless != null ? ' · 무제한 Lv.' + Math.floor(p.endless / 1000000000) : ''}</div></div>
+              <div class="acts"><button type="button" class="ghost" data-do="delete" style="color:var(--bad)">삭제</button></div></li>`;
           }).join('')
-        : `<li class="empty">${old ? '예전 참가자가 없어요.' : '아직 인증을 신청한 사람이 없어요.'}</li>`;
+        : `<li class="empty">${old ? '미인증 참가자가 없어요.' : '아직 인증한 사람이 없어요.'}</li>`;
+      lastList = ps;
     }
+    let lastList = [];
+    $('#players-purge').addEventListener('click', async () => {
+      const ps = lastList.slice();
+      if (!ps.length || !confirm(`미인증 ${ps.length}명을 전부 삭제할까요?\n닉네임과 기록이 지워져요. (나중에 다시 들어와 인증하면 새로 시작)`)) return;
+      $('#players-purge').disabled = true;
+      for (const p of ps) await call('POST', '/api/admin/players/delete', { igsid: p.igsid });
+      $('#players-purge').disabled = false;
+      loadPlayers();
+    });
     $('#players').addEventListener('click', async (e) => {
       const b = e.target.closest('[data-do]');
       if (!b) return;
@@ -230,10 +237,6 @@
       if (b.dataset.do === 'delete') {
         if (!confirm(`"${name}" 님을 삭제할까요?\n닉네임과 모든 랭킹 기록이 지워져요.`)) return;
         await call('POST', '/api/admin/players/delete', { igsid });
-      } else if (b.dataset.do === 'hide' || b.dataset.do === 'unhide') {
-        await call('POST', '/api/admin/players/hide', { igsid, hidden: b.dataset.do === 'hide' });
-      } else {
-        await call('POST', '/api/admin/players/check', { igsid, checked: b.dataset.do === 'check' });
       }
       loadPlayers();
     });
