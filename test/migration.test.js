@@ -115,3 +115,41 @@ test('무제한 기록: 예전 방식(깬 단계 × 100만, 점수 999,999 에�
   assert.equal(b[-5].score, 3_000_041_000);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('8단계에 신곡이 끼면서: 예전 8~14단계 기록이 9~15단계로 한 번만 밀림 (Postgres + JSON)', async () => {
+  const db = new PGlite();
+  const q = async (text, params) => (await db.query(text, params)).rows;
+  // 예전 DB: 새 곡이 끼기 전 (표시 없음)
+  await q(`CREATE TABLE players (igsid TEXT PRIMARY KEY, username TEXT, follow_verified_at BIGINT)`);
+  await q(`CREATE TABLE scores (igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, grade TEXT, max_combo INTEGER, at BIGINT NOT NULL, PRIMARY KEY (igsid, level))`);
+  await q(`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+  await q(`INSERT INTO players VALUES ('g_a', '가')`);
+  await new PgStore(q).init(); // plays 테이블은 init 이 만듦. 그 뒤에 예전 모양 통계를 넣고 다시 돌려 확인
+  await q(`DELETE FROM settings WHERE key = 'migration:insert-level-8-v1'`);
+  await q(`DELETE FROM scores`);
+  await q(`INSERT INTO scores VALUES ('g_a', 7, 70, 'A', 1, 1), ('g_a', 8, 80, 'A', 1, 1), ('g_a', 9, 90, 'A', 1, 1), ('g_a', 14, 140, 'A', 1, 1),
+    ('g_a', 0, 5000000000, 'A', 1, 1), ('g_a', -7, 7, 'A', 1, 1), ('g_a', -8, 8, 'A', 1, 1), ('g_a', -14, 14, 'A', 1, 1)`);
+  for (const [id, lv] of [['p1', '7'], ['p2', '8'], ['p3', '14'], ['p4', 'e8'], ['p5', 'e14'], ['p6', 'endless'], ['p7', 'e7']])
+    await q(`INSERT INTO plays (id, sid, vid, level, started_at) VALUES ($1, 's', 'v', $2, 1)`, [id, lv]);
+  await new PgStore(q).init();
+  await new PgStore(q).init(); // 두 번 돌려도 한 번만 밀림
+  const sc = Object.fromEntries((await q('SELECT level, score FROM scores')).map((r) => [Number(r.level), Number(r.score)]));
+  assert.deepEqual(sc, { 7: 70, 9: 80, 10: 90, 15: 140, 0: 5000000000, '-7': 7, '-9': 8, '-15': 14 });
+  const pl = Object.fromEntries((await q('SELECT id, level FROM plays')).map((r) => [r.id, r.level]));
+  assert.deepEqual(pl, { p1: '7', p2: '9', p3: '15', p4: 'e9', p5: 'e15', p6: 'endless', p7: 'e7' });
+
+  // JSON 저장소: 파일에 표시가 없으면 한 번 밀고, 다시 열어도 안 밈. 새로 만든 파일엔 처음부터 표시
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kk-shift-'));
+  const file = path.join(dir, 'db.json');
+  fs.writeFileSync(file, JSON.stringify({ players: { g_a: { igsid: 'g_a', bests: { 7: { score: 70 }, 8: { score: 80 }, '-8': { score: 8 } } } }, plays: { x: { id: 'x', level: 'e8' }, y: { id: 'y', level: 3 } } }));
+  const js = new JsonStore(file).init();
+  assert.deepEqual(Object.keys(js.data.players.g_a.bests).sort(), ['-9', '7', '9']);
+  assert.equal(js.data.plays.x.level, 'e9');
+  assert.equal(js.data.plays.y.level, 3);
+  js.flush();
+  const again = new JsonStore(file).init();
+  assert.deepEqual(Object.keys(again.data.players.g_a.bests).sort(), ['-9', '7', '9']);
+  const fresh = new JsonStore(path.join(dir, 'new.json')).init();
+  assert.ok(fresh.data.settings['migration:insert-level-8-v1']);
+  fs.rmSync(dir, { recursive: true, force: true });
+});

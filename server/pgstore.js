@@ -53,6 +53,7 @@ export class PgStore {
   async init() {
     for (const s of SCHEMA) await this.q(s);
     await this.removeInstagramData();
+    await this.shiftLevelsV2();
     return this;
   }
 
@@ -71,6 +72,29 @@ export class PgStore {
     await this.q('DROP TABLE IF EXISTS codes');
     await this.q('INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING', [FLAG, String(Date.now())]);
     console.log(`[store] 인스타 등록 기록 삭제: 플레이어 ${gone.length}명 + 점수 + 인증 코드`);
+  }
+
+  /**
+   * 8단계에 '운명 교향곡'이 끼면서 예전 8~14단계가 9~15단계로 밀림 → 점수(scores.level)와 이용 통계(plays.level)를 한 번만 옮김.
+   *   scores.level: 8~14 → 9~15, 단계별 무제한 칸 -8~-14 → -9~-15 (그리그 0·1~7 은 그대로)
+   *   plays.level (글자): '8'~'14' → '9'~'15', 'e8'~'e14' → 'e9'~'e15'
+   * 표시를 '먼저' 남겨서 서버가 동시에 여러 개 떠도 한 곳만 실행. 기본키(igsid, level)가 겹치지 않게 +1000 으로 잠깐 비켜 놓았다가 돌아옴.
+   */
+  async shiftLevelsV2() {
+    const FLAG = 'migration:insert-level-8-v1';
+    const got = await this.q('INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING RETURNING key', [FLAG, String(Date.now())]);
+    if (!got.length) return;
+    await this.q('UPDATE scores SET level = level + 1000 WHERE level BETWEEN 8 AND 14');
+    await this.q('UPDATE scores SET level = level - 1000 WHERE level BETWEEN -14 AND -8');
+    await this.q('UPDATE scores SET level = level - 999 WHERE level BETWEEN 1008 AND 1014');
+    await this.q('UPDATE scores SET level = level + 999 WHERE level BETWEEN -1014 AND -1008');
+    await this.q(
+      `UPDATE plays SET level = CASE
+         WHEN level ~ '^[0-9]+$' THEN (level::int + 1)::text
+         ELSE 'e' || (substr(level, 2)::int + 1)::text END
+       WHERE (level ~ '^[0-9]+$' AND level::int BETWEEN 8 AND 14) OR (level ~ '^e[0-9]+$' AND substr(level, 2)::int BETWEEN 8 AND 14)`
+    );
+    console.log('[store] 8단계 신곡 끼움: 8~14단계 기록을 9~15단계로 옮김');
   }
 
   async one(text, params) {

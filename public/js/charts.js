@@ -316,6 +316,63 @@ export const LEVELS = [
   },
   {
     id: 8,
+    name: '운명 교향곡',
+    composer: '베토벤',
+    tagline: '빠바바밤! · 웅장한 오케스트라',
+    difficulty: 3,
+    bpm: 108,
+    song: {
+      // 교향곡 5번 1악장 '운명' 동기(빠바바밤 · 빠바바밤)를 높이를 바꿔가며 쌓아 올림. 우리 한 마디 = 원곡 2/4 두 마디.
+      // epic: 처음부터 금관·팀파니·튜바가 총출동 (다른 곡은 뒤로 갈수록 악기가 늘어남)
+      epic: true,
+      prog: [
+        'Cm', 'G', 'Cm', 'G', 'Cm G', 'Fm Cm', 'Eb Fm', 'Ab Eb',
+        'Cm G', 'Eb Fm', 'Cm G', 'Cm G', 'Cm G', 'Cm G', 'Cm', 'Cm',
+      ],
+      hat: '................',
+      bass: 'x.x.x.x.x.x.x.x.',
+      chord: 'x...x...x...x...',
+      melody: [
+        '_:2 G5:2 G5:2 G5:2 Eb5:8',
+        '_:2 F5:2 F5:2 F5:2 D5:8',
+        '_:2 G5:2 G5:2 G5:2 Eb5:4 _:4',
+        '_:2 F5:2 F5:2 F5:2 D5:4 _:4',
+        'G5:2 G5:2 G5:2 Eb5:2 F5:2 F5:2 F5:2 D5:2',
+        'Ab5:2 Ab5:2 Ab5:2 F5:2 G5:2 G5:2 G5:2 Eb5:2',
+        'Bb5:2 Bb5:2 Bb5:2 G5:2 Ab5:2 Ab5:2 Ab5:2 F5:2',
+        'C6:2 C6:2 C6:2 Ab5:2 Bb5:2 Bb5:2 Bb5:2 G5:2',
+        'C6:2 C6:2 C6:2 G5:2 C6:2 C6:2 C6:2 G5:2',
+        'Bb5:2 Bb5:2 Bb5:2 G5:2 Ab5:2 Ab5:2 Ab5:2 F5:2',
+        'G5:2 G5:2 G5:2 Eb5:2 F5:2 F5:2 F5:2 D5:2',
+        'Eb5:2 Eb5:2 Eb5:2 C5:2 D5:2 D5:2 D5:2 B4:2',
+        'G5:2 G5:2 G5:2 Eb5:2 F5:2 F5:2 F5:2 D5:2',
+        'C6:2 C6:2 C6:2 G5:2 C6:2 C6:2 C6:2 G5:2',
+        '_:2 G5:2 G5:2 G5:2 Eb5:8',
+        'C6:2 C6:2 C6:2 G5:2 C6:8',
+      ],
+    },
+    bars: [
+      // 킥·스네어만, 느긋하게. '빠바바밤' = 킥 세 번 + 스네어 한 방
+      '..K.K.K.S.......',
+      '..S.S.S.B.......',
+      '..K.K.K.S...K...',
+      '..S.S.S.B...S...',
+      'K.K.K.S.S.S.S.B.',
+      'K.K.K.S.K.K.K.S.',
+      'K.S.K.S.K.S.K.B.',
+      'K.K.K.S.S.K.K.B.',
+      'K.K.B.S.K.K.B.S.',
+      'K.S.K.S.K.S.K.S.',
+      'K.K.K.S.S.S.S.B.',
+      'K.S.K.S.K.S.K.B.',
+      'K.K.K.S.K.K.K.S.',
+      'K.K.B.S.K.K.B.S.',
+      '..K.K.K.S.......',
+      'K.K.K.B.B.......',
+    ],
+  },
+  {
+    id: 9,
     name: '산왕의 궁전에서',
     composer: '그리그',
     tagline: '더블 킥 · 왼쪽 엄지 연타',
@@ -360,7 +417,7 @@ export const LEVELS = [
     ],
   },
   {
-    id: 9,
+    id: 10,
     name: '캉캉',
     composer: '오펜바흐',
     tagline: '하이햇 등장! · 펀치 비트',
@@ -399,7 +456,7 @@ export const LEVELS = [
     ],
   },
   {
-    id: 10,
+    id: 11,
     name: '엔터테이너',
     composer: '스콧 조플린',
     tagline: '래그타임 · 하이햇 그루브',
@@ -437,7 +494,7 @@ export const LEVELS = [
     ],
   },
   {
-    id: 11,
+    id: 12,
     name: '코로부시카',
     composer: '러시아 민요',
     tagline: '질주 비트 · 킥 연타 + 하이햇',
@@ -475,7 +532,7 @@ export const LEVELS = [
     ],
   },
   {
-    id: 12,
+    id: 13,
     name: '터키 행진곡',
     composer: '모차르트',
     tagline: '크래시 등장! · 네 악기 총출동',
@@ -519,7 +576,7 @@ export const LEVELS = [
     ],
   },
   {
-    id: 13,
+    id: 14,
     name: '왕벌의 비행',
     composer: '림스키코르사코프',
     tagline: '보스 · 미친 속도 16분음표',
@@ -564,7 +621,7 @@ export const LEVELS = [
     ],
   },
   {
-    id: 14,
+    id: 15,
     name: '윌리엄 텔 서곡',
     composer: '로시니',
     tagline: '진짜 최종 보스 · 질주하는 말발굽',
@@ -602,72 +659,6 @@ export const LEVELS = [
       'KSKSKSKSKSKSKSK.',
       'X.B.K.S.X.B.K.S.',
       'X...B...X.......',
-    ],
-  },
-  {
-    id: 15,
-    name: '운명 교향곡',
-    composer: '베토벤',
-    tagline: '빠바바밤! · 웅장한 오케스트라 최종 결전',
-    difficulty: 5,
-    bpm: 150,
-    boss: true,
-    song: {
-      // 교향곡 5번 1악장 '운명' 동기(빠바바밤 · 빠바바밤)를 높이를 바꿔가며 쌓아 올림. 우리 한 마디 = 원곡 2/4 두 마디.
-      // epic: 처음부터 금관·팀파니·튜바가 총출동 (다른 곡은 뒤로 갈수록 악기가 늘어남)
-      epic: true,
-      prog: [
-        'Cm', 'G', 'Cm', 'G', 'Cm G', 'Fm Cm', 'Eb Fm', 'Ab Eb', 'Cm G', 'Eb Fm',
-        'Cm G', 'Cm G', 'Cm G', 'Fm Cm', 'Ab Eb', 'Cm G', 'Cm', 'G', 'Cm G', 'Cm',
-      ],
-      hat: '................',
-      bass: 'x.x.x.x.x.x.x.x.',
-      chord: 'x...x...x...x...',
-      melody: [
-        '_:2 G5:2 G5:2 G5:2 Eb5:8',
-        '_:2 F5:2 F5:2 F5:2 D5:8',
-        '_:2 G5:2 G5:2 G5:2 Eb5:4 _:4',
-        '_:2 F5:2 F5:2 F5:2 D5:4 _:4',
-        'G5:2 G5:2 G5:2 Eb5:2 F5:2 F5:2 F5:2 D5:2',
-        'Ab5:2 Ab5:2 Ab5:2 F5:2 G5:2 G5:2 G5:2 Eb5:2',
-        'Bb5:2 Bb5:2 Bb5:2 G5:2 Ab5:2 Ab5:2 Ab5:2 F5:2',
-        'C6:2 C6:2 C6:2 Ab5:2 Bb5:2 Bb5:2 Bb5:2 G5:2',
-        'C6:2 C6:2 C6:2 G5:2 C6:2 C6:2 C6:2 G5:2',
-        'Bb5:2 Bb5:2 Bb5:2 G5:2 Ab5:2 Ab5:2 Ab5:2 F5:2',
-        'G5:2 G5:2 G5:2 Eb5:2 F5:2 F5:2 F5:2 D5:2',
-        'Eb5:2 Eb5:2 Eb5:2 C5:2 D5:2 D5:2 D5:2 B4:2',
-        'G5:2 G5:2 G5:2 Eb5:2 F5:2 F5:2 F5:2 D5:2',
-        'Ab5:2 Ab5:2 Ab5:2 F5:2 G5:2 G5:2 G5:2 Eb5:2',
-        'C6:2 C6:2 C6:2 Ab5:2 Bb5:2 Bb5:2 Bb5:2 G5:2',
-        'C6:2 C6:2 C6:2 G5:2 C6:2 C6:2 C6:2 G5:2',
-        '_:2 G5:2 G5:2 G5:2 Eb5:8',
-        '_:2 F5:2 F5:2 F5:2 D5:8',
-        'G5:2 G5:2 G5:2 Eb5:2 F5:2 F5:2 F5:2 D5:2',
-        'C6:2 C6:2 C6:2 G5:2 C6:8',
-      ],
-    },
-    bars: [
-      // '빠바바밤' = 8분음표 세 번 + 센 한 방(X). 같은 엄지 16분음표 연타는 없음 (엄지를 번갈아 치는 KSKS 로 몰아침)
-      '..K.K.K.X...K.S.',
-      '..S.S.S.X...KSKS',
-      '..K.K.K.X...S.S.',
-      '..S.S.S.X...K.K.',
-      'K.K.K.X.S.S.S.X.',
-      'KHKHK.X.SKSKS.X.',
-      'J.K.J.X.S.H.S.X.',
-      'C.K.K.X.B.S.S.X.',
-      'X.X.X.B.X.X.X.B.',
-      'KSKSK.X.SKSKS.X.',
-      'K.K.K.X.S.S.S.X.',
-      'KHKHK.X.SKSKS.X.',
-      'J.H.J.X.B.H.S.X.',
-      'X.K.S.X.B.K.S.X.',
-      'KSKSKSKSKSKSKSK.',
-      'X.X.X.B.X.X.X.B.',
-      '..K.K.K.X...K.S.',
-      '..S.S.S.X...KSKS',
-      'K.K.J.X.S.H.S.X.',
-      'X.X.X.B.X.......',
     ],
   },
 ];
@@ -938,8 +929,17 @@ export function isClearBest(best) {
   return !!best && (best.stars || 0) >= 1;
 }
 export const LAST_LEVEL_ID = LEVELS[LEVELS.length - 1].id;
-/** 무제한 모드(그리그)는 12단계를 깨면 열림 (13·14단계는 잠겨 있어서) */
-export const ENDLESS_FROM = 12;
+
+/** 2026-11-17: 8단계에 '운명 교향곡'을 끼워 넣어서, 예전 8~14단계는 번호가 하나씩 밀림(9~15).
+ *  저장된 기록 키('8', 'e8', 서버 칸 '-8')를 새 번호로 바꿔 줌. 예전 번호가 아니면 그대로. */
+export function shiftOldLevelKey(key) {
+  const m = /^(e|-)?(\d+)$/.exec(String(key));
+  if (!m) return key;
+  const n = Number(m[2]);
+  return n >= 8 && n <= 14 ? (m[1] || '') + (n + 1) : String(key);
+}
+/** 무제한 모드(그리그)는 13단계(터키 행진곡)를 깨면 열림 */
+export const ENDLESS_FROM = 13;
 /** 1~3단계는 앞 단계를 안 깨도 바로 칠 수 있음 */
 export const FREE_LEVELS = 3;
 /** bests = { [levelId]: best } 일 때 이 단계가 열려 있는지 (1~3단계는 항상)

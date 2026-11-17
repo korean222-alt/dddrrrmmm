@@ -13,7 +13,9 @@ import { createApi } from './api.js';
 import { initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay } from './track.js';
 import { CONFIG } from './config.js';
 import { mascotSVG, stickSVG, bassDrumSVG, snareSVG } from './mascot.js';
-import { loadSettings, saveSettings, loadBests, saveBest, load, save, remove } from './storage.js';
+import { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder } from './storage.js';
+
+migrateLevelOrder(); // 8단계에 새 곡이 끼면서 밀린 번호를 이 브라우저 기록에도 반영 (아래 state 보다 먼저)
 import { makeShareCard, gradeColor } from './sharecard.js';
 import { todayLevel, encodeChallenge, decodeChallenge, opponentScoreAt, versusOutcome, cleanName } from './versus.js';
 

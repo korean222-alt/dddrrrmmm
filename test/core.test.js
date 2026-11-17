@@ -28,12 +28,12 @@ test('곡: 멜로디 마디 길이 16칸, 코드 이름 해석', () => {
   assert.throws(() => parseMelody(['C5 D5 E5']), /16칸/);
 });
 
-test('악기: 1~8단계 킥·스네어, 9단계 +하이햇, 12단계 +크래시', () => {
-  for (let i = 0; i < 8; i++) assert.deepEqual(levelLanes(LEVELS[i]), [0, 1], `Lv.${i + 1}`);
-  for (const i of [8, 9, 10]) assert.deepEqual(levelLanes(LEVELS[i]), [0, 1, HAT], `Lv.${i + 1}`);
-  assert.deepEqual(levelLanes(LEVELS[11]), [CRASH, 0, 1, HAT]);
-  assert.equal(LEVELS[8].newInstrument, HAT);
-  assert.equal(LEVELS[11].newInstrument, CRASH);
+test('악기: 1~9단계 킥·스네어, 10단계 +하이햇, 13단계 +크래시', () => {
+  for (let i = 0; i < 9; i++) assert.deepEqual(levelLanes(LEVELS[i]), [0, 1], `Lv.${i + 1}`);
+  for (const i of [9, 10, 11]) assert.deepEqual(levelLanes(LEVELS[i]), [0, 1, HAT], `Lv.${i + 1}`);
+  assert.deepEqual(levelLanes(LEVELS[12]), [CRASH, 0, 1, HAT]);
+  assert.equal(LEVELS[9].newInstrument, HAT);
+  assert.equal(LEVELS[12].newInstrument, CRASH);
   // 난이도는 단계가 올라갈수록 같거나 높아짐
   for (let i = 1; i < LEVELS.length; i++) assert.ok(LEVELS[i].difficulty >= LEVELS[i - 1].difficulty, `Lv.${i + 1} 난이도`);
   // 같은 엄지 레인(킥/크래시, 스네어/하이햇)에 동시 노트가 없어야 함
@@ -71,7 +71,7 @@ test('노트 생성: 동시치기는 두 레인 같은 시각', () => {
     assert.equal(notes.length, noteCount(lv));
     for (let i = 1; i < notes.length; i++) assert.ok(notes[i].time >= notes[i - 1].time);
   }
-  const both = buildNotes(LEVELS[8]).filter((n) => n.pair === 0);
+  const both = buildNotes(LEVELS[9]).filter((n) => n.pair === 0);
   assert.equal(both.length, 2);
   assert.equal(both[0].time, both[1].time);
 });
@@ -97,7 +97,7 @@ test('서명 토큰', () => {
 
 test('1:1 도전장: 링크로 주고받기 + 위조/깨진 값 거부', async () => {
   const { encodeChallenge, decodeChallenge, opponentScoreAt, versusOutcome, todayLevel, kstDateKey, cleanName } = await import('../public/js/versus.js');
-  const lv = LEVELS[11];
+  const lv = LEVELS[12];
   const timeline = lv.bars.map((_, i) => (i + 1) * 1000);
   const r = { name: '쿵짝왕<script>', levelId: lv.id, score: timeline.at(-1), stars: 2, grade: 'A', accuracy: 0.912, timeline };
   const code = encodeChallenge(r);
@@ -131,8 +131,8 @@ test('1:1 도전장: 링크로 주고받기 + 위조/깨진 값 거부', async (
   }
 });
 
-test('12단계 터키 행진곡: 같은 엄지로 16분음표 연타 없음 (사람이 깰 수 있게)', () => {
-  const lv = LEVELS[11];
+test('13단계 터키 행진곡: 같은 엄지로 16분음표 연타 없음 (사람이 깰 수 있게)', () => {
+  const lv = LEVELS[12];
   const last = { L: -9, R: -9 };
   for (const n of buildNotes(lv)) {
     const h = n.lane === 0 || n.lane === CRASH ? 'L' : 'R';
@@ -149,7 +149,7 @@ test('목숨: MISS 5번이면 멈추고 이어하기 1번, 동시치기 둘 다 
   const audio = { ctx: { suspend: async () => {}, resume: async () => {} }, heardTime: () => 0, crash: noop };
   const deaths = [];
   let ended = null;
-  const g = new Game({ audio, renderer, level: LEVELS[8], settings: {}, onDeath: (d) => deaths.push(d), onEnd: (r) => (ended = r) });
+  const g = new Game({ audio, renderer, level: LEVELS[9], settings: {}, onDeath: (d) => deaths.push(d), onEnd: (r) => (ended = r) });
   g.startTime = 0;
   g.state = 'playing';
   g.player = { stop: noop };

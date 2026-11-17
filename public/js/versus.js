@@ -8,7 +8,7 @@ import { LEVELS, getLevel, maxScore, isClosed } from './charts.js';
 
 const DAY_MS = 86400000;
 /** 날마다 돌아가며 나오는 순서 (같은 곡이 이틀 연속 안 나오게) */
-const TODAY_ORDER = [3, 9, 1, 11, 5, 13, 7, 2, 14, 10, 6, 12, 4, 8];
+const TODAY_ORDER = [3, 10, 1, 12, 5, 14, 7, 2, 15, 11, 6, 13, 4, 9, 8];
 const GRADES = ['SS', 'S', 'A', 'B', 'C', 'D'];
 export const NAME_MAX = 10;
 
@@ -20,7 +20,7 @@ export function kstDateKey(d = new Date()) {
 /** 오늘의 노래 (한국 시간 자정에 바뀜) */
 export function todayLevel(d = new Date()) {
   const day = Math.floor((d.getTime() + 9 * 3600000) / DAY_MS);
-  // 잠긴 단계(9·13·14)는 오늘의 노래로 안 나옴
+  // 팔로워 인증이 필요한 단계(4단계부터)는 오늘의 노래로 안 나옴
   const order = TODAY_ORDER.filter((id) => getLevel(id) && !isClosed(id));
   const ids = order.length ? order : LEVELS.filter((l) => !isClosed(l.id)).map((l) => l.id);
   return getLevel(ids[((day % ids.length) + ids.length) % ids.length]);

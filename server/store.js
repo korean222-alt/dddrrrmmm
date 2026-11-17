@@ -10,6 +10,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
+import { shiftOldLevelKey } from '../public/js/charts.js';
 
 // 이용 통계는 1년 보관
 export const STATS_KEEP_MS = 400 * 24 * 3600 * 1000;
@@ -36,8 +37,20 @@ export class JsonStore {
       // 무제한 기록(level <= 0): 예전 방식(깬 단계 × 100만 + 점수) → 새 방식(× 10억)
       for (const p of Object.values(this.data.players))
         for (const [lv, b] of Object.entries(p.bests || {})) if (Number(lv) <= 0 && b && b.score < 1e9) b.score = Math.floor(b.score / 1e6) * 1e9 + (b.score % 1e6);
+      // 8단계에 새 곡이 끼면서 예전 8~14단계가 9~15단계로 밀림 → 기록 키를 한 번만 옮김
+      if (!this.data.settings['migration:insert-level-8-v1']) {
+        for (const p of Object.values(this.data.players)) {
+          const bs = {};
+          for (const [lv, b] of Object.entries(p.bests || {})) bs[shiftOldLevelKey(lv)] = b;
+          p.bests = bs;
+        }
+        for (const pl of Object.values(this.data.plays)) if (pl && pl.level != null) pl.level = typeof pl.level === 'number' ? Number(shiftOldLevelKey(pl.level)) : shiftOldLevelKey(pl.level);
+        this.data.settings['migration:insert-level-8-v1'] = String(Date.now());
+      }
     } catch (e) {
       if (e.code !== 'ENOENT') console.error('[store] 읽기 실패, 새로 시작:', e.message);
+      // 새로 시작하는 저장소는 처음부터 새 번호 → 나중에 파일이 생겨도 옮기지 않게 표시
+      this.data.settings['migration:insert-level-8-v1'] ??= String(Date.now());
     }
     return this;
   }

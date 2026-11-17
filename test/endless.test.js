@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 
 import {
   LEVELS, getLevel, levelLanes, buildNotes, parseMelody, stepDur, tempoOf, TempoMap, CRASH, HAT, KICK, SNARE,
-  makeEndless, roundBpm, roundInfo, roundBars, diamondsFor, ROUND_BARS, COUNT_IN_BARS,
+  makeEndless, shiftOldLevelKey, roundBpm, roundInfo, roundBars, diamondsFor, ROUND_BARS, COUNT_IN_BARS,
   isUnlocked, nextChallenge, ENDLESS_ID, LAST_LEVEL_ID, STEPS_PER_BAR,
   ENDLESS_FROM, makeLevelEndless, levelEndlessBase, levelEndlessId, LEVEL_ENDLESS_STEP,
 } from '../public/js/charts.js';
@@ -30,40 +30,39 @@ function sameThumb16th(notes) {
   return out;
 }
 
-test('13단계 왕벌의 비행: 보스, 4악기, 같은 엄지 16분음표 연타 없음', () => {
-  const lv = getLevel(13);
+test('14단계 왕벌의 비행: 보스, 4악기, 같은 엄지 16분음표 연타 없음', () => {
+  const lv = getLevel(14);
   assert.equal(lv.name, '왕벌의 비행');
   assert.equal(lv.difficulty, 5);
-  assert.deepEqual(levelLanes(lv), [CRASH, KICK, SNARE, HAT]);
-  assertNoSameThumb16th(buildNotes(lv), 'Lv.13');
-});
-
-test('14단계 윌리엄 텔 서곡: 13단계보다 빠르고 촘촘한 보스, 같은 엄지 16분음표 연타 없음', () => {
-  const lv = getLevel(14);
-  const prev = getLevel(13);
-  assert.equal(lv.name, '윌리엄 텔 서곡');
-  assert.ok(LEVELS.filter((l) => l.id <= 14).every((l) => l.bpm <= lv.bpm), '14단계까지 중 제일 빠른 곡');
-  assert.ok(lv.bpm > prev.bpm);
-  // 1초에 치는 노트 수도 13단계보다 많음
-  const density = (l) => buildNotes(l).length / (l.bars.length * (240 / l.bpm));
-  assert.ok(density(lv) > density(prev), `14단계 ${density(lv).toFixed(2)} vs 13단계 ${density(prev).toFixed(2)}`);
   assert.deepEqual(levelLanes(lv), [CRASH, KICK, SNARE, HAT]);
   assertNoSameThumb16th(buildNotes(lv), 'Lv.14');
 });
 
-test('15단계 운명 교향곡: 14단계보다 빠르고 촘촘한 최종 보스, 첫 소절은 빠바바밤, 같은 엄지 16분음표 연타 없음', () => {
+test('15단계 윌리엄 텔 서곡: 14단계보다 빠르고 촘촘한 진짜 최종 보스, 같은 엄지 16분음표 연타 없음', () => {
   const lv = getLevel(15);
   const prev = getLevel(14);
-  assert.equal(lv.name, '운명 교향곡');
-  assert.equal(lv.composer, '베토벤');
-  assert.equal(lv.difficulty, 5);
-  assert.ok(lv.boss);
+  assert.equal(lv.name, '윌리엄 텔 서곡');
   assert.equal(LAST_LEVEL_ID, 15);
   assert.ok(LEVELS.every((l) => l.bpm <= lv.bpm), '제일 빠른 곡');
+  assert.ok(lv.bpm > prev.bpm);
+  // 1초에 치는 노트 수도 14단계보다 많음
   const density = (l) => buildNotes(l).length / (l.bars.length * (240 / l.bpm));
   assert.ok(density(lv) > density(prev), `15단계 ${density(lv).toFixed(2)} vs 14단계 ${density(prev).toFixed(2)}`);
   assert.deepEqual(levelLanes(lv), [CRASH, KICK, SNARE, HAT]);
   assertNoSameThumb16th(buildNotes(lv), 'Lv.15');
+});
+
+test('8단계 운명 교향곡: 킥·스네어만, 14단계와 달리 느긋함(그리그보다 성김), 첫 소절은 빠바바밤, 웅장한 오케스트라', () => {
+  const lv = getLevel(8);
+  const next = getLevel(9);
+  assert.equal(lv.name, '운명 교향곡');
+  assert.equal(lv.composer, '베토벤');
+  assert.ok(!lv.boss);
+  assert.deepEqual(levelLanes(lv), [KICK, SNARE]);
+  const density = (l) => buildNotes(l).length / (l.bars.length * (240 / l.bpm));
+  assert.ok(density(lv) < density(next), `8단계 ${density(lv).toFixed(2)} vs 9단계 ${density(next).toFixed(2)}`);
+  assert.ok(lv.difficulty <= next.difficulty);
+  assertNoSameThumb16th(buildNotes(lv), 'Lv.8');
   // 웅장한 오케스트라 곡 표시 + 멜로디·코드가 마디 수와 맞음 (parseMelody 가 16칸 아니면 던짐)
   assert.ok(lv.song.epic);
   assert.equal(lv.song.melody.length, lv.bars.length);
@@ -71,10 +70,10 @@ test('15단계 운명 교향곡: 14단계보다 빠르고 촘촘한 최종 보�
   const mel = parseMelody(lv.song.melody);
   // 처음 네 음: G G G E♭ (빠바바밤)
   assert.deepEqual(mel.slice(0, 4).map((n) => n.midi), [79, 79, 79, 75]);
-  // 단계별 무제한(e15)도 같은 곡으로 만들어짐
-  const e = makeLevelEndless(lv);
-  assert.equal(e.id, 'e15');
-  assert.equal(levelEndlessBase('e15').id, 15);
+  // 8단계가 끼면서 예전 8~14단계는 9~15단계로: 기록 키 옮기기
+  assert.equal(getLevel(9).name, '산왕의 궁전에서');
+  assert.deepEqual(['7', '8', '14', '15', 'e8', 'e14', 'e7', '-8', '-14', '-7', '0', 'endless'].map(shiftOldLevelKey), ['7', '9', '15', '15', 'e9', 'e15', 'e7', '-9', '-15', '-7', '0', 'endless']);
+  assert.equal(levelEndlessBase('e8').id, 8);
 });
 
 test('박자 시계: 고정 BPM 은 예전 계산과 똑같고, 바뀌는 BPM 도 앞뒤가 맞음', () => {
@@ -150,19 +149,19 @@ test('진행 잠금: 앞 단계를 별 1개 이상으로 깨야 열림, 마지�
   for (const l of LEVELS) bests[l.id] = { stars: 2 };
   assert.ok(isUnlocked(ENDLESS_ID, bests));
   assert.equal(nextChallenge(bests), ENDLESS_ID);
-  // 건너뛰는 단계 없음: 1→2→…→14 차례로, 그리그 무제한은 12단계를 깨면 열림
-  assert.equal(ENDLESS_FROM, 12);
+  // 건너뛰는 단계 없음: 1→2→…→15 차례로, 그리그 무제한은 13단계를 깨면 열림
+  assert.equal(ENDLESS_FROM, 13);
   const b2 = {};
   for (let i = 1; i <= 8; i++) b2[i] = { stars: 1 };
   assert.ok(isUnlocked(9, b2));
   assert.ok(!isUnlocked(10, b2), '9단계를 깨야 10단계');
   assert.equal(nextChallenge(b2), 9);
-  for (let i = 9; i <= 11; i++) b2[i] = { stars: 1 };
-  assert.ok(isUnlocked(12, b2));
+  for (let i = 9; i <= 12; i++) b2[i] = { stars: 1 };
+  assert.ok(isUnlocked(13, b2));
   assert.ok(!isUnlocked(ENDLESS_ID, b2));
-  b2[12] = { stars: 1 };
-  assert.ok(isUnlocked(ENDLESS_ID, b2), '13·14단계 없이 12단계만 깨도 그리그 무제한');
-  assert.equal(nextChallenge(b2), 13);
+  b2[13] = { stars: 1 };
+  assert.ok(isUnlocked(ENDLESS_ID, b2), '14·15단계 없이 13단계만 깨도 그리그 무제한');
+  assert.equal(nextChallenge(b2), 14);
 });
 
 test('단계별 무제한: 그 단계를 깨면 열림, 그 곡 채보를 4마디씩 끝없이, 4마디마다 빨라짐', () => {
@@ -188,12 +187,12 @@ test('단계별 무제한: 그 단계를 깨면 열림, 그 곡 채보를 4마�
     assert.equal(run.tempo.bpm(COUNT_IN_BARS + ROUND_BARS), base.bpm + LEVEL_ENDLESS_STEP);
     assert.equal(run.roundInfo(3).bpm, base.bpm + 2 * LEVEL_ENDLESS_STEP);
     // 곡이 처음으로 돌아가는 이음새에서 새로 생기는 같은 엄지 16분음표 연타는 없음
-    // (5~11단계의 더블 킥처럼 원래 채보에 있는 건 그대로 둠. 12단계부터는 원래도 없음)
+    // (5~11단계의 더블 킥처럼 원래 채보에 있는 건 그대로 둠. 13단계부터는 원래도 없음)
     const len = base.bars.length * STEPS_PER_BAR;
     const pre = COUNT_IN_BARS * STEPS_PER_BAR; // 노트 칸 번호는 카운트인 마디부터 셈
     const own = new Set(sameThumb16th(buildNotes(base)));
     for (const st of sameThumb16th(buildNotes(run))) assert.ok(own.has(((st - pre) % len) + pre), `e${base.id} 이음새 ${st}칸`);
-    if (base.id >= 12) assertNoSameThumb16th(buildNotes(run), `e${base.id}`);
+    if (base.id >= 13) assertNoSameThumb16th(buildNotes(run), `e${base.id}`);
   }
 });
 
