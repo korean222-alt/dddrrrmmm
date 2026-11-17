@@ -109,11 +109,16 @@
     try { token = localStorage.getItem('adminToken') || ''; } catch {}
 
     async function call(method, path, body) {
-      const res = await fetch(path, {
-        method,
-        headers: { 'x-admin-token': token, ...(body ? { 'Content-Type': 'application/json' } : {}) },
-        body: body ? JSON.stringify(body) : undefined,
-      });
+      let res;
+      try {
+        res = await fetch(path, {
+          method,
+          headers: { 'x-admin-token': token, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+          body: body ? JSON.stringify(body) : undefined,
+        });
+      } catch (e) {
+        return { status: 0, data: {}, error: String((e && e.message) || e) };
+      }
       let data = null;
       try { data = await res.json(); } catch {}
       return { status: res.status, data: data || {} };
@@ -273,7 +278,12 @@
       token = $('#token').value.trim() || token;
       if (!token) return;
       const r = await call('GET', '/api/admin/stats?days=1');
-      if (r.status !== 200) return logout(r.status === 401 ? '비밀번호가 맞지 않아요.' : '서버에 연결하지 못했어요.');
+      if (r.status !== 200) return logout(
+        r.status === 401 ? '비밀번호가 맞지 않아요. (401)'
+        : r.status === 429 ? '비밀번호를 여러 번 틀려서 10분 동안 막혔어요. (429)'
+        : r.status === 0 ? `서버에 연결하지 못했어요. 인터넷 연결이나 이 주소가 막혀 있는지 확인해 주세요. (${r.error || '네트워크 오류'})`
+        : `서버 오류예요. (${r.status} ${r.data && r.data.error ? r.data.error : ''})`
+      );
       try { localStorage.setItem('adminToken', token); } catch {}
       $('#login').hidden = true;
       $('#app').hidden = false;
