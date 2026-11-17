@@ -34,14 +34,32 @@ function makeSilentWavUrl() {
 }
 
 // 피아노 샘플: C · D# · F# · A (단3도 간격) → 가장 가까운 샘플을 최대 ±1.5음 올리고 내려서 씀
-const PIANO_BASE = 'audio/piano/';
+const PIANO_BASE = 'audio/piano.bin';
 const PIANO_NOTES = [];
 for (let o = 2; o <= 6; o++) for (const [n, pc] of [['C', 0], ['Ds', 3], ['Fs', 6], ['A', 9]]) PIANO_NOTES.push({ file: `${n}${o}.mp3`, midi: 12 * (o + 1) + pc });
 PIANO_NOTES.push({ file: 'C7.mp3', midi: 96 });
 const PIANO_GAIN = 1.9; // 샘플이 합성음보다 작게 녹음돼 있어서 키움 (곡이 드럼에 묻히지 않게)
 
 // 오케스트라 샘플 (파일 이름 = 악기_미디번호.mp3). 소리 크기는 파일마다 맞춰 둠
-const ORCH_BASE = 'audio/orch/';
+const ORCH_BASE = 'audio/orch.bin';
+
+/** 묶음 파일(scripts/pack-audio.js) 하나를 받아 files 순서대로 ArrayBuffer 배열로 (없으면 null) */
+async function fetchPack(url, files) {
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return files.map(() => null);
+    const all = await r.arrayBuffer();
+    const hl = new DataView(all).getUint32(0);
+    const index = JSON.parse(new TextDecoder().decode(new Uint8Array(all, 4, hl)));
+    const base = 4 + hl;
+    return files.map((n) => {
+      const e = index[n.file];
+      return e ? all.slice(base + e[0], base + e[0] + e[1]) : null;
+    });
+  } catch {
+    return files.map(() => null);
+  }
+}
 const ORCH = {
   vln: [55, 57, 59, 62, 66, 69, 72, 76, 79, 83, 86],
   vc: [36, 40, 43, 47, 50, 53, 57, 60, 64],
@@ -81,13 +99,7 @@ export class AudioEngine {
   /** 오케스트라 샘플 미리 받기 (피아노 다음에) */
   prefetchOrch(base = ORCH_BASE) {
     if (this._orchRaw) return this._orchRaw;
-    this._orchRaw = Promise.all(
-      ORCH_FILES.map((n) =>
-        fetch(base + n.file)
-          .then((r) => (r.ok ? r.arrayBuffer() : null))
-          .catch(() => null)
-      )
-    );
+    this._orchRaw = fetchPack(base, ORCH_FILES);
     return this._orchRaw;
   }
 
@@ -159,13 +171,7 @@ export class AudioEngine {
   /** 피아노 샘플 파일 미리 받기 (AudioContext 없이도 가능 → 페이지 열자마자 호출) */
   prefetchPiano(base = PIANO_BASE) {
     if (this._pianoRaw) return this._pianoRaw;
-    this._pianoRaw = Promise.all(
-      PIANO_NOTES.map((n) =>
-        fetch(base + n.file)
-          .then((r) => (r.ok ? r.arrayBuffer() : null))
-          .catch(() => null)
-      )
-    );
+    this._pianoRaw = fetchPack(base, PIANO_NOTES);
     return this._pianoRaw;
   }
 
