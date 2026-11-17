@@ -679,11 +679,16 @@ function renderLives(n, prev) {
   box.classList.toggle('low', n === 1);
 }
 
+/** 이어하기 창이 뜬 뒤 이 시간(ms) 동안은 창 안 버튼이 눌리지 않음 (터치 중이던 손가락 오입력 방지) */
+const CONT_GUARD_MS = 500;
+let contOpenedAt = -Infinity;
+
 /** 목숨 0개: 게임이 멈춘 상태로 이어하기 창 */
 function onDeath(info) {
   const g = state.game;
   const lv = g.level;
   state.death = info;
+  contOpenedAt = performance.now();
   $('#cont-score').textContent = `${fmt(info.score)}점`;
   if (lv.challenge) {
     const r = g.roundInfo || roundInfo(1);
@@ -1739,6 +1744,8 @@ function bindActions() {
     const a = e.target.closest('[data-action]');
     if (a && ACTIONS[a.dataset.action]) {
       e.preventDefault();
+      // 이어하기 창이 막 뜬 직후에는 버튼 입력 무시 (이미 누르고 있던 손가락이 버튼을 치는 것 방지)
+      if (a.closest('#modal-continue') && performance.now() - contOpenedAt < CONT_GUARD_MS) return;
       ACTIONS[a.dataset.action]();
     }
   });
