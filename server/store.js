@@ -23,7 +23,7 @@ export const sortPlayers = (rows) => rows.sort((a, b) => !!a.hiddenAt - !!b.hidd
 export class JsonStore {
   constructor(file) {
     this.file = file;
-    this.data = { players: {}, usedRuns: {}, sessions: {}, plays: {}, settings: {} };
+    this.data = { players: {}, usedRuns: {}, sessions: {}, plays: {}, settings: {}, suggestions: [], rooms: {} };
     this._timer = null;
   }
 
@@ -31,7 +31,7 @@ export class JsonStore {
     try {
       const raw = fs.readFileSync(this.file, 'utf8');
       const d = JSON.parse(raw);
-      this.data = { players: d.players || {}, usedRuns: d.usedRuns || {}, sessions: d.sessions || {}, plays: d.plays || {}, settings: d.settings || {} };
+      this.data = { players: d.players || {}, usedRuns: d.usedRuns || {}, sessions: d.sessions || {}, plays: d.plays || {}, settings: d.settings || {}, suggestions: d.suggestions || [], rooms: d.rooms || {} };
       // 인스타 아이디 등록 기능을 없앴으므로, 예전에 인증된 인스타 계정 기록과 인증 코드는 지움
       for (const [k, p] of Object.entries(this.data.players)) if (p.followVerifiedAt) delete this.data.players[k];
       // 무제한 기록(level <= 0): 예전 방식(깬 단계 × 100만 + 점수) → 새 방식(× 10억)
@@ -241,5 +241,70 @@ export class JsonStore {
       plays: Object.values(this.data.plays).filter(inRange),
       newVids: [...first].filter(([, t]) => t >= from && t < to).map(([v]) => v),
     };
+  }
+
+  // ----- 건의함 -----
+  addSuggestion({ at, kind, body, nick, vid }) {
+    const id = (this.data.suggestions.reduce((m, r) => Math.max(m, r.id), 0) || 0) + 1;
+    this.data.suggestions.push({ id, at, kind, body, nick: nick ?? null, vid: vid ?? null, doneAt: null });
+    this._save();
+    return id;
+  }
+  listSuggestions(from = 0, limit = 500) {
+    return this.data.suggestions
+      .filter((r) => r.at >= from)
+      .sort((a, b) => b.at - a.at || b.id - a.id)
+      .slice(0, limit)
+      .map(({ vid, ...r }) => ({ ...r }));
+  }
+  setSuggestionDone(id, on, now = Date.now()) {
+    const r = this.data.suggestions.find((x) => x.id === id);
+    if (!r) return false;
+    r.doneAt = on ? now : null;
+    this._save();
+    return true;
+  }
+  deleteSuggestion(id) {
+    const n = this.data.suggestions.length;
+    this.data.suggestions = this.data.suggestions.filter((x) => x.id !== id);
+    this._save();
+    return this.data.suggestions.length !== n;
+  }
+  countSuggestions(vid, since) {
+    return this.data.suggestions.filter((r) => r.vid === vid && r.at >= since).length;
+  }
+
+  // ----- 친구 대결 방 -----
+  createRoom(code, data, now, expiresAt) {
+    for (const [k, r] of Object.entries(this.data.rooms)) if (r.expiresAt < now) delete this.data.rooms[k];
+    if (this.data.rooms[code]) return false;
+    this.data.rooms[code] = { data: structuredClone(data), updatedAt: now, expiresAt };
+    this._save();
+    return true;
+  }
+  getRoom(code, now = Date.now()) {
+    const r = this.data.rooms[code];
+    return r && r.expiresAt > now ? structuredClone(r.data) : null;
+  }
+  patchRoom(code, { top = {}, slot = null, player = null, cond = {} }, now, expiresAt) {
+    const r = this.data.rooms[code];
+    if (!r || r.expiresAt <= now) return null;
+    const d = r.data;
+    if (cond.status != null && d.status !== cond.status) return null;
+    if (cond.round != null && (d.round || 0) !== cond.round) return null;
+    if (cond.slotFree != null && d.players && d.players[cond.slotFree]) return null;
+    Object.assign(d, structuredClone(top));
+    if (slot) {
+      d.players = d.players || {};
+      d.players[slot] = { ...(d.players[slot] || {}), ...structuredClone(player || {}) };
+    }
+    r.updatedAt = now;
+    r.expiresAt = expiresAt;
+    this._save();
+    return structuredClone(d);
+  }
+  deleteRoom(code) {
+    delete this.data.rooms[code];
+    this._save();
   }
 }

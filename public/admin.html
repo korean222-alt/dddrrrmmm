@@ -71,7 +71,16 @@
         <button type="button" data-tab="stats" class="on">이용 통계</button>
         <button type="button" data-tab="players">랭킹 참여자</button>
         <button type="button" data-tab="old">미인증</button>
+        <button type="button" data-tab="suggest">건의함</button>
       </div>
+      <section id="tab-suggest" hidden>
+        <p>사용자가 시작 화면 <b>💬 건의하기</b>로 남긴 글이에요. 매일 아침 봇이 새 건의를 정리해서 알려줘요. 다 본 건 <b>처리함</b>, 필요 없는 건 <b>삭제</b>.</p>
+        <div class="tabs" id="sg-filter">
+          <button type="button" data-f="open" class="on">안 본 것</button>
+          <button type="button" data-f="all">전체</button>
+        </div>
+        <div class="card"><div class="head"><b id="sg-count"></b><span><button type="button" class="ghost" id="sg-reload">새로고침</button></span></div><ul id="suggestions"></ul></div>
+      </section>
       <section id="tab-players" hidden>
         <p id="players-help-old" hidden>팔로워 암호로 <b>인증하지 않은</b> 사람이에요 (예전에 아이디만 적었거나 아이디 없이 참여한 사람). 4단계부터 잠겨 있고 <b>랭킹에도 안 보여요</b>. 이 사람이 암호로 인증하면 기록 그대로 '랭킹 참여자'로 옮겨가요. 필요 없으면 <b>삭제</b>하세요.</p>
         <p id="players-help">팔로워 암호로 인증해서 <b>랭킹에 올라가 있는 사람</b>이에요. 따로 확인할 필요 없어요. 문제 있는 사람만 <b>삭제</b>하세요 (닉네임과 기록이 바로 지워져요).</p>
@@ -259,14 +268,58 @@
       if (!b) return;
       document.querySelectorAll('#main-tabs [data-tab]').forEach((x) => x.classList.toggle('on', x === b));
       $('#tab-stats').hidden = b.dataset.tab !== 'stats';
-      $('#tab-players').hidden = b.dataset.tab === 'stats';
-      if (b.dataset.tab !== 'stats') {
+      $('#tab-players').hidden = b.dataset.tab !== 'players' && b.dataset.tab !== 'old';
+      $('#tab-suggest').hidden = b.dataset.tab !== 'suggest';
+      if (b.dataset.tab === 'suggest') loadSuggestions();
+      else if (b.dataset.tab !== 'stats') {
         playersView = b.dataset.tab === 'old' ? 'old' : 'ig';
         $('#fp-card').hidden = playersView === 'old';
         loadPlayers();
         loadFollowPass();
       }
     });
+
+    // ---------- 건의함 ----------
+    const KIND = { song: '🎵 곡 추천', idea: '💡 아이디어', bug: '🐞 버그', etc: '💬 기타' };
+    let sgFilter = 'open';
+    async function loadSuggestions() {
+      const r = await call('GET', '/api/admin/suggestions?days=365');
+      if (r.status === 401) return logout('비밀번호가 맞지 않아요.');
+      if (r.status !== 200) {
+        $('#suggestions').innerHTML = '<li class="empty">불러오지 못했어요.</li>';
+        return;
+      }
+      const all = r.data.suggestions || [];
+      const open = all.filter((x) => !x.doneAt);
+      const list = sgFilter === 'open' ? open : all;
+      document.querySelector('[data-tab="suggest"]').textContent = `건의함 ${open.length}`;
+      $('#sg-count').textContent = sgFilter === 'open' ? `안 본 건의 ${open.length}개` : `전체 ${all.length}개`;
+      $('#suggestions').innerHTML = list.length
+        ? list.map((x) => `<li data-id="${x.id}" style="${x.doneAt ? 'opacity:.55' : ''}"><div style="flex:1;min-width:0">
+            <div class="meta">${KIND[x.kind] || KIND.etc} · ${ago(x.at)}${x.nick ? ' · ' + esc(x.nick) : ''}${x.doneAt ? ' · ✅ 처리함' : ''}</div>
+            <div style="white-space:pre-wrap;word-break:break-word;margin-top:4px">${esc(x.body)}</div></div>
+            <div class="acts"><button type="button" class="ghost" data-do="${x.doneAt ? 'undo' : 'done'}">${x.doneAt ? '되돌리기' : '처리함'}</button>
+            <button type="button" class="ghost" data-do="del" style="color:var(--bad)">삭제</button></div></li>`).join('')
+        : `<li class="empty">${sgFilter === 'open' ? '새 건의가 없어요 🎉' : '아직 건의가 없어요.'}</li>`;
+    }
+    $('#suggestions').addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-do]');
+      if (!b) return;
+      const id = Number(b.closest('li').dataset.id);
+      if (b.dataset.do === 'del') {
+        if (!confirm('이 건의를 삭제할까요?')) return;
+        await call('POST', '/api/admin/suggestions/delete', { id });
+      } else await call('POST', '/api/admin/suggestions/done', { id, done: b.dataset.do === 'done' });
+      loadSuggestions();
+    });
+    $('#sg-filter').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-f]');
+      if (!b) return;
+      sgFilter = b.dataset.f;
+      document.querySelectorAll('#sg-filter [data-f]').forEach((x) => x.classList.toggle('on', x === b));
+      loadSuggestions();
+    });
+    $('#sg-reload').addEventListener('click', loadSuggestions);
 
     function logout(text) {
       token = '';
@@ -291,6 +344,7 @@
       $('#login').hidden = true;
       $('#app').hidden = false;
       loadStats();
+      loadSuggestions();
     }
 
     $('#login-btn').addEventListener('click', login);

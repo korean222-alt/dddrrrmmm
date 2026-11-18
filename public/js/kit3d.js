@@ -355,16 +355,21 @@ function drawKick(g, R, kit) {
 // ---------------------------------------------------------------- 스네어
 /** 스네어 (위에서 비스듬히). Rx = 테 가로 반지름. 기준점 = 헤드 가운데 */
 export const SNARE_RY = 0.36;
-function drawSnare(g, Rx, kit, standTo) {
+function drawSnare(g, Rx, kit, standTo, opt = {}) {
   const ry = Rx * SNARE_RY;
-  const H = Rx * 0.48;
+  const H = Rx * (opt.depth || 0.48);
   floorShadow(g, 0, standTo, Rx * 0.85, Rx * 0.13, 0.6);
-  // 스탠드
-  rod(g, 0, H + ry, 0, standTo - Rx * 0.32, Rx * 0.07, kit.hw);
-  rod(g, 0, standTo - Rx * 0.34, -Rx * 0.68, standTo - Rx * 0.02, Rx * 0.06, kit.hw);
-  rod(g, 0, standTo - Rx * 0.34, Rx * 0.68, standTo - Rx * 0.02, Rx * 0.06, kit.hw);
-  rod(g, 0, standTo - Rx * 0.34, 0, standTo + Rx * 0.04, Rx * 0.06, kit.hw);
-  for (const s of [-1, 1]) rod(g, 0, H + ry * 1.1, s * Rx * 0.62, H + ry * 0.55, Rx * 0.05, kit.hw);
+  if (opt.legs) {
+    // 플로어 탐: 통 옆에서 바닥까지 다리 셋
+    for (const f of [-0.92, 0.92, 0.3]) rod(g, f * Rx, H * 0.35, f * Rx * 1.12, standTo - Rx * 0.02, Rx * 0.06, kit.hw);
+  } else {
+    // 스탠드
+    rod(g, 0, H + ry, 0, standTo - Rx * 0.32, Rx * 0.07, kit.hw);
+    rod(g, 0, standTo - Rx * 0.34, -Rx * 0.68, standTo - Rx * 0.02, Rx * 0.06, kit.hw);
+    rod(g, 0, standTo - Rx * 0.34, Rx * 0.68, standTo - Rx * 0.02, Rx * 0.06, kit.hw);
+    rod(g, 0, standTo - Rx * 0.34, 0, standTo + Rx * 0.04, Rx * 0.06, kit.hw);
+    for (const s of [-1, 1]) rod(g, 0, H + ry * 1.1, s * Rx * 0.62, H + ry * 0.55, Rx * 0.05, kit.hw);
+  }
   // 통
   g.save();
   g.beginPath();
@@ -377,8 +382,9 @@ function drawSnare(g, Rx, kit, standTo) {
   g.fillStyle = OUT;
   g.fill();
   g.clip();
-  paintFinish(g, kit.snareFinish || 'gloss', kit.snare, -Rx, Rx, -ry, H + ry, { sparkle: kit.snareSparkle });
-  cylShade(g, -Rx, Rx, -ry, H + ry, kit.snareFinish === 'metal' ? 0.6 : 1);
+  const finish = opt.finish || kit.snareFinish || 'gloss';
+  paintFinish(g, finish, opt.colors || kit.snare, -Rx, Rx, -ry, H + ry, { sparkle: opt.colors ? kit.sparkle : kit.snareSparkle });
+  cylShade(g, -Rx, Rx, -ry, H + ry, finish === 'metal' ? 0.6 : 1);
   g.restore();
   // 아래 테
   const t = Rx * 0.075;
@@ -664,6 +670,12 @@ export function buildKit(theme, sz, lanes) {
   const standTo = Math.max(Rx * 1.2, sz.standTo);
   out.snare = sprite(Rx * 2.3, standTo + Rx * 0.55 + Rx * 0.2, Rx * 1.15, Rx * 0.55, dpr, (g) => drawSnare(g, Rx, kit, standTo));
   out.snareRx = Rx;
+  // 탐탐 (플로어 탐): 베이스드럼과 같은 마감, 더 깊은 통, 다리
+  const Tx = sz.instR * 1.12;
+  const tomTo = Tx * 1.35;
+  out.tom = sprite(Tx * 2.6, tomTo + Tx * 0.75, Tx * 1.3, Tx * 0.55, dpr, (g) =>
+    drawSnare(g, Tx, kit, tomTo, { depth: 0.8, legs: true, colors: kit.shell, finish: kit.finish })
+  );
   // 심벌 (하이햇·크래시 공용, 그릴 때 크기·기울기 조절)
   const cr = sz.cymR * 1.05;
   out.cym = sprite(cr * 2.2, cr * 0.9, cr * 1.1, cr * 0.4, dpr, (g) => drawCymbal(g, cr, kit.cym));
@@ -681,6 +693,7 @@ export function buildKit(theme, sz, lanes) {
     n[0] = sprite(w + pad * 2, h * 2 + pad * 2, w / 2 + pad, h / 2 + pad, nd, (g) => drawKickNote(g, w, h, C[0], grey));
     const r = sz.padR;
     n[1] = sprite(r * 2 + pad * 2, r * 1.9 + pad * 2, r + pad, r * 0.62 + pad, nd, (g) => drawSnareNote(g, r, C[1], grey));
+    if (C[4]) n[4] = sprite(r * 2 + pad * 2, r * 1.9 + pad * 2, r + pad, r * 0.62 + pad, nd, (g) => drawSnareNote(g, r, C[4], grey));
     for (const lane of [2, 3]) {
       const cr2 = sz.cymR * (lane === 3 ? 1 : 0.86);
       const L = C[lane];

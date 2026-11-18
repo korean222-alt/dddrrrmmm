@@ -3,8 +3,9 @@
 // 채보 표기: 한 마디 = 16칸(16분음표)
 //   K = 킥 (왼쪽 엄지)        S = 스네어 (오른쪽 엄지)
 //   H = 하이햇 (오른쪽 엄지, 5단계부터)   C = 크래시 (왼쪽 엄지, 6단계부터)
-//   B = 킥+스네어 동시   J = 킥+하이햇 동시   X = 크래시+스네어 동시   . = 쉼
-//   같은 엄지끼리(킥+크래시, 스네어+하이햇)는 동시에 못 누르니 그런 조합은 없음
+//   T = 탐탐 (왼쪽 엄지, 16단계부터)
+//   B = 킥+스네어 동시   J = 킥+하이햇 동시   X = 크래시+스네어 동시   Y = 탐탐+스네어 동시   . = 쉼
+//   같은 엄지끼리(킥·크래시·탐탐 / 스네어·하이햇)는 동시에 못 누르니 그런 조합은 없음
 // 새 레벨을 추가하려면 LEVELS 배열에 객체를 하나 더 넣으면 됩니다.
 
 export const STEPS_PER_BAR = 16;
@@ -14,15 +15,20 @@ export const KICK = 0;
 export const SNARE = 1;
 export const HAT = 2;
 export const CRASH = 3;
+export const TOM = 4;
 export const INSTRUMENTS = [
   { id: KICK, name: '킥', hand: 'left' },
   { id: SNARE, name: '스네어', hand: 'right' },
   { id: HAT, name: '하이햇', hand: 'right' },
   { id: CRASH, name: '크래시', hand: 'left' },
+  { id: TOM, name: '탐탐', hand: 'left' },
 ];
-const SCREEN_ORDER = [CRASH, KICK, SNARE, HAT];
+// 화면 왼쪽부터: 크래시 · 킥 · 탐탐 | 스네어 · 하이햇 (왼쪽 엄지 셋, 오른쪽 엄지 둘)
+const SCREEN_ORDER = [CRASH, KICK, TOM, SNARE, HAT];
 /** 채보 글자 → 누를 레인들 */
-export const CHAR_LANES = { K: [KICK], S: [SNARE], H: [HAT], C: [CRASH], B: [KICK, SNARE], J: [KICK, HAT], X: [CRASH, SNARE] };
+export const CHAR_LANES = { K: [KICK], S: [SNARE], H: [HAT], C: [CRASH], T: [TOM], B: [KICK, SNARE], J: [KICK, HAT], X: [CRASH, SNARE], Y: [TOM, SNARE] };
+/** 왼쪽 엄지 악기인지 (같은 엄지 연타 검사·안내에 씀) */
+export const isLeftThumb = (lane) => INSTRUMENTS[lane] && INSTRUMENTS[lane].hand === 'left';
 export const COUNT_IN_BARS = 1; // 시작 전 "3, 2, 1" 한 마디
 export const OUTRO_BARS = 1; // 끝난 뒤 여운 한 마디
 
@@ -661,6 +667,64 @@ export const LEVELS = [
       'X...B...X.......',
     ],
   },
+  {
+    id: 16,
+    name: '교향곡 40번',
+    composer: '모차르트',
+    tagline: '탐탐 등장! · 다섯 악기 · 15단계보다 살짝 느리게',
+    newInstrument: TOM,
+    difficulty: 5,
+    bpm: 120,
+    song: {
+      // 1악장 몰토 알레그로 첫 주제 '따다단 따다단 따다단 딴!' (사단조). 우리 한 마디에 원곡 2/2 두 마디
+      prog: ['Gm', 'Gm', 'Gm Cm', 'D', 'D Gm', 'Gm', 'Gm Cm', 'D', 'D Gm', 'Gm D', 'Gm', 'Gm', 'Gm Cm', 'D', 'D Gm', 'Gm'],
+      hat: '................',
+      bass: 'x.x.x.x.x.x.x.x.',
+      chord: '..x...x...x...x.',
+      melody: [
+        '_:14 Eb5:1 D5:1',
+        'D5:2 Eb5:1 D5:1 D5:2 Eb5:1 D5:1 D5:2 Bb5:4 Bb5:1 A5:1',
+        'G5:2 G5:1 F5:1 Eb5:2 Eb5:1 D5:1 C5:2 C5:2 _:2 D5:1 C5:1',
+        'C5:2 D5:1 C5:1 C5:2 D5:1 C5:1 C5:2 A5:4 A5:1 G5:1',
+        'F#5:2 F#5:1 Eb5:1 D5:2 D5:1 C5:1 Bb4:2 Bb4:2 _:2 Eb5:1 D5:1',
+        'D5:2 Eb5:1 D5:1 D5:2 Eb5:1 D5:1 D5:2 Bb5:4 Bb5:1 A5:1',
+        'G5:2 G5:1 F5:1 Eb5:2 Eb5:1 D5:1 C5:2 C5:2 _:2 D5:1 C5:1',
+        'C5:2 D5:1 C5:1 C5:2 D5:1 C5:1 C5:2 A5:4 A5:1 G5:1',
+        'F#5:2 F#5:1 Eb5:1 D5:2 D5:1 C5:1 Bb4:2 A4:2 G4:4',
+        'D6:4 C6:2 Bb5:2 A5:4 G5:2 F#5:2',
+        'G5:4 Bb5:4 D6:4 _:2 Eb5:1 D5:1',
+        'D5:2 Eb5:1 D5:1 D5:2 Eb5:1 D5:1 D5:2 Bb5:4 Bb5:1 A5:1',
+        'G5:2 G5:1 F5:1 Eb5:2 Eb5:1 D5:1 C5:2 C5:2 _:2 D5:1 C5:1',
+        'C5:2 D5:1 C5:1 C5:2 D5:1 C5:1 C5:2 A5:4 A5:1 G5:1',
+        'F#5:2 F#5:1 Eb5:1 D5:2 D5:1 C5:1 Bb4:2 A4:2 G4:4',
+        'G5:4 D5:4 G4:8',
+      ],
+    },
+    // 💥 연타 구간: 그 칸 동안 그 줄을 마구 두드리기 (점수 없음, 8번마다 하트 +1, 한 구간 최대 2개)
+    rolls: [
+      { bar: 9, from: 4, len: 10, lane: TOM },
+      { bar: 14, from: 4, len: 10, lane: SNARE },
+    ],
+    bars: [
+      // 탐탐(T)은 왼쪽 엄지. 같은 엄지 16분음표 연타 없음 — 탐탐·스네어를 엄지 번갈아 '두구두구'
+      'C...K...S...K.TS',
+      'K.SKS.SKS.X...TS',
+      'T.TS..K.B...KSKS',
+      'K.SKH.SKS.X...TS',
+      'T.TSK.K.B.B...TS',
+      'K.SKH.SKS.X.H.TS',
+      'T.TS.HK.B.H.KSKS',
+      'K.SKH.SKS.X.H.TS',
+      'T.TSK.K.B.B.C...',
+      'C...............', // 💥 탐탐 연타 (rolls)
+      'K.H.Y.H.K.K.Y.H.',
+      'K.SKH.SKS.X.H.TS',
+      'T.TS.HK.B.H.KSKS',
+      'K.SKH.SKS.X.H.TS',
+      'C...............', // 💥 스네어 연타 (rolls)
+      'X...B...X.......',
+    ],
+  },
 ];
 
 /** 누구나 칠 수 있는 단계: 1~FREE_UPTO. 그 뒤 단계와 💎 무제한 모드(그리그·단계별)는 전부 팔로워 인증(암호) 필요 */
@@ -853,6 +917,41 @@ export function buildNotes(level, fromBar = 0, toBar = level.bars.length, pairSt
   notes.forEach((n, i) => (n.id = i));
   notes.nextPair = pair;
   return notes;
+}
+
+// ---------------------------------------------------------------
+// 💥 연타 구간 (드럼 롤): 리듬게임의 '꾹 누르기' 대신 드럼다운 '마구 두드리기'.
+//   level.rolls = [{ bar, from, len, lane }] — 그 칸들엔 다른 노트가 없음. 점수·정확도와 상관없고(랭킹 공정),
+//   ROLL_HEART_HITS 번 칠 때마다 하트 +1 (한 구간 최대 ROLL_MAX_HEARTS 개)
+// ✨ 황금 콩: 곡의 1/4·2/4·3/4 쯤 혼자 치는 노트 하나씩 금색. GREAT 이상이면 하트 +1 (점수는 그대로)
+// ---------------------------------------------------------------
+export const ROLL_HEART_HITS = 8;
+export const ROLL_MAX_HEARTS = 2;
+export const GOLD_SPOTS = [0.25, 0.5, 0.75];
+
+export function buildRolls(level) {
+  if (!level.rolls) return [];
+  const tempo = tempoOf(level);
+  return level.rolls.map((r, i) => {
+    const s0 = (COUNT_IN_BARS + r.bar) * STEPS_PER_BAR + r.from;
+    return { id: i, lane: r.lane, t0: tempo.stepTime(s0), t1: tempo.stepTime(s0 + r.len), hits: 0, hearts: 0 };
+  });
+}
+
+/** 노트 목록에 황금 콩 표시 (n.gold = true). 고른 노트 수 */
+export function markGoldNotes(notes) {
+  let n = 0;
+  for (const f of GOLD_SPOTS) {
+    const start = Math.floor(notes.length * f);
+    for (let i = start; i < notes.length; i++) {
+      if (notes[i].pair < 0 && !notes[i].gold) {
+        notes[i].gold = true;
+        n++;
+        break;
+      }
+    }
+  }
+  return n;
 }
 
 export function noteCount(level) {

@@ -7,7 +7,7 @@ import { sign, unsign } from '../server/session.js';
 test('채보: 모든 마디가 16칸, 허용 문자만', () => {
   LEVELS.forEach((lv, i) => {
     assert.equal(lv.id, i + 1);
-    for (const bar of lv.bars) assert.match(bar, /^[KSHCBJX.]{16}$/, `Lv.${lv.id} ${bar}`);
+    for (const bar of lv.bars) assert.match(bar, /^[KSHCTBJXY.]{16}$/, `Lv.${lv.id} ${bar}`);
     for (const k of ['hat', 'bass', 'chord']) assert.equal(lv.song[k].length, 16, `Lv.${lv.id} song.${k}`);
     assert.ok(lv.name && lv.composer && lv.difficulty >= 1 && lv.difficulty <= 5, `Lv.${lv.id} 정보`);
   });
@@ -41,7 +41,7 @@ test('악기: 1~9단계 킥·스네어, 10단계 +하이햇, 13단계 +크래시
     const byTime = new Map();
     for (const n of buildNotes(lv)) byTime.set(n.time, [...(byTime.get(n.time) || []), n.lane]);
     for (const lanes of byTime.values()) {
-      assert.ok(!(lanes.includes(0) && lanes.includes(CRASH)), `Lv.${lv.id} 왼손 겹침`);
+      assert.ok(lanes.filter((l) => l === 0 || l === CRASH || l === 4).length <= 1, `Lv.${lv.id} 왼손 겹침`);
       assert.ok(!(lanes.includes(1) && lanes.includes(HAT)), `Lv.${lv.id} 오른손 겹침`);
     }
   }
@@ -167,15 +167,17 @@ test('목숨: MISS 5번이면 멈추고 이어하기 1번, 동시치기 둘 다 
   assert.equal(g.state, 'dead');
   assert.equal(deaths.length, 1);
   assert.equal(deaths[0].canContinue, MAX_CONTINUES > 0);
-  // 이어하기 → 목숨 1개로 다시 + 다음엔 이어하기 없음
-  assert.equal(REVIVE_LIVES, 1);
+  // 이어하기 → 목숨 2개로 다시 + 다음엔 이어하기 없음
+  assert.equal(REVIVE_LIVES, 2);
   assert.ok(g.revive());
   assert.equal(g.lives, REVIVE_LIVES);
   assert.equal(g.state, 'paused');
   g.state = 'playing';
   g.graceUntil = -Infinity;
   const rest = g.notes.filter((n) => !n.judged && n.pair < 0);
-  g._miss(rest[0], 0); // 한 번만 놓쳐도 끝
+  g._miss(rest[0], 0); // 하트 2개 → 두 번 놓치면 끝
+  assert.equal(deaths.length, 1);
+  g._miss(rest[1], 0);
   assert.equal(deaths.length, 2);
   assert.equal(deaths[1].canContinue, false);
   g.giveUp();
@@ -185,4 +187,53 @@ test('목숨: MISS 5번이면 멈추고 이어하기 1번, 동시치기 둘 다 
   // 자동 연주(영상 찍기)엔 목숨 없음
   const auto = new Game({ audio, renderer, level: LEVELS[0], settings: {}, auto: true, onDeath: noop });
   assert.equal(auto.livesOn, false);
+});
+
+test('💥 연타 구간 · ✨ 황금 콩: 점수는 그대로, 하트만 돌려받음', async () => {
+  const { Game, MAX_LIVES } = await import('../public/js/game.js');
+  const { getLevel, ROLL_HEART_HITS, ROLL_MAX_HEARTS, buildRolls, markGoldNotes, TOM, noteCount: nc } = await import('../public/js/charts.js');
+  const noop = () => {};
+  globalThis.cancelAnimationFrame ??= noop;
+  const renderer = { onJudge: noop, onLife: noop, onCombo: noop, onTap: noop, draw: noop, reset: noop, onRoll: noop, onGold: noop };
+  let clock = 0;
+  const audio = { ctx: { suspend: async () => {}, resume: async () => {} }, heardTime: () => clock, crash: noop, playLane: noop };
+  const lv = getLevel(16);
+  const rolls = buildRolls(lv);
+  assert.equal(rolls.length, 2);
+  assert.equal(rolls[0].lane, TOM);
+  // 연타 구간엔 노트가 없음
+  const notes = buildNotes(lv);
+  for (const r of rolls) assert.ok(!notes.some((n) => n.time >= r.t0 - 0.01 && n.time <= r.t1), '구간 안에 노트 없음');
+  const g = new Game({ audio, renderer, level: lv, settings: {}, onDeath: noop, onEnd: noop });
+  g.startTime = 0;
+  g.state = 'playing';
+  g.lives = 1;
+  const roll = g.rolls[0];
+  clock = (roll.t0 + roll.t1) / 2;
+  // 다른 줄은 헛침이 아님 + 연타 안 셈
+  g.input(1, 0);
+  assert.equal(g.counts.wrong, 0);
+  assert.equal(roll.hits, 0);
+  for (let i = 0; i < ROLL_HEART_HITS * 4; i++) g.input(TOM, 0);
+  assert.equal(roll.hits, ROLL_HEART_HITS * 4);
+  assert.equal(g.lives, 1 + ROLL_MAX_HEARTS, '한 구간 최대 하트');
+  assert.equal(g.score, 0, '연타는 점수 없음');
+  assert.equal(g.counts.perfect + g.counts.great + g.counts.good + g.counts.miss, 0);
+  // 황금 콩: 3개, 혼자 치는 노트, GREAT 이상이면 하트 +1 (점수는 보통 노트와 같음)
+  assert.equal(g.goldTotal, 3);
+  const golds = g.notes.filter((n) => n.gold);
+  assert.ok(golds.every((n) => n.pair < 0));
+  g.lives = 2;
+  g._judge(golds[0], 0, 0);
+  assert.equal(g.lives, 3);
+  assert.equal(g.goldHits, 1);
+  g._judge(golds[1], 0.12, 0); // GOOD → 하트 없음
+  assert.equal(g.lives, 3);
+  // 다른 단계도 황금 콩은 3개, 노트 수는 그대로
+  for (const l of LEVELS) {
+    const ns = buildNotes(l);
+    assert.equal(markGoldNotes(ns), 3, `Lv.${l.id}`);
+    assert.equal(ns.length, nc(l));
+  }
+  assert.ok(MAX_LIVES >= 3);
 });

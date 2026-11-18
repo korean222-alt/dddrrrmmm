@@ -14,11 +14,13 @@ export const LANE = [
   { key: 'snare', main: '#62C8FF', light: '#D7F1FF', dark: '#2F86CF', rgb: '98,200,255', thumb: '오른쪽 엄지', word: '스네어 (짝)', short: '짝' },
   { key: 'hat', main: '#FFD24A', light: '#FFF2B8', dark: '#B9821C', rgb: '255,210,74', thumb: '오른쪽 엄지', word: '하이햇 (츠)', short: '츠' },
   { key: 'crash', main: '#C38BFF', light: '#EBDDFF', dark: '#7F4CCF', rgb: '195,139,255', thumb: '왼쪽 엄지', word: '크래시 (챙)', short: '챙' },
+  { key: 'tom', main: '#4FE0A6', light: '#C9FBE6', dark: '#1F9E70', rgb: '79,224,166', thumb: '왼쪽 엄지', word: '탐탐 (둥)', short: '둥' },
 ];
 const KICK = 0;
 const SNARE = 1;
 const HAT = 2;
 const CRASH = 3;
+const TOM = 4;
 
 export const JUDGE_STYLE = {
   perfect: { text: 'PERFECT', color: '#FFE45C' },
@@ -62,8 +64,8 @@ export class Renderer {
 
   reset() {
     this.fx = { judges: [], sparks: [], bursts: [], booms: [], banners: [] };
-    this.hitAt = [-9, -9, -9, -9];
-    this.missAt = [-9, -9, -9, -9];
+    this.hitAt = [-9, -9, -9, -9, -9];
+    this.missAt = [-9, -9, -9, -9, -9];
     this.punchAt = -9;
     this.punchPow = 0;
     this.crackAt = -9;
@@ -71,6 +73,7 @@ export class Renderer {
     this.cheerUntil = -9;
     this.lifeFx = { t0: -9, delta: 0 };
     this.roundFx = null;
+    this.rollFx = null;
     this.heatS = 0;
     this.themeFx = null; // 맵 바뀔 때 { t0, prev(캔버스) } → 이전 맵이 서서히 사라짐
     if (this.scene) this.scene.reset();
@@ -375,6 +378,24 @@ export class Renderer {
     this.lifeFx = { t0: rt, delta, lives };
   }
 
+  /** 💥 연타 한 번 */
+  onRoll(roll, rt) {
+    this.rollFx = { id: roll.id, lane: roll.lane, hits: roll.hits, hearts: roll.hearts, t: rt };
+    this.hitAt[roll.lane] = rt;
+    this.fx.bursts.push({ lane: roll.lane, t0: rt, pow: 0.6 });
+  }
+
+  /** ✨ 황금 콩을 침 */
+  onGold(lane, healed, rt) {
+    this.fx.banners.push({ text: healed ? '✨ 황금 콩! ❤️+1' : '✨ 황금 콩!', t0: rt, color: '#FFD84A' });
+    const L = this.L;
+    if (this.lite && !this.studio) return;
+    for (let i = 0; i < 16; i++) {
+      const a = -Math.PI / 2 + (Math.random() - 0.5) * Math.PI * 1.8;
+      this.fx.sparks.push({ x: L.laneX[lane], y: L.strikeY, a, sp: L.GW * (0.5 + Math.random() * 0.9), t0: rt, life: 0.3 + Math.random() * 0.25, len: L.GW * 0.04, color: Math.random() < 0.6 ? '#FFD84A' : '#FFFFFF' });
+    }
+  }
+
   onCombo(combo, rt) {
     this.comboPopAt = rt;
     if (combo > 0 && combo % 25 === 0) {
@@ -451,10 +472,12 @@ export class Renderer {
     this._drawCombo(st, rt);
     this._drawInstruments(st, rt, pe);
     this._drawTargets(st, rt);
+    this._drawRolls(st, rt);
     this._drawNotes(st);
     this._drawBursts(rt);
     if (!lite) this._drawSparks(rt);
     this._drawJudges(rt);
+    this._drawRollCount(st, rt);
     ctx.restore();
 
     if (!lite) this._drawMascot(st, rt);
@@ -568,7 +591,7 @@ export class Renderer {
       const c = LANE[lane].rgb;
       ctx.beginPath();
       if (lane === KICK) rr(ctx, x - (L.barW * k) / 2, L.strikeY - (L.barH * k) / 2, L.barW * k, L.barH * k, (L.barH * k) / 2);
-      else if (lane === SNARE) ctx.ellipse(x, L.strikeY, L.padR * 1.1 * k, L.padR * 1.1 * k * 0.62, 0, 0, Math.PI * 2);
+      else if (lane === SNARE || lane === TOM) ctx.ellipse(x, L.strikeY, L.padR * 1.1 * k, L.padR * 1.1 * k * 0.62, 0, 0, Math.PI * 2);
       else {
         const rx = this._cymR(lane) * k;
         ctx.ellipse(x, L.strikeY, rx, rx * 0.36, 0, 0, Math.PI * 2);
@@ -588,6 +611,101 @@ export class Renderer {
     return this.L.cymR * (lane === CRASH ? 1 : 0.86);
   }
 
+
+  /** 💥 연타 구간: 줄 위에 길게 빛나는 띠 (줄무늬가 흘러내림) + 시작 쪽에 '연타!' */
+  _drawRolls(st, rt) {
+    const ctx = this.ctx;
+    const L = this.L;
+    for (const r of st.rolls || []) {
+      if (!this.laneOrder.includes(r.lane)) continue;
+      const d0 = r.t0 - st.now;
+      const d1 = r.t1 - st.now;
+      if (d0 > st.approach || d1 < -0.2) continue;
+      const s0 = this._s(Math.max(d0, -0.2), st.approach);
+      const s1 = this._s(Math.min(d1, st.approach), st.approach);
+      const yNear = this._py(s0);
+      const yFar = this._py(s1);
+      const C = LANE[r.lane];
+      const xa = L.laneX[r.lane] - L.laneHalf * 0.72;
+      const xb = L.laneX[r.lane] + L.laneHalf * 0.72;
+      const active = d0 <= 0 && d1 >= 0;
+      ctx.save();
+      this._trap(ctx, xa, xb, yFar, yNear);
+      const gr = ctx.createLinearGradient(0, yFar, 0, yNear);
+      gr.addColorStop(0, `rgba(${C.rgb},0.15)`);
+      gr.addColorStop(1, `rgba(${C.rgb},${active ? 0.75 : 0.55})`);
+      ctx.fillStyle = gr;
+      ctx.fill();
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = `rgba(255,255,255,${active ? 0.95 : 0.7})`;
+      ctx.stroke();
+      // 흘러내리는 줄무늬
+      ctx.clip();
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+      ctx.lineWidth = 6;
+      const span = Math.max(1, yNear - yFar);
+      const off = ((rt * 260) % 28) - 28;
+      for (let y = yFar + off; y < yNear + 28; y += 28) {
+        ctx.beginPath();
+        ctx.moveTo(this._px(xa, this._sAtY(y)) - 30, y + 14);
+        ctx.lineTo(this._px(xb, this._sAtY(y)) + 30, y - 14);
+        ctx.stroke();
+      }
+      ctx.restore();
+      // 시작 쪽 글자
+      if (!active && d0 > 0) {
+        const fs = Math.round(Math.min(L.laneW * 0.24, L.GW * 0.06) * Math.max(0.5, s0));
+        ctx.save();
+        ctx.font = `${fs}px ${FONT}`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = fs * 0.24;
+        ctx.strokeStyle = INK;
+        ctx.strokeText('연타!', this._px(L.laneX[r.lane], s0), yNear - fs * 0.7);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText('연타!', this._px(L.laneX[r.lane], s0), yNear - fs * 0.7);
+        ctx.restore();
+      }
+    }
+  }
+
+  /** 💥 연타 중: 악기 위에 '×12' 큰 숫자 + 끝나면 '연타 23!' */
+  _drawRollCount(st, rt) {
+    const f = this.rollFx;
+    if (!f) return;
+    const roll = (st.rolls || []).find((r) => r.id === f.id);
+    const age = rt - f.t;
+    const over = roll && st.now > roll.t1 + 0.1;
+    if (age > (over ? 1.2 : 0.9)) return;
+    const ctx = this.ctx;
+    const L = this.L;
+    const x = L.laneX[f.lane];
+    const pop = 1 + Math.max(0, 0.25 - age) * 1.6;
+    const fs = Math.round(Math.min(L.laneW * 0.42, L.GW * 0.11) * pop);
+    ctx.save();
+    ctx.globalAlpha = age > 0.6 ? Math.max(0, 1 - (age - 0.6) / 0.6) : 1;
+    ctx.font = `${fs}px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.lineWidth = fs * 0.2;
+    ctx.strokeStyle = INK;
+    const y = L.strikeY - L.instR * 2.4;
+    const t = over ? `연타 ${f.hits}!` : `×${f.hits}`;
+    ctx.strokeText(t, x, y);
+    ctx.fillStyle = LANE[f.lane].light;
+    ctx.fillText(t, x, y);
+    if (f.hearts) {
+      ctx.font = `${Math.round(fs * 0.45)}px ${FONT}`;
+      ctx.lineWidth = fs * 0.1;
+      ctx.strokeText(`❤️+${f.hearts}`, x, y + fs * 0.75);
+      ctx.fillStyle = '#FF8FB0';
+      ctx.fillText(`❤️+${f.hearts}`, x, y + fs * 0.75);
+    }
+    ctx.restore();
+  }
 
   _drawNotes(st) {
     const ctx = this.ctx;
@@ -634,8 +752,45 @@ export class Renderer {
       ctx.scale(ps, ps * (0.82 + 0.18 * Math.min(1, ps)));
       // 3D 노트 스프라이트 (킥 = 두께 있는 막대, 스네어 = 작은 드럼, 하이햇·크래시 = 작은 심벌)
       const sp = this.kit.notes[n.judged ? 'grey' : 'live'][n.lane];
+      // ✨ 황금 콩: 금빛 후광 + 반짝이
+      const gold = n.gold && !n.judged;
+      if (gold) {
+        ctx.globalAlpha = a;
+        const R = Math.max(sp.w, sp.h) * 0.62;
+        const gl = ctx.createRadialGradient(0, 0, 0, 0, 0, R);
+        gl.addColorStop(0, 'rgba(255,220,90,0.9)');
+        gl.addColorStop(0.5, 'rgba(255,190,40,0.45)');
+        gl.addColorStop(1, 'rgba(255,190,40,0)');
+        ctx.fillStyle = gl;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, R, R * 0.6, 0, 0, Math.PI * 2);
+        ctx.fill();
+      }
       ctx.globalAlpha = a;
       ctx.drawImage(sp.img, -sp.ax, -sp.ay, sp.w, sp.h);
+      if (gold) {
+        ctx.globalCompositeOperation = 'source-atop';
+        ctx.fillStyle = 'rgba(255,205,60,0.35)';
+        ctx.fillRect(-sp.ax, -sp.ay, sp.w, sp.h);
+        ctx.globalCompositeOperation = 'source-over';
+        const tw = (performance.now() / 1000) * 4 + n.id;
+        ctx.fillStyle = '#FFFFFF';
+        for (const [sx, sy, k] of [[-0.42, -0.35, 0], [0.45, -0.2, 2], [0.1, 0.3, 4]]) {
+          const z = 2 + 2.5 * Math.abs(Math.sin(tw + k));
+          const px = sx * sp.w * 0.5;
+          const py = sy * sp.h * 0.5;
+          ctx.beginPath();
+          ctx.moveTo(px, py - z);
+          ctx.lineTo(px + z * 0.3, py - z * 0.3);
+          ctx.lineTo(px + z, py);
+          ctx.lineTo(px + z * 0.3, py + z * 0.3);
+          ctx.lineTo(px, py + z);
+          ctx.lineTo(px - z * 0.3, py + z * 0.3);
+          ctx.lineTo(px - z, py);
+          ctx.lineTo(px - z * 0.3, py - z * 0.3);
+          ctx.fill();
+        }
+      }
       ctx.restore();
     }
   }
@@ -657,10 +812,10 @@ export class Renderer {
         rr(ctx, x - w / 2, L.strikeY - h / 2, w, h, h / 2);
         ctx.fillStyle = 'rgba(255,170,100,0.8)';
         ctx.fill();
-      } else if (b.lane === SNARE) {
+      } else if (b.lane === SNARE || b.lane === TOM) {
         ctx.beginPath();
         ctx.ellipse(x, L.strikeY, L.padR * (1 + e * 1.3), L.padR * (1 + e * 1.3) * 0.62, 0, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(160,225,255,0.8)';
+        ctx.fillStyle = b.lane === TOM ? 'rgba(140,255,200,0.8)' : 'rgba(160,225,255,0.8)';
         ctx.fill();
       } else {
         const rx = this._cymR(b.lane) * (1 + e * 0.9);
@@ -739,10 +894,10 @@ export class Renderer {
           ctx.fill();
         }
         ctx.restore();
-      } else if (lane === SNARE) {
-        // 3D 스네어: 칠 때 헤드가 눌렸다 튀어오름
-        const sq = age < 0.25 ? Math.exp(-age * 25) * 0.05 : 0;
-        const sp = this.kit.snare;
+      } else if (lane === SNARE || lane === TOM) {
+        // 3D 스네어·탐탐: 칠 때 헤드가 눌렸다 튀어오름 (탐탐은 더 깊은 통 + 다리, 드럼 세트와 같은 마감)
+        const sq = age < 0.25 ? Math.exp(-age * (lane === TOM ? 18 : 25)) * (lane === TOM ? 0.07 : 0.05) : 0;
+        const sp = lane === TOM ? this.kit.tom : this.kit.snare;
         ctx.save();
         ctx.translate(x, y);
         ctx.scale(1 + sq, 1 - sq);
@@ -872,7 +1027,7 @@ export class Renderer {
     const ctx = this.ctx;
     const L = this.L;
     this.fx.judges = this.fx.judges.filter((j) => rt - j.t0 < 0.45);
-    const latest = [null, null, null, null];
+    const latest = [null, null, null, null, null];
     for (const j of this.fx.judges) latest[j.lane] = j;
     for (const j of latest) {
       if (!j) continue;
@@ -925,7 +1080,7 @@ export class Renderer {
       ctx.lineWidth = size * 0.2;
       ctx.strokeStyle = INK;
       ctx.strokeText(b.text, 0, 0);
-      ctx.fillStyle = '#FF9CC8';
+      ctx.fillStyle = b.color || '#FF9CC8';
       ctx.fillText(b.text, 0, 0);
       ctx.restore();
     }

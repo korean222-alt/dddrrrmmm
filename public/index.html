@@ -43,6 +43,11 @@
       <div class="title-actions">
         <button class="btn btn-primary btn-big" data-action="quickstart"><span data-icon="play"></span> 바로 시작 <small>1단계</small></button>
         <button class="btn btn-ghost" data-action="levels">단계 고르기</button>
+        <div class="title-mini">
+          <button class="mini-btn" data-action="room-open">⚔️<span>대결 방</span></button>
+          <button class="mini-btn" data-action="news-open" id="btn-news">📢<span>업데이트</span><i class="dot" id="news-dot" hidden></i></button>
+          <button class="mini-btn" data-action="suggest-open">💬<span>건의하기</span></button>
+        </div>
         <button class="link studio-link" data-action="studio"><span data-icon="video"></span> 영상 찍기</button>
       </div>
       <div class="inapp-note" id="inapp-note" hidden>
@@ -142,6 +147,7 @@
         <div class="res-badge" id="res-badge" hidden>FULL COMBO</div>
         <div class="res-score" id="res-score">0</div>
         <div class="res-vs" id="res-vs" hidden></div>
+        <div class="res-room" id="res-room" hidden></div>
         <div class="res-star-hint" id="res-star-hint"></div>
         <div class="res-mascots" id="res-mascots"></div>
         <div class="res-stats">
@@ -185,7 +191,7 @@
       <div class="cont-bar"><i id="cont-progress"></i></div>
       <p class="muted small" id="cont-progress-text"></p>
       <div class="stack">
-        <button class="btn btn-primary btn-big" data-action="continue-ad" id="btn-continue"><span class="ad-tag">AD</span> 광고 보고 이어하기</button>
+        <button class="btn btn-primary btn-big" data-action="continue-ad" id="btn-continue"><span class="ad-tag">AD</span> 광고 보고 이어하기 ❤️×2</button>
         <button class="btn btn-ghost" data-action="retry"><span data-icon="retry"></span> 처음부터 다시</button>
         <button class="btn btn-ghost" data-action="give-up">그만하고 결과 보기</button>
       </div>
@@ -356,6 +362,72 @@
       <label class="field"><span>이름</span><input type="text" id="nick-input" maxlength="10" placeholder="예) 쿵짝왕" /></label>
       <div class="stack">
         <button class="btn btn-primary" data-action="save-nick">도전장 보내기</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="modal-room" hidden>
+    <div class="sheet">
+      <button class="icon-btn close" data-action="room-close" aria-label="닫기"><span data-icon="close"></span></button>
+      <h3>⚔️ 친구랑 대결 방</h3>
+      <div id="room-entry">
+        <p class="muted">방을 만들고 <b>4자리 코드</b>를 친구에게 보내면, 둘이 같은 곡을 <b>동시에</b> 시작해요. 치는 동안 서로 점수가 실시간으로 보여요.</p>
+        <label class="field"><span>내 이름</span><input type="text" id="room-name" maxlength="12" placeholder="예) 쿵짝왕" autocomplete="off" /></label>
+        <div class="chips room-chips" id="room-mode-new">
+          <button data-mode="versus" aria-pressed="true">⚔️ 개인전 (1:1)</button>
+          <button data-mode="team" aria-pressed="false">🤝 팀전 (같이 깨기)</button>
+        </div>
+        <button class="btn btn-primary" data-action="room-create">방 만들기</button>
+        <div class="room-or"><span>또는 친구 방에 들어가기</span></div>
+        <div class="room-join">
+          <input type="text" id="room-code" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="코드 4자리" autocomplete="off" />
+          <button class="btn btn-ghost" data-action="room-join">들어가기</button>
+        </div>
+      </div>
+      <div id="room-lobby" hidden>
+        <div class="room-code-box"><span>방 코드</span><b id="room-code-show">0000</b><button class="btn btn-sm btn-ghost" data-action="room-share"><span data-icon="share"></span> 친구 부르기</button></div>
+        <div class="chips room-chips" id="room-mode">
+          <button data-mode="versus" aria-pressed="true">⚔️ 개인전</button>
+          <button data-mode="team" aria-pressed="false">🤝 팀전</button>
+        </div>
+        <label class="field"><span>곡 <small id="room-level-note" class="muted"></small></span><select id="room-level"></select></label>
+        <div class="room-players" id="room-players"></div>
+        <div class="chips room-chips" id="room-part">
+          <button data-part="drum" aria-pressed="true">🥁 드럼</button>
+          <button data-part="piano" aria-pressed="false" disabled>🎹 피아노 (곧 나와요)</button>
+        </div>
+        <p class="muted small" id="room-hint"></p>
+        <div class="stack">
+          <button class="btn btn-primary btn-big" data-action="room-ready" id="room-ready">준비!</button>
+          <button class="link" data-action="room-leave">방 나가기</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="modal-news" hidden>
+    <div class="sheet">
+      <button class="icon-btn close" data-action="close-news" aria-label="닫기"><span data-icon="close"></span></button>
+      <h3>📢 업데이트 소식</h3>
+      <div class="news-list" id="news-list"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="modal-suggest" hidden>
+    <div class="sheet small">
+      <button class="icon-btn close" data-action="close-suggest" aria-label="닫기"><span data-icon="close"></span></button>
+      <h3>💬 건의하기</h3>
+      <p class="muted">넣었으면 하는 곡, 불편한 점, 버그 무엇이든! 운영자가 매일 읽어요.</p>
+      <div class="chips" id="suggest-kind" role="radiogroup">
+        <button data-kind="song" aria-pressed="true">🎵 곡 추천</button>
+        <button data-kind="idea" aria-pressed="false">💡 아이디어</button>
+        <button data-kind="bug" aria-pressed="false">🐞 버그</button>
+        <button data-kind="etc" aria-pressed="false">기타</button>
+      </div>
+      <label class="field"><span>내용</span><textarea id="suggest-text" maxlength="500" rows="5" placeholder="예) 캐논 무제한 모드도 만들어 주세요!"></textarea></label>
+      <p class="muted small" id="suggest-count">0 / 500</p>
+      <div class="stack">
+        <button class="btn btn-primary" data-action="suggest-send" id="suggest-send">보내기</button>
       </div>
     </div>
   </div>

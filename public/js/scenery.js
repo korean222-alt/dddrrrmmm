@@ -453,6 +453,53 @@ const PAINT = {
     g.restore();
   },
 
+  aurora(g, L, T) {
+    const { W, H, cx, topY, GW } = L;
+    const r = rng(31);
+    // 별
+    for (let i = 0; i < 90; i++) {
+      g.fillStyle = `rgba(255,255,255,${0.25 + r() * 0.6})`;
+      g.fillRect(r() * W, r() * topY * 0.8, 1.3, 1.3);
+    }
+    // 오로라 띠 (정적 바탕. 움직이는 빛은 FX)
+    g.save();
+    g.globalCompositeOperation = 'lighter';
+    auroraBands(g, L, 0, 0.55);
+    g.restore();
+    // 눈 덮인 산
+    const peaks = [
+      [cx - GW * 0.55, GW * 0.42, topY * 0.42],
+      [cx - GW * 0.15, GW * 0.3, topY * 0.3],
+      [cx + GW * 0.25, GW * 0.38, topY * 0.48],
+      [cx + GW * 0.62, GW * 0.4, topY * 0.36],
+    ];
+    for (const [x, w, h] of peaks) {
+      const mg = g.createLinearGradient(0, topY - h, 0, topY);
+      mg.addColorStop(0, '#FFFFFF');
+      mg.addColorStop(0.28, '#BFD6E6');
+      mg.addColorStop(1, '#2A4A64');
+      g.fillStyle = mg;
+      g.beginPath();
+      g.moveTo(x - w, topY + 1);
+      g.lineTo(x - w * 0.1, topY - h);
+      g.lineTo(x + w * 0.08, topY - h * 0.92);
+      g.lineTo(x + w, topY + 1);
+      g.fill();
+      g.fillStyle = 'rgba(20,40,60,0.35)';
+      g.beginPath();
+      g.moveTo(x + w * 0.08, topY - h * 0.92);
+      g.lineTo(x + w, topY + 1);
+      g.lineTo(x + w * 0.2, topY + 1);
+      g.fill();
+    }
+    // 눈밭 반짝이
+    for (let i = 0; i < 120; i++) {
+      const y = topY + (H - topY) * Math.pow(r(), 1.5);
+      g.fillStyle = `rgba(255,255,255,${0.3 + r() * 0.5})`;
+      g.fillRect(r() * W, y, 1.5, 1.5);
+    }
+  },
+
   space(g, L, T) {
     const { W, H, cx, topY, GW } = L;
     const r = rng(21);
@@ -514,8 +561,33 @@ const PAINT = {
   },
 };
 
+/** 오로라 띠 (t = 시간으로 일렁임, a = 밝기) */
+function auroraBands(g, L, t, a) {
+  const { W, topY } = L;
+  const bands = [
+    ['120,255,200', 0.18, 0.12],
+    ['140,180,255', 0.3, 0.1],
+    ['200,140,255', 0.42, 0.08],
+  ];
+  bands.forEach(([col, fy, th], k) => {
+    const y0 = topY * fy;
+    const h = topY * th;
+    g.beginPath();
+    g.moveTo(0, y0);
+    for (let x = 0; x <= W; x += 12) g.lineTo(x, y0 + Math.sin(x / W * 6.3 + t * (0.5 + k * 0.2) + k) * h * 0.7);
+    for (let x = W; x >= 0; x -= 12) g.lineTo(x, y0 + h * 2.2 + Math.sin(x / W * 5.1 + t * 0.4 + k * 2) * h * 0.5);
+    g.closePath();
+    const gr = g.createLinearGradient(0, y0 - h, 0, y0 + h * 2.6);
+    gr.addColorStop(0, `rgba(${col},0)`);
+    gr.addColorStop(0.35, `rgba(${col},${a * 0.6})`);
+    gr.addColorStop(1, `rgba(${col},0)`);
+    g.fillStyle = gr;
+    g.fill();
+  });
+}
+
 // ------------------------------------------------------------------ 동적
-const BEAMS = { sunset: 'swing', city: 'swing', hall: 'down', void: 'down', lava: 'swing', space: 'swing' };
+const BEAMS = { sunset: 'swing', city: 'swing', hall: 'down', void: 'down', lava: 'swing', space: 'swing', aurora: 'none' };
 
 export class SceneFx {
   constructor() {
@@ -556,6 +628,7 @@ export class SceneFx {
 
   _beams(ctx, L, T, s) {
     const mode = BEAMS[T.key];
+    if (mode === 'none') return;
     const a0 = 0.05 + s.heat * 0.07 + s.beat * (0.03 + s.heat * 0.05) + s.pe * 0.1 + (s.fever ? 0.04 : 0);
     if (mode === 'down') {
       const lamps = T.key === 'void' ? rigLamps(L) : [0.12, 0.5, 0.88].map((f) => ({ x: L.GX + L.GW * f, y: 0 }));
@@ -629,7 +702,7 @@ export class SceneFx {
   }
 }
 
-const PART_RATE = { petal: 7, neon: 9, gold: 12, haze: 2.5, ember: 22, star: 14 };
+const PART_RATE = { petal: 7, neon: 9, gold: 12, haze: 2.5, ember: 22, star: 14, snow: 18 };
 
 function spawn(kind, L, s) {
   const r = Math.random;
@@ -648,6 +721,9 @@ function spawn(kind, L, s) {
       if (s.heat > 0.7 && r() < 0.6)
         Object.assign(p, { x: r() * W, y: -10, vx: (r() - 0.5) * 30, vy: 60 + r() * 60, size: 3 + r() * 3, life: 9, col: r() < 0.5 ? '255,215,110' : '255,240,200', conf: true, vr: (r() - 0.5) * 8 });
       else Object.assign(p, { x: L.GX + r() * L.GW, y: r() * L.strikeY, vx: (r() - 0.5) * 8, vy: -4 - r() * 8, size: 1 + r() * 1.6, life: 4 + r() * 3, col: '255,220,150' });
+      break;
+    case 'snow':
+      Object.assign(p, { x: r() * W, y: -6, vx: (r() - 0.3) * 20, vy: 25 + r() * 45, size: 1 + r() * 2.2, life: 14, col: '255,255,255' });
       break;
     case 'haze':
       Object.assign(p, { x: r() * W, y: L.topY + r() * (H - L.topY) * 0.6, vx: (r() < 0.5 ? -1 : 1) * (6 + r() * 10), vy: -2, size: L.GW * (0.2 + r() * 0.25), life: 8, col: '255,255,255' });
@@ -691,6 +767,13 @@ function drawPart(ctx, p, fade, s) {
         ctx.arc(p.x, p.y, p.size, 0, TAU);
         ctx.fill();
       }
+      break;
+    case 'snow':
+      ctx.globalAlpha = 0.85 * fade;
+      ctx.fillStyle = '#FFFFFF';
+      ctx.beginPath();
+      ctx.arc(p.x + Math.sin(p.rot) * 5, p.y, p.size, 0, TAU);
+      ctx.fill();
       break;
     case 'haze': {
       ctx.globalAlpha = fade * 0.05;
@@ -800,6 +883,10 @@ const FX = {
     gr.addColorStop(1, 'rgba(255,70,10,0)');
     ctx.fillStyle = gr;
     ctx.fillRect(0, L.H * 0.6, L.W, L.H * 0.4);
+  },
+  aurora(ctx, L, T, s) {
+    // 오로라가 박자·곡 세기에 맞춰 일렁이며 밝아짐
+    auroraBands(ctx, L, s.rt, 0.12 + 0.25 * s.heat + 0.15 * s.beat);
   },
   space(ctx, L, T, s) {
     radial(ctx, L.cx, L.topY, L.GW * 0.35, '160,140,255', 0.1 + 0.2 * s.beat * (0.3 + s.heat));

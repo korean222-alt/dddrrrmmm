@@ -6,7 +6,7 @@
 // - 모든 박자 판정은 AudioContext 시계 기준 (setTimeout 보다 훨씬 정확)
 // - heardTime(): "지금 스피커에서 나오고 있는 소리"의 시각. 출력 지연까지 반영.
 
-import { STEPS_PER_BAR, COUNT_IN_BARS, OUTRO_BARS, tempoOf, parseMelody, chordAt, levelLanes, CHAR_LANES, KICK, SNARE, HAT, CRASH } from './charts.js';
+import { STEPS_PER_BAR, COUNT_IN_BARS, OUTRO_BARS, tempoOf, parseMelody, chordAt, levelLanes, CHAR_LANES, KICK, SNARE, HAT, CRASH, TOM } from './charts.js';
 
 const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -434,6 +434,33 @@ export class AudioEngine {
     this._noise(t, 0.28, hp);
   }
 
+  /** 탐탐 (플로어 탐): 낮게 '둥' — 음이 살짝 내려가는 통 울림 + 가죽 치는 소리 */
+  tom(t = this.ctx.currentTime, vel = 1, dest = this.sfxBus) {
+    const ctx = this.ctx;
+    for (const [fr, amp, dec] of [[130, 0.75, 0.42], [205, 0.22, 0.2]]) {
+      const o = ctx.createOscillator();
+      const og = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(fr * 1.5, t);
+      o.frequency.exponentialRampToValueAtTime(fr, t + 0.06);
+      og.gain.setValueAtTime(0.0001, t);
+      og.gain.exponentialRampToValueAtTime(amp * vel, t + 0.003);
+      og.gain.exponentialRampToValueAtTime(0.001, t + dec);
+      o.connect(og).connect(dest);
+      o.start(t);
+      o.stop(t + dec + 0.02);
+    }
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 1800;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, t);
+    ng.gain.exponentialRampToValueAtTime(0.35 * vel, t + 0.002);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+    lp.connect(ng).connect(dest);
+    this._noise(t, 0.06, lp);
+  }
+
   /** 하이햇 (밴드가 쳐줌. 금속성 고음) */
   hat(t, vel = 0.5, open = false, dest = this.musicBus) {
     const ctx = this.ctx;
@@ -475,6 +502,7 @@ export class AudioEngine {
     else if (lane === SNARE) this.snare(t, 1, dest);
     else if (lane === HAT) this.hat(t, 1.6, false, dest);
     else if (lane === CRASH) this.crash(t, dest, 0.42);
+    else if (lane === TOM) this.tom(t, 1, dest);
   }
 
   /** 결과 화면 별 하나 '띵!' (i = 0,1,2 갈수록 높아짐) */

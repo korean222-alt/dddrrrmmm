@@ -4,15 +4,15 @@ import assert from 'node:assert/strict';
 import {
   LEVELS, getLevel, levelLanes, buildNotes, parseMelody, stepDur, tempoOf, TempoMap, CRASH, HAT, KICK, SNARE,
   makeEndless, shiftOldLevelKey, roundBpm, roundInfo, roundBars, diamondsFor, ROUND_BARS, COUNT_IN_BARS,
-  isUnlocked, nextChallenge, ENDLESS_ID, LAST_LEVEL_ID, STEPS_PER_BAR,
+  isUnlocked, nextChallenge, ENDLESS_ID, LAST_LEVEL_ID, STEPS_PER_BAR, TOM, isLeftThumb,
   ENDLESS_FROM, makeLevelEndless, levelEndlessBase, levelEndlessId, LEVEL_ENDLESS_STEP,
 } from '../public/js/charts.js';
 
-/** 같은 엄지(왼쪽: 킥·크래시 / 오른쪽: 스네어·하이햇)로 2칸보다 촘촘한 연타가 없는지 */
+/** 같은 엄지(왼쪽: 킥·크래시·탐탐 / 오른쪽: 스네어·하이햇)로 2칸보다 촘촘한 연타가 없는지 */
 function assertNoSameThumb16th(notes, label) {
   const last = { L: -9, R: -9 };
   for (const n of notes) {
-    const h = n.lane === KICK || n.lane === CRASH ? 'L' : 'R';
+    const h = isLeftThumb(n.lane) ? 'L' : 'R';
     if (n.step !== last[h]) assert.ok(n.step - last[h] >= 2, `${label} ${h} 엄지 ${n.step}칸`);
     last[h] = n.step;
   }
@@ -23,7 +23,7 @@ function sameThumb16th(notes) {
   const last = { L: -9, R: -9 };
   const out = [];
   for (const n of notes) {
-    const h = n.lane === KICK || n.lane === CRASH ? 'L' : 'R';
+    const h = isLeftThumb(n.lane) ? 'L' : 'R';
     if (n.step !== last[h] && n.step - last[h] < 2) out.push(n.step);
     last[h] = n.step;
   }
@@ -42,7 +42,6 @@ test('15단계 윌리엄 텔 서곡: 14단계보다 빠르고 촘촘한 진짜 �
   const lv = getLevel(15);
   const prev = getLevel(14);
   assert.equal(lv.name, '윌리엄 텔 서곡');
-  assert.equal(LAST_LEVEL_ID, 15);
   assert.ok(LEVELS.every((l) => l.bpm <= lv.bpm), '제일 빠른 곡');
   assert.ok(lv.bpm > prev.bpm);
   // 1초에 치는 노트 수도 14단계보다 많음
@@ -50,6 +49,22 @@ test('15단계 윌리엄 텔 서곡: 14단계보다 빠르고 촘촘한 진짜 �
   assert.ok(density(lv) > density(prev), `15단계 ${density(lv).toFixed(2)} vs 14단계 ${density(prev).toFixed(2)}`);
   assert.deepEqual(levelLanes(lv), [CRASH, KICK, SNARE, HAT]);
   assertNoSameThumb16th(buildNotes(lv), 'Lv.15');
+});
+
+test('16단계 교향곡 40번: 탐탐이 더해진 5악기, 15단계보다 살짝 느림, 같은 엄지 16분음표 연타 없음', () => {
+  const lv = getLevel(16);
+  assert.equal(LAST_LEVEL_ID, 16);
+  assert.equal(lv.composer, '모차르트');
+  assert.equal(lv.newInstrument, TOM);
+  assert.deepEqual(levelLanes(lv), [CRASH, KICK, TOM, SNARE, HAT]);
+  assert.ok(isLeftThumb(TOM) && isLeftThumb(KICK) && !isLeftThumb(SNARE));
+  assert.ok(lv.bpm < getLevel(15).bpm && lv.bpm >= 112, `${lv.bpm} BPM`);
+  for (let b = 0; b < lv.bars.length; b++) assert.equal(lv.bars[b].length, STEPS_PER_BAR, `마디 ${b}`);
+  assert.equal(lv.song.melody.length, lv.bars.length);
+  assert.doesNotThrow(() => parseMelody(lv.song.melody)); // 마디마다 16칸
+  assertNoSameThumb16th(buildNotes(lv), 'Lv.16');
+  // 단계별 무제한도 5악기 그대로
+  assert.deepEqual(levelLanes(makeLevelEndless(lv)), levelLanes(lv));
 });
 
 test('8단계 운명 교향곡: 킥·스네어만, 14단계와 달리 느긋함(그리그보다 성김), 첫 소절은 빠바바밤, 웅장한 오케스트라', () => {

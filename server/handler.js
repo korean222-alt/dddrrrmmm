@@ -5,6 +5,7 @@
 
 import { sign, unsign, parseCookies, cookie, newId } from './session.js';
 import { buildStats } from './stats.js';
+import { createRoomHandler } from './rooms.js';
 import { LEVELS, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur, ENDLESS_ID, ROUND_BARS, roundBpm, pointsFor, levelEndlessBase, LEVEL_ENDLESS_STEP, needsVerify, isClosed } from '../public/js/charts.js';
 
 // 무제한 모드 랭킹은 저장소의 level 칸에 '깬 단계 × 1,000,000,000 + 점수' 한 숫자로 저장 (단계가 먼저, 같으면 점수)
@@ -66,6 +67,10 @@ export function createHandler(cfg, { store }) {
   const limitScores = rateLimiter(60, 10 * 60 * 1000);
   const limitAdmin = rateLimiter(30, 10 * 60 * 1000);
   const limitTrack = rateLimiter(200, 10 * 60 * 1000);
+  const limitSuggest = rateLimiter(6, 10 * 60 * 1000);
+  // 대결 방: 2초마다 주고받으니 넉넉히 (방 만들기는 따로 적게)
+  const limitRoom = rateLimiter(900, 10 * 60 * 1000);
+  const limitRoomCreate = rateLimiter(15, 10 * 60 * 1000);
   // 팔로워 암호: 틀린 시도만 셈. IP 당 10분에 10번 틀리면 잠깐 막음
   const passFails = new Map();
   const passBlocked = (ip) => {
@@ -89,8 +94,9 @@ export function createHandler(cfg, { store }) {
 
   /** 관리자 비밀번호 확인 (길이 같을 때만 한 글자씩 비교) */
   function isAdmin(request) {
-    const t = request.headers.get('x-admin-token') || '';
-    const a = cfg.adminToken;
+    return sameToken(request.headers.get('x-admin-token') || '', cfg.adminToken);
+  }
+  function sameToken(t, a) {
     if (!a || t.length !== a.length) return false;
     let d = 0;
     for (let i = 0; i < a.length; i++) d |= a.charCodeAt(i) ^ t.charCodeAt(i);
@@ -119,6 +125,13 @@ export function createHandler(cfg, { store }) {
     verified: false, guest: true, needsIg: !pl.ig, checked: isVerified(pl), confirmed: isConfirmed(pl),
     hidden: pl.hiddenAt ? { deleteAt: pl.hiddenAt + HIDE_KEEP_MS } : null,
     player: { username: pl.username, ig: pl.ig },
+  });
+
+  // 대결 방: 4단계부터는 혼자 칠 때와 같은 잠금 (팔로워 인증 완료한 사람만)
+  const handleRoom = createRoomHandler({
+    store,
+    getPlayer: (request) => getPlayer(request),
+    canPlay: async (levelId, pl) => (cfg.gateMode !== 'open' && isClosed(levelId) && !isConfirmed(pl) ? (isVerified(pl) ? 'confirm_pending' : 'confirm_required') : null),
   });
 
   return async function handle(request, { ip = '?' } = {}) {
@@ -257,6 +270,52 @@ export function createHandler(cfg, { store }) {
       return json(200, { ok: true });
     }
 
+    // 건의함: 누구나 (닉네임이 있으면 같이 저장). 같은 브라우저는 1시간에 5개까지
+    if (p === '/api/suggestions' && m === 'POST') {
+      if (!limitSuggest(ip)) return json(429, { error: 'rate_limited' });
+      const b = await readJson(request);
+      const body = String(b.text ?? '').replace(/\r\n?/g, '\n').trim().slice(0, 500);
+      if ([...body].length < 2) return json(400, { error: 'too_short' });
+      const kind = ['song', 'idea', 'bug', 'etc'].includes(b.kind) ? b.kind : 'etc';
+      let vid = cookiesOf(request)[VID_COOKIE];
+      if (!/^[A-Za-z0-9_-]{16,32}$/.test(vid || '')) {
+        vid = newId();
+        setCookies.push(cookie(VID_COOKIE, vid, { maxAge: VID_MAX_AGE, secure: cfg.cookieSecure }));
+      }
+      const now = Date.now();
+      if ((await store.countSuggestions(vid, now - 3600 * 1000)) >= 5) return json(429, { error: 'rate_limited' });
+      const pl = await getPlayer(request);
+      const id = await store.addSuggestion({ at: now, kind, body, nick: pl ? pl.username : null, vid });
+      return json(200, { ok: true, id });
+    }
+
+    // 건의함을 매일 읽는 봇 (읽기 전용 토큰). ?days=1 (1~30) 최근 N일
+    if (p === '/api/bot/suggestions' && m === 'GET') {
+      if (!cfg.botToken) return json(404, { error: 'not_found' });
+      if (!sameToken(url.searchParams.get('token') || request.headers.get('x-bot-token') || '', cfg.botToken)) {
+        if (!limitAdmin(ip)) return json(429, { error: 'rate_limited' });
+        return json(401, { error: 'bad_token' });
+      }
+      const days = Math.min(30, Math.max(1, Math.floor(Number(url.searchParams.get('days'))) || 1));
+      const now = Date.now();
+      const rows = await store.listSuggestions(now - days * 24 * 3600 * 1000, 500);
+      const kst = (t) => new Date(t + 9 * 3600 * 1000).toISOString().slice(0, 16).replace('T', ' ');
+      return json(200, {
+        days,
+        count: rows.length,
+        suggestions: rows.map((r) => ({ id: r.id, at: kst(r.at) + ' KST', kind: r.kind, text: r.body, nick: r.nick, done: !!r.doneAt })),
+      });
+    }
+
+    // 친구 대결 방 (만들기·들어가기·주고받기·나가기)
+    if (p === '/api/rooms' && m === 'POST') {
+      const b = await readJson(request);
+      if (!limitRoom(ip)) return json(429, { error: 'rate_limited' });
+      if (b.action === 'create' && !limitRoomCreate(ip)) return json(429, { error: 'rate_limited' });
+      const [status, data] = await handleRoom(request, b);
+      return json(status, data);
+    }
+
     // 관리자 (비밀번호 필요)
     if (p.startsWith('/api/admin/')) {
       if (!isAdmin(request) && !limitAdmin(ip)) return json(429, { error: 'rate_limited' });
@@ -292,6 +351,21 @@ export function createHandler(cfg, { store }) {
         const b = await readJson(request);
         if (typeof b.igsid !== 'string' || !b.igsid) return json(400, { error: 'bad_igsid' });
         return json(200, { ok: await store.setChecked(b.igsid, b.checked !== false) });
+      }
+      // 건의함: ?days=30 (1~365)
+      if (p === '/api/admin/suggestions' && m === 'GET') {
+        const days = Math.min(365, Math.max(1, Math.floor(Number(url.searchParams.get('days'))) || 30));
+        return json(200, { suggestions: await store.listSuggestions(Date.now() - days * 24 * 3600 * 1000, 1000) });
+      }
+      if (p === '/api/admin/suggestions/done' && m === 'POST') {
+        const b = await readJson(request);
+        if (!Number.isInteger(b.id)) return json(400, { error: 'bad_id' });
+        return json(200, { ok: await store.setSuggestionDone(b.id, b.done !== false) });
+      }
+      if (p === '/api/admin/suggestions/delete' && m === 'POST') {
+        const b = await readJson(request);
+        if (!Number.isInteger(b.id)) return json(400, { error: 'bad_id' });
+        return json(200, { ok: await store.deleteSuggestion(b.id) });
       }
       // 팔로워 암호 보기 / 바꾸기 (주 1회 교체 → 키티챗 DM 문구도 같이 바꾸기). 빈 값이면 환경변수 값으로 돌아감
       if (p === '/api/admin/follow-password' && m === 'GET') {

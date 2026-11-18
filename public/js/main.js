@@ -14,6 +14,8 @@ import { initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay } from './track.
 import { CONFIG } from './config.js';
 import { mascotSVG, stickSVG, bassDrumSVG, snareSVG } from './mascot.js';
 import { groupStarting } from './themes.js';
+import { NEWS, LATEST_NEWS } from './news.js';
+import { RoomClient, roomOutcome } from './room.js';
 import { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder } from './storage.js';
 
 migrateLevelOrder(); // 8단계에 새 곡이 끼면서 밀린 번호를 이 브라우저 기록에도 반영 (아래 state 보다 먼저)
@@ -458,11 +460,14 @@ async function fontsReady() {
 // 곡 시작은 비동기(악기 소리 불러오기 등)라서, 같은 단계를 빠르게 두 번 누르면 게임이 둘 생겨
 // 먼저 만든 쪽이 카운트인 중에 이미 진행되던 버그가 있었음 → 마지막 호출만 살리고 앞선 호출은 중단
 let startSeq = 0;
-async function startLevel(id) {
+async function startLevel(id, opts = {}) {
   const lv = playable(id);
   if (!lv) return;
-  // 처음 한 번은 박자 보정을 꼭 하고 시작 (영상 찍기·자동 연주는 제외)
-  if (needsCalibration()) {
+  // 친구 대결 방 판: { startAt(내 시계 ms), mode } — 같은 시각에 시작, 랭킹엔 안 올림
+  const room = opts.room || null;
+  document.body.classList.toggle('room-game', !!room);
+  // 처음 한 번은 박자 보정을 꼭 하고 시작 (영상 찍기·자동 연주는 제외. 대결 방은 '준비' 전에 미리 함)
+  if (!room && needsCalibration()) {
     openCalibration({ required: true, after: () => startLevel(id) });
     return;
   }
@@ -483,10 +488,10 @@ async function startLevel(id) {
   closeModal('modal-continue');
   const st = state.studio;
   renderLives(st.active || state.auto ? null : MAX_LIVES);
-  const vs = !st.active && !lv.challenge && state.vs && state.vs.levelId === id ? state.vs : null;
-  $('#hud-vs').hidden = !vs;
-  if (vs) {
-    $('#vs-name').textContent = vs.name;
+  const vs = !room && !st.active && !lv.challenge && state.vs && state.vs.levelId === id ? state.vs : null;
+  $('#hud-vs').hidden = !vs && !room;
+  if (vs || room) {
+    $('#vs-name').textContent = vs ? vs.name : roomOtherName();
     $('#vs-me').textContent = '0';
     $('#vs-op').textContent = '0';
     $('#vs-fill').style.width = '50%';
@@ -506,7 +511,7 @@ async function startLevel(id) {
   if (state.game) state.game.stop();
   state.runToken = null;
   // 영상 찍기는 팔로우 잠금 없이 (계정 주인이 촬영용으로 씀) → 서버 판 토큰도 안 받음
-  if ((!lv.challenge || lv.endless) && !st.active) state.api
+  if ((!lv.challenge || lv.endless) && !st.active && !room) state.api
     .startRun(id)
     .then((r) => (state.runToken = r.runToken))
     .catch((e) => {
@@ -542,7 +547,19 @@ async function startLevel(id) {
       if (h.score !== last.score) $('#hud-score').textContent = fmt(h.score);
       const p = Math.round(h.progress * 200);
       if (p !== last.p) $('#hud-progress').style.width = p / 2 + '%';
-      if (vs) {
+      if (room) {
+        // 내 점수는 다음 주고받기 때 같이 감 (2초마다), 상대 점수는 받은 값
+        state.roomClient.send({ live: { score: h.score, combo: state.game ? state.game.combo : 0, progress: h.progress, lives: h.lives } });
+        const o = state.roomClient.other;
+        const op = o && o.final ? o.final.score : o && o.live ? o.live.score : 0;
+        if (op !== last.op || h.score !== last.score) {
+          $('#vs-me').textContent = fmt(h.score);
+          $('#vs-op').textContent = room.mode === 'team' ? `${fmt(op)} · 팀 ${fmt(h.score + op)}` : fmt(op);
+          const tot = h.score + op;
+          $('#vs-fill').style.width = (tot ? (h.score / tot) * 100 : 50).toFixed(1) + '%';
+        }
+        last.op = op;
+      } else if (vs) {
         const op = opponentScoreAt(vs.timeline, h.barPos);
         if (op !== last.op || h.score !== last.score) {
           $('#vs-me').textContent = fmt(h.score);
@@ -571,14 +588,39 @@ async function startLevel(id) {
     },
     onEnd: (res) => {
       if (!state.studio.active && !res.auto) trackPlayEnd({ result: res.failed || res.died ? 'fail' : 'clear', score: res.score, stars: res.stars });
+      if (room && state.roomClient.active) {
+        res.room = { mode: room.mode, round: room.round };
+        state.roomClient.send({ final: { score: res.score, stars: res.stars, grade: res.grade, failed: !!res.failed, maxCombo: res.maxCombo, accuracy: res.accuracy } }, true);
+      }
       return state.studio.active ? studioFinish(res) : showResult(res);
     },
     // 영상 찍기 땐 목숨 없음 (녹화 중에 멈추면 안 되니까)
     onDeath: st.active ? null : onDeath,
   });
+  if (room) {
+    // 친구와 같은 시각에 시작: 남은 시간 카운트다운 (Game.start 가 0.35초 뒤에 첫 박을 놓음)
+    const box = $('#studio-count');
+    box.hidden = false;
+    $('#studio-count-msg').textContent = room.mode === 'team' ? '🤝 팀전! 둘이 같이 깨 봐요' : `⚔️ ${roomOtherName()} 님과 대결!`;
+    const g = state.game;
+    // 기다리는 동안 무대(맵)를 그려 둠
+    renderer.draw({ now: -1, notes: g.notes, approach: g.approach, beatDur: g.beat, combo: 0, score: 0, playing: false }, performance.now() / 1000);
+    await new Promise((resolve) => {
+      const tick = () => {
+        if (stale() || state.game !== g) return resolve();
+        const left = room.startAt - 350 - Date.now();
+        $('#studio-count-num').textContent = String(Math.max(1, Math.ceil(left / 1000)));
+        if (left <= 0) return resolve();
+        setTimeout(tick, Math.min(100, left));
+      };
+      tick();
+    });
+    box.hidden = true;
+    if (stale() || state.game !== g) return;
+  }
   state.game.start();
   // 영상 찍기·자동 연주는 통계에 안 셈
-  if (!st.active && !state.auto) trackPlayStart(id, vs ? 'vs' : 'normal');
+  if (!st.active && !state.auto) trackPlayStart(id, vs || room ? 'vs' : 'normal');
 }
 
 /** 단계에 맞게 화면 레인(악기) 세팅 */
@@ -606,10 +648,11 @@ const KEYMAP = {
   2: [['KeyF', 'KeyD', 'KeyA', 'ArrowLeft'], ['KeyJ', 'KeyK', 'KeyL', 'ArrowRight']],
   3: [['KeyF', 'KeyD', 'ArrowLeft'], ['KeyJ', 'ArrowDown'], ['KeyK', 'KeyL', 'ArrowRight']],
   4: [['KeyD', 'KeyS'], ['KeyF', 'ArrowLeft'], ['KeyJ', 'ArrowRight'], ['KeyK', 'KeyL']],
+  5: [['KeyS', 'KeyA'], ['KeyD'], ['KeyF', 'ArrowLeft'], ['KeyJ', 'ArrowRight'], ['KeyK', 'KeyL']],
 };
 
 // 화면에 보여줄 키 글자 (KEYMAP 의 첫 번째와 같게)
-const KEY_LABELS = { 2: ['F', 'J'], 3: ['F', 'J', 'K'], 4: ['D', 'F', 'J', 'K'] };
+const KEY_LABELS = { 2: ['F', 'J'], 3: ['F', 'J', 'K'], 4: ['D', 'F', 'J', 'K'], 5: ['S', 'D', 'F', 'J', 'K'] };
 
 function bindGameInput() {
   const canvas = $('#game-canvas');
@@ -749,6 +792,9 @@ function giveUp() {
 function showResult(res) {
   res.runToken = state.runToken;
   state.lastResult = res;
+  $('#screen-result').classList.toggle('in-room', !!res.room);
+  $('#res-room').hidden = !res.room;
+  if (res.room) setTimeout(renderRoomResult, 0);
   if (res.challenge) {
     showChallengeResult(res);
     return;
@@ -785,7 +831,8 @@ function showResult(res) {
   $('#res-mascots').innerHTML = mascotSVG('kong', face) + mascotSVG('jjak', face);
   const timing =
     Math.abs(res.avgOffsetMs) < 15 ? '타이밍 딱 좋아요' : res.avgOffsetMs < 0 ? `평균 ${-res.avgOffsetMs}ms 빨라요` : `평균 ${res.avgOffsetMs}ms 늦어요`;
-  $('#res-meta').innerHTML = `정확도 ${(res.accuracy * 100).toFixed(1)}% · 최대 콤보 ${res.maxCombo} · ${timing}${state.auto ? '<br>(자동 연주 — 기록 저장 안 됨)' : ''}`;
+  const extras = [res.goldTotal ? `✨ 황금 콩 ${res.goldHits}/${res.goldTotal}` : '', res.rollHits ? `💥 연타 ${res.rollHits}번` : ''].filter(Boolean).join(' · ');
+  $('#res-meta').innerHTML = `정확도 ${(res.accuracy * 100).toFixed(1)}% · 최대 콤보 ${res.maxCombo} · ${timing}${extras ? '<br>' + extras : ''}${state.auto ? '<br>(자동 연주 — 기록 저장 안 됨)' : ''}`;
   const next = getLevel(nextOpenId(lv.id));
   const nb = $('#btn-next');
   nb.hidden = false;
@@ -793,7 +840,7 @@ function showResult(res) {
   else nb.innerHTML = `💎 무제한 모드 ${progressLocked(ENDLESS_ID) ? icon('lock') : ''}`;
   $('#btn-rank').hidden = state.auto || res.failed;
   // 끝까지 친 판은 알아서 랭킹에 올림 (점수 올라가는 연출이 끝날 즈음)
-  if (!state.auto && !res.failed) setTimeout(() => submitRank(res), 1800);
+  if (!state.auto && !res.failed && !res.room) setTimeout(() => submitRank(res), 1800);
   $('#btn-vs').hidden = state.auto || res.failed;
   // 박자가 계속 한쪽으로 밀리면 (블루투스 이어폰 등) 한 번에 맞추기
   const hits = (res.counts.perfect || 0) + (res.counts.great || 0) + (res.counts.good || 0);
@@ -1565,7 +1612,266 @@ async function studioStop() {
 }
 
 // ---------------- 이벤트 연결 ----------------
+// ---------------- 친구 대결 방 ----------------
+const roomUi = { newMode: 'versus', round: 0 };
+function roomOtherName() {
+  const o = state.roomClient && state.roomClient.other;
+  return o ? o.name : '친구';
+}
+function myRoomName() {
+  return load('roomName', '') || (state.me && state.me.player && state.me.player.username) || '';
+}
+function roomErrText(e) {
+  const k = (e && (e.data && e.data.error)) || (e && e.message) || '';
+  return (
+    {
+      rate_limited: '잠시 뒤 다시 해 주세요',
+      no_server: '지금은 서버에 연결할 수 없어요',
+      room_gone: '그런 방이 없어요. 코드를 확인해 주세요',
+      room_full: '방이 꽉 찼어요 (두 명까지)',
+      room_busy: '지금 치는 중인 방이에요. 끝나면 들어와 주세요',
+      bad_name: '이름은 1~12자, 글자·숫자만 써 주세요',
+      bad_code: '코드 4자리를 적어 주세요',
+      confirm_required: `이 곡은 팔로워 인증을 받아야 칠 수 있어요 (1~${FREE_UPTO}단계는 누구나)`,
+      confirm_pending: `이 곡은 팔로워 인증을 받아야 칠 수 있어요 (1~${FREE_UPTO}단계는 누구나)`,
+    }[k] || '연결이 불안정해요. 잠시 뒤 다시 해 주세요'
+  );
+}
+function openRoom(code) {
+  const c = state.roomClient;
+  $('#room-entry').hidden = c.active;
+  $('#room-lobby').hidden = !c.active;
+  if (!c.active) {
+    $('#room-name').value = myRoomName();
+    if (code) $('#room-code').value = code;
+    $$('#room-mode-new [data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === roomUi.newMode)));
+  } else renderRoom(c.room);
+  openModal('modal-room');
+}
+function renderRoom(room) {
+  const c = state.roomClient;
+  if (!room || !c.active) return;
+  // 둘 다 준비 → 새 판 시작 (서버가 정한 시각에)
+  if (room.status === 'playing' && room.startAt && room.round !== roomUi.round) {
+    roomUi.round = room.round;
+    const startAt = c.toLocal(room.startAt);
+    if (startAt - Date.now() > -2000) {
+      closeModal('modal-room');
+      startLevel(room.level, { room: { startAt, mode: room.mode, round: room.round } });
+      return;
+    }
+  }
+  if ($('#screen-result').classList.contains('in-room')) renderRoomResult();
+  $('#room-entry').hidden = true;
+  $('#room-lobby').hidden = false;
+  $('#room-code-show').textContent = room.code;
+  const host = c.isHost;
+  $$('#room-mode [data-mode]').forEach((b) => {
+    b.setAttribute('aria-pressed', String(b.dataset.mode === room.mode));
+    b.disabled = !host && b.dataset.mode !== room.mode;
+  });
+  const sel = $('#room-level');
+  const opts = LEVELS.map((lv) => {
+    const ok = lv.id <= FREE_UPTO || isConfirmed();
+    return `<option value="${lv.id}"${ok ? '' : ' disabled'}>${lv.id}단계 · ${lv.name}${ok ? '' : ' 🔒'}</option>`;
+  }).join('');
+  if (sel.dataset.sig !== opts) {
+    sel.innerHTML = opts;
+    sel.dataset.sig = opts;
+  }
+  if (document.activeElement !== sel) sel.value = String(room.level);
+  sel.disabled = !host;
+  $('#room-level-note').textContent = host ? '(방장이 골라요)' : '(방장이 고른 곡)';
+  const me = c.me;
+  const other = c.other;
+  $('#room-players').innerHTML = ['a', 'b']
+    .map((s) => {
+      const p = room.players[s];
+      if (!p) return `<div class="room-player empty"><b>빈 자리</b><small>친구를 기다려요…</small></div>`;
+      const mine = s === c.slot;
+      const lost = !mine && p.ago > 15000;
+      const lastRes = p.final ? `<span class="last">지난 판 ${fmt(p.final.score)}점</span>` : '';
+      return `<div class="room-player ${mine ? 'me' : ''}"><b>${escapeHtml(p.name)}${mine ? ' (나)' : ''}</b>
+        <small>${s === room.host ? '👑 방장 · ' : ''}${p.part === 'piano' ? '🎹 피아노' : '🥁 드럼'}</small><br>
+        <span class="rdy ${p.ready ? 'on' : ''}">${lost ? '연결 끊김?' : p.ready ? '준비 완료' : '준비 전'}</span>${lastRes}</div>`;
+    })
+    .join('');
+  $('#room-ready').textContent = me && me.ready ? '준비 취소' : '준비!';
+  $('#room-hint').textContent = !other
+    ? `친구에게 코드 ${room.code} 를 알려 주세요. 들어오면 같이 '준비!'`
+    : me && me.ready && !other.ready
+      ? `${other.name} 님이 준비하면 바로 시작해요`
+      : !(me && me.ready) && other.ready
+        ? `${other.name} 님은 준비 완료! '준비!'를 누르면 시작해요`
+        : room.mode === 'team'
+          ? '팀전: 둘의 점수를 합쳐요. 피아노 파트는 곧 나와요!'
+          : '개인전: 같은 곡을 동시에 치고 점수로 승부!';
+}
+async function roomCreate() {
+  const name = $('#room-name').value.trim();
+  if (!name) return toast('이름을 적어 주세요');
+  save('roomName', name);
+  try {
+    roomUi.round = 0;
+    await state.roomClient.create(name, roomUi.newMode, 1);
+  } catch (e) {
+    toast(roomErrText(e), 2800);
+  }
+}
+async function roomJoin() {
+  const name = $('#room-name').value.trim();
+  const code = $('#room-code').value.replace(/\D/g, '');
+  if (!name) return toast('이름을 적어 주세요');
+  if (code.length !== 4) return toast('코드 4자리를 적어 주세요');
+  save('roomName', name);
+  try {
+    roomUi.round = 0;
+    await state.roomClient.join(code, name);
+  } catch (e) {
+    toast(roomErrText(e), 2800);
+  }
+}
+async function roomReady() {
+  const c = state.roomClient;
+  if (!c.active) return;
+  const want = !(c.me && c.me.ready);
+  if (want && needsCalibration()) {
+    closeModal('modal-room');
+    openCalibration({ required: true, after: () => openRoom() });
+    return;
+  }
+  // 소리는 사용자가 누를 때만 켤 수 있어서 '준비' 때 미리 켜 둠 (시작은 타이머로)
+  if (want) await audio.unlock();
+  c.send({ ready: want }, true);
+}
+async function roomShare() {
+  const c = state.roomClient;
+  if (!c.active) return;
+  const url = `${location.origin}/?room=${c.code}`;
+  const text = `🥁 오케이스트라 대결 방에 들어와! 코드 ${c.code}`;
+  if (navigator.share) {
+    try {
+      await navigator.share({ title: '오케이스트라 대결', text, url });
+      return;
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+    }
+  }
+  try {
+    await navigator.clipboard.writeText(`${text}\n${url}`);
+    toast('링크를 복사했어요! 친구에게 보내 주세요');
+  } catch {
+    toast(`코드 ${c.code} 를 친구에게 알려 주세요`, 3000);
+  }
+}
+async function roomLeave() {
+  await state.roomClient.leave();
+  roomUi.round = 0;
+  document.body.classList.remove('room-game');
+  closeModal('modal-room');
+  if ($('#screen-result').classList.contains('in-room')) {
+    $('#screen-result').classList.remove('in-room');
+    $('#res-room').hidden = true;
+    refreshTitle();
+    show('screen-title');
+  }
+  toast('방에서 나왔어요');
+}
+/** 결과 화면: 대결 방 결과 (상대가 끝날 때까지 2초마다 갱신) */
+function renderRoomResult() {
+  const c = state.roomClient;
+  const box = $('#res-room');
+  const res = state.lastResult;
+  if (!res || !res.room) return;
+  box.hidden = false;
+  const o = c.other;
+  const mine = res.score;
+  const theirs = o && o.final ? o.final.score : null;
+  const team = res.room.mode === 'team';
+  let head;
+  if (!c.active) head = '<div class="room-word">방이 닫혔어요</div>';
+  else if (!o) head = '<div class="room-word">친구가 나갔어요</div>';
+  else if (theirs == null) head = `<div class="room-word">${escapeHtml(o.name)} 님 아직 치는 중… ${o.live ? Math.round((o.live.progress || 0) * 100) + '%' : ''}</div>`;
+  else if (team) head = `<div class="room-word win">🤝 팀 점수 ${fmt(roomOutcome('team', mine, theirs).team)}</div>`;
+  else {
+    const r = roomOutcome('versus', mine, theirs).result;
+    head = `<div class="room-word ${r}">${{ win: '승리! 🎉', lose: '아쉽게 패배…', draw: '무승부!' }[r]}</div>`;
+  }
+  const other = o ? `${escapeHtml(o.name)}<b>${theirs == null ? (o.live ? fmt(o.live.score) : '-') : fmt(theirs)}</b>` : '-';
+  box.innerHTML = `${head}
+    <div class="room-row"><span>나<b>${fmt(mine)}</b></span><span>${team ? '+' : 'VS'}</span><span>${other}</span></div>
+    <div class="room-acts"><button class="btn btn-primary" data-action="room-again">한 판 더</button><button class="btn btn-ghost" data-action="room-leave">방 나가기</button></div>`;
+}
+async function roomAgain() {
+  const c = state.roomClient;
+  $('#screen-result').classList.remove('in-room');
+  $('#res-room').hidden = true;
+  document.body.classList.remove('room-game');
+  show('screen-title');
+  if (c.active) await c.again();
+  openRoom();
+}
+
+// ---------------- 업데이트 소식 · 건의하기 ----------------
+function refreshNewsDot() {
+  $('#news-dot').hidden = load('newsSeen', '') === LATEST_NEWS;
+}
+function openNews() {
+  const seen = load('newsSeen', '');
+  const seenIdx = NEWS.findIndex((n) => n.id === seen);
+  $('#news-list').innerHTML = NEWS.map(
+    (n, i) => `<article class="news-item ${seenIdx < 0 ? (i === 0 ? 'new' : '') : i < seenIdx ? 'new' : ''}">
+      <h4>${n.title} <small>${n.date}</small>${(seenIdx < 0 ? i === 0 : i < seenIdx) ? '<em>NEW</em>' : ''}</h4>
+      <ul>${n.items.map((t) => `<li>${t}</li>`).join('')}</ul></article>`
+  ).join('');
+  save('newsSeen', LATEST_NEWS);
+  refreshNewsDot();
+  openModal('modal-news');
+}
+const suggestState = { kind: 'song', sending: false };
+function openSuggest() {
+  $('#suggest-text').value = load('suggestDraft', '');
+  $('#suggest-count').textContent = `${[...$('#suggest-text').value].length} / 500`;
+  openModal('modal-suggest');
+  setTimeout(() => $('#suggest-text').focus(), 50);
+}
+async function sendSuggest() {
+  const text = $('#suggest-text').value.trim();
+  if ([...text].length < 2) {
+    toast('내용을 조금만 더 적어 주세요');
+    return;
+  }
+  if (suggestState.sending) return;
+  suggestState.sending = true;
+  $('#suggest-send').disabled = true;
+  try {
+    await state.api.suggest(suggestState.kind, text);
+    save('suggestDraft', '');
+    $('#suggest-text').value = '';
+    closeModal('modal-suggest');
+    toast('고마워요! 건의가 잘 전달됐어요 💌', 2600);
+  } catch (e) {
+    toast(e.status === 429 ? '조금 있다가 다시 보내 주세요 (1시간에 5개까지)' : '보내지 못했어요. 잠시 뒤 다시 해 주세요', 2800);
+  } finally {
+    suggestState.sending = false;
+    $('#suggest-send').disabled = false;
+  }
+}
+
 const ACTIONS = {
+  'room-open': () => openRoom(),
+  'room-close': () => closeModal('modal-room'),
+  'room-create': roomCreate,
+  'room-join': roomJoin,
+  'room-ready': roomReady,
+  'room-share': roomShare,
+  'room-leave': roomLeave,
+  'room-again': roomAgain,
+  'news-open': openNews,
+  'close-news': () => closeModal('modal-news'),
+  'suggest-open': openSuggest,
+  'close-suggest': () => closeModal('modal-suggest'),
+  'suggest-send': sendSuggest,
   quickstart: () => tryStart(state.quickId ?? 1),
   'continue-ad': continueWithAd,
   'give-up': giveUp,
@@ -1628,6 +1934,10 @@ const ACTIONS = {
   },
   quit: () => {
     closeModal('modal-pause');
+    // 대결 방 판을 중간에 나가면 지금 점수로 끝낸 걸로 알림
+    if (document.body.classList.contains('room-game') && state.roomClient.active && state.game)
+      state.roomClient.send({ final: { score: state.game.score, stars: 0, grade: 'F', failed: true, maxCombo: state.game.maxCombo, accuracy: 0 } }, true);
+    document.body.classList.remove('room-game');
     if (state.game) state.game.stop();
     renderLevels();
     show('screen-levels');
@@ -1709,6 +2019,23 @@ function bindActions() {
     submitJoin();
   });
   document.addEventListener('click', (e) => {
+    const newMode = e.target.closest('#room-mode-new [data-mode]');
+    if (newMode) {
+      roomUi.newMode = newMode.dataset.mode;
+      $$('#room-mode-new [data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b === newMode)));
+      return;
+    }
+    const roomMode = e.target.closest('#room-mode [data-mode]');
+    if (roomMode) {
+      if (state.roomClient.isHost) state.roomClient.send({ mode: roomMode.dataset.mode }, true);
+      return;
+    }
+    const kindBtn = e.target.closest('#suggest-kind [data-kind]');
+    if (kindBtn) {
+      suggestState.kind = kindBtn.dataset.kind;
+      document.querySelectorAll('#suggest-kind [data-kind]').forEach((b) => b.setAttribute('aria-pressed', String(b === kindBtn)));
+      return;
+    }
     const modeBtn = e.target.closest('#level-mode [data-mode]');
     if (modeBtn) {
       save('levelMode', modeBtn.dataset.mode);
@@ -1814,6 +2141,17 @@ async function boot() {
   if (isInApp() && !load('inappDismissed', false)) $('#inapp-note').hidden = false;
 
   state.api = await createApi(CONFIG);
+  state.roomClient = new RoomClient({
+    api: state.api,
+    onUpdate: renderRoom,
+    onError: (e) => toast(roomErrText(e), 3000),
+    onGone: () => {
+      toast('방이 닫혔어요', 2400);
+      roomUi.round = 0;
+      if (!$('#modal-room').hidden) openRoom();
+      if ($('#screen-result').classList.contains('in-room')) renderRoomResult();
+    },
+  });
   try {
     const sc = await state.api.config();
     for (const k of ['gateMode', 'instagramHandle', 'siteUrl']) {
@@ -1830,6 +2168,25 @@ async function boot() {
     state.me = { verified: false };
   }
   refreshTitle();
+  refreshNewsDot();
+  $('#room-level').addEventListener('change', (e) => {
+    if (state.roomClient.isHost) state.roomClient.send({ level: Number(e.target.value) }, true);
+  });
+  // 친구가 보낸 방 링크 (/?room=1234)
+  if (/^\d{4}$/.test(params.get('room') || '')) {
+    const code = params.get('room');
+    try {
+      const u = new URL(location.href);
+      u.searchParams.delete('room');
+      history.replaceState(null, '', u.pathname + u.search + u.hash);
+    } catch {}
+    setTimeout(() => openRoom(code), 400);
+  }
+  $('#suggest-text').addEventListener('input', () => {
+    const v = $('#suggest-text').value;
+    $('#suggest-count').textContent = `${[...v].length} / 500`;
+    save('suggestDraft', v);
+  });
   renderLevels();
   // 운영자가 팔로우 확인이 안 돼서 랭킹에서 내린 사람: 들어오자마자 알림 (아이디를 다시 넣을 기회)
   if (state.me.hidden) setTimeout(() => askNickname(true), 600);

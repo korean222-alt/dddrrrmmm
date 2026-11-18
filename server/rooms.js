@@ -1,0 +1,193 @@
+// 친구 대결 방 (1:1 개인전 · 팀전)
+//   실시간 연결(웹소켓) 없이: 두 사람이 2초마다 /api/rooms 에 내 점수를 보내고 상대 점수를 받음 (폴링).
+//   방 하나 = DB 행 하나. 두 사람 다 '준비'를 누르면 서버가 몇 초 뒤 시작 시각(startAt)을 정해 같이 시작.
+//   방 판은 랭킹에 안 들어감 (랭킹은 혼자 친 판만).
+//
+// 방 data: { code, mode: 'versus'|'team', level, status: 'lobby'|'playing', round, cfgVer, startAt, host: 'a'|'b', createdAt,
+//            players: { a: { name, part, key(비밀), ready('cfgVer.round' 문자열 | null), seenAt, live:{round,score,combo,progress,lives}, final:{round,...} }, b: … } }
+
+import { newId } from './session.js';
+import { getLevel, levelDuration } from '../public/js/charts.js';
+
+export const ROOM_TTL_MS = 2 * 3600 * 1000;
+export const ROOM_START_DELAY_MS = 4500;
+export const ROOM_PARTS = ['drum', 'piano'];
+// 아직 없는 파트 (피아노는 곧 추가) → 고를 수 없음
+export const ROOM_PARTS_READY = ['drum'];
+const SLOTS = ['a', 'b'];
+
+const clean = (v, max) => String(v ?? '').trim().replace(/\s+/g, ' ').slice(0, max);
+const int = (v, lo, hi) => (Number.isFinite(v) ? Math.max(lo, Math.min(hi, Math.round(v))) : null);
+
+export function cleanRoomName(v) {
+  const s = clean(v, 12);
+  return s && /^[\p{L}\p{N}_. ]+$/u.test(s) ? s : null;
+}
+
+/** 다른 사람에게 보여줄 방 (비밀 키 빼고, 준비는 지금 설정·판 기준으로) */
+export function publicRoom(d, now) {
+  const players = {};
+  for (const s of SLOTS) {
+    const p = d.players && d.players[s];
+    if (!p) continue;
+    players[s] = {
+      name: p.name,
+      part: p.part || 'drum',
+      ready: p.ready === readyTag(d),
+      ago: Math.max(0, now - (p.seenAt || 0)),
+      live: p.live && p.live.round === d.round ? p.live : null,
+      final: p.final && p.final.round === d.round ? p.final : null,
+    };
+  }
+  return { code: d.code, mode: d.mode, level: d.level, status: d.status, round: d.round || 0, startAt: d.startAt || null, host: d.host, players };
+}
+
+const readyTag = (d) => `${d.cfgVer || 0}.${d.round || 0}`;
+
+/**
+ * @param {{ store, getPlayer, canPlay(level, player) → string|null(에러 코드) }} deps
+ */
+export function createRoomHandler({ store, getPlayer, canPlay }) {
+  const exp = (now) => now + ROOM_TTL_MS;
+
+  async function newCode(data, now) {
+    for (let i = 0; i < 12; i++) {
+      const code = String(Math.floor(Math.random() * 9000) + 1000);
+      if (await store.createRoom(code, { ...data, code }, now, exp(now))) return code;
+    }
+    return null;
+  }
+
+  async function auth(body, now) {
+    const code = String(body.code || '');
+    if (!/^\d{4}$/.test(code)) throw Object.assign(new Error('bad_code'), { status: 400 });
+    const d = await store.getRoom(code, now);
+    if (!d) throw Object.assign(new Error('room_gone'), { status: 404 });
+    const slot = body.slot;
+    const p = SLOTS.includes(slot) && d.players && d.players[slot];
+    if (!p || typeof body.key !== 'string' || p.key !== body.key) throw Object.assign(new Error('not_in_room'), { status: 403 });
+    return { code, d, slot };
+  }
+
+  return async function handleRoom(request, body, now = Date.now()) {
+    const action = body.action;
+
+    if (action === 'create') {
+      const name = cleanRoomName(body.name);
+      if (!name) return [400, { error: 'bad_name' }];
+      const mode = body.mode === 'team' ? 'team' : 'versus';
+      const level = getLevel(body.level) ? getLevel(body.level).id : 1;
+      const key = newId();
+      const data = {
+        mode, level, status: 'lobby', round: 0, cfgVer: 1, host: 'a', createdAt: now,
+        players: { a: { name, part: 'drum', key, ready: null, seenAt: now } },
+      };
+      const code = await newCode(data, now);
+      if (!code) return [503, { error: 'busy' }];
+      return [200, { code, slot: 'a', key, room: publicRoom({ ...data, code }, now), now }];
+    }
+
+    if (action === 'join') {
+      const name = cleanRoomName(body.name);
+      if (!name) return [400, { error: 'bad_name' }];
+      const code = String(body.code || '');
+      if (!/^\d{4}$/.test(code)) return [400, { error: 'bad_code' }];
+      const d = await store.getRoom(code, now);
+      if (!d) return [404, { error: 'room_gone' }];
+      // 빈 자리 (또는 1분 넘게 연결이 끊긴 자리)
+      let slot = SLOTS.find((s) => !d.players || !d.players[s]);
+      let cond = { slotFree: slot };
+      if (!slot) {
+        slot = SLOTS.find((s) => s !== d.host && now - (d.players[s].seenAt || 0) > 60_000);
+        cond = { round: d.round || 0 };
+      }
+      if (!slot) return [409, { error: 'room_full' }];
+      if (d.status === 'playing') return [409, { error: 'room_busy' }];
+      const key = newId();
+      const out = await store.patchRoom(code, { slot, player: { name, part: 'drum', key, ready: null, seenAt: now, live: null, final: null }, cond }, now, exp(now));
+      if (!out) return [409, { error: 'room_full' }];
+      return [200, { code, slot, key, room: publicRoom(out, now), now }];
+    }
+
+    if (action === 'sync' || action === 'leave' || action === 'again') {
+      const { code, d, slot } = await auth(body, now);
+
+      if (action === 'leave') {
+        const players = { ...d.players };
+        delete players[slot];
+        const left = SLOTS.filter((s) => players[s]);
+        if (!left.length) await store.deleteRoom(code);
+        else await store.patchRoom(code, { top: { players, host: d.host === slot ? left[0] : d.host, status: 'lobby' } }, now, exp(now));
+        return [200, { ok: true }];
+      }
+
+      // 한 판 더: 대기실로 (준비는 판 번호가 바뀌어서 저절로 풀림)
+      if (action === 'again') {
+        const out = (await store.patchRoom(code, { top: { status: 'lobby' }, cond: { status: 'playing', round: d.round || 0 } }, now, exp(now))) || (await store.getRoom(code, now));
+        return [200, { room: publicRoom(out, now), now }];
+      }
+
+      // sync: 내 상태 보내고 방 받기
+      const me = { seenAt: now };
+      const top = {};
+      const isHost = d.host === slot;
+      if (d.status === 'lobby') {
+        if (body.name !== undefined) {
+          const n = cleanRoomName(body.name);
+          if (n) me.name = n;
+        }
+        if (body.part !== undefined && ROOM_PARTS_READY.includes(body.part)) me.part = body.part;
+        // 방장만: 곡·모드 바꾸기 (바꾸면 준비가 풀림)
+        if (isHost && body.level !== undefined && getLevel(body.level) && getLevel(body.level).id !== d.level) {
+          top.level = getLevel(body.level).id;
+          top.cfgVer = (d.cfgVer || 0) + 1;
+        }
+        if (isHost && (body.mode === 'team' || body.mode === 'versus') && body.mode !== d.mode) {
+          top.mode = body.mode;
+          top.cfgVer = (top.cfgVer || d.cfgVer || 0) + 1;
+        }
+        if (body.ready === true) {
+          const level = top.level ?? d.level;
+          const err = canPlay ? await canPlay(level, await getPlayer(request)) : null;
+          if (err) return [403, { error: err, level }];
+          me.ready = `${top.cfgVer ?? d.cfgVer ?? 0}.${d.round || 0}`;
+        } else if (body.ready === false) me.ready = null;
+      }
+      if (d.status === 'playing') {
+        const lv = body.live;
+        if (lv && typeof lv === 'object')
+          me.live = { round: d.round, score: int(lv.score, 0, 1e8) ?? 0, combo: int(lv.combo, 0, 1e5) ?? 0, progress: Math.max(0, Math.min(1, Number(lv.progress) || 0)), lives: int(lv.lives, 0, 9) };
+        const f = body.final;
+        if (f && typeof f === 'object')
+          me.final = {
+            round: d.round,
+            score: int(f.score, 0, 1e8) ?? 0,
+            stars: int(f.stars, 0, 3) ?? 0,
+            grade: /^[A-FS]{1,3}$/.test(String(f.grade || '')) ? f.grade : '',
+            failed: !!f.failed,
+            maxCombo: int(f.maxCombo, 0, 1e5) ?? 0,
+            accuracy: Math.max(0, Math.min(1, Number(f.accuracy) || 0)),
+          };
+      }
+      let out = await store.patchRoom(code, { top, slot, player: me }, now, exp(now));
+      if (!out) throw Object.assign(new Error('room_gone'), { status: 404 });
+      // 두 사람 다 준비 → 시작 시각 정하기 (먼저 바꾼 쪽만 성공)
+      const tag = readyTag(out);
+      const ps = SLOTS.map((s) => out.players && out.players[s]).filter(Boolean);
+      if (out.status === 'lobby' && ps.length === 2 && ps.every((p) => p.ready === tag)) {
+        const lv = getLevel(out.level);
+        const started = await store.patchRoom(
+          code,
+          { top: { status: 'playing', round: (out.round || 0) + 1, startAt: now + ROOM_START_DELAY_MS, endBy: now + ROOM_START_DELAY_MS + (lv ? levelDuration(lv) * 1000 : 0) + 120_000 }, cond: { status: 'lobby', round: out.round || 0 } },
+          now,
+          exp(now)
+        );
+        if (started) out = started;
+        else out = (await store.getRoom(code, now)) || out;
+      }
+      return [200, { room: publicRoom(out, now), now }];
+    }
+
+    return [400, { error: 'bad_action' }];
+  };
+}

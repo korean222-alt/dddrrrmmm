@@ -26,6 +26,7 @@ before(async () => {
     MIN_RUN_RATIO: '0',
     ADMIN_TOKEN: 'admin-pw',
     FOLLOW_PASSWORD: '시험1234',
+    SUGGEST_BOT_TOKEN: 'bot-token-123',
   });
   // TEST_PG=1: Vercel 과 같은 Postgres 저장소(PgStore)를 메모리 Postgres(PGlite)로 시험
   let store;
@@ -436,4 +437,83 @@ test('이용 통계: 접속·판 기록 → 관리자만 집계 조회', async (
   const st2 = (await a('GET', '/api/admin/stats?days=7', null, { 'x-admin-token': 'admin-pw' })).json;
   assert.equal(st2.totals.visitors, 2);
   assert.equal(st2.totals.sessions, 3);
+});
+
+test('건의함: 남기기 → 관리자 보기·처리 → 봇 읽기(토큰)', async () => {
+  const c = client();
+  assert.equal((await c('POST', '/api/suggestions', { kind: 'song', text: 'x' })).status, 400);
+  const r = await c('POST', '/api/suggestions', { kind: 'song', text: '  캐논 무제한도 만들어 주세요  ' });
+  assert.equal(r.status, 200);
+  assert.ok(Number.isInteger(r.json.id));
+  await c('POST', '/api/suggestions', { kind: 'weird', text: '버그 있어요\n두 줄' });
+  assert.equal((await c('GET', '/api/admin/suggestions')).status, 401);
+  const admin = { 'x-admin-token': 'admin-pw' };
+  const list = await c('GET', '/api/admin/suggestions?days=7', null, admin);
+  assert.equal(list.status, 200);
+  const mine = list.json.suggestions.find((x) => x.id === r.json.id);
+  assert.equal(mine.body, '캐논 무제한도 만들어 주세요');
+  assert.equal(mine.kind, 'song');
+  assert.ok(list.json.suggestions.some((x) => x.kind === 'etc' && x.body.includes('\n')));
+  assert.equal((await c('POST', '/api/admin/suggestions/done', { id: r.json.id }, admin)).json.ok, true);
+  // 봇: 토큰이 틀리면 401, 맞으면 최근 1일
+  assert.equal((await c('GET', '/api/bot/suggestions?token=nope')).status, 401);
+  const bot = await c('GET', '/api/bot/suggestions?days=1&token=bot-token-123');
+  assert.equal(bot.status, 200);
+  const b1 = bot.json.suggestions.find((x) => x.id === r.json.id);
+  assert.equal(b1.done, true);
+  assert.match(b1.at, /KST$/);
+  assert.equal(b1.vid, undefined);
+  assert.equal((await c('POST', '/api/admin/suggestions/delete', { id: r.json.id }, admin)).json.ok, true);
+  const after = await c('GET', '/api/admin/suggestions', null, admin);
+  assert.ok(!after.json.suggestions.some((x) => x.id === r.json.id));
+});
+
+test('대결 방: 만들기 → 들어가기 → 둘 다 준비하면 시작 → 점수 주고받기 → 한 판 더', async () => {
+  const A = client();
+  const B = client();
+  const C = client();
+  const made = await A('POST', '/api/rooms', { action: 'create', name: '쿵짝왕', mode: 'versus', level: 1 });
+  assert.equal(made.status, 200);
+  const code = made.json.code;
+  assert.match(code, /^\d{4}$/);
+  const a = { code, slot: made.json.slot, key: made.json.key };
+  assert.equal(made.json.room.players.a.key, undefined);
+  assert.equal((await B('POST', '/api/rooms', { action: 'join', code: '0000', name: '친구' })).status, 404);
+  const joined = await B('POST', '/api/rooms', { action: 'join', code, name: '친구' });
+  assert.equal(joined.status, 200);
+  const b = { code, slot: joined.json.slot, key: joined.json.key };
+  assert.equal(b.slot, 'b');
+  assert.equal((await C('POST', '/api/rooms', { action: 'join', code, name: '셋째' })).status, 409);
+  // 남의 키로는 못 바꿈
+  assert.equal((await C('POST', '/api/rooms', { action: 'sync', ...b, key: 'x' })).status, 403);
+  // 4단계는 인증 안 한 사람이 준비 못 함
+  await A('POST', '/api/rooms', { action: 'sync', ...a, level: 4 });
+  assert.equal((await B('POST', '/api/rooms', { action: 'sync', ...b, ready: true })).status, 403);
+  // 방장이 1단계로 + 팀전, 둘 다 준비 → 시작
+  let r = await A('POST', '/api/rooms', { action: 'sync', ...a, level: 1, mode: 'team', ready: true });
+  assert.equal(r.json.room.status, 'lobby');
+  assert.equal(r.json.room.mode, 'team');
+  assert.equal(r.json.room.players.a.ready, true);
+  r = await B('POST', '/api/rooms', { action: 'sync', ...b, ready: true });
+  assert.equal(r.json.room.status, 'playing');
+  assert.equal(r.json.room.round, 1);
+  assert.ok(r.json.room.startAt > r.json.now);
+  // 치는 중: 점수 주고받기
+  await A('POST', '/api/rooms', { action: 'sync', ...a, live: { score: 1200, combo: 3, progress: 0.2, lives: 5 } });
+  r = await B('POST', '/api/rooms', { action: 'sync', ...b, live: { score: 800, combo: 1, progress: 0.2, lives: 4 } });
+  assert.equal(r.json.room.players.a.live.score, 1200);
+  await A('POST', '/api/rooms', { action: 'sync', ...a, final: { score: 50000, stars: 3, grade: 'S', accuracy: 0.97 } });
+  r = await B('POST', '/api/rooms', { action: 'sync', ...b, final: { score: 40000, stars: 2, grade: 'A', failed: false } });
+  assert.equal(r.json.room.players.a.final.score, 50000);
+  assert.equal(r.json.room.players.b.final.grade, 'A');
+  // 한 판 더 → 대기실, 준비 풀림
+  r = await A('POST', '/api/rooms', { action: 'again', ...a });
+  assert.equal(r.json.room.status, 'lobby');
+  assert.equal(r.json.room.players.a.ready, false);
+  assert.equal(r.json.room.players.a.final.score, 50000); // 지난 판 결과는 대기실에서도 보임
+  // 나가기 → 방장 넘어감
+  await A('POST', '/api/rooms', { action: 'leave', ...a });
+  r = await B('POST', '/api/rooms', { action: 'sync', ...b });
+  assert.equal(r.json.room.host, 'b');
+  assert.deepEqual(Object.keys(r.json.room.players), ['b']);
 });

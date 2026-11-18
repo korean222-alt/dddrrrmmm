@@ -34,6 +34,12 @@ const SCHEMA = [
      id TEXT PRIMARY KEY, sid TEXT NOT NULL, vid TEXT NOT NULL, level TEXT NOT NULL, mode TEXT,
      started_at BIGINT NOT NULL, ended_at BIGINT, result TEXT, score INTEGER, stars INTEGER, sec INTEGER)`,
   `CREATE INDEX IF NOT EXISTS plays_started ON plays (started_at)`,
+  // 건의함: 사용자가 남긴 건의사항 (운영자 화면 + 매일 읽는 봇). done_at = 처리함 표시
+  `CREATE TABLE IF NOT EXISTS suggestions (
+     id BIGSERIAL PRIMARY KEY, at BIGINT NOT NULL, kind TEXT, body TEXT NOT NULL, nick TEXT, vid TEXT, done_at BIGINT)`,
+  `CREATE INDEX IF NOT EXISTS suggestions_at ON suggestions (at)`,
+  // 친구 대결 방: 방 하나 = 행 하나 (JSON). 2시간 동안 아무도 안 쓰면 지움
+  `CREATE TABLE IF NOT EXISTS rooms (code TEXT PRIMARY KEY, data JSONB NOT NULL, updated_at BIGINT NOT NULL, expires_at BIGINT NOT NULL)`,
 ];
 
 // 이용 통계는 1년 보관
@@ -383,6 +389,69 @@ END $$`);
       })),
       newVids: fresh.map((r) => r.vid),
     };
+  }
+
+  // ----- 건의함 -----
+  async addSuggestion({ at, kind, body, nick, vid }) {
+    const r = await this.one('INSERT INTO suggestions (at, kind, body, nick, vid) VALUES ($1, $2, $3, $4, $5) RETURNING id', [at, kind, body, nick ?? null, vid ?? null]);
+    return Number(r.id);
+  }
+  /** from(ms) 이후 건의사항, 최신 먼저 */
+  async listSuggestions(from = 0, limit = 500) {
+    const rows = await this.q('SELECT * FROM suggestions WHERE at >= $1 ORDER BY at DESC LIMIT $2', [from, limit]);
+    return rows.map((r) => ({ id: Number(r.id), at: Number(r.at), kind: r.kind, body: r.body, nick: r.nick, doneAt: num(r.done_at) ?? null }));
+  }
+  async setSuggestionDone(id, on, now = Date.now()) {
+    const r = await this.q('UPDATE suggestions SET done_at = $2 WHERE id = $1 RETURNING id', [id, on ? now : null]);
+    return r.length === 1;
+  }
+  async deleteSuggestion(id) {
+    const r = await this.q('DELETE FROM suggestions WHERE id = $1 RETURNING id', [id]);
+    return r.length === 1;
+  }
+  /** 이 브라우저(vid)가 since 이후 남긴 건의 수 (도배 방지) */
+  async countSuggestions(vid, since) {
+    const r = await this.one('SELECT COUNT(*) AS n FROM suggestions WHERE vid = $1 AND at >= $2', [vid, since]);
+    return Number(r.n);
+  }
+
+  // ----- 친구 대결 방 -----
+  /** 새 방 (같은 코드가 살아 있으면 false) */
+  async createRoom(code, data, now, expiresAt) {
+    await this.q('DELETE FROM rooms WHERE expires_at < $1', [now]);
+    const r = await this.q(
+      `INSERT INTO rooms (code, data, updated_at, expires_at) VALUES ($1, $2::jsonb, $3, $4) ON CONFLICT (code) DO NOTHING RETURNING code`,
+      [code, JSON.stringify(data), now, expiresAt]
+    );
+    return r.length === 1;
+  }
+  async getRoom(code, now = Date.now()) {
+    const r = await this.one('SELECT data FROM rooms WHERE code = $1 AND expires_at > $2', [code, now]);
+    return r ? (typeof r.data === 'string' ? JSON.parse(r.data) : r.data) : null;
+  }
+  /**
+   * 방 고치기 (한 문장이라 두 사람이 동시에 보내도 안 섞임)
+   *   top: 방 전체 값 덮어쓰기(players 를 넣으면 통째로 바꿈) / slot+player: 그 사람 값만 합치기
+   *   cond: { status, round, slotFree } 가 맞을 때만 (안 맞으면 null)
+   */
+  async patchRoom(code, { top = {}, slot = null, player = null, cond = {} }, now, expiresAt) {
+    const r = await this.one(
+      `UPDATE rooms SET
+         data = CASE WHEN $3::text IS NULL THEN data || $2::jsonb
+                ELSE (data || $2::jsonb) || jsonb_build_object('players',
+                  COALESCE(data->'players', '{}'::jsonb) || jsonb_build_object($3::text, COALESCE(data->'players'->($3::text), '{}'::jsonb) || $4::jsonb)) END,
+         updated_at = $5, expires_at = $6
+       WHERE code = $1 AND expires_at > $5
+         AND ($7::text IS NULL OR data->>'status' = $7::text)
+         AND ($8::int IS NULL OR COALESCE((data->>'round')::int, 0) = $8::int)
+         AND ($9::text IS NULL OR (data->'players'->($9::text)) IS NULL)
+       RETURNING data`,
+      [code, JSON.stringify(top), slot, JSON.stringify(player || {}), now, expiresAt, cond.status ?? null, cond.round ?? null, cond.slotFree ?? null]
+    );
+    return r ? (typeof r.data === 'string' ? JSON.parse(r.data) : r.data) : null;
+  }
+  async deleteRoom(code) {
+    await this.q('DELETE FROM rooms WHERE code = $1', [code]);
   }
 
   flush() {}

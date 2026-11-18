@@ -1,5 +1,5 @@
 // 맵 분위기(테마): 단계를 묶어서 묶음마다 무대가 바뀜. 곡이 달아오르면(heat) 조명·입자가 같이 커짐.
-//   1~3 노을 피크닉 · 4~6 네온 시티 · 7~9 황금 콘서트홀 · 10~12 블랙 스테이지 · 13~15 용암 보스전
+//   1~3 노을 피크닉 · 4~6 네온 시티 · 7~9 황금 콘서트홀 · 10~12 블랙 스테이지 · 13~15 용암 보스전 · 16 오로라 설원
 //   그리그 무제한·레벨업 챌린지는 우주 무대에서 시작해 Lv 이 오를 때마다 맵이 바뀜(THEME_CYCLE).
 //   단계별 무제한(e5 등)은 그 단계 맵 그대로.
 //
@@ -156,6 +156,36 @@ export const THEMES = {
       cym: 'dark',
     },
   },
+  aurora: {
+    key: 'aurora',
+    name: '오로라 설원',
+    emoji: '🌌',
+    sky: ['#020A1A', '#0A2A3E', '#1C4A5E'],
+    ground: ['#C7D9E8', '#5C7A94'],
+    glow: '120,255,200',
+    hot: '110,255,190',
+    laneBase: 'rgba(6,18,34,0.78)',
+    laneTint: 0.7,
+    rail: null,
+    beat: '210,255,240',
+    fog: '20,60,80',
+    spots: ['120,255,200', '140,180,255', '200,140,255', '120,255,200'],
+    particle: 'snow',
+    kit: {
+      shell: ['#E8FBFF', '#8FD8F0', '#2C6E8E'],
+      finish: 'sparkle',
+      sparkle: '#FFFFFF',
+      snare: ['#FFFFFF', '#C9D3E0', '#5A667A'],
+      snareFinish: 'metal',
+      hoop: ['#FFFFFF', '#B9C6D4', '#5A6676'],
+      inlay: '#4FE0A6',
+      hw: 'chrome',
+      head: '#F4FBFF',
+      emblem: '#1F9E70',
+      emblemText: '#2C6E8E',
+      cym: 'silver',
+    },
+  },
   space: {
     key: 'space',
     name: '우주 무대',
@@ -196,16 +226,17 @@ export const THEME_GROUPS = [
   { from: 7, to: 9, key: 'hall' },
   { from: 10, to: 12, key: 'void' },
   { from: 13, to: 15, key: 'lava' },
+  { from: 16, to: 16, key: 'aurora' },
 ];
 
 /** 그리그 무제한·레벨업 챌린지: Lv 이 오를 때마다 이 순서로 맵이 바뀜 */
-export const THEME_CYCLE = ['space', 'sunset', 'city', 'hall', 'void', 'lava'];
+export const THEME_CYCLE = ['space', 'sunset', 'city', 'hall', 'void', 'lava', 'aurora'];
 
 export function themeKeyForId(id) {
   const n = Number(id);
   if (!Number.isFinite(n)) return 'space';
   const g = THEME_GROUPS.find((t) => n >= t.from && n <= t.to);
-  return g ? g.key : n > 15 ? 'lava' : 'sunset';
+  return g ? g.key : n > 16 ? 'aurora' : 'sunset';
 }
 
 /** 레벨(판) → { key, cycle } . cycle 이면 Lv 마다 맵이 바뀜 */

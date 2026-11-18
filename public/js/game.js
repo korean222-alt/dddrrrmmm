@@ -4,6 +4,7 @@ import {
   STEPS_PER_BAR, tempoOf, ROUND_BARS, roundInfo, diamondsFor,
   buildNotes, JUDGE, pointsFor, accuracy, gradeFor, starsFor,
   COUNT_IN_BARS, OUTRO_BARS, maxScore, levelLanes, INSTRUMENTS, KICK, SNARE, HAT, CRASH,
+  buildRolls, markGoldNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS,
 } from './charts.js';
 import { SongPlayer } from './audio.js';
 
@@ -16,7 +17,7 @@ export const LIFE_REGEN_COMBO = 20;
 /** 한 판에 이어하기 몇 번까지 */
 export const MAX_CONTINUES = 1;
 /** 광고 보고 이어하면 목숨 몇 개로 다시 시작하는지 */
-export const REVIVE_LIVES = 1;
+export const REVIVE_LIVES = 2;
 /** 이어하기 직후 목숨 안 깎이는 시간(초) */
 const REVIVE_GRACE = 1.6;
 /** 헛침으로 목숨이 깎인 뒤 이 시간(초) 안의 헛침은 또 안 깎음 (두 엄지 동시 실수) */
@@ -67,7 +68,29 @@ export class Game {
     this.maxScore = level.endless ? 0 : maxScore(level);
     /** 마디마다 끝났을 때 점수 (1:1 대결에서 상대 점수를 실시간으로 보여줄 때 씀) */
     this.timeline = [];
+    // 💥 연타 구간 · ✨ 황금 콩 (점수와 상관없이 하트를 돌려받는 재미 요소)
+    this.rolls = buildRolls(level);
+    this.rollHits = 0;
+    this.goldTotal = level.challenge ? 0 : markGoldNotes(this.notes);
+    this.goldHits = 0;
     this._loop = this._loop.bind(this);
+  }
+
+  /** 지금(t) 진행 중인 연타 구간 (앞뒤로 살짝 여유) */
+  _rollAt(t) {
+    for (const r of this.rolls) if (t >= r.t0 - 0.08 && t <= r.t1 + 0.06) return r;
+    return null;
+  }
+
+  _rollHit(roll, rt) {
+    roll.hits++;
+    this.rollHits++;
+    if (roll.hits % ROLL_HEART_HITS === 0 && roll.hearts < ROLL_MAX_HEARTS && this.livesOn && this.lives < MAX_LIVES) {
+      roll.hearts++;
+      this.lives++;
+      this.r.onLife(this.lives, +1, rt);
+    }
+    if (this.r.onRoll) this.r.onRoll(roll, rt);
   }
 
   /** 채보 마디가 늘어났으면(무제한 모드) 노트 추가 */
@@ -160,6 +183,13 @@ export class Game {
     this.r.onTap(lane, rt);
     if (this.state !== 'playing' || this.auto) return;
     const t = this.songTime(perfMs);
+    // 연타 구간: 그 줄은 칠 때마다 연타 +1, 다른 줄은 헛침 아님 (구간엔 노트가 없음)
+    const roll = this._rollAt(t);
+    if (roll && roll.lane === lane) {
+      this._rollHit(roll, performance.now() / 1000);
+      return;
+    }
+    if (roll && t >= roll.t0 && t <= roll.t1) return;
     const list = this.lanes[lane];
     let ahead = null;
     for (let i = this.ptr[lane]; i < list.length; i++) {
@@ -203,6 +233,15 @@ export class Game {
     this.maxCombo = Math.max(this.maxCombo, this.combo);
     this.counts[res]++;
     this.score += Math.round(pointsFor(res, this.combo) * (n.mult || 1));
+    if (n.gold && res !== 'good') {
+      this.goldHits++;
+      const heal = this.livesOn && this.lives < MAX_LIVES;
+      if (heal) {
+        this.lives++;
+        this.r.onLife(this.lives, +1, rt);
+      }
+      if (this.r.onGold) this.r.onGold(n.lane, heal, rt);
+    }
     this.offsets.push(dt);
     this.r.onJudge(n.lane, res, rt, dt < 0);
     this.r.onCombo(this.combo, rt);
@@ -300,6 +339,16 @@ export class Game {
           this.r.onTap(lane, rt);
           this._judge(n, 0, rt);
           this.ptr[lane]++;
+        }
+      }
+      // 자동 연주: 연타 구간은 16분음표마다 두드림
+      for (const roll of this.rolls) {
+        if (now < roll.t0 || now > roll.t1) continue;
+        const want = Math.floor((now - roll.t0) / (this.tempo.stepTime(1) - this.tempo.stepTime(0))) + 1;
+        while (roll.hits < want) {
+          this.audio.playLane(roll.lane);
+          this.r.onTap(roll.lane, rt);
+          this._rollHit(roll, rt);
         }
       }
     }
@@ -415,6 +464,7 @@ export class Game {
         lives: this.livesOn ? this.lives : null,
         maxLives: MAX_LIVES,
         countIn,
+        rolls: this.rolls,
         finished: now > this.lastNoteTime + 0.3,
       },
       rt
@@ -482,6 +532,9 @@ export class Game {
       avgOffsetMs,
       auto: this.auto,
       timeline: this.timeline.slice(),
+      rollHits: this.rollHits,
+      goldHits: this.goldHits,
+      goldTotal: this.goldTotal,
     });
   }
 

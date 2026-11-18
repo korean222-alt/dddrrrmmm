@@ -36,6 +36,8 @@ function serverApi() {
     submitScore: (payload) => http('POST', '/api/scores', payload),
     leaderboard: (level) => http('GET', `/api/leaderboard?level=${level}`),
     logout: () => http('POST', '/api/logout'),
+    suggest: (kind, text) => http('POST', '/api/suggestions', { kind, text }),
+    room: (body) => http('POST', '/api/rooms', body),
   };
 }
 
@@ -109,6 +111,14 @@ function mockApi(cfg) {
     async logout() {
       save('mockPlayer', null);
       return { ok: true };
+    },
+    async suggest() {
+      return { ok: true, mock: true };
+    },
+    async room() {
+      const e = new Error('no_server');
+      e.status = 503;
+      throw e;
     },
   };
 }
