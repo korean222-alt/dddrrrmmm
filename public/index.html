@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=1ea49aa2e2" />
+  <link rel="stylesheet" href="css/style.css?v=5e483ee116" />
 </head>
 <body>
   <div id="app">
@@ -41,10 +41,12 @@
         <p class="scene-hint">왼쪽 줄 = 킥(쿵) · 오른쪽 줄 = 스네어(짝) · 눌러보세요!</p>
       </div>
       <div class="title-actions">
+        <div class="mode-row">
+          <button class="mode-card mode-single" data-action="levels"><b>🥁 싱글</b><small>혼자 단계 깨기</small></button>
+          <button class="mode-card mode-multi" data-action="room-open"><b>⚔️ 멀티</b><small>실시간 대결</small></button>
+        </div>
         <button class="btn btn-primary btn-big" data-action="quickstart"><span data-icon="play"></span> 바로 시작 <small>1단계</small></button>
-        <button class="btn btn-ghost" data-action="levels">단계 고르기</button>
         <div class="title-mini">
-          <button class="mini-btn" data-action="room-open">⚔️<span>대결 방</span></button>
           <button class="mini-btn" data-action="news-open" id="btn-news">📢<span>업데이트</span><i class="dot" id="news-dot" hidden></i></button>
           <button class="mini-btn" data-action="suggest-open">💬<span>건의하기</span></button>
         </div>
@@ -368,10 +370,19 @@
   <div class="modal" id="modal-room" hidden>
     <div class="sheet">
       <button class="icon-btn close" data-action="room-close" aria-label="닫기"><span data-icon="close"></span></button>
-      <h3>⚔️ 친구랑 대결 방</h3>
+      <h3>⚔️ 멀티 플레이</h3>
       <div id="room-entry">
-        <p class="muted">방을 만들고 <b>4자리 코드</b>를 친구에게 보내면, 둘이 같은 곡을 <b>동시에</b> 시작해요. 치는 동안 서로 점수가 실시간으로 보여요.</p>
         <label class="field"><span>내 이름</span><input type="text" id="room-name" maxlength="12" placeholder="예) 쿵짝왕" autocomplete="off" /></label>
+        <div class="room-sec">
+          <h4>⚡ 빠른 대결 <small>모르는 사람과 1:1 · 곡은 무작위</small></h4>
+          <div class="quick-row">
+            <button class="quick-btn easy" data-action="room-quick" data-bracket="easy"><b>🌱 쉬움·보통</b><small>1~8단계</small></button>
+            <button class="quick-btn hard" data-action="room-quick" data-bracket="hard"><b>🔥 어려움·극악</b><small>9~16단계 · 팔로워 인증</small></button>
+          </div>
+          <p class="muted small">사람이 적을 땐 상대를 못 찾을 수도 있어요. 그땐 친구를 불러 보세요!</p>
+        </div>
+        <div class="room-sec">
+          <h4>👫 친구랑 <small>코드로 같이 · 곡은 방장이</small></h4>
         <div class="chips room-chips" id="room-mode-new">
           <button data-mode="versus" aria-pressed="true">⚔️ 개인전 (1:1)</button>
           <button data-mode="team" aria-pressed="false">🤝 팀전 (같이 깨기)</button>
@@ -382,9 +393,19 @@
           <input type="text" id="room-code" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="코드 4자리" autocomplete="off" />
           <button class="btn btn-ghost" data-action="room-join">들어가기</button>
         </div>
+        </div>
+      </div>
+      <div id="room-wait" hidden>
+        <div class="wait-box">
+          <div class="wait-spin">🥁</div>
+          <b id="room-wait-title">상대 찾는 중…</b>
+          <p class="muted" id="room-wait-sub">같은 묶음에 들어오는 사람과 바로 붙어요</p>
+        </div>
+        <div class="stack"><button class="btn btn-ghost" data-action="room-leave">그만 찾기</button></div>
       </div>
       <div id="room-lobby" hidden>
-        <div class="room-code-box"><span>방 코드</span><b id="room-code-show">0000</b><button class="btn btn-sm btn-ghost" data-action="room-share"><span data-icon="share"></span> 친구 부르기</button></div>
+        <p class="room-link" id="room-link" hidden></p>
+        <div class="room-code-box" id="room-code-box"><span>방 코드</span><b id="room-code-show">0000</b><button class="btn btn-sm btn-ghost" data-action="room-share"><span data-icon="share"></span> 친구 부르기</button></div>
         <div class="chips room-chips" id="room-mode">
           <button data-mode="versus" aria-pressed="true">⚔️ 개인전</button>
           <button data-mode="team" aria-pressed="false">🤝 팀전</button>
@@ -423,6 +444,7 @@
         <button data-kind="bug" aria-pressed="false">🐞 버그</button>
         <button data-kind="etc" aria-pressed="false">기타</button>
       </div>
+      <p class="suggest-note" id="suggest-note">📌 <b>저작권이 있는 노래(최신 가요·팝·애니·게임 노래 등)는 넣기 어려워요.</b> 클래식·옛 민요·캐럴처럼 오래된 곡을 추천해 주세요! (작곡가가 돌아가신 지 70년이 지난 곡만 쓸 수 있어요)</p>
       <label class="field"><span>내용</span><textarea id="suggest-text" maxlength="500" rows="5" placeholder="예) 캐논 무제한 모드도 만들어 주세요!"></textarea></label>
       <p class="muted small" id="suggest-count">0 / 500</p>
       <div class="stack">
@@ -433,6 +455,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=1a150654eb" defer></script>
+  <script src="js/app.js?v=a3730a02fb" defer></script>
 </body>
 </html>

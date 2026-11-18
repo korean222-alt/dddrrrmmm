@@ -303,6 +303,13 @@ export class JsonStore {
     this._save();
     return structuredClone(d);
   }
+  findOpenRooms(bracket, freshAfter, now = Date.now()) {
+    return Object.entries(this.data.rooms)
+      .filter(([, r]) => r.expiresAt > now && r.updatedAt > freshAfter && r.data.pub === bracket && r.data.status === 'lobby' && r.data.players && r.data.players.a && !r.data.players.b)
+      .sort((x, y) => x[1].updatedAt - y[1].updatedAt)
+      .slice(0, 5)
+      .map(([k]) => k);
+  }
   deleteRoom(code) {
     delete this.data.rooms[code];
     this._save();

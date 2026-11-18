@@ -450,6 +450,15 @@ END $$`);
     );
     return r ? (typeof r.data === 'string' ? JSON.parse(r.data) : r.data) : null;
   }
+  /** 빠른 대결: 이 묶음에서 한 명이 기다리는(최근 주고받은) 방 코드들 */
+  async findOpenRooms(bracket, freshAfter, now = Date.now()) {
+    const rows = await this.q(
+      `SELECT code FROM rooms WHERE expires_at > $3 AND updated_at > $2 AND data->>'pub' = $1 AND data->>'status' = 'lobby'
+         AND (data->'players'->'a') IS NOT NULL AND (data->'players'->'b') IS NULL ORDER BY updated_at LIMIT 5`,
+      [bracket, freshAfter, now]
+    );
+    return rows.map((r) => r.code);
+  }
   async deleteRoom(code) {
     await this.q('DELETE FROM rooms WHERE code = $1', [code]);
   }

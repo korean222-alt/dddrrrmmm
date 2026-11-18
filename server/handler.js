@@ -131,6 +131,7 @@ export function createHandler(cfg, { store }) {
   const handleRoom = createRoomHandler({
     store,
     getPlayer: (request) => getPlayer(request),
+    isConfirmed: (pl) => cfg.gateMode === 'open' || isConfirmed(pl),
     canPlay: async (levelId, pl) => (cfg.gateMode !== 'open' && isClosed(levelId) && !isConfirmed(pl) ? (isVerified(pl) ? 'confirm_pending' : 'confirm_required') : null),
   });
 
@@ -322,7 +323,7 @@ export function createHandler(cfg, { store }) {
     if (p === '/api/rooms' && m === 'POST') {
       const b = await readJson(request);
       if (!limitRoom(ip)) return json(429, { error: 'rate_limited' });
-      if (b.action === 'create' && !limitRoomCreate(ip)) return json(429, { error: 'rate_limited' });
+      if ((b.action === 'create' || b.action === 'quick') && !limitRoomCreate(ip)) return json(429, { error: 'rate_limited' });
       const [status, data] = await handleRoom(request, b);
       return json(status, data);
     }

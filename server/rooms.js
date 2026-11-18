@@ -7,7 +7,7 @@
 //            players: { a: { name, part, key(비밀), ready('cfgVer.round' 문자열 | null), seenAt, live:{round,score,combo,progress,lives}, final:{round,...} }, b: … } }
 
 import { newId } from './session.js';
-import { getLevel, levelDuration } from '../public/js/charts.js';
+import { LEVELS, getLevel, levelDuration, FREE_UPTO } from '../public/js/charts.js';
 
 export const ROOM_TTL_MS = 2 * 3600 * 1000;
 export const ROOM_START_DELAY_MS = 4500;
@@ -15,6 +15,25 @@ export const ROOM_PARTS = ['drum', 'piano'];
 // 아직 없는 파트 (피아노는 곧 추가) → 고를 수 없음
 export const ROOM_PARTS_READY = ['drum'];
 const SLOTS = ['a', 'b'];
+
+// ⚡ 빠른 대결 (모르는 사람과): 사람이 적을 수 있어서 난이도를 두 묶음으로만
+//   easy = 쉬움·보통 (난이도 1~3 = 1~8단계) / hard = 어려움·극악 (난이도 4~5 = 9~16단계)
+export const BRACKETS = {
+  easy: LEVELS.filter((l) => l.difficulty <= 3).map((l) => l.id),
+  hard: LEVELS.filter((l) => l.difficulty >= 4).map((l) => l.id),
+};
+/** 기다리는 방은 이 시간 안에 주고받은 적이 있어야 '살아 있음' (창을 닫고 나간 방은 안 잡힘) */
+export const QUICK_FRESH_MS = 15_000;
+export const QUICK_START_DELAY_MS = 6000;
+const pidOf = () => newId().replace(/[^A-Za-z0-9]/g, '').slice(0, 10);
+
+/** 빠른 대결 곡: 두 사람 다 칠 수 있는 곡 중에서 무작위 (인증 안 한 사람이 있으면 1~3단계만) */
+export function pickQuickLevel(bracket, bothConfirmed, rand = Math.random) {
+  let pool = BRACKETS[bracket] || BRACKETS.easy;
+  if (!bothConfirmed) pool = pool.filter((id) => id <= FREE_UPTO);
+  if (!pool.length) pool = [1];
+  return pool[Math.floor(rand() * pool.length)];
+}
 
 const clean = (v, max) => String(v ?? '').trim().replace(/\s+/g, ' ').slice(0, max);
 const int = (v, lo, hi) => (Number.isFinite(v) ? Math.max(lo, Math.min(hi, Math.round(v))) : null);
@@ -31,6 +50,8 @@ export function publicRoom(d, now) {
     const p = d.players && d.players[s];
     if (!p) continue;
     players[s] = {
+      pid: p.pid || null,
+      sig: p.sig || null,
       name: p.name,
       part: p.part || 'drum',
       ready: p.ready === readyTag(d),
@@ -39,7 +60,7 @@ export function publicRoom(d, now) {
       final: p.final && p.final.round === d.round ? p.final : null,
     };
   }
-  return { code: d.code, mode: d.mode, level: d.level, status: d.status, round: d.round || 0, startAt: d.startAt || null, host: d.host, players };
+  return { code: d.code, mode: d.mode, level: d.level, status: d.status, round: d.round || 0, startAt: d.startAt || null, host: d.host, pub: d.pub || null, players };
 }
 
 const readyTag = (d) => `${d.cfgVer || 0}.${d.round || 0}`;
@@ -47,7 +68,7 @@ const readyTag = (d) => `${d.cfgVer || 0}.${d.round || 0}`;
 /**
  * @param {{ store, getPlayer, canPlay(level, player) → string|null(에러 코드) }} deps
  */
-export function createRoomHandler({ store, getPlayer, canPlay }) {
+export function createRoomHandler({ store, getPlayer, canPlay, isConfirmed = () => false }) {
   const exp = (now) => now + ROOM_TTL_MS;
 
   async function newCode(data, now) {
@@ -80,7 +101,7 @@ export function createRoomHandler({ store, getPlayer, canPlay }) {
       const key = newId();
       const data = {
         mode, level, status: 'lobby', round: 0, cfgVer: 1, host: 'a', createdAt: now,
-        players: { a: { name, part: 'drum', key, ready: null, seenAt: now } },
+        players: { a: { name, pid: pidOf(), part: 'drum', key, ready: null, seenAt: now } },
       };
       const code = await newCode(data, now);
       if (!code) return [503, { error: 'busy' }];
@@ -104,9 +125,45 @@ export function createRoomHandler({ store, getPlayer, canPlay }) {
       if (!slot) return [409, { error: 'room_full' }];
       if (d.status === 'playing') return [409, { error: 'room_busy' }];
       const key = newId();
-      const out = await store.patchRoom(code, { slot, player: { name, part: 'drum', key, ready: null, seenAt: now, live: null, final: null }, cond }, now, exp(now));
+      const out = await store.patchRoom(code, { slot, player: { name, pid: pidOf(), part: 'drum', key, ready: null, seenAt: now, live: null, final: null, sig: null }, cond }, now, exp(now));
       if (!out) return [409, { error: 'room_full' }];
       return [200, { code, slot, key, room: publicRoom(out, now), now }];
+    }
+
+    // ⚡ 빠른 대결: 같은 묶음에서 기다리는 사람이 있으면 바로 붙고 몇 초 뒤 시작, 없으면 내가 방을 열고 기다림
+    if (action === 'quick') {
+      const name = cleanRoomName(body.name);
+      if (!name) return [400, { error: 'bad_name' }];
+      const bracket = body.bracket === 'hard' ? 'hard' : 'easy';
+      const pl = await getPlayer(request);
+      const ok = !!isConfirmed(pl);
+      // 어려움·극악 묶음은 전부 4단계 이상 → 팔로워 인증한 사람만
+      if (bracket === 'hard' && canPlay) {
+        const err = await canPlay(BRACKETS.hard[0], pl);
+        if (err) return [403, { error: err }];
+      }
+      const key = newId();
+      const me = { name, pid: pidOf(), part: 'drum', key, ready: null, seenAt: now, live: null, final: null, sig: null, ok };
+      for (const code of await store.findOpenRooms(bracket, now - QUICK_FRESH_MS, now)) {
+        const d = await store.getRoom(code, now);
+        if (!d || !d.players || !d.players.a || d.players.b) continue;
+        const joined = await store.patchRoom(code, { slot: 'b', player: me, cond: { slotFree: 'b', status: 'lobby', round: d.round || 0 } }, now, exp(now));
+        if (!joined) continue;
+        const level = pickQuickLevel(bracket, ok && !!joined.players.a.ok);
+        const lv = getLevel(level);
+        const started =
+          (await store.patchRoom(
+            code,
+            { top: { level, cfgVer: (joined.cfgVer || 0) + 1, status: 'playing', round: (joined.round || 0) + 1, startAt: now + QUICK_START_DELAY_MS, endBy: now + QUICK_START_DELAY_MS + levelDuration(lv) * 1000 + 120_000 }, cond: { status: 'lobby', round: joined.round || 0 } },
+            now,
+            exp(now)
+          )) || joined;
+        return [200, { code, slot: 'b', key, room: publicRoom(started, now), now }];
+      }
+      const data = { mode: 'versus', level: BRACKETS[bracket][0], status: 'lobby', round: 0, cfgVer: 1, host: 'a', createdAt: now, pub: bracket, players: { a: me } };
+      const code = await newCode(data, now);
+      if (!code) return [503, { error: 'busy' }];
+      return [200, { code, slot: 'a', key, room: publicRoom({ ...data, code }, now), now, waiting: true }];
     }
 
     if (action === 'sync' || action === 'leave' || action === 'again') {
@@ -129,6 +186,10 @@ export function createRoomHandler({ store, getPlayer, canPlay }) {
 
       // sync: 내 상태 보내고 방 받기
       const me = { seenAt: now };
+      // ⚡ 실시간 연결(폰끼리 직접, WebRTC) 준비 신호: 서로 주소(SDP)를 한 번씩 건네 줌
+      const sg = body.sig;
+      if (sg && typeof sg === 'object' && (sg.type === 'offer' || sg.type === 'answer') && typeof sg.sdp === 'string' && sg.sdp.length <= 12000)
+        me.sig = { id: String(sg.id || '').slice(0, 40), to: String(sg.to || '').slice(0, 16), type: sg.type, sdp: sg.sdp };
       const top = {};
       const isHost = d.host === slot;
       if (d.status === 'lobby') {
@@ -138,17 +199,17 @@ export function createRoomHandler({ store, getPlayer, canPlay }) {
         }
         if (body.part !== undefined && ROOM_PARTS_READY.includes(body.part)) me.part = body.part;
         // 방장만: 곡·모드 바꾸기 (바꾸면 준비가 풀림)
-        if (isHost && body.level !== undefined && getLevel(body.level) && getLevel(body.level).id !== d.level) {
+        if (isHost && !d.pub && body.level !== undefined && getLevel(body.level) && getLevel(body.level).id !== d.level) {
           top.level = getLevel(body.level).id;
           top.cfgVer = (d.cfgVer || 0) + 1;
         }
-        if (isHost && (body.mode === 'team' || body.mode === 'versus') && body.mode !== d.mode) {
+        if (isHost && !d.pub && (body.mode === 'team' || body.mode === 'versus') && body.mode !== d.mode) {
           top.mode = body.mode;
           top.cfgVer = (top.cfgVer || d.cfgVer || 0) + 1;
         }
         if (body.ready === true) {
           const level = top.level ?? d.level;
-          const err = canPlay ? await canPlay(level, await getPlayer(request)) : null;
+          const err = canPlay && !d.pub ? await canPlay(level, await getPlayer(request)) : null; // 빠른 대결은 둘 다 칠 수 있는 곡만 고름
           if (err) return [403, { error: err, level }];
           me.ready = `${top.cfgVer ?? d.cfgVer ?? 0}.${d.round || 0}`;
         } else if (body.ready === false) me.ready = null;
@@ -175,10 +236,12 @@ export function createRoomHandler({ store, getPlayer, canPlay }) {
       const tag = readyTag(out);
       const ps = SLOTS.map((s) => out.players && out.players[s]).filter(Boolean);
       if (out.status === 'lobby' && ps.length === 2 && ps.every((p) => p.ready === tag)) {
-        const lv = getLevel(out.level);
+        // 빠른 대결 방은 '한 판 더' 때마다 같은 묶음에서 새 곡
+        const level = out.pub ? pickQuickLevel(out.pub, ps.every((p) => p.ok)) : out.level;
+        const lv = getLevel(level);
         const started = await store.patchRoom(
           code,
-          { top: { status: 'playing', round: (out.round || 0) + 1, startAt: now + ROOM_START_DELAY_MS, endBy: now + ROOM_START_DELAY_MS + (lv ? levelDuration(lv) * 1000 : 0) + 120_000 }, cond: { status: 'lobby', round: out.round || 0 } },
+          { top: { level, status: 'playing', round: (out.round || 0) + 1, startAt: now + ROOM_START_DELAY_MS, endBy: now + ROOM_START_DELAY_MS + (lv ? levelDuration(lv) * 1000 : 0) + 120_000 }, cond: { status: 'lobby', round: out.round || 0 } },
           now,
           exp(now)
         );

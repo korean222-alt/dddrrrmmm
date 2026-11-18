@@ -517,3 +517,37 @@ test('대결 방: 만들기 → 들어가기 → 둘 다 준비하면 시작 →
   assert.equal(r.json.room.host, 'b');
   assert.deepEqual(Object.keys(r.json.room.players), ['b']);
 });
+
+test('⚡ 빠른 대결: 같은 묶음에서 기다리는 사람과 바로 붙고 곡은 둘 다 칠 수 있는 것, 실시간 연결 신호 전달', async () => {
+  const A = client();
+  const B = client();
+  const C = client();
+  // 어려움·극악은 인증한 사람만
+  assert.equal((await C('POST', '/api/rooms', { action: 'quick', name: '셋째', bracket: 'hard' })).status, 403);
+  const a = await A('POST', '/api/rooms', { action: 'quick', name: '기다림', bracket: 'easy' });
+  assert.equal(a.status, 200);
+  assert.equal(a.json.waiting, true);
+  assert.equal(a.json.room.pub, 'easy');
+  assert.match(a.json.room.players.a.pid, /^\w{6,}$/);
+  const b = await B('POST', '/api/rooms', { action: 'quick', name: '찾음', bracket: 'easy' });
+  assert.equal(b.status, 200);
+  assert.equal(b.json.code, a.json.code, '기다리던 방에 붙음');
+  assert.equal(b.json.room.status, 'playing');
+  assert.ok(b.json.room.level >= 1 && b.json.room.level <= 3, '인증 안 한 사람끼리는 1~3단계');
+  assert.ok(b.json.room.startAt > b.json.now);
+  // 방장도 곡·모드를 못 바꿈 (빠른 대결)
+  const ka = { code: a.json.code, slot: 'a', key: a.json.key };
+  const kb = { code: b.json.code, slot: 'b', key: b.json.key };
+  // 실시간 연결 신호: A 가 offer, B 가 answer
+  await A('POST', '/api/rooms', { action: 'sync', ...ka, sig: { id: 'x1', to: b.json.room.players.b.pid, type: 'offer', sdp: 'v=0 offer' } });
+  let r = await B('POST', '/api/rooms', { action: 'sync', ...kb });
+  assert.equal(r.json.room.players.a.sig.sdp, 'v=0 offer');
+  await B('POST', '/api/rooms', { action: 'sync', ...kb, sig: { id: 'x1', to: a.json.room.players.a.pid, type: 'answer', sdp: 'v=0 answer' } });
+  r = await A('POST', '/api/rooms', { action: 'sync', ...ka });
+  assert.equal(r.json.room.players.b.sig.type, 'answer');
+  // 다른 묶음 사람은 이 방에 안 붙음
+  const c = await C('POST', '/api/rooms', { action: 'quick', name: '셋째', bracket: 'easy' });
+  assert.notEqual(c.json.code, a.json.code);
+  assert.equal(c.json.waiting, true);
+  await C('POST', '/api/rooms', { action: 'leave', code: c.json.code, slot: 'a', key: c.json.key });
+});

@@ -7076,6 +7076,17 @@ const __m_news = (() => {
 
 const NEWS = [
   {
+    id: '2026-11-18d',
+    date: '11월 18일',
+    title: '싱글 · 멀티 · 실시간 빠른 대결',
+    items: [
+      '첫 화면이 <b>🥁 싱글</b>(혼자 단계 깨기) · <b>⚔️ 멀티</b>로 나뉘었어요',
+      '⚡ <b>빠른 대결</b>: 모르는 사람과 바로 1:1! <b>🌱 쉬움·보통</b>(1~8단계) · <b>🔥 어려움·극악</b>(9~16단계) 두 방에서 같은 방 사람끼리 붙어요. 곡은 무작위',
+      '⚡ <b>실시간</b>: 폰끼리 바로 이어져서 상대 점수가 바로바로 올라가요 (연결이 안 되는 망에선 조금 늦게 보여요)',
+      '사람이 적을 땐 상대를 못 찾을 수 있어요. 그땐 친구 방을 만들어 불러 보세요!',
+    ],
+  },
+  {
     id: '2026-11-18c',
     date: '11월 18일',
     title: '버벅임 줄이기 · 소리 멈춤 안내',
@@ -7133,23 +7144,110 @@ return { NEWS, LATEST_NEWS };
 
 // ---- room.js ----
 const __m_room = (() => {
-// 친구 대결 방 클라이언트: /api/rooms 를 주기적으로 불러 내 상태를 보내고 방(상대) 상태를 받음.
-//   대기실 2.5초 · 치는 중·결과 기다릴 때 4초. 화면이 안 보이면(백그라운드) 쉼.
+// 친구 대결 방 클라이언트
+//   서버(/api/rooms): 방 만들기·들어가기·빠른 대결 짝짓기·준비·시작 시각·최종 점수. 대기실 2.5초마다 주고받음.
+//   ⚡ 실시간: 두 폰을 직접 이어서(WebRTC 데이터 채널) 치는 동안 점수를 0.2초마다 바로 주고받음.
+//     처음 이을 때만 서버로 서로 주소(SDP)를 한 번씩 건넴. 이어지면 치는 동안 서버 요청은 15초에 한 번(살아 있음 표시)만.
+//     통신사 망에 따라 직접 연결이 안 되면 예전처럼 서버로 4초마다 (자동으로 바뀜).
 //   서버 시계와 내 시계 차이(offset)를 재서 '같은 시각에 시작'을 맞춤.
 
-// Vercel 요청 수를 아끼려고 넉넉하게 (점수 막대는 조금 늦게 따라와도 됨)
+// Vercel 요청 수를 아끼려고 넉넉하게
 const ROOM_POLL_LOBBY_MS = 2500;
 const ROOM_POLL_PLAY_MS = 4000;
+const ROOM_POLL_RT_MS = 15000; // 실시간 연결됐을 때 치는 중
+const ROOM_POLL_WAIT_MS = 4000; // 빠른 대결 상대 기다리는 중
+const LIVE_EVERY_MS = 200;
+const LINK_GIVEUP_MS = 20000;
+const ICE_SERVERS = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }];
+
+const rid = () => Math.random().toString(36).slice(2, 12);
+
+function iceDone(pc, ms = 3000) {
+  if (pc.iceGatheringState === 'complete') return Promise.resolve();
+  return new Promise((resolve) => {
+    const t = setTimeout(resolve, ms);
+    pc.addEventListener('icegatheringstatechange', () => {
+      if (pc.iceGatheringState === 'complete') {
+        clearTimeout(t);
+        resolve();
+      }
+    });
+  });
+}
+
+/** 상대 폰과 직접 연결 하나 (주소를 한 번에 다 모아서 건넴 — 서버를 한 번씩만 거치게) */
+class PeerLink {
+  constructor(id, peer) {
+    this.id = id;
+    this.peer = peer;
+    this.t0 = Date.now();
+    this.open = false;
+    this.accepted = false;
+    this.onMessage = null;
+    this.onOpen = null;
+    this.pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+  }
+  _wire(ch) {
+    this.ch = ch;
+    ch.onopen = () => {
+      this.open = true;
+      if (this.onOpen) this.onOpen();
+    };
+    ch.onclose = () => (this.open = false);
+    ch.onmessage = (e) => {
+      try {
+        if (this.onMessage) this.onMessage(JSON.parse(e.data));
+      } catch {}
+    };
+  }
+  async offer() {
+    this._wire(this.pc.createDataChannel('kk'));
+    await this.pc.setLocalDescription(await this.pc.createOffer());
+    await iceDone(this.pc);
+    return this.pc.localDescription.sdp;
+  }
+  async answer(sdp) {
+    this.pc.ondatachannel = (e) => this._wire(e.channel);
+    await this.pc.setRemoteDescription({ type: 'offer', sdp });
+    await this.pc.setLocalDescription(await this.pc.createAnswer());
+    await iceDone(this.pc);
+    return this.pc.localDescription.sdp;
+  }
+  async accept(sdp) {
+    if (this.accepted) return;
+    this.accepted = true;
+    await this.pc.setRemoteDescription({ type: 'answer', sdp });
+  }
+  send(obj) {
+    if (!this.open) return false;
+    try {
+      this.ch.send(JSON.stringify(obj));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+  close() {
+    this.open = false;
+    try {
+      if (this.ch) this.ch.close();
+    } catch {}
+    try {
+      this.pc.close();
+    } catch {}
+  }
+}
 
 class RoomClient {
   /**
-   * @param {{ api, onUpdate(room), onError(err), onGone() }} o
+   * @param {{ api, onUpdate(room), onError(err), onGone(), onLink(open) }} o
    */
-  constructor({ api, onUpdate, onError, onGone }) {
+  constructor({ api, onUpdate, onError, onGone, onLink }) {
     this.api = api;
     this.onUpdate = onUpdate || (() => {});
     this.onError = onError || (() => {});
     this.onGone = onGone || (() => {});
+    this.onLink = onLink || (() => {});
     this.room = null;
     this.code = null;
     this.slot = null;
@@ -7160,6 +7258,11 @@ class RoomClient {
     this._timer = null;
     this._busy = false;
     this._fails = 0;
+    this.link = null;
+    this.peerLive = null;
+    this.peerFinal = null;
+    this._failedPeer = null;
+    this._lastLive = 0;
   }
 
   get active() {
@@ -7168,13 +7271,26 @@ class RoomClient {
   get isHost() {
     return !!this.room && this.room.host === this.slot;
   }
+  /** 폰끼리 직접 연결돼서 실시간으로 주고받는 중 */
+  get realtime() {
+    return !!(this.link && this.link.open);
+  }
   get me() {
     return this.room && this.room.players[this.slot];
   }
-  get other() {
+  _otherRaw() {
     if (!this.room) return null;
-    const s = this.slot === 'a' ? 'b' : 'a';
-    return this.room.players[s] || null;
+    return this.room.players[this.slot === 'a' ? 'b' : 'a'] || null;
+  }
+  /** 상대 (실시간으로 받은 점수가 있으면 그게 더 최신) */
+  get other() {
+    const o = this._otherRaw();
+    if (!o) return null;
+    const r = this.room.round;
+    const out = { ...o };
+    if (this.peerLive && this.peerLive.round === r) out.live = this.peerLive;
+    if (!out.final && this.peerFinal && this.peerFinal.round === r) out.final = this.peerFinal;
+    return out;
   }
   /** 서버 시각(ms) → 내 Date.now() 기준 */
   toLocal(serverMs) {
@@ -7197,13 +7313,20 @@ class RoomClient {
   }
 
   _enter(r) {
+    this._closeLink();
+    this._failedPeer = null;
     this.code = r.code;
     this.slot = r.slot;
     this.key = r.key;
     this.room = r.room;
     this.bestRtt = Infinity;
-    this.onUpdate(this.room);
+    this._update();
     this._schedule();
+  }
+
+  _update() {
+    this._syncLink();
+    this.onUpdate(this.room);
   }
 
   async create(name, mode, level) {
@@ -7214,8 +7337,32 @@ class RoomClient {
     this._enter(await this._call({ action: 'join', code, name }));
   }
 
+  /** ⚡ 빠른 대결: 같은 묶음에서 기다리는 사람이 있으면 바로 붙음. 없으면 기다림 (true) */
+  async quick(name, bracket) {
+    const r = await this._call({ action: 'quick', name, bracket });
+    this._enter(r);
+    return !!r.waiting;
+  }
+
+  /** 빠른 대결에서 아직 상대를 기다리는 중 */
+  get waiting() {
+    return !!(this.room && this.room.pub && this.room.status === 'lobby' && !this._otherRaw());
+  }
+
   /** 다음 주고받기 때 같이 보낼 값 (ready, level, mode, live, final…) — 바로 보내려면 now=true */
   send(fields, now = false) {
+    if (fields.live) {
+      const { live, ...rest } = fields;
+      if (this.realtime) {
+        // 실시간: 상대 폰으로 바로 (0.2초마다), 서버엔 안 보냄
+        if (Date.now() - this._lastLive >= LIVE_EVERY_MS) {
+          this._lastLive = Date.now();
+          this.link.send({ t: 'live', round: this.room && this.room.round, ...live });
+        }
+      } else this.pending.live = live;
+      fields = rest;
+    }
+    if (fields.final && this.realtime) this.link.send({ t: 'final', round: this.room && this.room.round, ...fields.final });
     Object.assign(this.pending, fields);
     if (now) return this.poll();
     return null;
@@ -7230,7 +7377,7 @@ class RoomClient {
       const r = await this._call(body);
       this._fails = 0;
       this.room = r.room;
-      this.onUpdate(this.room);
+      this._update();
     } catch (e) {
       if (e.status === 404 || (e.status === 403 && e.message === 'not_in_room')) {
         this._stop();
@@ -7239,8 +7386,9 @@ class RoomClient {
         // 준비 못 함(잠긴 곡) 같은 건 화면에 알림. 네트워크 오류는 다음 번에 다시
         if (e.status === 403) this.onError(e);
         else if (++this._fails >= 5) this.onError(e);
-        // 못 보낸 live/final 은 다시 보냄 (ready 는 화면에서 다시 누르게)
+        // 못 보낸 final·연결 신호는 다시 보냄 (ready 는 화면에서 다시 누르게)
         if (body.final && !this.pending.final) this.pending.final = body.final;
+        if (body.sig && !this.pending.sig) this.pending.sig = body.sig;
       }
     } finally {
       this._busy = false;
@@ -7251,24 +7399,103 @@ class RoomClient {
   _schedule() {
     clearTimeout(this._timer);
     if (!this.code) return;
-    const ms = this.room && this.room.status === 'playing' ? ROOM_POLL_PLAY_MS : ROOM_POLL_LOBBY_MS;
+    const playing = this.room && this.room.status === 'playing';
+    const linking = this.link && !this.link.open; // 연결 신호 주고받는 중엔 빨리
+    const ms = playing ? (this.realtime ? ROOM_POLL_RT_MS : ROOM_POLL_PLAY_MS) : this.waiting ? ROOM_POLL_WAIT_MS : linking ? 1500 : ROOM_POLL_LOBBY_MS;
     this._timer = setTimeout(() => {
       if (typeof document !== 'undefined' && document.hidden) this._schedule();
       else this.poll();
     }, ms);
   }
 
+  // ---------- ⚡ 폰끼리 직접 연결 ----------
+  _newLink(id, peer) {
+    const link = new PeerLink(id, peer);
+    link.onMessage = (m) => {
+      if (!m || typeof m !== 'object') return;
+      if (m.t === 'live') this.peerLive = { round: m.round, score: m.score | 0, combo: m.combo | 0, progress: +m.progress || 0, lives: m.lives };
+      else if (m.t === 'final') {
+        this.peerFinal = { round: m.round, score: m.score | 0, stars: m.stars | 0, grade: String(m.grade || ''), failed: !!m.failed, maxCombo: m.maxCombo | 0, accuracy: +m.accuracy || 0 };
+        this.onUpdate(this.room);
+      }
+    };
+    link.onOpen = () => {
+      this.onLink(true);
+      this.onUpdate(this.room);
+      this._schedule();
+    };
+    this.link = link;
+    return link;
+  }
+
+  _closeLink() {
+    if (this.link) {
+      const was = this.link.open;
+      this.link.close();
+      this.link = null;
+      if (was) this.onLink(false);
+    }
+    this.peerLive = null;
+    this.peerFinal = null;
+  }
+
+  _fail(peer) {
+    this._failedPeer = peer;
+    this._closeLink();
+  }
+
+  /** 방 상태를 보고 연결을 만들거나(a 가 먼저 제안, b 가 답) 정리 */
+  _syncLink() {
+    const me = this.me;
+    const o = this._otherRaw();
+    if (typeof RTCPeerConnection === 'undefined' || !this.room || !me || !o || !o.pid || !me.pid) {
+      this._closeLink();
+      return;
+    }
+    if (this.link && this.link.peer !== o.pid) this._closeLink();
+    // 한동안 안 이어지면 이 상대와는 서버로만 (통신사 망에 따라 직접 연결이 막히기도 함)
+    if (this.link && !this.link.open && Date.now() - this.link.t0 > LINK_GIVEUP_MS) this._fail(o.pid);
+    if (this._failedPeer === o.pid) return;
+    if (this.link && this.link.open) return;
+    if (this.slot === 'a') {
+      if (!this.link) {
+        const id = rid();
+        const link = this._newLink(id, o.pid);
+        link
+          .offer()
+          .then((sdp) => this.link === link && this.send({ sig: { id, to: o.pid, type: 'offer', sdp } }, true))
+          .catch(() => this.link === link && this._fail(o.pid));
+      } else if (o.sig && o.sig.type === 'answer' && o.sig.id === this.link.id && o.sig.to === me.pid) {
+        const link = this.link;
+        link.accept(o.sig.sdp).catch(() => this.link === link && this._fail(o.pid));
+      }
+    } else {
+      const sg = o.sig;
+      if (sg && sg.type === 'offer' && sg.to === me.pid && (!this.link || this.link.id !== sg.id)) {
+        this._closeLink();
+        const link = this._newLink(sg.id, o.pid);
+        link
+          .answer(sg.sdp)
+          .then((sdp) => this.link === link && this.send({ sig: { id: sg.id, to: o.pid, type: 'answer', sdp } }, true))
+          .catch(() => this.link === link && this._fail(o.pid));
+      }
+    }
+  }
+
   async again() {
     if (!this.code) return;
+    this.peerFinal = null;
+    this.peerLive = null;
     try {
       const r = await this._call({ action: 'again', code: this.code, slot: this.slot, key: this.key });
       this.room = r.room;
-      this.onUpdate(this.room);
+      this._update();
     } catch {}
   }
 
   _stop() {
     clearTimeout(this._timer);
+    this._closeLink();
     this.code = null;
     this.room = null;
   }
@@ -7290,7 +7517,7 @@ function roomOutcome(mode, mine, theirs) {
   return { result: mine > theirs ? 'win' : 'lose' };
 }
 
-return { ROOM_POLL_LOBBY_MS, ROOM_POLL_PLAY_MS, RoomClient, roomOutcome };
+return { ROOM_POLL_LOBBY_MS, ROOM_POLL_PLAY_MS, ROOM_POLL_RT_MS, ROOM_POLL_WAIT_MS, RoomClient, roomOutcome };
 })();
 
 // ---- sharecard.js ----
@@ -8049,7 +8276,7 @@ async function startLevel(id, opts = {}) {
   const vs = !room && !st.active && !lv.challenge && state.vs && state.vs.levelId === id ? state.vs : null;
   $('#hud-vs').hidden = !vs && !room;
   if (vs || room) {
-    $('#vs-name').textContent = vs ? vs.name : roomOtherName();
+    $('#vs-name').textContent = vs ? vs.name : (state.roomClient.realtime ? '⚡' : '') + roomOtherName();
     $('#vs-me').textContent = '0';
     $('#vs-op').textContent = '0';
     $('#vs-fill').style.width = '50%';
@@ -8110,6 +8337,11 @@ async function startLevel(id, opts = {}) {
         state.roomClient.send({ live: { score: h.score, combo: state.game ? state.game.combo : 0, progress: h.progress, lives: h.lives } });
         const o = state.roomClient.other;
         const op = o && o.final ? o.final.score : o && o.live ? o.live.score : 0;
+        const rtNow = state.roomClient.realtime;
+        if (rtNow !== last.rt) {
+          $('#vs-name').textContent = (rtNow ? '⚡' : '') + roomOtherName();
+          last.rt = rtNow;
+        }
         if (op !== last.op || h.score !== last.score) {
           $('#vs-me').textContent = fmt(h.score);
           $('#vs-op').textContent = room.mode === 'team' ? `${fmt(op)} · 팀 ${fmt(h.score + op)}` : fmt(op);
@@ -9208,10 +9440,15 @@ function roomErrText(e) {
     }[k] || '연결이 불안정해요. 잠시 뒤 다시 해 주세요'
   );
 }
+/** 멀티 창에서 보일 칸: entry(처음) · wait(빠른 대결 상대 찾는 중) · lobby(대기실) */
+function roomPanel(which) {
+  $('#room-entry').hidden = which !== 'entry';
+  $('#room-wait').hidden = which !== 'wait';
+  $('#room-lobby').hidden = which !== 'lobby';
+}
 function openRoom(code) {
   const c = state.roomClient;
-  $('#room-entry').hidden = c.active;
-  $('#room-lobby').hidden = !c.active;
+  roomPanel(!c.active ? 'entry' : c.waiting ? 'wait' : 'lobby');
   if (!c.active) {
     $('#room-name').value = myRoomName();
     if (code) $('#room-code').value = code;
@@ -9233,9 +9470,23 @@ function renderRoom(room) {
     }
   }
   if ($('#screen-result').classList.contains('in-room')) renderRoomResult();
-  $('#room-entry').hidden = true;
-  $('#room-lobby').hidden = false;
+  // 빠른 대결: 아직 상대가 없으면 '찾는 중' 화면
+  if (c.waiting) {
+    roomPanel('wait');
+    return;
+  }
+  stopWaitTimer();
+  roomPanel('lobby');
+  const pub = !!room.pub;
   $('#room-code-show').textContent = room.code;
+  // 빠른 대결 방은 코드·모드·곡 고르기 없음 (곡은 무작위)
+  $('#room-code-box').hidden = pub;
+  $('#room-mode').hidden = pub;
+  $('#room-level').closest('.field').hidden = pub;
+  const lk = $('#room-link');
+  lk.hidden = !c.other;
+  lk.classList.toggle('on', c.realtime);
+  lk.textContent = c.realtime ? '⚡ 실시간 연결됨 — 점수가 바로바로 보여요' : '🔄 실시간 연결 중… (안 되면 조금 늦게 보여요)';
   const host = c.isHost;
   $$('#room-mode [data-mode]').forEach((b) => {
     b.setAttribute('aria-pressed', String(b.dataset.mode === room.mode));
@@ -9335,7 +9586,74 @@ async function roomShare() {
     toast(`코드 ${c.code} 를 친구에게 알려 주세요`, 3000);
   }
 }
+// ⚡ 빠른 대결: 같은 묶음 사람을 90초까지 기다림 (사람이 적을 수 있어서)
+const QUICK_WAIT_MS = 90_000;
+function stopWaitTimer() {
+  clearInterval(roomUi.waitTimer);
+  roomUi.waitTimer = null;
+}
+async function roomQuick(bracket) {
+  const name = $('#room-name').value.trim() || myRoomName();
+  if (!name) {
+    roomPanel('entry');
+    openModal('modal-room');
+    return toast('이름을 적어 주세요');
+  }
+  if (bracket === 'hard' && !isConfirmed()) {
+    toast(`🔥 어려움·극악은 팔로워 인증을 받으면 열려요 (쉬움·보통은 누구나)`, 3000);
+    return;
+  }
+  if (needsCalibration()) {
+    closeModal('modal-room');
+    openCalibration({ required: true, after: () => roomQuick(bracket) });
+    return;
+  }
+  save('roomName', name);
+  // 소리는 사용자가 누를 때만 켤 수 있어서 지금 켜 둠 (상대를 찾으면 타이머로 시작)
+  await audio.unlock();
+  roomUi.round = 0;
+  roomUi.bracket = bracket;
+  try {
+    const waiting = await state.roomClient.quick(name, bracket);
+    // 바로 붙었으면 renderRoom 이 게임을 시작함 (창은 이미 닫힘)
+    if (!waiting) return;
+    openModal('modal-room');
+    roomPanel('wait');
+    const t0 = Date.now();
+    const label = bracket === 'hard' ? '🔥 어려움·극악' : '🌱 쉬움·보통';
+    const tick = () => {
+      const c = state.roomClient;
+      if (!c.active || !c.waiting) return stopWaitTimer();
+      const sec = Math.floor((Date.now() - t0) / 1000);
+      $('#room-wait-title').textContent = `${label} 상대 찾는 중… ${sec}초`;
+      $('#room-wait-sub').textContent = sec < 30 ? '같은 묶음에 들어오는 사람과 바로 붙어요' : '지금은 사람이 적은가 봐요. 조금만 더 기다려 볼게요…';
+      if (Date.now() - t0 > QUICK_WAIT_MS) {
+        stopWaitTimer();
+        c.leave();
+        roomPanel('entry');
+        toast('지금은 상대가 없어요 😢 친구를 부르거나 조금 뒤에 다시 해 보세요', 3600);
+      }
+    };
+    stopWaitTimer();
+    tick();
+    roomUi.waitTimer = setInterval(tick, 1000);
+  } catch (e) {
+    toast(roomErrText(e), 2800);
+  }
+}
+/** 결과 화면: 빠른 대결 새 상대 찾기 */
+async function roomNext() {
+  const bracket = (state.roomClient.room && state.roomClient.room.pub) || roomUi.bracket || 'easy';
+  await state.roomClient.leave();
+  $('#screen-result').classList.remove('in-room');
+  $('#res-room').hidden = true;
+  document.body.classList.remove('room-game');
+  show('screen-title');
+  roomQuick(bracket);
+}
+
 async function roomLeave() {
+  stopWaitTimer();
   await state.roomClient.leave();
   roomUi.round = 0;
   document.body.classList.remove('room-game');
@@ -9371,7 +9689,7 @@ function renderRoomResult() {
   const other = o ? `${escapeHtml(o.name)}<b>${theirs == null ? (o.live ? fmt(o.live.score) : '-') : fmt(theirs)}</b>` : '-';
   box.innerHTML = `${head}
     <div class="room-row"><span>나<b>${fmt(mine)}</b></span><span>${team ? '+' : 'VS'}</span><span>${other}</span></div>
-    <div class="room-acts"><button class="btn btn-primary" data-action="room-again">한 판 더</button><button class="btn btn-ghost" data-action="room-leave">방 나가기</button></div>`;
+    <div class="room-acts"><button class="btn btn-primary" data-action="room-again">${c.room && c.room.pub ? '이 상대와 한 판 더' : '한 판 더'}</button>${c.room && c.room.pub ? '<button class="btn btn-hot" data-action="room-next">새 상대 찾기</button>' : ''}<button class="btn btn-ghost" data-action="room-leave">방 나가기</button></div>`;
 }
 async function roomAgain() {
   const c = state.roomClient;
@@ -9437,6 +9755,8 @@ const ACTIONS = {
   'room-ready': roomReady,
   'room-share': roomShare,
   'room-leave': roomLeave,
+  'room-quick': () => {},
+  'room-next': roomNext,
   'room-again': roomAgain,
   'news-open': openNews,
   'close-news': () => closeModal('modal-news'),
@@ -9601,6 +9921,11 @@ function bindActions() {
     { capture: true, passive: true }
   );
   document.addEventListener('click', (e) => {
+    const qb = e.target.closest('[data-action="room-quick"]');
+    if (qb) {
+      roomQuick(qb.dataset.bracket);
+      return;
+    }
     const newMode = e.target.closest('#room-mode-new [data-mode]');
     if (newMode) {
       roomUi.newMode = newMode.dataset.mode;
@@ -9615,6 +9940,7 @@ function bindActions() {
     const kindBtn = e.target.closest('#suggest-kind [data-kind]');
     if (kindBtn) {
       suggestState.kind = kindBtn.dataset.kind;
+      $('#suggest-note').hidden = suggestState.kind !== 'song';
       document.querySelectorAll('#suggest-kind [data-kind]').forEach((b) => b.setAttribute('aria-pressed', String(b === kindBtn)));
       return;
     }
@@ -9726,6 +10052,7 @@ async function boot() {
   state.roomClient = new RoomClient({
     api: state.api,
     onUpdate: renderRoom,
+    onLink: () => renderRoom(state.roomClient.room),
     onError: (e) => toast(roomErrText(e), 3000),
     onGone: () => {
       toast('방이 닫혔어요', 2400);
