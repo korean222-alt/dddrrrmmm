@@ -249,7 +249,7 @@ test('빠른 대결 묶음: 쉬움·보통 = 1~8단계, 어려움·극악 = 9~17
 
 test('👍 경계 근처 터치·엄지가 넘어온 터치는 노트 있는 옆 줄로 봐줌', async () => {
   const { Game } = await import('../public/js/game.js');
-  const { KICK, SNARE } = await import('../public/js/charts.js');
+  const { KICK, SNARE, getLevel } = await import('../public/js/charts.js');
   const noop = () => {};
   globalThis.cancelAnimationFrame ??= noop;
   const renderer = { onJudge: noop, onLife: noop, onCombo: noop, onTap: noop, draw: noop, reset: noop };
@@ -301,6 +301,24 @@ test('👍 경계 근처 터치·엄지가 넘어온 터치는 노트 있는 옆
   assert.equal(sn.judged, true);
   assert.equal(kk.judged, true);
   assert.equal(g.counts.wrong, 0);
+
+  // 🥁 산왕의 궁전: 킥 연타(같은 자리) 남는 터치가 바로 뒤 스네어를 가져가도, 진짜 스네어 터치는 헛침이 아님
+  const lv9 = getLevel(9);
+  g = new Game({ audio, renderer, level: lv9, settings: {}, onDeath: noop, onEnd: noop });
+  g.startTime = 0;
+  g.state = 'playing';
+  const s9 = g.lanes[SNARE].find((n) => g.lanes[KICK].some((m) => Math.abs(n.time - 0.15 - m.time) < 0.001));
+  const k9 = g.lanes[KICK].find((m) => Math.abs(s9.time - 0.15 - m.time) < 0.001);
+  clock = k9.time;
+  g.input(KICK, 0, [{ lane: SNARE, d: 0.2 }], 0.8); // 킥 제때
+  clock = k9.time + 0.07;
+  g.input(KICK, 0, [{ lane: SNARE, d: 0.22 }], 0.78); // 같은 엄지 연타 → 같은 자리라 '넘어온 엄지' 아님
+  clock = s9.time;
+  const wrong0 = g.counts.wrong;
+  g.input(SNARE, 0, [{ lane: KICK, d: 0.7 }], 1.7); // 진짜 스네어
+  assert.equal(s9.judged, true);
+  assert.equal(g.counts.wrong, wrong0, '진짜 스네어 터치가 헛침이 되면 안 됨');
+  assert.equal(g.counts.miss, 0);
 });
 
 test('📦 랭킹 기록 → 깬 단계(별) 어림: 무제한은 다이아·깬 단계', async () => {

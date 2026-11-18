@@ -232,7 +232,7 @@ export class Renderer {
   laneHit(x, y) {
     const L = this.L;
     const order = this.laneOrder;
-    if (!L) return { lane: order[0], near: [] };
+    if (!L) return { lane: order[0], near: [], u: null };
     const s = y === undefined ? 1 : clamp(this._sAtY(y), L.sFar, L.sBottom);
     const u = (L.cx + (x - L.cx) / s - L.x0) / L.laneW;
     const i = clamp(Math.floor(u), 0, order.length - 1);
@@ -241,7 +241,7 @@ export class Renderer {
     if (i > 0) near.push({ lane: order[i - 1], d: f });
     if (i < order.length - 1) near.push({ lane: order[i + 1], d: 1 - f });
     near.sort((a, b) => a.d - b.d);
-    return { lane: order[i], near };
+    return { lane: order[i], near, u };
   }
 
   // ---------- 원근 ----------

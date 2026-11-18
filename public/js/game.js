@@ -37,6 +37,11 @@ const NEAR_EDGE = 0.3;
  *   - 같은 줄을 이 시간(초) 안에 또 눌렀으면 다른 엄지가 넘어온 것 → 경계에서 멀어도 옆 줄 노트가 더 맞으면 옆 줄로
  */
 const CROSS_GAP = 0.09;
+/**
+ *   - 단, 같은 줄을 거의 같은 자리(줄 너비의 이 비율 안)에서 또 누른 건 같은 엄지가 연타한 것 → 넘어온 걸로 안 봄
+ *     (산왕의 궁전 킥 연타: 남는 킥 터치가 바로 뒤 스네어 노트를 가져가서, 진짜 스네어 터치가 헛침이 되던 것)
+ */
+const CROSS_DIST = 0.3;
 
 export class Game {
   /**
@@ -72,6 +77,8 @@ export class Game {
     this.offsets = [];
     /** 줄마다 마지막으로 누른 시각(곡 시간) — 엄지가 옆 줄로 넘어왔는지 볼 때 */
     this._tapAt = {};
+    /** 줄마다 마지막으로 누른 자리 (render.laneHit 의 u, 줄 너비 단위) */
+    this._tapPos = {};
     // 자동 연주(영상 찍기)나 죽었을 때 처리할 곳이 없으면 목숨 없음
     this.livesOn = !auto && !!this.onDeath;
     this.lives = MAX_LIVES;
@@ -197,17 +204,20 @@ export class Game {
   /**
    * 엄지 입력. lane = 악기 번호(charts.js KICK/SNARE/HAT/CRASH). perfMs = event.timeStamp
    * near = 바로 옆 줄들 [{ lane, d }] (d = 경계까지 거리, 줄 너비 기준). 터치일 때만 옴 (render.laneHit)
+   * pos = 누른 가로 자리 (줄 너비 단위, render.laneHit 의 u). 터치일 때만
    */
-  input(lane, perfMs, near) {
+  input(lane, perfMs, near, pos) {
     const rt = performance.now() / 1000;
     if (!this.laneOrder.includes(lane)) return;
     const playing = this.state === 'playing' && !this.auto;
     const t = playing ? this.songTime(perfMs) : 0;
-    if (playing && near && near.length) lane = this._pickLane(lane, t, near);
+    const touched = lane;
+    if (playing && near && near.length) lane = this._pickLane(lane, t, near, pos);
     if (!this.auto) this.audio.playLane(lane);
     this.r.onTap(lane, rt);
     if (!playing) return;
     this._tapAt[lane] = t;
+    this._tapPos[lane] = pos;
     // 연타 구간: 그 줄은 칠 때마다 연타 +1, 다른 줄은 헛침 아님 (구간엔 노트가 없음)
     const roll = this._rollAt(t);
     if (roll && roll.lane === lane) {
@@ -227,7 +237,18 @@ export class Game {
         break;
       }
       this._judge(n, dt, rt);
+      // 옆 줄에서 넘어온 터치가 가져간 노트 → 그 줄 엄지가 곧 진짜로 치면 헛침으로 안 봄
+      if (lane !== touched) n.borrowed = true;
       return;
+    }
+    // 이 줄 노트를 옆 줄 터치가 먼저 가져갔음 → 이번이 진짜 그 노트를 친 것 (헛침·MISS 아님)
+    for (let i = Math.max(0, this.ptr[lane] - 4); i < list.length && list[i].time - t <= JUDGE.good; i++) {
+      const n = list[i];
+      if (n.borrowed && !n.reclaimed && Math.abs(t - n.time) <= JUDGE.good) {
+        n.reclaimed = true;
+        this.r.onJudge(lane, n.result, rt);
+        return;
+      }
     }
     // 너무 일찍 누름 → 그 노트는 MISS (마구 연타해서 점수 받는 것 방지)
     if (ahead && t - ahead.time >= -JUDGE.early) {
@@ -252,9 +273,11 @@ export class Game {
   }
 
   /** 경계 근처·엄지가 넘어온 터치를 노트 있는 옆 줄로 옮김 (NEAR_EDGE, CROSS_GAP) */
-  _pickLane(lane, t, near) {
-    // 같은 줄을 방금 다른 엄지가 쳤음 → 이 손가락은 옆 줄로 가려던 것
-    const crossed = t - (this._tapAt[lane] ?? -9) < CROSS_GAP;
+  _pickLane(lane, t, near, pos) {
+    // 같은 줄을 방금 다른 엄지가 쳤음 → 이 손가락은 옆 줄로 가려던 것 (같은 자리 연타는 같은 엄지라 아님)
+    const prevPos = this._tapPos[lane];
+    const sameThumb = pos != null && prevPos != null && Math.abs(pos - prevPos) < CROSS_DIST;
+    const crossed = !sameThumb && t - (this._tapAt[lane] ?? -9) < CROSS_GAP;
     const roll = this._rollAt(t);
     if (roll) {
       if (roll.lane !== lane && near.some((c) => c.lane === roll.lane && (c.d <= NEAR_EDGE || crossed))) return roll.lane;

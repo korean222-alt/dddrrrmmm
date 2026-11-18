@@ -729,8 +729,8 @@ function laneFromPoint(x, y) {
 
 /** 화면 터치 → 게임 입력 (옆 줄 정보까지 넘겨서 경계 근처 터치를 봐줌) */
 function tapAt(x, y, perfMs) {
-  const { lane, near } = laneFromPoint(x, y);
-  state.game.input(lane, perfMs, near);
+  const { lane, near, u } = laneFromPoint(x, y);
+  state.game.input(lane, perfMs, near, u);
 }
 
 // 키보드: 레인 수에 따라 왼쪽부터 키 배정
