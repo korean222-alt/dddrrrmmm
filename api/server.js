@@ -43,7 +43,8 @@ const SECURITY_HEADERS = { 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy
 async function handle(request) {
   const url = new URL(request.url);
   // DB 가 연결 안 됐으면 '서버 없음'으로 알려서 사이트가 서버 없는 모드로 돌게
-  if (url.pathname === '/api/health') {
+  // (?boot=1 은 설정·내 정보까지 한 번에 주니 아래 handler 로)
+  if (url.pathname === '/api/health' && !(dbUrl() && url.searchParams.get('boot') === '1')) {
     return Response.json(dbUrl() ? { ok: true, app: 'okaystra' } : { ok: false, error: 'db_not_connected' }, {
       status: dbUrl() ? 200 : 503,
       headers: { 'Cache-Control': 'no-store', ...SECURITY_HEADERS },
