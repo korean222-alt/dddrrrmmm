@@ -25,11 +25,28 @@ async function http(method, url, body) {
   return data;
 }
 
-function serverApi() {
+function serverApi(boot = null) {
+  // 첫 접속 때 /api/health?boot=1 로 받은 설정·내 정보는 한 번만 그대로 씀 (요청 아끼기)
+  let bootConfig = boot && boot.config;
+  let bootMe = boot && boot.me;
   return {
     mode: 'server',
-    config: () => http('GET', '/api/config'),
-    me: () => http('GET', '/api/me'),
+    config: () => {
+      if (bootConfig) {
+        const c = bootConfig;
+        bootConfig = null;
+        return Promise.resolve(c);
+      }
+      return http('GET', '/api/config');
+    },
+    me: () => {
+      if (bootMe) {
+        const m = bootMe;
+        bootMe = null;
+        return Promise.resolve(m);
+      }
+      return http('GET', '/api/me');
+    },
     guest: (name, ig) => http('POST', '/api/guest', { name, ig }),
     verifyPassword: (body) => http('POST', '/api/verify/password', body),
     startRun: (level) => http('POST', '/api/runs', { level }),
@@ -130,11 +147,11 @@ export async function createApi(cfg) {
   try {
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 1500);
-    const res = await fetch('/api/health', { signal: ctrl.signal, credentials: 'same-origin' });
+    const res = await fetch('/api/health?boot=1', { signal: ctrl.signal, credentials: 'same-origin' });
     clearTimeout(timer);
     if (res.ok) {
       const j = await res.json();
-      if (j && j.ok && j.app === 'okaystra') return serverApi();
+      if (j && j.ok && j.app === 'okaystra') return serverApi(j);
     }
   } catch {}
   return mockApi(cfg);

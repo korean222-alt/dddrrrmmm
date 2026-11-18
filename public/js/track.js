@@ -7,7 +7,8 @@ const KEY = 'kkTrack';
 const IDLE_MS = 60 * 1000; // 이 시간 동안 입력 없으면 활동 시간 안 셈
 const SESSION_GAP_MS = 30 * 60 * 1000;
 const TICK_MS = 5000;
-const FLUSH_MS = 30 * 1000;
+// 2분마다 (Vercel 요청 수 아끼기. 곡 시작·끝은 모아서 같이 보냄, 화면을 떠날 때는 바로)
+const FLUSH_MS = 120 * 1000;
 
 let on = false;
 let sess = null; // { sid, ref }
@@ -85,7 +86,7 @@ export function initTracker({ enabled }) {
     if (!document.hidden && Date.now() - lastInput < IDLE_MS) activeMs += TICK_MS;
   }, TICK_MS);
   setInterval(() => {
-    if (!document.hidden && Math.round(activeMs / 1000) !== lastSent) send();
+    if (!document.hidden && (queue.length || Math.round(activeMs / 1000) !== lastSent)) send();
   }, FLUSH_MS);
   document.addEventListener('visibilitychange', () => document.hidden && send());
   window.addEventListener('pagehide', send);
@@ -98,7 +99,6 @@ export function trackPlayStart(level, mode = 'normal') {
   if (play) trackPlayEnd({ result: 'quit' });
   play = { id: rid() + rid(), level, mode, startedAt: Date.now() };
   queue.push({ ev: 'start', id: play.id, level, mode });
-  send();
 }
 
 /** 곡 끝. res: { result: 'clear'|'fail'|'quit', score?, stars? }. 진행 중인 판이 없으면 무시 */

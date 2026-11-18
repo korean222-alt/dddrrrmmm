@@ -1,9 +1,10 @@
 // 친구 대결 방 클라이언트: /api/rooms 를 주기적으로 불러 내 상태를 보내고 방(상대) 상태를 받음.
-//   대기실 1.5초 · 치는 중 2초 · 결과 기다릴 때 2초. 화면이 안 보이면(백그라운드) 쉼.
+//   대기실 2.5초 · 치는 중·결과 기다릴 때 4초. 화면이 안 보이면(백그라운드) 쉼.
 //   서버 시계와 내 시계 차이(offset)를 재서 '같은 시각에 시작'을 맞춤.
 
-export const ROOM_POLL_LOBBY_MS = 1500;
-export const ROOM_POLL_PLAY_MS = 2000;
+// Vercel 요청 수를 아끼려고 넉넉하게 (점수 막대는 조금 늦게 따라와도 됨)
+export const ROOM_POLL_LOBBY_MS = 2500;
+export const ROOM_POLL_PLAY_MS = 4000;
 
 export class RoomClient {
   /**

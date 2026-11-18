@@ -179,7 +179,18 @@ export function createHandler(cfg, { store }) {
     const p = url.pathname;
     const m = request.method;
 
-    if (p === '/api/health') return json(200, { ok: true, app: 'okaystra' });
+    // ?boot=1: 첫 화면에 필요한 것(설정 + 내 정보)을 한 번에 → 접속 한 번에 요청 3개 → 1개 (Vercel 요청 수 아끼기)
+    if (p === '/api/health') {
+      if (url.searchParams.get('boot') !== '1') return json(200, { ok: true, app: 'okaystra' });
+      const pl = await getPlayer(request);
+      if (pl) await purgeMaybe();
+      return json(200, {
+        ok: true,
+        app: 'okaystra',
+        config: { gateMode: cfg.gateMode, instagramHandle: cfg.instagramHandle, siteUrl: cfg.siteUrl },
+        me: pl ? meOf(pl) : { verified: false },
+      });
+    }
 
     if (p === '/api/config' && m === 'GET') {
       return json(200, {

@@ -11,7 +11,8 @@
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "test": "node --test test/*.test.js && TEST_PG=1 node --test test/server.test.js",
-    "assets": "node scripts/make-assets.js"
+    "assets": "node scripts/make-assets.js",
+    "bundle": "node scripts/bundle.js"
   },
   "dependencies": {
     "@neondatabase/serverless": "^1.2.1"

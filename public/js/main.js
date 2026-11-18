@@ -2191,8 +2191,12 @@ async function boot() {
   // 운영자가 팔로우 확인이 안 돼서 랭킹에서 내린 사람: 들어오자마자 알림 (아이디를 다시 넣을 기회)
   if (state.me.hidden) setTimeout(() => askNickname(true), 600);
   // 앱으로 돌아올 때 인증 상태 다시 받기 (운영자가 '확인함'을 누르면 새로고침 없이 바로 열림)
+  let meCheckedAt = Date.now();
   document.addEventListener('visibilitychange', async () => {
     if (document.hidden || state.api.mode !== 'server') return;
+    // 앱으로 자주 왔다 갔다 해도 2분에 한 번만 (Vercel 요청 수 아끼기)
+    if (Date.now() - meCheckedAt < 120 * 1000) return;
+    meCheckedAt = Date.now();
     try {
       const me = await state.api.me();
       if (!me || (me.confirmed === state.me.confirmed && me.checked === state.me.checked && !!me.hidden === !!state.me.hidden)) return;
