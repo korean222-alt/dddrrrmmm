@@ -390,11 +390,18 @@ export class Game {
     }
 
     const { hatAge, crashAge } = this._kitAges(now);
+    // 곡이 얼마나 달아올랐나 0~1 (반주 악기 수와 같은 기준) → 맵 조명·입자가 같이 커짐
+    let heat = 0;
+    if (this.player && this.player.intensity) {
+      const mb = Math.max(0, Math.floor(this.tempo.barAt(now)) - COUNT_IN_BARS);
+      heat = Math.max(0, Math.min(1, (this.player.intensity(mb) - 0.35) / 0.65));
+    }
 
     this.r.draw(
       {
         hatAge,
         crashAge,
+        heat,
         now,
         notes: this.notes,
         approach: this.approach,

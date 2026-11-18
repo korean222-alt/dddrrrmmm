@@ -13,6 +13,7 @@ import { createApi } from './api.js';
 import { initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay } from './track.js';
 import { CONFIG } from './config.js';
 import { mascotSVG, stickSVG, bassDrumSVG, snareSVG } from './mascot.js';
+import { groupStarting } from './themes.js';
 import { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder } from './storage.js';
 
 migrateLevelOrder(); // 8단계에 새 곡이 끼면서 밀린 번호를 이 브라우저 기록에도 반영 (아래 state 보다 먼저)
@@ -353,6 +354,13 @@ function grieggCardHTML(bests) {
 }
 
 /** 무제한 보기: 맨 위에 그리그 무제한(랭킹) + 단계별 무제한 (지금은 전부 준비 중) */
+/** 단계 묶음 제목 (묶음마다 맵 분위기가 다름) */
+function groupHeadHTML(id) {
+  const g = groupStarting(id);
+  if (!g) return '';
+  return `<div class="level-group theme-${g.key}" role="presentation"><span>${g.theme.emoji}</span><b>${g.theme.name}</b><small>${g.from}~${g.to}단계 맵</small></div>`;
+}
+
 function renderEndlessLevels(bests) {
   const list = [grieggCardHTML(bests)];
   for (const lv of LEVELS) {
@@ -369,6 +377,7 @@ function renderEndlessLevels(bests) {
       : prevLock
       ? `<span class="lockline">${icon('lock')} ${lv.id}단계 깨면 열림</span>`
       : `${gemsHTML(b ? b.diamonds || 0 : 0, 'sm')}<span>${b ? `최고 Lv.${b.roundsCleared || 0}` : 'NEW'}</span>`;
+    list.push(groupHeadHTML(lv.id));
     list.push(`<button class="level-card endless-card lv-endless ${locked ? 'locked' : ''}" data-level="${id}">
       <div class="lv"><span>${lv.id}<small>∞</small></span></div>
       <div class="info"><h4>${lv.name} <small>${lv.composer}</small></h4><p>${lv.bpm} BPM부터 · 4마디마다 +${LEVEL_ENDLESS_STEP}</p></div>
@@ -403,7 +412,7 @@ function renderLevels() {
       : b
         ? `${starsHTML(b.stars || 0, 'sm')}<span>${fmt(b.score)}</span>`
         : `${starsHTML(0, 'sm')}<span>NEW</span>`;
-    return `<button class="level-card ${locked ? 'locked' : ''} ${lv.boss ? 'boss' : ''}" data-level="${lv.id}">
+    return `${groupHeadHTML(lv.id)}<button class="level-card ${locked ? 'locked' : ''} ${lv.boss ? 'boss' : ''}" data-level="${lv.id}">
       <div class="lv"><span>${lv.id}<small>단계</small></span></div>
       <div class="info"><h4>${lv.name} <small>${lv.composer}</small></h4><p>${lv.tagline}</p>${diffHTML(lv.difficulty)}</div>
       <div class="meta">${meta}</div>
@@ -576,6 +585,7 @@ async function startLevel(id) {
 function setKit(lv) {
   renderer.laneOrder = levelLanes(lv);
   renderer.newLane = lv.newInstrument ?? -1;
+  renderer.setTheme(lv); // 단계 묶음마다 맵 분위기가 다름 (themes.js)
   // 마우스·키보드 쓰는 컴퓨터면 줄마다 키 글자를 보여줌 (폰·태블릿은 안 보임)
   renderer.keyLabels = null;
   if (window.matchMedia && matchMedia('(hover: hover) and (pointer: fine)').matches) {

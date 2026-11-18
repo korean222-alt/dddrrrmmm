@@ -122,6 +122,16 @@ svg.i { width: 1.15em; height: 1.15em; vertical-align: -0.2em; flex: none; }
 .level-card .meta { text-align: right; font-size: 13px; color: var(--muted); display: grid; gap: 4px; justify-items: end; }
 .level-card .grade { font-size: 26px; line-height: 1; -webkit-text-stroke: 1px var(--ink); }
 .level-card.hot { background: #fff3ec; }
+/* 단계 묶음 제목: 묶음마다 게임 맵 분위기가 다름 (themes.js) */
+.level-group { display: flex; align-items: center; gap: 8px; margin: 10px 2px -2px; padding: 8px 14px; border-radius: 14px; color: #fff; border: 3px solid var(--ink); font-size: 15px; }
+.level-group span { font-size: 20px; line-height: 1; }
+.level-group b { font-weight: 400; font-size: 17px; }
+.level-group small { margin-left: auto; font-size: 12px; opacity: .85; }
+.level-group.theme-sunset { background: linear-gradient(100deg, #4A1C55, #B3487A 55%, #FF9A6B); }
+.level-group.theme-city { background: linear-gradient(100deg, #0B0620, #2A0E4F 55%, #9A2A9E); }
+.level-group.theme-hall { background: linear-gradient(100deg, #3A050C, #8C1426 55%, #C8932F); }
+.level-group.theme-void { background: linear-gradient(100deg, #000, #16171C 60%, #3A3C44); }
+.level-group.theme-lava { background: linear-gradient(100deg, #1A0304, #7A1406 55%, #E8461A); }
 .level-card.hot .lv { background: var(--coral); }
 .level-card.hot .tag { position: absolute; top: -11px; right: 14px; font-size: 12px; background: var(--coral); color: #fff; padding: 2px 10px; border-radius: 99px; border: 2px solid var(--ink); }
 .level-card.locked .lv { background: #d9d4e3; }

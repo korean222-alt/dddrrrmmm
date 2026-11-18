@@ -4,7 +4,10 @@
 //   노트는 드럼 게임 관례대로 킥 = 가로 막대, 스네어 = 둥근 드럼 헤드 패드, 하이햇/크래시 = 심벌.
 // 타격감: 킥은 화면 전체가 '쿵' 하고 눌리고(펀치), 스네어는 '짝' 하고 옆으로 튀며 불꽃.
 
-import { buildRasters, SNARE_VIEW } from './mascot.js';
+import { buildRasters } from './mascot.js';
+import { buildKit, SNARE_RY } from './kit3d.js';
+import { THEMES, themeForLevel, cycleTheme } from './themes.js';
+import { paintScenery, SceneFx } from './scenery.js';
 
 export const LANE = [
   { key: 'kick', main: '#FF8A4C', light: '#FFC08F', dark: '#C9532A', rgb: '255,138,76', thumb: '왼쪽 엄지', word: '킥 (쿵)', short: '쿵' },
@@ -29,7 +32,6 @@ const INK = '#2B1D3A';
 const FONT = '"Jua", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif';
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const easeOut = (t) => 1 - Math.pow(1 - t, 3);
-const SPOT_COLORS = ['255,95,162', '255,210,74', '95,211,255', '155,123,255'];
 
 /** 지금 박자 안에서의 위치 0~1 (빠르기가 바뀌어도 박자 시계를 따라감) */
 function beatPhase(st) {
@@ -52,6 +54,9 @@ export class Renderer {
     this.studio = null; // 영상 찍기: { top, bottom, label }
     this.laneOrder = [KICK, SNARE]; // 화면 왼쪽부터 악기 순서
     this.newLane = -1; // 이번 단계에 새로 나온 악기 (카운트인 때 NEW 표시)
+    this.themeKey = 'sunset'; // 맵 분위기 (themes.js)
+    this.themeCycle = false; // 그리그 무제한·챌린지: Lv 마다 맵이 바뀜
+    this.scene = new SceneFx();
     this.reset();
   }
 
@@ -66,6 +71,46 @@ export class Renderer {
     this.cheerUntil = -9;
     this.lifeFx = { t0: -9, delta: 0 };
     this.roundFx = null;
+    this.heatS = 0;
+    this.themeFx = null; // 맵 바뀔 때 { t0, prev(캔버스) } → 이전 맵이 서서히 사라짐
+    if (this.scene) this.scene.reset();
+  }
+
+  /** 이 판의 맵 정하기 (단계 묶음별). 화면 크기가 정해진 뒤 resize() 가 그림을 만듦 */
+  setTheme(lv) {
+    const t = themeForLevel(lv);
+    this.themeBase = t.key;
+    this.themeCycle = t.cycle;
+    if (this.themeKey !== t.key) {
+      this.themeKey = t.key;
+      this._themeDirty = true;
+    }
+    this.themeFx = null;
+  }
+
+  get theme() {
+    return THEMES[this.themeKey] || THEMES.sunset;
+  }
+
+  /** 판 도중 맵 바꾸기 (무제한 Lv 업): 지금 배경을 남겨 두고 새 배경 위로 서서히 사라지게 */
+  _switchTheme(key, rt) {
+    if (key === this.themeKey || !this.L) return;
+    const prev = this.bg;
+    this.bg = document.createElement('canvas');
+    this.themeKey = key;
+    this._buildKit();
+    this._drawStatic();
+    this.themeFx = { t0: rt, prev, key };
+    this.scene.reset();
+  }
+
+  _buildKit() {
+    const L = this.L;
+    this.kit = buildKit(
+      this.theme,
+      { instR: L.instR, padR: L.padR, barW: L.barW, barH: L.barH, cymR: L.cymR, dpr: L.dpr, standTo: L.H - L.strikeY },
+      LANE
+    );
   }
 
   /** 레벨업 챌린지: 새 단계 (화면 가운데 "Lv.3" 크게) */
@@ -125,6 +170,8 @@ export class Renderer {
       this.rasters = await buildRasters(Math.round(L.mascotW * dpr), drumPx);
       this._rasterKey = key;
     }
+    this._buildKit();
+    this._themeDirty = false;
     this._drawStatic();
   }
 
@@ -171,56 +218,44 @@ export class Renderer {
 
   _drawStatic() {
     const L = this.L;
+    const T = this.theme;
     const c = this.bg;
     c.width = this.canvas.width;
     c.height = this.canvas.height;
     const g = c.getContext('2d');
     g.setTransform(L.dpr, 0, 0, L.dpr, 0, 0);
-    const bg = g.createLinearGradient(0, 0, 0, L.H);
-    bg.addColorStop(0, '#160F38');
-    bg.addColorStop(0.55, '#33186A');
-    bg.addColorStop(1, '#4A1C5E');
-    g.fillStyle = bg;
-    g.fillRect(0, 0, L.W, L.H);
-    // LED 벽
-    const step = L.GW * 0.045;
-    g.fillStyle = 'rgba(255,255,255,0.06)';
-    for (let y = step; y < L.H; y += step)
-      for (let x = (L.W % step) / 2; x < L.W; x += step) {
-        g.beginPath();
-        g.arc(x, y, 1.4, 0, Math.PI * 2);
-        g.fill();
-      }
-    g.fillStyle = '#0E0A24';
-    g.fillRect(0, 0, L.W, L.H * 0.022);
-    // 먼 곳(소실점 쪽) 빛: 길이 저 멀리서 이어지는 느낌
-    const glow = g.createRadialGradient(L.cx, L.topY, 0, L.cx, L.topY, L.GW * 0.75);
-    glow.addColorStop(0, 'rgba(255,180,230,0.32)');
-    glow.addColorStop(0.35, 'rgba(155,123,255,0.14)');
-    glow.addColorStop(1, 'rgba(155,123,255,0)');
-    g.fillStyle = glow;
-    g.fillRect(0, 0, L.W, L.H);
+    // 맵 배경 (하늘·땅·장식)
+    paintScenery(g, L, T);
     // 원근 길(레인): 위(먼 곳)는 좁고 아래(가까운 곳)는 넓음. 줄 전체가 버튼
     const y0 = L.topY;
     const padTop = L.strikeY - L.instR * 1.45;
+    const tint = T.laneTint;
     this.laneOrder.forEach((lane, i) => {
       const C = LANE[lane];
       const xa = L.x0 + L.laneW * i;
       const xb = xa + L.laneW;
       const lg = g.createLinearGradient(0, y0, 0, L.H);
-      lg.addColorStop(0, `rgba(${C.rgb},0.03)`);
-      lg.addColorStop((padTop - y0) / (L.H - y0), `rgba(${C.rgb},0.2)`);
-      lg.addColorStop(1, `rgba(${C.rgb},0.36)`);
+      lg.addColorStop(0, `rgba(${C.rgb},${0.03 * tint})`);
+      lg.addColorStop((padTop - y0) / (L.H - y0), `rgba(${C.rgb},${0.2 * tint})`);
+      lg.addColorStop(1, `rgba(${C.rgb},${0.36 * tint})`);
       this._trap(g, xa, xb, y0, L.H);
-      g.fillStyle = 'rgba(10,6,28,0.6)';
+      g.fillStyle = T.laneBase;
       g.fill();
       g.fillStyle = lg;
       g.fill();
-      // 바닥 무늬: 길 따라 가운데 가는 줄
+      // 바닥 광택: 무대 바닥이 살짝 반사되는 느낌 (줄 가운데가 밝음)
       const xm = (xa + xb) / 2;
+      const sheen = g.createLinearGradient(this._px(xa, 1), 0, this._px(xb, 1), 0);
+      sheen.addColorStop(0, 'rgba(255,255,255,0)');
+      sheen.addColorStop(0.5, 'rgba(255,255,255,0.05)');
+      sheen.addColorStop(1, 'rgba(255,255,255,0)');
+      this._trap(g, xa, xb, y0, L.H);
+      g.fillStyle = sheen;
+      g.fill();
+      // 바닥 무늬: 길 따라 가운데 가는 줄
       const ml = g.createLinearGradient(0, y0, 0, L.strikeY);
       ml.addColorStop(0, `rgba(${C.rgb},0)`);
-      ml.addColorStop(1, `rgba(${C.rgb},0.28)`);
+      ml.addColorStop(1, `rgba(${C.rgb},${0.28 * tint})`);
       g.strokeStyle = ml;
       g.lineWidth = 1.5;
       g.beginPath();
@@ -230,25 +265,33 @@ export class Renderer {
       // 아래쪽 '누르는 판' (악기가 놓인 자리)
       const m = Math.min(8, L.laneW * 0.06);
       this._trap(g, xa + m, xb - m, padTop, L.H + 20);
-      g.fillStyle = `rgba(${C.rgb},0.16)`;
+      g.fillStyle = `rgba(${C.rgb},${0.16 * tint})`;
       g.fill();
       g.lineWidth = 2;
-      g.strokeStyle = `rgba(${C.rgb},0.55)`;
+      g.strokeStyle = `rgba(${T.rail || C.rgb},${0.55 * (T.rail ? 0.5 : 1)})`;
       g.stroke();
     });
-    // 줄 사이 구분선 (소실점 쪽으로 모임)
+    // 줄 사이 구분선 (소실점 쪽으로 모임) — 두께 있는 레일처럼
     for (let i = 0; i <= this.laneOrder.length; i++) {
       const x = L.x0 + L.laneW * i;
       const lane = this.laneOrder[Math.min(i, this.laneOrder.length - 1)];
       const edge = i === 0 || i === this.laneOrder.length;
+      const rgb = T.rail || LANE[lane].rgb;
       const lg = g.createLinearGradient(0, y0, 0, L.H);
       lg.addColorStop(0, 'rgba(255,255,255,0.08)');
-      lg.addColorStop(0.7, `rgba(${LANE[lane].rgb},${edge ? 0.9 : 0.6})`);
-      lg.addColorStop(1, `rgba(${LANE[lane].rgb},0.3)`);
+      lg.addColorStop(0.7, `rgba(${rgb},${edge ? 0.9 : 0.6})`);
+      lg.addColorStop(1, `rgba(${rgb},0.3)`);
+      // 레일 그림자(아래 어두운 선) → 입체감
+      g.strokeStyle = 'rgba(0,0,0,0.45)';
+      g.lineWidth = edge ? 5 : 3;
+      g.beginPath();
+      g.moveTo(this._px(x, L.sFar) + 1, y0 + 1);
+      g.lineTo(this._px(x, L.sBottom) + 2, L.H + 2);
+      g.stroke();
       g.strokeStyle = lg;
       g.lineWidth = edge ? 3.5 : 2;
       if (edge) {
-        g.shadowColor = `rgba(${LANE[lane].rgb},0.8)`;
+        g.shadowColor = `rgba(${rgb},0.8)`;
         g.shadowBlur = 10;
       }
       g.beginPath();
@@ -262,10 +305,26 @@ export class Renderer {
     g.fillRect(this._px(L.x0, L.sFar), y0 - 1, (L.x1 - L.x0) * L.sFar, 2);
     // 먼 곳 안개
     const fog = g.createLinearGradient(0, y0 - 2, 0, y0 + (L.strikeY - y0) * 0.22);
-    fog.addColorStop(0, 'rgba(40,20,80,0.75)');
-    fog.addColorStop(1, 'rgba(40,20,80,0)');
+    fog.addColorStop(0, `rgba(${T.fog},0.75)`);
+    fog.addColorStop(1, `rgba(${T.fog},0)`);
     g.fillStyle = fog;
-    g.fillRect(0, y0 - 2, L.W, (L.strikeY - y0) * 0.22 + 2);
+    g.fillRect(this._px(L.x0, L.sFar) - 20, y0 - 2, (L.x1 - L.x0) * L.sFar + 40, (L.strikeY - y0) * 0.22 + 2);
+    // 악기 발밑 그림자 고리 (무대 바닥에 놓인 느낌)
+    for (const lane of this.laneOrder) {
+      const x = L.laneX[lane];
+      const r = L.instR * 1.25;
+      g.save();
+      g.translate(x, L.strikeY + L.instR * 0.55);
+      g.scale(1, 0.28);
+      const sg = g.createRadialGradient(0, 0, 0, 0, 0, r);
+      sg.addColorStop(0, 'rgba(0,0,0,0.45)');
+      sg.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = sg;
+      g.beginPath();
+      g.arc(0, 0, r, 0, Math.PI * 2);
+      g.fill();
+      g.restore();
+    }
   }
 
   // ---------- 이벤트 ----------
@@ -335,15 +394,53 @@ export class Renderer {
     this._lastDraw = rt;
     const pe = Math.exp(-(rt - this.punchAt) * 22) * this.punchPow; // 킥 펀치
     const ce = Math.exp(-(rt - this.crackAt) * 30); // 스네어 크랙
+    // 무제한·챌린지: Lv 이 오르면 맵이 바뀜 (저사양 모드는 그대로)
+    if (this.themeCycle && !lite && st.round && st.round.round) {
+      const key = cycleTheme(st.round.round);
+      if (key !== this.themeKey) this._switchTheme(key, rt);
+    }
+    // 곡이 달아오른 정도 (부드럽게 따라감)
+    const dtr = Math.min(0.1, Math.max(0, rt - (this._heatAt || rt)));
+    this._heatAt = rt;
+    this.heatS += ((st.heat ?? 0) - this.heatS) * Math.min(1, dtr * 1.5);
+    // 곡이 한 단계 달아오르는 순간(악기가 늘어날 때) 무대가 '확' 밝아짐
+    const hNow = st.heat ?? 0;
+    if (hNow > (this._lastHeat ?? hNow) + 0.2) this.surgeAt = rt;
+    this._lastHeat = hNow;
+    const surge = rt - (this.surgeAt ?? -9) < 1.6 ? Math.exp(-(rt - this.surgeAt) * 2.2) : 0;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.drawImage(this.bg, 0, 0);
+    const tf = this.themeFx;
+    if (tf) {
+      const k = (rt - tf.t0) / 1.2;
+      if (k >= 1 || k < 0) this.themeFx = null;
+      else {
+        ctx.globalAlpha = 1 - easeOut(k);
+        ctx.drawImage(tf.prev, 0, 0);
+        ctx.globalAlpha = 1;
+      }
+    }
     ctx.setTransform(L.dpr, 0, 0, L.dpr, 0, 0);
     const fever = st.combo >= 30;
 
-    if (!lite) {
-      this._drawSpots(st, rt, pe, fever);
-      this._drawLaneFlash(rt);
-    }
+    const bt = st.tempo ? st.tempo.beatAt(st.now) : st.beatDur ? st.now / st.beatDur : 0;
+    const bph = ((bt % 1) + 1) % 1;
+    const beat = st.playing && st.now >= 0 ? Math.pow(1 - bph, 3) : 0;
+    const inBar = (((bt % 4) + 4) % 4);
+    this.scene.draw(ctx, L, this.theme, {
+      rt,
+      heat: this.heatS,
+      beat,
+      beatNo: Math.floor(bt),
+      barBeat: inBar < 1 ? beat : 0,
+      barIdx: Math.floor(bt / 4),
+      pe,
+      fever,
+      surge,
+      playing: !!st.playing,
+      lite,
+    });
+    if (!lite) this._drawLaneFlash(rt);
     ctx.save();
     const sc = 1 + pe * 0.012;
     ctx.translate(L.cx, L.strikeY);
@@ -364,6 +461,7 @@ export class Renderer {
     this._drawBanners(rt);
     if (!this.studio) this._drawRound(st, rt);
     this._drawCountIn(st, rt);
+    this._drawThemeChip(st, rt);
     this._drawLifeFx(st, rt);
     if (this.studio) this._drawStudio(st, rt);
   }
@@ -418,40 +516,6 @@ export class Renderer {
   }
 
 
-  _drawSpots(st, rt, pe, fever) {
-    const ctx = this.ctx;
-    const L = this.L;
-    const phase = beatPhase(st);
-    const beatGlow = st.playing ? Math.pow(1 - phase, 4) : 0;
-    ctx.save();
-    ctx.globalCompositeOperation = 'lighter';
-    const speed = fever ? 1.6 : 0.6;
-    [0.08, 0.34, 0.66, 0.92].forEach((fx, k) => {
-      const x = L.GX + L.GW * fx;
-      const ang = Math.sin(rt * speed + k * 1.7) * 0.35 + (fx - 0.5) * -0.5;
-      const len = L.H * 0.95;
-      const spread = L.GW * 0.16;
-      const tx = x + Math.sin(ang) * len;
-      const ty = L.H * 0.02 + Math.cos(ang) * len;
-      const a = 0.07 + beatGlow * 0.05 + pe * 0.12 + (fever ? 0.05 : 0);
-      const gr = ctx.createLinearGradient(x, 0, tx, ty);
-      gr.addColorStop(0, `rgba(${SPOT_COLORS[k]},${a * 2})`);
-      gr.addColorStop(1, `rgba(${SPOT_COLORS[k]},0)`);
-      ctx.fillStyle = gr;
-      ctx.beginPath();
-      ctx.moveTo(x - 4, L.H * 0.02);
-      ctx.lineTo(tx - spread * Math.cos(ang), ty + spread * Math.sin(ang));
-      ctx.lineTo(tx + spread * Math.cos(ang), ty - spread * Math.sin(ang));
-      ctx.lineTo(x + 4, L.H * 0.02);
-      ctx.fill();
-      ctx.fillStyle = `rgba(${SPOT_COLORS[k]},0.9)`;
-      ctx.beginPath();
-      ctx.arc(x, L.H * 0.022, L.GW * 0.018, 0, Math.PI * 2);
-      ctx.fill();
-    });
-    ctx.restore();
-  }
-
   _y(dt, approach) {
     return this._py(this._s(dt, approach));
   }
@@ -504,7 +568,7 @@ export class Renderer {
       const c = LANE[lane].rgb;
       ctx.beginPath();
       if (lane === KICK) rr(ctx, x - (L.barW * k) / 2, L.strikeY - (L.barH * k) / 2, L.barW * k, L.barH * k, (L.barH * k) / 2);
-      else if (lane === SNARE) ctx.ellipse(x, L.strikeY, L.padR * 1.1 * k, L.padR * 1.1 * k, 0, 0, Math.PI * 2);
+      else if (lane === SNARE) ctx.ellipse(x, L.strikeY, L.padR * 1.1 * k, L.padR * 1.1 * k * 0.62, 0, 0, Math.PI * 2);
       else {
         const rx = this._cymR(lane) * k;
         ctx.ellipse(x, L.strikeY, rx, rx * 0.36, 0, 0, Math.PI * 2);
@@ -524,107 +588,6 @@ export class Renderer {
     return this.L.cymR * (lane === CRASH ? 1 : 0.86);
   }
 
-
-  /** 하이햇/크래시 노트: 납작한 심벌 모양 */
-  _cymbalNote(lane, x, y, alpha, grey) {
-    const ctx = this.ctx;
-    const r = this._cymR(lane);
-    const C = LANE[lane];
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.beginPath();
-    ctx.ellipse(x, y + r * 0.1, r, r * 0.36, 0, 0, Math.PI * 2);
-    ctx.fillStyle = grey ? '#6E6880' : C.dark;
-    ctx.fill();
-    ctx.beginPath();
-    ctx.ellipse(x, y, r, r * 0.36, 0, 0, Math.PI * 2);
-    const gr = ctx.createLinearGradient(x - r, 0, x + r, 0);
-    gr.addColorStop(0, grey ? '#9A94AE' : C.main);
-    gr.addColorStop(0.45, grey ? '#D9D4E3' : C.light);
-    gr.addColorStop(1, grey ? '#9A94AE' : C.main);
-    ctx.fillStyle = gr;
-    ctx.fill();
-    ctx.lineWidth = 2.5;
-    ctx.strokeStyle = INK;
-    ctx.stroke();
-    ctx.strokeStyle = 'rgba(59,42,74,0.35)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.ellipse(x, y, r * 0.55, r * 0.2, 0, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.fillStyle = grey ? '#6E6880' : C.dark;
-    ctx.beginPath();
-    ctx.ellipse(x, y - r * 0.02, r * 0.16, r * 0.08, 0, 0, Math.PI * 2);
-    ctx.fill();
-    if (lane === CRASH && !grey) {
-      // 크래시는 반짝이 표시로 하이햇과 구분
-      ctx.fillStyle = '#FFFFFF';
-      for (const sx of [-0.55, 0.55]) {
-        ctx.beginPath();
-        ctx.arc(x + r * sx, y - r * 0.05, r * 0.07, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    }
-    ctx.restore();
-  }
-
-  _kickBar(x, y, alpha, grey) {
-    const ctx = this.ctx;
-    const L = this.L;
-    const w = L.barW;
-    const h = L.barH;
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    rr(ctx, x - w / 2, y - h / 2 + h * 0.3, w, h, h / 2);
-    ctx.fillStyle = grey ? '#6E6880' : LANE[0].dark;
-    ctx.fill();
-    rr(ctx, x - w / 2, y - h / 2, w, h, h / 2);
-    const gr = ctx.createLinearGradient(0, y - h / 2, 0, y + h / 2);
-    gr.addColorStop(0, grey ? '#C9C4D6' : LANE[0].light);
-    gr.addColorStop(1, grey ? '#9A94AE' : LANE[0].main);
-    ctx.fillStyle = gr;
-    ctx.fill();
-    ctx.lineWidth = 2.5;
-    ctx.strokeStyle = INK;
-    ctx.stroke();
-    ctx.fillStyle = 'rgba(255,255,255,0.75)';
-    rr(ctx, x - w / 2 + h * 0.5, y - h * 0.32, w * 0.45, h * 0.18, h * 0.09);
-    ctx.fill();
-    ctx.restore();
-  }
-
-  _snarePad(x, y, alpha, grey) {
-    const ctx = this.ctx;
-    const r = this.L.padR;
-    ctx.save();
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = grey ? '#6E6880' : '#4C6E9E';
-    ctx.beginPath();
-    ctx.arc(x, y + r * 0.2, r, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(x, y, r, 0, Math.PI * 2);
-    ctx.fillStyle = grey ? '#C9C4D6' : '#E8E6F0';
-    ctx.fill();
-    ctx.lineWidth = 2.5;
-    ctx.strokeStyle = INK;
-    ctx.stroke();
-    const gr = ctx.createRadialGradient(x - r * 0.25, y - r * 0.3, 0, x, y, r * 0.78);
-    gr.addColorStop(0, '#FFFFFF');
-    gr.addColorStop(1, grey ? '#B9B4C4' : LANE[1].light);
-    ctx.fillStyle = gr;
-    ctx.beginPath();
-    ctx.arc(x, y, r * 0.76, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = grey ? '#8C86A0' : LANE[1].main;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.fillStyle = grey ? '#8C86A0' : LANE[1].dark;
-    ctx.beginPath();
-    ctx.arc(x, y, r * 0.16, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
 
   _drawNotes(st) {
     const ctx = this.ctx;
@@ -669,9 +632,10 @@ export class Renderer {
       ctx.translate(x, y);
       // 바닥에 누운 느낌: 멀수록 살짝 더 납작
       ctx.scale(ps, ps * (0.82 + 0.18 * Math.min(1, ps)));
-      if (n.lane === KICK) this._kickBar(0, 0, a, n.judged);
-      else if (n.lane === SNARE) this._snarePad(0, 0, a, n.judged);
-      else this._cymbalNote(n.lane, 0, 0, a, n.judged);
+      // 3D 노트 스프라이트 (킥 = 두께 있는 막대, 스네어 = 작은 드럼, 하이햇·크래시 = 작은 심벌)
+      const sp = this.kit.notes[n.judged ? 'grey' : 'live'][n.lane];
+      ctx.globalAlpha = a;
+      ctx.drawImage(sp.img, -sp.ax, -sp.ay, sp.w, sp.h);
       ctx.restore();
     }
   }
@@ -695,7 +659,7 @@ export class Renderer {
         ctx.fill();
       } else if (b.lane === SNARE) {
         ctx.beginPath();
-        ctx.arc(x, L.strikeY, L.padR * (1 + e * 1.3), 0, Math.PI * 2);
+        ctx.ellipse(x, L.strikeY, L.padR * (1 + e * 1.3), L.padR * (1 + e * 1.3) * 0.62, 0, 0, Math.PI * 2);
         ctx.fillStyle = 'rgba(160,225,255,0.8)';
         ctx.fill();
       } else {
@@ -721,47 +685,34 @@ export class Renderer {
   }
 
 
+  /** 심벌 스프라이트 (3D 금속) 를 크기 r, 기울기로 */
   _cymbal(x, y, r, tilt, wob) {
     const ctx = this.ctx;
+    const sp = this.kit.cym;
+    const k = r / this.kit.cymR;
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(tilt + wob);
-    ctx.beginPath();
-    ctx.ellipse(0, 0, r, r * 0.22, 0, 0, Math.PI * 2);
-    const gr = ctx.createLinearGradient(-r, 0, r, 0);
-    gr.addColorStop(0, '#C7922A');
-    gr.addColorStop(0.45, '#FFE59A');
-    gr.addColorStop(1, '#F4C84A');
-    ctx.fillStyle = gr;
-    ctx.fill();
-    ctx.lineWidth = 2.5;
-    ctx.strokeStyle = INK;
-    ctx.stroke();
-    ctx.strokeStyle = 'rgba(140,90,20,0.45)';
-    ctx.lineWidth = 1;
-    for (const f of [0.35, 0.65]) {
-      ctx.beginPath();
-      ctx.ellipse(0, 0, r * f, r * 0.22 * f, 0, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-    ctx.fillStyle = '#8C6418';
-    ctx.beginPath();
-    ctx.ellipse(0, -r * 0.03, r * 0.1, r * 0.05, 0, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.scale(k, k);
+    ctx.drawImage(sp.img, -sp.ax, -sp.ay, sp.w, sp.h);
     ctx.restore();
   }
 
   _stand(x, y1, y2) {
     const ctx = this.ctx;
     ctx.lineCap = 'round';
-    ctx.strokeStyle = INK;
+    ctx.strokeStyle = 'rgba(12,8,20,0.85)';
     ctx.lineWidth = 6;
     ctx.beginPath();
     ctx.moveTo(x, y1);
     ctx.lineTo(x, y2);
     ctx.stroke();
-    ctx.strokeStyle = '#D9D6E6';
-    ctx.lineWidth = 2.5;
+    const gr = ctx.createLinearGradient(x - 2, 0, x + 2, 0);
+    gr.addColorStop(0, '#7A808E');
+    gr.addColorStop(0.4, '#FFFFFF');
+    gr.addColorStop(1, '#8E95A3');
+    ctx.strokeStyle = gr;
+    ctx.lineWidth = 3.5;
     ctx.stroke();
   }
 
@@ -769,33 +720,41 @@ export class Renderer {
   _drawInstruments(st, rt, pe) {
     const ctx = this.ctx;
     const L = this.L;
-    const R = this.rasters;
     for (const lane of this.laneOrder) {
       const x = L.laneX[lane];
       const y = L.strikeY;
       const age = rt - this.hitAt[lane];
       if (lane === KICK) {
-        const bw = ((L.instR * 2) / 0.92) * (1 + pe * 0.07);
-        const bh = (bw * 210) / 200;
-        ctx.drawImage(R.bass, x - bw / 2, y - bh * (100 / 210), bw, bh);
+        // 3D 베이스드럼: 킥이면 통 전체가 살짝 부풀고 앞 헤드가 번쩍
+        const sp = this.kit.kick;
+        const k = 1 + pe * 0.07;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(k, k * (1 - pe * 0.02));
+        ctx.drawImage(sp.img, -sp.ax, -sp.ay, sp.w, sp.h);
         if (age < 0.18) {
-          ctx.fillStyle = `rgba(255,240,220,${0.6 * (1 - age / 0.18)})`;
+          ctx.fillStyle = `rgba(255,244,228,${0.55 * (1 - age / 0.18)})`;
           ctx.beginPath();
-          ctx.arc(x, y, bw * 0.39, 0, Math.PI * 2);
+          ctx.arc(0, 0, this.kit.kickR * 0.86, 0, Math.PI * 2);
           ctx.fill();
         }
+        ctx.restore();
       } else if (lane === SNARE) {
+        // 3D 스네어: 칠 때 헤드가 눌렸다 튀어오름
         const sq = age < 0.25 ? Math.exp(-age * 25) * 0.05 : 0;
-        const sw = ((L.instR * 1.25 * SNARE_VIEW.w) / SNARE_VIEW.rx) * (1 + sq);
-        const sh = ((sw * SNARE_VIEW.h) / SNARE_VIEW.w) * (1 - sq);
-        const s = sw / SNARE_VIEW.w;
-        ctx.drawImage(R.snare, x - sw / 2, y - SNARE_VIEW.cy * s, sw, sh);
+        const sp = this.kit.snare;
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(1 + sq, 1 - sq);
+        ctx.drawImage(sp.img, -sp.ax, -sp.ay, sp.w, sp.h);
         if (age < 0.14) {
+          const Rx = this.kit.snareRx;
           ctx.fillStyle = `rgba(255,255,255,${0.85 * (1 - age / 0.14)})`;
           ctx.beginPath();
-          ctx.ellipse(x, y, SNARE_VIEW.rx * s * 0.9, SNARE_VIEW.ry * s * 0.8, 0, 0, Math.PI * 2);
+          ctx.ellipse(0, 0, Rx * 0.92, Rx * SNARE_RY * 0.86, 0, 0, Math.PI * 2);
           ctx.fill();
         }
+        ctx.restore();
       } else {
         const r = this._cymR(lane) * 1.05;
         const auto = lane === HAT ? st.hatAge ?? 9 : st.crashAge ?? 9;
@@ -1067,6 +1026,37 @@ export class Renderer {
       ctx.fillStyle = '#FFE45C';
       ctx.fillText(label, L.cx, y);
     }
+    ctx.restore();
+  }
+
+  /** 맵 이름 칩 (카운트인 동안 + 무제한에서 맵이 바뀐 직후) — 길 끝 위쪽 하늘에 작게 */
+  _drawThemeChip(st, rt) {
+    const ctx = this.ctx;
+    const L = this.L;
+    let a = 0;
+    if (st.countIn) a = st.countIn.fade;
+    const tf = this.themeFx;
+    if (tf && rt - tf.t0 < 2) a = Math.max(a, 0.8 * Math.min(1, (2 - (rt - tf.t0)) / 0.5));
+    if (a <= 0.01 || this.studio) return;
+    const T = this.theme;
+    const text = `${T.emoji} ${T.name}`;
+    const fs = Math.round(L.GW * 0.036);
+    ctx.save();
+    ctx.globalAlpha = a;
+    ctx.font = `${fs}px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    const w = ctx.measureText(text).width + fs * 1.6;
+    // 위쪽 HUD(하트) 와 안 겹치게 길 안쪽 먼 곳에
+    const y = L.topY + (L.strikeY - L.topY) * 0.13;
+    rr(ctx, L.cx - w / 2, y - fs * 0.85, w, fs * 1.7, fs * 0.85);
+    ctx.fillStyle = 'rgba(10,6,24,0.72)';
+    ctx.fill();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = `rgba(${T.glow},0.8)`;
+    ctx.stroke();
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText(text, L.cx, y + fs * 0.05);
     ctx.restore();
   }
 
