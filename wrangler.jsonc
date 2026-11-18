@@ -14,5 +14,7 @@
     "run_worker_first": ["/api/*"],
     "not_found_handling": "none"
   },
+  // 서버 코드를 DB(Neon) 가까이에서 돌림 → DB 왕복이 짧아짐 (무료)
+  "placement": { "mode": "smart" },
   "observability": { "enabled": true }
 }

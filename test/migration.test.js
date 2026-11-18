@@ -125,7 +125,7 @@ test('8단계에 신곡이 끼면서: 예전 8~14단계 기록이 9~15단계로 
   await q(`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
   await q(`INSERT INTO players VALUES ('g_a', '가')`);
   await new PgStore(q).init(); // plays 테이블은 init 이 만듦. 그 뒤에 예전 모양 통계를 넣고 다시 돌려 확인
-  await q(`DELETE FROM settings WHERE key = 'migration:insert-level-8-v1'`);
+  await q(`DELETE FROM settings WHERE key = 'migration:insert-level-8-v1' OR key LIKE 'schema:%'`);
   await q(`DELETE FROM scores`);
   await q(`INSERT INTO scores VALUES ('g_a', 7, 70, 'A', 1, 1), ('g_a', 8, 80, 'A', 1, 1), ('g_a', 9, 90, 'A', 1, 1), ('g_a', 14, 140, 'A', 1, 1),
     ('g_a', 0, 5000000000, 'A', 1, 1), ('g_a', -7, 7, 'A', 1, 1), ('g_a', -8, 8, 'A', 1, 1), ('g_a', -14, 14, 'A', 1, 1)`);
@@ -185,4 +185,20 @@ test('8단계 이전이 15단계 칸 충돌로 멈춘 DB 복구: 비켜 둔 점�
   });
   const pl = Object.fromEntries((await q('SELECT id, level FROM plays')).map((r) => [r.id, r.level]));
   assert.deepEqual(pl, { p1: '15', p3: '9', p4: 'e15' });
+});
+
+test('Postgres: 표 만들기·옮기기는 한 번 끝나면 다음 시작 땐 한 줄만 확인 (Cloudflare 가 서버를 자주 새로 띄움)', async () => {
+  const db = new PGlite();
+  let n = 0;
+  const q = async (text, params) => {
+    n++;
+    return (await db.query(text, params)).rows;
+  };
+  await new PgStore(q).init();
+  assert.ok(n > 15, `처음엔 표를 다 만듦 (${n}번)`);
+  n = 0;
+  const store = await new PgStore(q).init();
+  assert.equal(n, 1, '두 번째부터는 한 번만');
+  await store.putTransfer('123456', { a: 1 }, 0, Date.now() + 1000);
+  assert.deepEqual(await store.takeTransfer('123456'), { a: 1 }, '표는 그대로 씀');
 });

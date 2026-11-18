@@ -44,6 +44,15 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS transfers (code TEXT PRIMARY KEY, data JSONB NOT NULL, expires_at BIGINT NOT NULL)`,
 ];
 
+/** init 에서 도는 옛 기록 옮기기 목록 — 새로 추가하면 여기에도 이름을 붙임 (SCHEMA_FLAG 가 바뀌어 다시 돎) */
+const MIGRATIONS = ['remove-instagram-v1', 'insert-level-8-v1', 'repair-shifted-levels'];
+/** 표·옮기기 내용이 바뀌면 달라지는 표시 이름 (짧은 해시) */
+const SCHEMA_FLAG = (() => {
+  let h = 2166136261;
+  for (const ch of SCHEMA.join('\n') + '|' + MIGRATIONS.join(',')) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+  return 'schema:' + h.toString(36);
+})();
+
 // 이용 통계는 1년 보관
 const STATS_KEEP_MS = 400 * 24 * 3600 * 1000;
 
@@ -59,10 +68,16 @@ export class PgStore {
   }
 
   async init() {
+    // 표 만들기·옛 기록 옮기기는 한 번 끝나면 settings 에 표시 → 다음부터는 이 한 줄만 확인 (서버가 새로 뜰 때마다 30번 왕복하던 것)
+    //   SCHEMA 나 MIGRATIONS 가 바뀌면 표시 이름이 바뀌어서 한 번 다시 돎
+    try {
+      if (await this.one('SELECT 1 AS ok FROM settings WHERE key = $1', [SCHEMA_FLAG])) return this;
+    } catch {}
     for (const s of SCHEMA) await this.q(s);
     await this.removeInstagramData();
     await this.shiftLevelsV2();
     await this.repairShiftedLevels();
+    await this.q('INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING', [SCHEMA_FLAG, String(Date.now())]);
     return this;
   }
 
