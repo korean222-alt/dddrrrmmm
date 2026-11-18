@@ -1240,8 +1240,7 @@ function rng(seed) {
 }
 
 /** round 단계의 마디 ROUND_BARS 개 */
-export function roundBars(round, rand = Math.random) {
-  const bpm = roundBpm(round);
+export function roundBars(round, rand = Math.random, bpm = roundBpm(round)) {
   const fast = bpm > 140;
   const ok = (list) => {
     const f = fast ? list.filter((b) => !has16th(b)) : list;
@@ -1269,7 +1268,7 @@ export function roundBars(round, rand = Math.random) {
  * 무제한 모드(또는 rounds 단계짜리 레벨업 챌린지) 판 하나.
  * level 처럼 쓰지만 bars 가 치는 동안 계속 늘어남 → ensureBars(n)
  */
-export function makeEndless({ rounds = Infinity, seed = (Math.random() * 2 ** 31) | 0 } = {}) {
+export function makeEndless({ rounds = Infinity, seed = (Math.random() * 2 ** 31) | 0, bpm = null } = {}) {
   const mk = LEVELS.find((l) => l.id === 8);
   const rand = rng(seed);
   const run = {
@@ -1293,7 +1292,7 @@ export function makeEndless({ rounds = Infinity, seed = (Math.random() * 2 ** 31
     ensureBars(n) {
       while (this.bars.length < n && this.roundsBuilt < this.maxRounds) {
         const r = ++this.roundsBuilt;
-        for (const bar of roundBars(r, rand)) {
+        for (const bar of roundBars(r, rand, bpm ?? roundBpm(r))) {
           this.bars.push(bar);
           this.barMult.push(1 + 0.1 * (r - 1)); // 빠를수록 점수 더
           this.barRound.push(r);
@@ -1310,10 +1309,51 @@ export function makeEndless({ rounds = Infinity, seed = (Math.random() * 2 ** 31
   // 카운트인은 Lv.1 빠르기, 아웃트로는 마지막 단계 빠르기
   run.tempo = new TempoMap((bar) => {
     const r = Math.min(run.roundOfBar(bar - COUNT_IN_BARS), run.maxRounds);
-    return roundBpm(r);
+    return bpm ?? roundBpm(r);
   });
   run.ensureBars(ROUND_BARS * 2);
   return run;
+}
+
+// ---------------------------------------------------------------
+// 🎵 릴스 박자 맞추기 (운영자 전용, 영상 찍기 화면 · /?thumb=okay 기기에서만)
+//   유행하는 노래 BPM 에 맞춰 레벨업 챌린지처럼 Lv.1 기본 쿵짝 → Lv.2 8비트 → … 점점 어려워짐. 빠르기는 그대로.
+//   노래는 게임에 안 넣음 (저작권). 드럼만 찍고, 노래는 인스타 편집기에서 입힘 → 반주 없이 드럼 소리만 남
+// ---------------------------------------------------------------
+export const BEAT_ID = 'beat';
+export const BEAT_MIN_BPM = 60;
+export const BEAT_MAX_BPM = 200;
+export const BEAT_MAX_ROUNDS = 6;
+const BEAT_NAMES = ['기본 쿵짝', '8비트', '엇박 들어갑니다', '16분 쪼개기', '더블 킥', '필인 지옥'];
+/** BPM·단계 수 정리 (이상한 값이면 기본값) */
+export function beatOpts(o = {}) {
+  const n = (v, d) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d);
+  const bpm = Math.round(Math.min(BEAT_MAX_BPM, Math.max(BEAT_MIN_BPM, n(o.bpm, 120))) * 10) / 10;
+  const rounds = Math.min(BEAT_MAX_ROUNDS, Math.max(1, Math.round(n(o.rounds, 4))));
+  const seed = Number.isInteger(o.seed) ? o.seed : (Math.random() * 2 ** 31) | 0;
+  return { bpm, rounds, seed, title: String(o.title || '').slice(0, 24), click: !!o.click };
+}
+/** 박자 맞추기 판 (게임 시간 = 카운트인 + 단계 수 × ROUND_BARS 마디) */
+export function makeBeatReel(o = {}) {
+  const { bpm, rounds, seed, title, click } = beatOpts(o);
+  const run = makeEndless({ rounds, seed, bpm });
+  Object.assign(run, {
+    id: BEAT_ID,
+    beat: true,
+    click,
+    name: title || '엄지 드럼 챌린지',
+    songName: title || '엄지 드럼 챌린지',
+    composer: `${bpm} BPM`,
+    tagline: '릴스용 · 노래는 인스타에서 입혀요',
+    bpm,
+    roundInfo: (r) => ({ round: r, bpm, name: BEAT_NAMES[r - 1] || '필인 지옥', warn: '' }),
+  });
+  return run;
+}
+/** 박자 맞추기 영상 길이(초): 카운트인 + 본편 */
+export function beatSeconds(o = {}) {
+  const { bpm, rounds } = beatOpts(o);
+  return ((COUNT_IN_BARS + rounds * ROUND_BARS) * 4 * 60) / bpm;
 }
 
 // ---------------------------------------------------------------

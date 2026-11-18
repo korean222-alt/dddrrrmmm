@@ -5,6 +5,7 @@ import {
   ENDLESS_ID, LAST_LEVEL_ID, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo,
   ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId,
   STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase,
+  BEAT_ID, makeBeatReel, beatOpts, beatSeconds, BEAT_MAX_ROUNDS,
 } from './charts.js';
 import { AudioEngine, playMetronome } from './audio.js';
 import { Renderer } from './render.js';
@@ -241,6 +242,7 @@ function playable(id) {
   const eb = levelEndlessBase(id);
   if (eb) return makeLevelEndless(eb);
   if (typeof id === 'string' && /^ch\d+$/.test(id)) return makeEndless({ rounds: Number(id.slice(2)) });
+  if (id === BEAT_ID) return makeBeatReel(load('beatReel', null) || {});
   return getStudioLevel(id) || getLevel(id);
 }
 const isChallengeId = (id) => id === ENDLESS_ID || (typeof id === 'string' && /^(ch|e)\d+$/.test(id));
@@ -1478,9 +1480,11 @@ const canRecordFile = () => !!pickMime() && !!HTMLCanvasElement.prototype.captur
 const STUDIO_TEXT = {
   level: { top: '엄지 두 개로 따라 쳐봐!', bottom: '프로필 링크에서 바로 해보기' },
   challenge: (n) => ({ top: '엄지로 드럼 쳐보세요', bottom: `Lv.${n}까지 오면 드러머 재능 있음` }),
+  beat: { top: '엄지 드럼 챌린지', bottom: '어디까지 따라오나 보자' },
 };
 const STUDIO_CHALLENGES = [4, 7];
 function studioDefaults(id) {
+  if (id === BEAT_ID) return STUDIO_TEXT.beat;
   return isChallengeId(id) ? STUDIO_TEXT.challenge(Number(String(id).slice(2))) : STUDIO_TEXT.level;
 }
 function pickStudioLevel(id) {
@@ -1488,7 +1492,7 @@ function pickStudioLevel(id) {
   const top = $('#studio-top');
   const bottom = $('#studio-bottom');
   // 기본 문구 그대로였으면 새 기본 문구로 바꿔 줌 (직접 쓴 문구는 그대로)
-  const all = [STUDIO_TEXT.level, ...STUDIO_CHALLENGES.map(STUDIO_TEXT.challenge)];
+  const all = [STUDIO_TEXT.level, STUDIO_TEXT.beat, ...STUDIO_CHALLENGES.map(STUDIO_TEXT.challenge)];
   const after = studioDefaults(id);
   if (!top.value.trim() || all.some((d) => d.top === top.value.trim())) top.value = after.top;
   if (!bottom.value.trim() || all.some((d) => d.bottom === bottom.value.trim())) bottom.value = after.bottom;
@@ -1508,7 +1512,7 @@ function studioOverlay(lv) {
     top: st.top,
     bottom: st.bottom,
     challenge: !!lv.challenge,
-    label: lv.challenge ? '레벨업 챌린지' : lv.studioOnly ? `${lv.composer} ${lv.name}` : `${lv.id}단계 · ${lv.composer} ${lv.name}`,
+    label: lv.beat ? `${lv.songName} · 레벨업 챌린지` : lv.challenge ? '레벨업 챌린지' : lv.studioOnly ? `${lv.composer} ${lv.name}` : `${lv.id}단계 · ${lv.composer} ${lv.name}`,
   };
 }
 
@@ -1518,6 +1522,7 @@ function openStudio() {
   st.active = false;
   $('#screen-game').classList.remove('studio-mode');
   $('#studio-levels').innerHTML =
+    (coverOn() ? `<button class="chip-hot" data-studio-level="${BEAT_ID}" aria-pressed="${st.level === BEAT_ID}">${beatChipText()}</button>` : '') +
     STUDIO_CHALLENGES.map(
       (n) => `<button class="chip-hot" data-studio-level="ch${n}" aria-pressed="${st.level === 'ch' + n}">🔥 레벨업 챌린지 Lv.1→${n}</button>`
     ).join('') +
@@ -1534,12 +1539,80 @@ function openStudio() {
     : '이 브라우저는 바로 저장이 안 돼요. 폰 화면 녹화(제어센터)로 찍어주세요.';
   closeModal('modal-studio-done');
   fillCoverForm();
+  fillBeatForm();
   show('screen-studio');
+}
+
+// ---------------- 🎵 유행곡 박자 맞추기 (운영자 전용, /?thumb=okay 기기에서만) ----------------
+//   노래 BPM 에 맞춘 레벨업 챌린지(빠르기 고정). 노래는 게임에 안 넣고 인스타 편집기에서 입힘 (저작권)
+const beatSaved = () => beatOpts(load('beatReel', null) || {});
+function beatChipText() {
+  const o = beatSaved();
+  return `🎵 박자 맞추기 · ${o.title || o.bpm + ' BPM'}`;
+}
+function fillBeatForm() {
+  $('#beat-block').hidden = !coverOn();
+  if (!coverOn()) return;
+  const o = beatSaved();
+  $('#beat-bpm').value = o.bpm;
+  $('#beat-title').value = o.title;
+  $('#beat-click').checked = o.click;
+  const sel = $('#beat-rounds');
+  if (!sel.options.length || sel.dataset.bpm !== String(o.bpm)) {
+    sel.innerHTML = Array.from({ length: BEAT_MAX_ROUNDS }, (_, i) => {
+      const r = i + 1;
+      return `<option value="${r}">Lv.1→${r} · 약 ${Math.round(beatSeconds({ bpm: o.bpm, rounds: r }))}초</option>`;
+    }).join('');
+    sel.dataset.bpm = String(o.bpm);
+  }
+  sel.value = String(o.rounds);
+}
+/** 폼 → 저장 (패턴 시드는 그대로 → 같은 채보로 다시 찍을 수 있음) */
+function saveBeatForm({ reroll = false } = {}) {
+  const prev = beatSaved();
+  const o = beatOpts({
+    bpm: $('#beat-bpm').value,
+    rounds: $('#beat-rounds').value,
+    title: $('#beat-title').value.trim(),
+    click: $('#beat-click').checked,
+    seed: reroll ? undefined : prev.seed,
+  });
+  save('beatReel', o);
+  fillBeatForm();
+  const chip = $(`#studio-levels [data-studio-level="${BEAT_ID}"]`);
+  if (chip) chip.textContent = beatChipText();
+  return o;
+}
+function pickBeat() {
+  saveBeatForm();
+  pickStudioLevel(BEAT_ID);
+  $$('#studio-levels button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.studioLevel === BEAT_ID));
+  toast(`${beatChipText()} 골랐어요`, 1600);
+}
+// 탭으로 BPM 재기: 마지막 12번 탭 간격의 중앙값 (2초 쉬면 새로 잼)
+const beatTaps = [];
+function beatTap(e) {
+  e.preventDefault();
+  const now = e.timeStamp || performance.now();
+  if (beatTaps.length && now - beatTaps[beatTaps.length - 1] > 2000) beatTaps.length = 0;
+  beatTaps.push(now);
+  if (beatTaps.length > 13) beatTaps.shift();
+  const gaps = beatTaps.slice(1).map((t, i) => t - beatTaps[i]).sort((a, b) => a - b);
+  if (gaps.length < 3) {
+    $('#beat-tap-bpm').textContent = '탭';
+    $('#beat-tap-msg').textContent = `${beatTaps.length}번… 계속 톡톡`;
+    return;
+  }
+  const bpm = Math.round((60000 / gaps[gaps.length >> 1]) * 2) / 2;
+  $('#beat-tap-bpm').textContent = `${bpm} BPM`;
+  $('#beat-tap-msg').textContent = beatTaps.length >= 8 ? '좋아요! 숫자가 안 바뀌면 그게 BPM (2초 쉬면 새로 재요)' : `${beatTaps.length}번… 8번 넘게 톡톡`;
+  $('#beat-bpm').value = bpm;
+  if (beatTaps.length >= 8) saveBeatForm();
 }
 
 // ---------------- 🖼 릴스 썸네일 (운영자 전용, /?thumb=okay) ----------------
 const coverOn = () => load('thumbTool', false) === true;
-const coverSubOf = (lv) => (!lv ? '' : lv.challenge ? `${lv.composer} ${lv.songName} · 레벨업 챌린지` : `${lv.composer} ${lv.name}`);
+const coverSubOf = (lv) => (!lv ? '' : lv.beat ? `${lv.songName} · 레벨업 챌린지` : lv.challenge ? `${lv.composer} ${lv.songName} · 레벨업 챌린지` : `${lv.composer} ${lv.name}`);
 /** 썸네일 칸 채우기: 직접 쓴 문구는 기억, 곡 배지는 곡을 바꾸면 따라 바뀜(직접 고쳤으면 그대로) */
 function fillCoverForm() {
   $('#cover-block').hidden = !coverOn();
@@ -2301,6 +2374,11 @@ const ACTIONS = {
   'close-settings': () => closeModal('modal-settings'),
   'close-share': () => closeModal('modal-share'),
   'studio-cover': () => studioCover(),
+  'beat-pick': () => pickBeat(),
+  'beat-reroll': () => {
+    saveBeatForm({ reroll: true });
+    toast('패턴을 새로 뽑았어요', 1200);
+  },
   'close-calibrate': () => !calib.required && closeModal('modal-calibrate'),
   calibrate: () => openCalibration(),
   'calib-done': () => {
@@ -2452,6 +2530,14 @@ function bindActions() {
   );
   // 결과 연출 중 화면을 누르면 바로 끝까지
   $('#screen-result').addEventListener('pointerdown', () => resultAnim.finish && resultAnim.finish());
+  $('#beat-tap').addEventListener('pointerdown', beatTap);
+  $$('[data-beat-mul]').forEach((b) =>
+    b.addEventListener('click', () => {
+      $('#beat-bpm').value = Number($('#beat-bpm').value || 120) * Number(b.dataset.beatMul);
+      saveBeatForm();
+    })
+  );
+  ['#beat-bpm', '#beat-rounds', '#beat-title', '#beat-click'].forEach((sel) => $(sel).addEventListener('change', () => saveBeatForm()));
   $('#calib-pad').addEventListener('pointerdown', (e) => {
     e.preventDefault();
     if (!audio.ctx) return;

@@ -784,6 +784,13 @@ export class SongPlayer {
     const mb = bar - COUNT_IN_BARS; // 본편 마디 번호
     if (mb >= this.level.bars.length && this.level.ensureBars) this.level.ensureBars(mb + 1);
     const chartBars = this.level.bars.length;
+    // 🎵 릴스 박자 맞추기: 반주 없음 (노래는 인스타에서 입힘). 드럼(+ 고르면 조용한 박자 소리)만
+    if (this.level.beat) {
+      if (mb >= chartBars) return;
+      if (this.level.click && s % 4 === 0) a.click(t, s === 0, this.bus);
+      if (this.autoChart) for (const lane of CHAR_LANES[this.level.bars[mb][s]] || []) a.playLane(lane, t, this.drumBus);
+      return;
+    }
     const ch = chordAt(song, mb, s);
 
     if (mb >= chartBars) {

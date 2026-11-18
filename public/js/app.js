@@ -1244,8 +1244,7 @@ function rng(seed) {
 }
 
 /** round 단계의 마디 ROUND_BARS 개 */
-function roundBars(round, rand = Math.random) {
-  const bpm = roundBpm(round);
+function roundBars(round, rand = Math.random, bpm = roundBpm(round)) {
   const fast = bpm > 140;
   const ok = (list) => {
     const f = fast ? list.filter((b) => !has16th(b)) : list;
@@ -1273,7 +1272,7 @@ function roundBars(round, rand = Math.random) {
  * 무제한 모드(또는 rounds 단계짜리 레벨업 챌린지) 판 하나.
  * level 처럼 쓰지만 bars 가 치는 동안 계속 늘어남 → ensureBars(n)
  */
-function makeEndless({ rounds = Infinity, seed = (Math.random() * 2 ** 31) | 0 } = {}) {
+function makeEndless({ rounds = Infinity, seed = (Math.random() * 2 ** 31) | 0, bpm = null } = {}) {
   const mk = LEVELS.find((l) => l.id === 8);
   const rand = rng(seed);
   const run = {
@@ -1297,7 +1296,7 @@ function makeEndless({ rounds = Infinity, seed = (Math.random() * 2 ** 31) | 0 }
     ensureBars(n) {
       while (this.bars.length < n && this.roundsBuilt < this.maxRounds) {
         const r = ++this.roundsBuilt;
-        for (const bar of roundBars(r, rand)) {
+        for (const bar of roundBars(r, rand, bpm ?? roundBpm(r))) {
           this.bars.push(bar);
           this.barMult.push(1 + 0.1 * (r - 1)); // 빠를수록 점수 더
           this.barRound.push(r);
@@ -1314,10 +1313,51 @@ function makeEndless({ rounds = Infinity, seed = (Math.random() * 2 ** 31) | 0 }
   // 카운트인은 Lv.1 빠르기, 아웃트로는 마지막 단계 빠르기
   run.tempo = new TempoMap((bar) => {
     const r = Math.min(run.roundOfBar(bar - COUNT_IN_BARS), run.maxRounds);
-    return roundBpm(r);
+    return bpm ?? roundBpm(r);
   });
   run.ensureBars(ROUND_BARS * 2);
   return run;
+}
+
+// ---------------------------------------------------------------
+// 🎵 릴스 박자 맞추기 (운영자 전용, 영상 찍기 화면 · /?thumb=okay 기기에서만)
+//   유행하는 노래 BPM 에 맞춰 레벨업 챌린지처럼 Lv.1 기본 쿵짝 → Lv.2 8비트 → … 점점 어려워짐. 빠르기는 그대로.
+//   노래는 게임에 안 넣음 (저작권). 드럼만 찍고, 노래는 인스타 편집기에서 입힘 → 반주 없이 드럼 소리만 남
+// ---------------------------------------------------------------
+const BEAT_ID = 'beat';
+const BEAT_MIN_BPM = 60;
+const BEAT_MAX_BPM = 200;
+const BEAT_MAX_ROUNDS = 6;
+const BEAT_NAMES = ['기본 쿵짝', '8비트', '엇박 들어갑니다', '16분 쪼개기', '더블 킥', '필인 지옥'];
+/** BPM·단계 수 정리 (이상한 값이면 기본값) */
+function beatOpts(o = {}) {
+  const n = (v, d) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : d);
+  const bpm = Math.round(Math.min(BEAT_MAX_BPM, Math.max(BEAT_MIN_BPM, n(o.bpm, 120))) * 10) / 10;
+  const rounds = Math.min(BEAT_MAX_ROUNDS, Math.max(1, Math.round(n(o.rounds, 4))));
+  const seed = Number.isInteger(o.seed) ? o.seed : (Math.random() * 2 ** 31) | 0;
+  return { bpm, rounds, seed, title: String(o.title || '').slice(0, 24), click: !!o.click };
+}
+/** 박자 맞추기 판 (게임 시간 = 카운트인 + 단계 수 × ROUND_BARS 마디) */
+function makeBeatReel(o = {}) {
+  const { bpm, rounds, seed, title, click } = beatOpts(o);
+  const run = makeEndless({ rounds, seed, bpm });
+  Object.assign(run, {
+    id: BEAT_ID,
+    beat: true,
+    click,
+    name: title || '엄지 드럼 챌린지',
+    songName: title || '엄지 드럼 챌린지',
+    composer: `${bpm} BPM`,
+    tagline: '릴스용 · 노래는 인스타에서 입혀요',
+    bpm,
+    roundInfo: (r) => ({ round: r, bpm, name: BEAT_NAMES[r - 1] || '필인 지옥', warn: '' }),
+  });
+  return run;
+}
+/** 박자 맞추기 영상 길이(초): 카운트인 + 본편 */
+function beatSeconds(o = {}) {
+  const { bpm, rounds } = beatOpts(o);
+  return ((COUNT_IN_BARS + rounds * ROUND_BARS) * 4 * 60) / bpm;
 }
 
 // ---------------------------------------------------------------
@@ -1403,7 +1443,7 @@ function makeLevelEndless(base, { intro = false } = {}) {
   return run;
 }
 
-return { STEPS_PER_BAR, KICK, SNARE, HAT, CRASH, TOM, INSTRUMENTS, CHAR_LANES, isLeftThumb, COUNT_IN_BARS, OUTRO_BARS, JUDGE, POINTS, ACC_WEIGHT, STAR_RULES, DIFFICULTY_WORDS, LEVELS, STUDIO_LEVELS, getStudioLevel, FREE_UPTO, VERIFY_LEVELS, needsVerify, CLOSED_LEVELS, SKIP_LEVELS, isClosed, prevOpenId, nextOpenId, noteToMidi, parseChord, chordAt, parseMelody, getLevel, beatDur, stepDur, barDur, levelDuration, TempoMap, tempoOf, levelLanes, buildNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, GOLD_SPOTS, buildRolls, markGoldNotes, noteCount, comboMultiplier, pointsFor, maxScore, accuracy, gradeFor, starsFor, scoreBounds, isClearBest, LAST_LEVEL_ID, shiftOldLevelKey, ENDLESS_FROM, FREE_LEVELS, isUnlocked, tierOf, unlockHint, nextChallenge, ENDLESS_ID, ROUND_BARS, ENDLESS_BASE_BPM, ENDLESS_BPM_STEP, DIAMOND_RULES, diamondsFor, roundBpm, roundInfo, roundBars, makeEndless, LEVEL_ENDLESS_STEP, levelEndlessId, levelEndlessBase, levelSurvivalId, levelSurvivalBase, makeLevelEndless };
+return { STEPS_PER_BAR, KICK, SNARE, HAT, CRASH, TOM, INSTRUMENTS, CHAR_LANES, isLeftThumb, COUNT_IN_BARS, OUTRO_BARS, JUDGE, POINTS, ACC_WEIGHT, STAR_RULES, DIFFICULTY_WORDS, LEVELS, STUDIO_LEVELS, getStudioLevel, FREE_UPTO, VERIFY_LEVELS, needsVerify, CLOSED_LEVELS, SKIP_LEVELS, isClosed, prevOpenId, nextOpenId, noteToMidi, parseChord, chordAt, parseMelody, getLevel, beatDur, stepDur, barDur, levelDuration, TempoMap, tempoOf, levelLanes, buildNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, GOLD_SPOTS, buildRolls, markGoldNotes, noteCount, comboMultiplier, pointsFor, maxScore, accuracy, gradeFor, starsFor, scoreBounds, isClearBest, LAST_LEVEL_ID, shiftOldLevelKey, ENDLESS_FROM, FREE_LEVELS, isUnlocked, tierOf, unlockHint, nextChallenge, ENDLESS_ID, ROUND_BARS, ENDLESS_BASE_BPM, ENDLESS_BPM_STEP, DIAMOND_RULES, diamondsFor, roundBpm, roundInfo, roundBars, makeEndless, BEAT_ID, BEAT_MIN_BPM, BEAT_MAX_BPM, BEAT_MAX_ROUNDS, beatOpts, makeBeatReel, beatSeconds, LEVEL_ENDLESS_STEP, levelEndlessId, levelEndlessBase, levelSurvivalId, levelSurvivalBase, makeLevelEndless };
 })();
 
 // ---- audio.js ----
@@ -2194,6 +2234,13 @@ class SongPlayer {
     const mb = bar - COUNT_IN_BARS; // 본편 마디 번호
     if (mb >= this.level.bars.length && this.level.ensureBars) this.level.ensureBars(mb + 1);
     const chartBars = this.level.bars.length;
+    // 🎵 릴스 박자 맞추기: 반주 없음 (노래는 인스타에서 입힘). 드럼(+ 고르면 조용한 박자 소리)만
+    if (this.level.beat) {
+      if (mb >= chartBars) return;
+      if (this.level.click && s % 4 === 0) a.click(t, s === 0, this.bus);
+      if (this.autoChart) for (const lane of CHAR_LANES[this.level.bars[mb][s]] || []) a.playLane(lane, t, this.drumBus);
+      return;
+    }
     const ch = chordAt(song, mb, s);
 
     if (mb >= chartBars) {
@@ -8386,7 +8433,7 @@ return { NAME_MAX, kstDateKey, todayLevel, cleanName, encodeChallenge, decodeCha
 const __m_main = (() => {
 // 오케이스트라 — 화면 전환, 잠금(팔로우 인증), 랭킹, 설정을 묶는 앱 본체
 
-const { LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES, ENDLESS_ID, LAST_LEVEL_ID, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo, ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId, STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase } = __m_charts;
+const { LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES, ENDLESS_ID, LAST_LEVEL_ID, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo, ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId, STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase, BEAT_ID, makeBeatReel, beatOpts, beatSeconds, BEAT_MAX_ROUNDS } = __m_charts;
 const { AudioEngine, playMetronome } = __m_audio;
 const { Renderer } = __m_render;
 const { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } = __m_game;
@@ -8622,6 +8669,7 @@ function playable(id) {
   const eb = levelEndlessBase(id);
   if (eb) return makeLevelEndless(eb);
   if (typeof id === 'string' && /^ch\d+$/.test(id)) return makeEndless({ rounds: Number(id.slice(2)) });
+  if (id === BEAT_ID) return makeBeatReel(load('beatReel', null) || {});
   return getStudioLevel(id) || getLevel(id);
 }
 const isChallengeId = (id) => id === ENDLESS_ID || (typeof id === 'string' && /^(ch|e)\d+$/.test(id));
@@ -9859,9 +9907,11 @@ const canRecordFile = () => !!pickMime() && !!HTMLCanvasElement.prototype.captur
 const STUDIO_TEXT = {
   level: { top: '엄지 두 개로 따라 쳐봐!', bottom: '프로필 링크에서 바로 해보기' },
   challenge: (n) => ({ top: '엄지로 드럼 쳐보세요', bottom: `Lv.${n}까지 오면 드러머 재능 있음` }),
+  beat: { top: '엄지 드럼 챌린지', bottom: '어디까지 따라오나 보자' },
 };
 const STUDIO_CHALLENGES = [4, 7];
 function studioDefaults(id) {
+  if (id === BEAT_ID) return STUDIO_TEXT.beat;
   return isChallengeId(id) ? STUDIO_TEXT.challenge(Number(String(id).slice(2))) : STUDIO_TEXT.level;
 }
 function pickStudioLevel(id) {
@@ -9869,7 +9919,7 @@ function pickStudioLevel(id) {
   const top = $('#studio-top');
   const bottom = $('#studio-bottom');
   // 기본 문구 그대로였으면 새 기본 문구로 바꿔 줌 (직접 쓴 문구는 그대로)
-  const all = [STUDIO_TEXT.level, ...STUDIO_CHALLENGES.map(STUDIO_TEXT.challenge)];
+  const all = [STUDIO_TEXT.level, STUDIO_TEXT.beat, ...STUDIO_CHALLENGES.map(STUDIO_TEXT.challenge)];
   const after = studioDefaults(id);
   if (!top.value.trim() || all.some((d) => d.top === top.value.trim())) top.value = after.top;
   if (!bottom.value.trim() || all.some((d) => d.bottom === bottom.value.trim())) bottom.value = after.bottom;
@@ -9889,7 +9939,7 @@ function studioOverlay(lv) {
     top: st.top,
     bottom: st.bottom,
     challenge: !!lv.challenge,
-    label: lv.challenge ? '레벨업 챌린지' : lv.studioOnly ? `${lv.composer} ${lv.name}` : `${lv.id}단계 · ${lv.composer} ${lv.name}`,
+    label: lv.beat ? `${lv.songName} · 레벨업 챌린지` : lv.challenge ? '레벨업 챌린지' : lv.studioOnly ? `${lv.composer} ${lv.name}` : `${lv.id}단계 · ${lv.composer} ${lv.name}`,
   };
 }
 
@@ -9899,6 +9949,7 @@ function openStudio() {
   st.active = false;
   $('#screen-game').classList.remove('studio-mode');
   $('#studio-levels').innerHTML =
+    (coverOn() ? `<button class="chip-hot" data-studio-level="${BEAT_ID}" aria-pressed="${st.level === BEAT_ID}">${beatChipText()}</button>` : '') +
     STUDIO_CHALLENGES.map(
       (n) => `<button class="chip-hot" data-studio-level="ch${n}" aria-pressed="${st.level === 'ch' + n}">🔥 레벨업 챌린지 Lv.1→${n}</button>`
     ).join('') +
@@ -9915,12 +9966,80 @@ function openStudio() {
     : '이 브라우저는 바로 저장이 안 돼요. 폰 화면 녹화(제어센터)로 찍어주세요.';
   closeModal('modal-studio-done');
   fillCoverForm();
+  fillBeatForm();
   show('screen-studio');
+}
+
+// ---------------- 🎵 유행곡 박자 맞추기 (운영자 전용, /?thumb=okay 기기에서만) ----------------
+//   노래 BPM 에 맞춘 레벨업 챌린지(빠르기 고정). 노래는 게임에 안 넣고 인스타 편집기에서 입힘 (저작권)
+const beatSaved = () => beatOpts(load('beatReel', null) || {});
+function beatChipText() {
+  const o = beatSaved();
+  return `🎵 박자 맞추기 · ${o.title || o.bpm + ' BPM'}`;
+}
+function fillBeatForm() {
+  $('#beat-block').hidden = !coverOn();
+  if (!coverOn()) return;
+  const o = beatSaved();
+  $('#beat-bpm').value = o.bpm;
+  $('#beat-title').value = o.title;
+  $('#beat-click').checked = o.click;
+  const sel = $('#beat-rounds');
+  if (!sel.options.length || sel.dataset.bpm !== String(o.bpm)) {
+    sel.innerHTML = Array.from({ length: BEAT_MAX_ROUNDS }, (_, i) => {
+      const r = i + 1;
+      return `<option value="${r}">Lv.1→${r} · 약 ${Math.round(beatSeconds({ bpm: o.bpm, rounds: r }))}초</option>`;
+    }).join('');
+    sel.dataset.bpm = String(o.bpm);
+  }
+  sel.value = String(o.rounds);
+}
+/** 폼 → 저장 (패턴 시드는 그대로 → 같은 채보로 다시 찍을 수 있음) */
+function saveBeatForm({ reroll = false } = {}) {
+  const prev = beatSaved();
+  const o = beatOpts({
+    bpm: $('#beat-bpm').value,
+    rounds: $('#beat-rounds').value,
+    title: $('#beat-title').value.trim(),
+    click: $('#beat-click').checked,
+    seed: reroll ? undefined : prev.seed,
+  });
+  save('beatReel', o);
+  fillBeatForm();
+  const chip = $(`#studio-levels [data-studio-level="${BEAT_ID}"]`);
+  if (chip) chip.textContent = beatChipText();
+  return o;
+}
+function pickBeat() {
+  saveBeatForm();
+  pickStudioLevel(BEAT_ID);
+  $$('#studio-levels button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.studioLevel === BEAT_ID));
+  toast(`${beatChipText()} 골랐어요`, 1600);
+}
+// 탭으로 BPM 재기: 마지막 12번 탭 간격의 중앙값 (2초 쉬면 새로 잼)
+const beatTaps = [];
+function beatTap(e) {
+  e.preventDefault();
+  const now = e.timeStamp || performance.now();
+  if (beatTaps.length && now - beatTaps[beatTaps.length - 1] > 2000) beatTaps.length = 0;
+  beatTaps.push(now);
+  if (beatTaps.length > 13) beatTaps.shift();
+  const gaps = beatTaps.slice(1).map((t, i) => t - beatTaps[i]).sort((a, b) => a - b);
+  if (gaps.length < 3) {
+    $('#beat-tap-bpm').textContent = '탭';
+    $('#beat-tap-msg').textContent = `${beatTaps.length}번… 계속 톡톡`;
+    return;
+  }
+  const bpm = Math.round((60000 / gaps[gaps.length >> 1]) * 2) / 2;
+  $('#beat-tap-bpm').textContent = `${bpm} BPM`;
+  $('#beat-tap-msg').textContent = beatTaps.length >= 8 ? '좋아요! 숫자가 안 바뀌면 그게 BPM (2초 쉬면 새로 재요)' : `${beatTaps.length}번… 8번 넘게 톡톡`;
+  $('#beat-bpm').value = bpm;
+  if (beatTaps.length >= 8) saveBeatForm();
 }
 
 // ---------------- 🖼 릴스 썸네일 (운영자 전용, /?thumb=okay) ----------------
 const coverOn = () => load('thumbTool', false) === true;
-const coverSubOf = (lv) => (!lv ? '' : lv.challenge ? `${lv.composer} ${lv.songName} · 레벨업 챌린지` : `${lv.composer} ${lv.name}`);
+const coverSubOf = (lv) => (!lv ? '' : lv.beat ? `${lv.songName} · 레벨업 챌린지` : lv.challenge ? `${lv.composer} ${lv.songName} · 레벨업 챌린지` : `${lv.composer} ${lv.name}`);
 /** 썸네일 칸 채우기: 직접 쓴 문구는 기억, 곡 배지는 곡을 바꾸면 따라 바뀜(직접 고쳤으면 그대로) */
 function fillCoverForm() {
   $('#cover-block').hidden = !coverOn();
@@ -10682,6 +10801,11 @@ const ACTIONS = {
   'close-settings': () => closeModal('modal-settings'),
   'close-share': () => closeModal('modal-share'),
   'studio-cover': () => studioCover(),
+  'beat-pick': () => pickBeat(),
+  'beat-reroll': () => {
+    saveBeatForm({ reroll: true });
+    toast('패턴을 새로 뽑았어요', 1200);
+  },
   'close-calibrate': () => !calib.required && closeModal('modal-calibrate'),
   calibrate: () => openCalibration(),
   'calib-done': () => {
@@ -10833,6 +10957,14 @@ function bindActions() {
   );
   // 결과 연출 중 화면을 누르면 바로 끝까지
   $('#screen-result').addEventListener('pointerdown', () => resultAnim.finish && resultAnim.finish());
+  $('#beat-tap').addEventListener('pointerdown', beatTap);
+  $$('[data-beat-mul]').forEach((b) =>
+    b.addEventListener('click', () => {
+      $('#beat-bpm').value = Number($('#beat-bpm').value || 120) * Number(b.dataset.beatMul);
+      saveBeatForm();
+    })
+  );
+  ['#beat-bpm', '#beat-rounds', '#beat-title', '#beat-click'].forEach((sel) => $(sel).addEventListener('change', () => saveBeatForm()));
   $('#calib-pad').addEventListener('pointerdown', (e) => {
     e.preventDefault();
     if (!audio.ctx) return;

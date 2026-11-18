@@ -391,3 +391,32 @@ test('⚔️ 멀티 서바이벌: 곡 전체를 원래 빠르기로 한 번 → 
   assert.equal(survivalOutcome({ died: true, survived: 20, score: 5 }, { died: true, survived: 20.01, score: 3 }), 'win');
   assert.equal(survivalOutcome({ died: true, survived: 20, score: 3 }, { died: true, survived: 20, score: 3 }), 'draw');
 });
+
+test('🎵 릴스 박자 맞추기: BPM 고정, 단계 수만큼만, 노래 없이 드럼만', async () => {
+  const { makeBeatReel, beatOpts, beatSeconds, BEAT_ID, ROUND_BARS, COUNT_IN_BARS, tempoOf, buildNotes, levelLanes, KICK, SNARE } = await import('../public/js/charts.js');
+  const lv = makeBeatReel({ bpm: 128, rounds: 4, seed: 7, title: '하이라이트' });
+  assert.equal(lv.id, BEAT_ID);
+  assert.equal(lv.beat, true);
+  assert.equal(lv.endless, false);
+  lv.ensureBars(999);
+  assert.equal(lv.bars.length, 4 * ROUND_BARS, '단계 수만큼만');
+  const t = tempoOf(lv);
+  for (let b = 0; b < COUNT_IN_BARS + lv.bars.length; b++) assert.ok(Math.abs(t.barLen(b) - (4 * 60) / 128) < 1e-9, '빠르기 고정');
+  assert.deepEqual(levelLanes(lv), [KICK, SNARE]);
+  assert.equal(lv.roundInfo(1).name, '기본 쿵짝');
+  assert.equal(lv.roundInfo(3).bpm, 128);
+  // 같은 시드면 같은 채보 (다시 찍기)
+  const again = makeBeatReel({ bpm: 128, rounds: 4, seed: 7 });
+  again.ensureBars(999);
+  assert.deepEqual(again.bars, lv.bars);
+  assert.ok(buildNotes(lv).length > 20);
+  // 빠른 곡은 16분음표 없음 (엄지 하나로 못 침)
+  const fast = makeBeatReel({ bpm: 170, rounds: 6, seed: 3 });
+  fast.ensureBars(999);
+  for (const bar of fast.bars) assert.ok(![...bar].some((c, i) => c !== '.' && bar[i + 1] && bar[i + 1] !== '.'), bar);
+  // 이상한 값 정리
+  assert.equal(beatOpts({ bpm: 999 }).bpm, 200);
+  assert.equal(beatOpts({ bpm: 'x', rounds: 0 }).bpm, 120);
+  assert.equal(beatOpts({ rounds: 99 }).rounds, 6);
+  assert.ok(Math.abs(beatSeconds({ bpm: 120, rounds: 4 }) - (COUNT_IN_BARS + 16) * 2) < 1e-9);
+});

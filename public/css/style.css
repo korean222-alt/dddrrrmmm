@@ -200,7 +200,7 @@ svg.e-warn { color: #f0a020; }
 .seg button b { font-weight: 400; font-size: 17px; }
 .seg button small { font-size: 12px; color: var(--muted); }
 .seg button[aria-pressed='true'] { background: #fff1e6; box-shadow: inset 0 0 0 2px var(--grass); }
-.field input[type='text'] { width: 100%; font-size: 17px; padding: 10px 12px; border-radius: 12px; border: 2px solid var(--ink); background: var(--cream); color: var(--ink); -webkit-user-select: text; user-select: text; }
+.field input[type='text'], .field input[type='number'] { width: 100%; font-size: 17px; padding: 10px 12px; border-radius: 12px; border: 2px solid var(--ink); background: var(--cream); color: var(--ink); -webkit-user-select: text; user-select: text; }
 
 /* ---------- 게임 ---------- */
 #screen-game { padding: 0; overflow: hidden; touch-action: none; background: #0e0a24; }
@@ -572,3 +572,16 @@ body.room-game #modal-pause [data-action='retry'], body.room-game #modal-continu
 .quick-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .room-code-box { flex-wrap: wrap; }
 #room-entry, #room-lobby, .room-sec { max-width: 100%; min-width: 0; }
+
+/* 🎵 유행곡 박자 맞추기 (운영자 전용) */
+.beat-block .beat-tap { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 14px 10px; margin: 6px 0 10px; border: 3px solid var(--ink); border-radius: 18px; background: var(--cream); box-shadow: 0 4px 0 var(--ink); }
+.beat-block .beat-tap:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
+.beat-block .beat-tap b { font-size: 30px; }
+.beat-block .beat-tap small { font-size: 13px; opacity: 0.75; }
+.beat-block .beat-row { display: flex; align-items: flex-end; gap: 8px; margin-bottom: 8px; }
+.beat-block .beat-row .field { flex: 1; margin: 0; }
+.beat-block select { width: 100%; font-size: 17px; padding: 10px 12px; border-radius: 12px; border: 2px solid var(--ink); background: var(--cream); color: var(--ink); }
+.beat-block .beat-row .btn { flex: 1; }
+.beat-block select { font-family: inherit; }
+.beat-block .beat-mini { flex: none; min-width: 64px; height: 50px; padding: 0 12px; font-size: 17px; border: 2px solid var(--ink); border-radius: 12px; background: #fff; box-shadow: 0 3px 0 var(--ink); }
+.beat-block .beat-mini:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
