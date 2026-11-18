@@ -17,6 +17,7 @@ import { mascotSVG, stickSVG, bassDrumSVG, snareSVG } from './mascot.js';
 import { groupStarting } from './themes.js';
 import { NEWS, LATEST_NEWS } from './news.js';
 import { RoomClient, roomOutcome } from './room.js';
+import { makeReelCover } from './cover.js';
 import { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder } from './storage.js';
 
 migrateLevelOrder(); // 8단계에 새 곡이 끼면서 밀린 번호를 이 브라우저 기록에도 반영 (아래 state 보다 먼저)
@@ -1163,6 +1164,8 @@ async function shareResult() {
     if (e && e.name === 'AbortError') return;
   }
   try {
+    $('#share-title').textContent = '결과 카드';
+    $('#share-hint').textContent = '이미지를 길게 눌러 저장하고 스토리에 올려보세요!';
     $('#share-img').src = canvas.toDataURL('image/png');
     openModal('modal-share');
     copyText(text);
@@ -1481,6 +1484,38 @@ function openStudio() {
     : '이 브라우저는 바로 저장이 안 돼요. 폰 화면 녹화(제어센터)로 찍어주세요.';
   closeModal('modal-studio-done');
   show('screen-studio');
+}
+
+/** 🖼 릴스 썸네일: 고른 곡·위(훅)·아래 문구 그대로 1080×1920 표지 */
+async function studioCover() {
+  const st = state.studio;
+  const lv = playable(st.level);
+  if (!lv) return;
+  const top = $('#studio-top').value.trim() || '엄지 두 개로 따라 쳐봐!';
+  const bottom = $('#studio-bottom').value.trim();
+  toast('썸네일 만드는 중…', 1500);
+  try {
+    await fontsReady();
+    const sub = lv.challenge ? `${lv.composer} ${lv.songName} · 레벨업 챌린지` : `${lv.composer} ${lv.name}`;
+    const canvas = await makeReelCover({ lv, title: top, sub, bottom });
+    const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
+    const file = new File([blob], `okaystra-cover-${lv.id}.png`, { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file] });
+        return;
+      } catch (e) {
+        if (e && e.name === 'AbortError') return;
+      }
+    }
+    $('#share-title').textContent = '릴스 썸네일';
+    $('#share-hint').textContent = '이미지를 길게 눌러 저장하고, 릴스 올릴 때 커버로 고르세요!';
+    $('#share-img').src = canvas.toDataURL('image/png');
+    openModal('modal-share');
+  } catch (e) {
+    console.error(e);
+    toast('썸네일을 만들지 못했어요. 다시 해 주세요');
+  }
 }
 
 async function studioStart() {
@@ -2079,6 +2114,11 @@ const ACTIONS = {
   'close-rank': () => closeModal('modal-rank'),
   'close-settings': () => closeModal('modal-settings'),
   'close-share': () => closeModal('modal-share'),
+  'studio-cover': () => {
+    state.studio.top = $('#studio-top').value.trim();
+    state.studio.bottom = $('#studio-bottom').value.trim();
+    studioCover();
+  },
   'close-calibrate': () => !calib.required && closeModal('modal-calibrate'),
   calibrate: () => openCalibration(),
   'calib-done': () => {

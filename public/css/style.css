@@ -548,3 +548,9 @@ body.room-game #modal-pause [data-action='retry'], body.room-game #modal-continu
 .room-join input { min-width: 0; width: 100%; }
 .room-sec > .btn { width: 100%; margin-bottom: 4px; }
 .quick-row + p { margin-top: 10px; }
+/* 아이폰 Safari 에서 좁은 폭에도 멀티 창이 옆으로 안 잘리게 */
+.room-join { grid-template-columns: minmax(0, 1fr) auto; }
+.room-chips button { min-width: 0; flex: 1 1 130px; }
+.quick-row { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.room-code-box { flex-wrap: wrap; }
+#room-entry, #room-lobby, .room-sec { max-width: 100%; min-width: 0; }

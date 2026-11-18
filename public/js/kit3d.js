@@ -721,5 +721,22 @@ export function buildKit(theme, sz, lanes) {
       });
     }
   }
+  // ✨ 황금 콩: 같은 노트를 금색으로 물들인 것 (노트 모양 안쪽만 칠함 → 네모가 안 생김)
+  out.notes.gold = {};
+  for (const [lane, sp] of Object.entries(out.notes.live)) {
+    const c = document.createElement('canvas');
+    c.width = sp.img.width;
+    c.height = sp.img.height;
+    const g = c.getContext('2d');
+    g.drawImage(sp.img, 0, 0);
+    g.globalCompositeOperation = 'source-atop';
+    const gr = g.createLinearGradient(0, 0, 0, c.height);
+    gr.addColorStop(0, 'rgba(255,240,170,0.75)');
+    gr.addColorStop(0.5, 'rgba(255,200,50,0.6)');
+    gr.addColorStop(1, 'rgba(200,130,10,0.65)');
+    g.fillStyle = gr;
+    g.fillRect(0, 0, c.width, c.height);
+    out.notes.gold[lane] = { ...sp, img: c };
+  }
   return out;
 }

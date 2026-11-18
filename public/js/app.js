@@ -3240,6 +3240,23 @@ function buildKit(theme, sz, lanes) {
       });
     }
   }
+  // ✨ 황금 콩: 같은 노트를 금색으로 물들인 것 (노트 모양 안쪽만 칠함 → 네모가 안 생김)
+  out.notes.gold = {};
+  for (const [lane, sp] of Object.entries(out.notes.live)) {
+    const c = document.createElement('canvas');
+    c.width = sp.img.width;
+    c.height = sp.img.height;
+    const g = c.getContext('2d');
+    g.drawImage(sp.img, 0, 0);
+    g.globalCompositeOperation = 'source-atop';
+    const gr = g.createLinearGradient(0, 0, 0, c.height);
+    gr.addColorStop(0, 'rgba(255,240,170,0.75)');
+    gr.addColorStop(0.5, 'rgba(255,200,50,0.6)');
+    gr.addColorStop(1, 'rgba(200,130,10,0.65)');
+    g.fillStyle = gr;
+    g.fillRect(0, 0, c.width, c.height);
+    out.notes.gold[lane] = { ...sp, img: c };
+  }
   return out;
 }
 
@@ -5279,37 +5296,19 @@ class Renderer {
       // 3D 노트 스프라이트 (킥 = 두께 있는 막대, 스네어 = 작은 드럼, 하이햇·크래시 = 작은 심벌)
       const sp = this.kit.notes[n.judged ? 'grey' : 'live'][n.lane];
       // ✨ 황금 콩: 금빛 후광 + 반짝이
-      const gold = n.gold && !n.judged;
+      // ✨ 황금 콩: 노트 자체를 금색으로 + 뒤에서 은은하게 빛남 (박자처럼 숨 쉬듯)
+      const gold = n.gold && !n.judged && this.kit.notes.gold;
       if (gold) {
-        ctx.globalAlpha = a;
-        const R = Math.max(sp.w, sp.h) * 0.62;
-        ctx.drawImage(goldGlow(), -R, -R * 0.6, R * 2, R * 1.2);
-      }
-      ctx.globalAlpha = a;
-      ctx.drawImage(sp.img, -sp.ax, -sp.ay, sp.w, sp.h);
-      if (gold) {
-        ctx.globalCompositeOperation = 'source-atop';
-        ctx.fillStyle = 'rgba(255,205,60,0.35)';
-        ctx.fillRect(-sp.ax, -sp.ay, sp.w, sp.h);
+        const pulse = 0.75 + 0.25 * Math.sin(performance.now() / 160 + n.id);
+        const R = Math.max(sp.w, sp.h) * 0.75;
+        ctx.globalAlpha = a * pulse;
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.drawImage(goldGlow(), -R, -R * 0.62, R * 2, R * 1.24);
         ctx.globalCompositeOperation = 'source-over';
-        const tw = (performance.now() / 1000) * 4 + n.id;
-        ctx.fillStyle = '#FFFFFF';
-        for (const [sx, sy, k] of [[-0.42, -0.35, 0], [0.45, -0.2, 2], [0.1, 0.3, 4]]) {
-          const z = 2 + 2.5 * Math.abs(Math.sin(tw + k));
-          const px = sx * sp.w * 0.5;
-          const py = sy * sp.h * 0.5;
-          ctx.beginPath();
-          ctx.moveTo(px, py - z);
-          ctx.lineTo(px + z * 0.3, py - z * 0.3);
-          ctx.lineTo(px + z, py);
-          ctx.lineTo(px + z * 0.3, py + z * 0.3);
-          ctx.lineTo(px, py + z);
-          ctx.lineTo(px - z * 0.3, py + z * 0.3);
-          ctx.lineTo(px - z, py);
-          ctx.lineTo(px - z * 0.3, py - z * 0.3);
-          ctx.fill();
-        }
       }
+      const img = gold ? this.kit.notes.gold[n.lane] : sp;
+      ctx.globalAlpha = a;
+      ctx.drawImage(img.img, -img.ax, -img.ay, img.w, img.h);
       ctx.restore();
     }
   }
@@ -5840,6 +5839,7 @@ class Renderer {
     const ctx = this.ctx;
     const L = this.L;
     const s = this.studio;
+    if (s.cover) return; // 릴스 썸네일: 글씨는 cover.js 가 따로 그림
     if (s.challenge) {
       this._drawStudioChallenge(st, rt);
       return;
@@ -7084,6 +7084,7 @@ const NEWS = [
       '⚡ <b>빠른 대결</b>: 모르는 사람과 바로 1:1! <b>🌱 쉬움·보통</b>(1~8단계) · <b>🔥 어려움·극악</b>(9~16단계) 두 방에서 같은 방 사람끼리 붙어요. 곡은 무작위',
       '⚡ <b>실시간</b>: 폰끼리 바로 이어져서 상대 점수가 바로바로 올라가요 (연결이 안 되는 망에선 조금 늦게 보여요)',
       '사람이 적을 땐 상대를 못 찾을 수 있어요. 그땐 친구 방을 만들어 불러 보세요!',
+      '✨ 황금 콩 주변에 네모가 보이던 것 고침 — 이제 금색으로 은은하게 빛나요',
     ],
   },
   {
@@ -7520,6 +7521,135 @@ function roomOutcome(mode, mine, theirs) {
 return { ROOM_POLL_LOBBY_MS, ROOM_POLL_PLAY_MS, ROOM_POLL_RT_MS, ROOM_POLL_WAIT_MS, RoomClient, roomOutcome };
 })();
 
+// ---- cover.js ----
+const __m_cover = (() => {
+// 🖼 릴스 썸네일(표지) 만들기: 실제 게임 화면(맵·3D 드럼·떨어지는 노트·PERFECT 효과)을 1080×1920 으로 그리고
+//   위에 큰 훅 문구를 얹음. 인스타 프로필 격자는 가운데(3:4)만 보여서 중요한 건 가운데 쪽에.
+
+const { Renderer } = __m_render;
+const { levelLanes, buildNotes, tempoOf, COUNT_IN_BARS } = __m_charts;
+
+const FONT = '"Jua", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif';
+const INK = '#2B1D3A';
+const W = 360; // CSS px (× 3 = 1080)
+const H = 640;
+
+/** 긴 문구를 두 줄로 (가운데에 가까운 띄어쓰기에서) */
+function splitTitle(text) {
+  const t = String(text || '').trim();
+  if (t.includes('\n')) return t.split('\n').slice(0, 2);
+  if ([...t].length <= 8) return [t];
+  const mid = t.length / 2;
+  let best = -1;
+  for (let i = 0; i < t.length; i++) if (t[i] === ' ' && (best < 0 || Math.abs(i - mid) < Math.abs(best - mid))) best = i;
+  return best < 0 ? [t] : [t.slice(0, best), t.slice(best + 1)];
+}
+
+function fit(ctx, text, maxW, size) {
+  let fs = size;
+  ctx.font = `${fs}px ${FONT}`;
+  while (fs > 12 && ctx.measureText(text).width > maxW) ctx.font = `${(fs -= 1)}px ${FONT}`;
+  return fs;
+}
+
+function pill(ctx, text, cx, cy, size, fill, color) {
+  const fs = fit(ctx, text, W * 0.8, size);
+  const w = ctx.measureText(text).width + fs * 1.4;
+  const h = fs * 1.9;
+  ctx.beginPath();
+  ctx.roundRect(cx - w / 2, cy - h / 2, w, h, h / 2);
+  ctx.fillStyle = fill;
+  ctx.fill();
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = INK;
+  ctx.stroke();
+  ctx.fillStyle = color;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(text, cx, cy + fs * 0.05);
+}
+
+/**
+ * @param {{ lv, title, sub, bottom }} o  lv = 칠 판(단계), title = 큰 훅(두 줄까지), sub = 곡 이름 배지, bottom = 아래 유도 문구
+ * @returns {Promise<HTMLCanvasElement>} 1080×1920
+ */
+async function makeReelCover({ lv, title, sub, bottom }) {
+  const cv = document.createElement('canvas');
+  cv.style.cssText = `position:fixed;left:-20000px;top:0;width:${W}px;height:${H}px;pointer-events:none`;
+  document.body.appendChild(cv);
+  try {
+    const r = new Renderer(cv);
+    r.laneOrder = levelLanes(lv);
+    r.newLane = -1;
+    r.setTheme(lv);
+    r.studio = { cover: true, top: '', bottom: '', label: '' };
+    await r.resize(3);
+    // 노트가 화면에 가장 많이 내려오는 순간 (첫·끝 마디는 빼고)
+    const tempo = tempoOf(lv);
+    const all = buildNotes(lv);
+    const APPROACH = 2.3; // 썸네일만: 길을 더 길게 보여줘서 노트가 많이 보이게
+    let now = tempo.barStart(COUNT_IN_BARS + 1);
+    let most = -1;
+    for (let b = 1; b < lv.bars.length - 2; b++)
+      for (const q of [0, 0.5]) {
+        const t = tempo.barStart(COUNT_IN_BARS + b) + q * tempo.barLen(COUNT_IN_BARS + b) + 0.05; // 막 친 순간 (선 위 노트는 사라짐)
+        const n = all.filter((x) => x.time >= t && x.time < t + APPROACH * 0.9).length;
+        if (n > most) {
+          most = n;
+          now = t;
+        }
+      }
+    const notes = all.map((n) => ({ ...n, judged: n.time < now - 0.02, result: n.time < now - 0.02 ? 'perfect' : null }));
+    const beat = 60 / tempo.bpm(0);
+    const st = { now, notes, approach: APPROACH, beatDur: beat, tempo, combo: 0, score: 0, playing: true, heat: 1, hatAge: 0.05, crashAge: 0.1, rolls: [] };
+    // 조명·입자가 자리 잡게 몇 프레임 돌리고, 마지막에 킥·스네어 PERFECT
+    let rt = 100;
+    for (let k = 0; k < 150; k++) r.draw(st, (rt += 1 / 60));
+    const lanes = r.laneOrder;
+    const hit = lanes.filter((l) => l === 0 || l === 1);
+    for (const l of hit) {
+      r.onTap(l, rt);
+      r.onJudge(l, 'perfect', rt, false);
+    }
+    rt += 0.06;
+    r.draw(st, rt);
+
+    // ---- 글씨 ----
+    const ctx = cv.getContext('2d');
+    ctx.setTransform(3, 0, 0, 3, 0, 0);
+    // 위쪽을 살짝 어둡게 (글씨가 잘 보이게)
+    const shade = ctx.createLinearGradient(0, 0, 0, H * 0.5);
+    shade.addColorStop(0, 'rgba(10,6,24,0.72)');
+    shade.addColorStop(0.7, 'rgba(10,6,24,0.25)');
+    shade.addColorStop(1, 'rgba(10,6,24,0)');
+    ctx.fillStyle = shade;
+    ctx.fillRect(0, 0, W, H * 0.5);
+    const lines = splitTitle(title);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    let y = lines.length > 1 ? 118 : 140;
+    lines.forEach((line, i) => {
+      const fs = fit(ctx, line, W * 0.9, 50);
+      ctx.lineWidth = fs * 0.2;
+      ctx.strokeStyle = INK;
+      ctx.strokeText(line, W / 2, y);
+      // 두 번째 줄(또는 한 줄이면 그 줄)은 노란색으로 강조
+      ctx.fillStyle = i === lines.length - 1 ? '#FFD84A' : '#FFFFFF';
+      ctx.fillText(line, W / 2, y);
+      y += fs * 1.12;
+    });
+    if (sub) pill(ctx, sub, W / 2, y + 14, 15, '#FFFFFF', '#E2541F');
+    if (bottom) pill(ctx, bottom, W / 2, H * 0.905, 16, '#FF8A4C', '#FFFFFF');
+    return cv;
+  } finally {
+    cv.remove();
+  }
+}
+
+return { splitTitle, makeReelCover };
+})();
+
 // ---- sharecard.js ----
 const __m_sharecard = (() => {
 // 결과 공유 카드 (인스타 스토리 1080x1920)
@@ -7795,6 +7925,7 @@ const { mascotSVG, stickSVG, bassDrumSVG, snareSVG } = __m_mascot;
 const { groupStarting } = __m_themes;
 const { NEWS, LATEST_NEWS } = __m_news;
 const { RoomClient, roomOutcome } = __m_room;
+const { makeReelCover } = __m_cover;
 const { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder } = __m_storage;
 
 migrateLevelOrder(); // 8단계에 새 곡이 끼면서 밀린 번호를 이 브라우저 기록에도 반영 (아래 state 보다 먼저)
@@ -8941,6 +9072,8 @@ async function shareResult() {
     if (e && e.name === 'AbortError') return;
   }
   try {
+    $('#share-title').textContent = '결과 카드';
+    $('#share-hint').textContent = '이미지를 길게 눌러 저장하고 스토리에 올려보세요!';
     $('#share-img').src = canvas.toDataURL('image/png');
     openModal('modal-share');
     copyText(text);
@@ -9259,6 +9392,38 @@ function openStudio() {
     : '이 브라우저는 바로 저장이 안 돼요. 폰 화면 녹화(제어센터)로 찍어주세요.';
   closeModal('modal-studio-done');
   show('screen-studio');
+}
+
+/** 🖼 릴스 썸네일: 고른 곡·위(훅)·아래 문구 그대로 1080×1920 표지 */
+async function studioCover() {
+  const st = state.studio;
+  const lv = playable(st.level);
+  if (!lv) return;
+  const top = $('#studio-top').value.trim() || '엄지 두 개로 따라 쳐봐!';
+  const bottom = $('#studio-bottom').value.trim();
+  toast('썸네일 만드는 중…', 1500);
+  try {
+    await fontsReady();
+    const sub = lv.challenge ? `${lv.composer} ${lv.songName} · 레벨업 챌린지` : `${lv.composer} ${lv.name}`;
+    const canvas = await makeReelCover({ lv, title: top, sub, bottom });
+    const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
+    const file = new File([blob], `okaystra-cover-${lv.id}.png`, { type: 'image/png' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      try {
+        await navigator.share({ files: [file] });
+        return;
+      } catch (e) {
+        if (e && e.name === 'AbortError') return;
+      }
+    }
+    $('#share-title').textContent = '릴스 썸네일';
+    $('#share-hint').textContent = '이미지를 길게 눌러 저장하고, 릴스 올릴 때 커버로 고르세요!';
+    $('#share-img').src = canvas.toDataURL('image/png');
+    openModal('modal-share');
+  } catch (e) {
+    console.error(e);
+    toast('썸네일을 만들지 못했어요. 다시 해 주세요');
+  }
 }
 
 async function studioStart() {
@@ -9857,6 +10022,11 @@ const ACTIONS = {
   'close-rank': () => closeModal('modal-rank'),
   'close-settings': () => closeModal('modal-settings'),
   'close-share': () => closeModal('modal-share'),
+  'studio-cover': () => {
+    state.studio.top = $('#studio-top').value.trim();
+    state.studio.bottom = $('#studio-bottom').value.trim();
+    studioCover();
+  },
   'close-calibrate': () => !calib.required && closeModal('modal-calibrate'),
   calibrate: () => openCalibration(),
   'calib-done': () => {

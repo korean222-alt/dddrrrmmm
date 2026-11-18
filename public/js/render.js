@@ -782,37 +782,19 @@ export class Renderer {
       // 3D 노트 스프라이트 (킥 = 두께 있는 막대, 스네어 = 작은 드럼, 하이햇·크래시 = 작은 심벌)
       const sp = this.kit.notes[n.judged ? 'grey' : 'live'][n.lane];
       // ✨ 황금 콩: 금빛 후광 + 반짝이
-      const gold = n.gold && !n.judged;
+      // ✨ 황금 콩: 노트 자체를 금색으로 + 뒤에서 은은하게 빛남 (박자처럼 숨 쉬듯)
+      const gold = n.gold && !n.judged && this.kit.notes.gold;
       if (gold) {
-        ctx.globalAlpha = a;
-        const R = Math.max(sp.w, sp.h) * 0.62;
-        ctx.drawImage(goldGlow(), -R, -R * 0.6, R * 2, R * 1.2);
-      }
-      ctx.globalAlpha = a;
-      ctx.drawImage(sp.img, -sp.ax, -sp.ay, sp.w, sp.h);
-      if (gold) {
-        ctx.globalCompositeOperation = 'source-atop';
-        ctx.fillStyle = 'rgba(255,205,60,0.35)';
-        ctx.fillRect(-sp.ax, -sp.ay, sp.w, sp.h);
+        const pulse = 0.75 + 0.25 * Math.sin(performance.now() / 160 + n.id);
+        const R = Math.max(sp.w, sp.h) * 0.75;
+        ctx.globalAlpha = a * pulse;
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.drawImage(goldGlow(), -R, -R * 0.62, R * 2, R * 1.24);
         ctx.globalCompositeOperation = 'source-over';
-        const tw = (performance.now() / 1000) * 4 + n.id;
-        ctx.fillStyle = '#FFFFFF';
-        for (const [sx, sy, k] of [[-0.42, -0.35, 0], [0.45, -0.2, 2], [0.1, 0.3, 4]]) {
-          const z = 2 + 2.5 * Math.abs(Math.sin(tw + k));
-          const px = sx * sp.w * 0.5;
-          const py = sy * sp.h * 0.5;
-          ctx.beginPath();
-          ctx.moveTo(px, py - z);
-          ctx.lineTo(px + z * 0.3, py - z * 0.3);
-          ctx.lineTo(px + z, py);
-          ctx.lineTo(px + z * 0.3, py + z * 0.3);
-          ctx.lineTo(px, py + z);
-          ctx.lineTo(px - z * 0.3, py + z * 0.3);
-          ctx.lineTo(px - z, py);
-          ctx.lineTo(px - z * 0.3, py - z * 0.3);
-          ctx.fill();
-        }
       }
+      const img = gold ? this.kit.notes.gold[n.lane] : sp;
+      ctx.globalAlpha = a;
+      ctx.drawImage(img.img, -img.ax, -img.ay, img.w, img.h);
       ctx.restore();
     }
   }
@@ -1343,6 +1325,7 @@ export class Renderer {
     const ctx = this.ctx;
     const L = this.L;
     const s = this.studio;
+    if (s.cover) return; // 릴스 썸네일: 글씨는 cover.js 가 따로 그림
     if (s.challenge) {
       this._drawStudioChallenge(st, rt);
       return;

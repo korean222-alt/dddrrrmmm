@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=5e483ee116" />
+  <link rel="stylesheet" href="css/style.css?v=f521727f08" />
 </head>
 <body>
   <div id="app">
@@ -113,6 +113,7 @@
           <p class="hint" id="studio-file-hint"></p>
         </div>
         <button class="btn btn-primary btn-big" data-action="studio-start"><span data-icon="video"></span> 녹화 시작</button>
+        <button class="btn btn-ghost" data-action="studio-cover">🖼 릴스 썸네일 만들기</button>
         <p class="hint">폰 화면 녹화로 찍을 땐: 녹화를 먼저 켜고 → "녹화 시작" → 3초 뒤 시작해요.</p>
       </div>
     </section>
@@ -332,8 +333,8 @@
   <div class="modal" id="modal-share" hidden>
     <div class="sheet">
       <button class="icon-btn close" data-action="close-share" aria-label="닫기"><span data-icon="close"></span></button>
-      <h3>결과 카드</h3>
-      <p class="muted">이미지를 길게 눌러 저장하고 스토리에 올려보세요!</p>
+      <h3 id="share-title">결과 카드</h3>
+      <p class="muted" id="share-hint">이미지를 길게 눌러 저장하고 스토리에 올려보세요!</p>
       <img id="share-img" alt="결과 카드" />
     </div>
   </div>
@@ -455,6 +456,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=a3730a02fb" defer></script>
+  <script src="js/app.js?v=de15d1f5fa" defer></script>
 </body>
 </html>
