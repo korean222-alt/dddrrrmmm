@@ -7179,7 +7179,8 @@ async function createApi(cfg) {
   // auto: /api/health 가 응답하면 서버 사용
   try {
     const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 1500);
+    // Cloudflare 서버가 막 새로 떴을 땐 1~2초 걸릴 수 있음 → 넉넉히 (서버가 꺼져 있으면 바로 실패가 와서 오래 안 기다림)
+    const timer = setTimeout(() => ctrl.abort(), 6000);
     const res = await fetch('/api/health?boot=1', { signal: ctrl.signal, credentials: 'same-origin' });
     clearTimeout(timer);
     if (res.ok) {
