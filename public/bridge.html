@@ -1,0 +1,76 @@
+<!doctype html>
+<!--
+  옛 주소(kongkong-drum.vercel.app) 다리 페이지. vercel.json 의 buildCommand 가 Vercel 에서만 이걸 index.html 로 바꿔 씀.
+  이 폰에 남은 기록(okaystra:*)과 랭킹 로그인(쿠키)을 옛 서버의 '기록 옮기기'로 올려 6자리 코드를 받고
+  → 새 주소로 ?t=코드 를 달고 보냄 → 새 주소가 자동으로 가져옴. 실패하면 그냥 새 주소로.
+  두 서버(Vercel·Cloudflare)가 같은 Neon DB 를 써서 가능. ?k=(팔로워 암호) · ?room= 같은 주소 뒤 값은 그대로 넘김.
+-->
+<html lang="ko">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>오케이스트라 · 새 주소로 이사했어요</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; box-sizing: border-box;
+    background: #2a1d4d; color: #fff; font-family: -apple-system, BlinkMacSystemFont, 'Apple SD Gothic Neo', 'Noto Sans KR', sans-serif; text-align: center; }
+  h1 { font-size: 26px; margin: 0 0 12px; }
+  p { font-size: 17px; line-height: 1.5; margin: 0 0 18px; opacity: 0.9; }
+  a { display: inline-block; padding: 14px 22px; border-radius: 16px; background: #ff8a4c; color: #fff; font-weight: 700; text-decoration: none; }
+</style>
+</head>
+<body>
+<main>
+  <h1>🥁 새 주소로 이사했어요!</h1>
+  <p id="msg">이 폰에 있던 기록을 챙겨서 옮기는 중이에요…</p>
+  <a id="go" href="https://play.kongkong-drum.workers.dev/">새 주소로 바로 가기</a>
+</main>
+<script>
+(function () {
+  var NEW = 'https://play.kongkong-drum.workers.dev/';
+  if (location.hostname === 'play.kongkong-drum.workers.dev') return location.replace('/');
+  var P = 'okaystra:';
+  function get(k) {
+    try {
+      var v = localStorage.getItem(P + k);
+      return v == null ? null : JSON.parse(v);
+    } catch (e) {
+      return null;
+    }
+  }
+  var keep = new URLSearchParams(location.search);
+  keep.delete('t');
+  function go(code) {
+    if (code) keep.set('t', code);
+    var q = keep.toString();
+    location.replace(NEW + (q ? '?' + q : '') + location.hash);
+  }
+  var q0 = keep.toString();
+  document.getElementById('go').href = NEW + (q0 ? '?' + q0 : '');
+  var settings = get('settings') || {};
+  var data = { bests: get('bests') || {}, nick: get('nick') || '', lastNick: get('lastNick') || '', lastIg: get('lastIg') || '', settings: settings };
+  // 같은 폰이라 싱크 보정도 그대로
+  if (typeof settings.offsetMs === 'number') data.calib = { offsetMs: settings.offsetMs, calibrated: !!get('calibrated') };
+  var done = false;
+  var timer = setTimeout(function () {
+    if (!done) { done = true; go(null); }
+  }, 6000);
+  fetch('/api/transfer', { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ op: 'make', data: data }) })
+    .then(function (r) { return r.ok ? r.json() : null; })
+    .then(function (j) {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      go(j && j.code);
+    })
+    .catch(function () {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      go(null);
+    });
+})();
+</script>
+</body>
+</html>

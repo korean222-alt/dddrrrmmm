@@ -597,3 +597,4 @@ body.room-game #modal-pause [data-action='retry'], body.room-game #modal-continu
 .transfer-take { display: flex; gap: 8px; margin-top: 10px; }
 .transfer-take input { flex: 1; min-width: 0; font-size: 20px; letter-spacing: 3px; text-align: center; padding: 8px 10px; border-radius: 12px; border: 2px solid var(--ink); background: var(--cream); color: var(--ink); font-family: inherit; -webkit-user-select: text; user-select: text; }
 .transfer-take .btn { width: auto; flex: none; }
+.transfer .transfer-restore { display: block; margin: 12px auto 0; font-size: 14px; text-decoration: underline; }

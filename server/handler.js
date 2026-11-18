@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 import { sign, unsign, parseCookies, cookie, newId } from './session.js';
 import { buildStats } from './stats.js';
 import { createRoomHandler } from './rooms.js';
-import { LEVELS, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur, ENDLESS_ID, ROUND_BARS, roundBpm, pointsFor, levelEndlessBase, LEVEL_ENDLESS_STEP, needsVerify, isClosed } from '../public/js/charts.js';
+import { LEVELS, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur, ENDLESS_ID, ROUND_BARS, roundBpm, pointsFor, levelEndlessBase, LEVEL_ENDLESS_STEP, needsVerify, isClosed, diamondsFor } from '../public/js/charts.js';
 
 // 무제한 모드 랭킹은 저장소의 level 칸에 '깬 단계 × 1,000,000,000 + 점수' 한 숫자로 저장 (단계가 먼저, 같으면 점수)
 //   (예전엔 × 1,000,000 이라 점수가 999,999 에서 잘렸음 → 저장소 init 때 새 방식으로 옮김)
@@ -26,6 +26,28 @@ export function endlessMode(id) {
 export const ENDLESS_MULT = 1_000_000_000;
 export const endlessKey = (rounds, score) => rounds * ENDLESS_MULT + Math.min(score, ENDLESS_MULT - 1);
 export const endlessParts = (v) => ({ rounds: Math.floor(v / ENDLESS_MULT), score: v % ENDLESS_MULT });
+
+/**
+ * 랭킹 기록(scores) → 화면의 '내 기록'(bests) 모양. 기록 되찾기 때 깬 단계를 다시 열어 주려고.
+ *   별은 DB 에 없어서 등급으로 어림: SS·풀콤보 S → 3개, S·A·B → 2개, 그 밑 → 1개 (끝까지 친 판만 랭킹에 오름)
+ */
+export function bestsFromScores(rows) {
+  const out = {};
+  for (const r of rows || []) {
+    if (r.level > 0) {
+      const lv = getLevel(r.level);
+      if (!lv) continue;
+      const full = r.maxCombo > 0 && r.maxCombo >= noteCount(lv);
+      const stars = r.grade === 'SS' || (r.grade === 'S' && full) ? 3 : ['S', 'A', 'B'].includes(r.grade) ? 2 : 1;
+      out[r.level] = { score: r.score, grade: r.grade || 'C', stars, maxCombo: r.maxCombo, fullCombo: full, at: 0 };
+    } else {
+      const { rounds, score } = endlessParts(r.score);
+      const id = r.level === 0 ? ENDLESS_ID : `e${-r.level}`;
+      out[id] = { score, grade: 'C', stars: 0, diamonds: diamondsFor(rounds), roundsCleared: rounds, at: 0 };
+    }
+  }
+  return out;
+}
 
 const PLAYER_COOKIE = 'kk_player';
 const TRANSFER_TTL_MS = 10 * 60 * 1000;
@@ -55,6 +77,10 @@ export function cleanTransferData(d) {
     for (const f of ['vibrate', 'lite']) if (typeof d.settings[f] === 'boolean') s[f] = d.settings[f];
     if (d.settings.band === 'orch' || d.settings.band === 'piano') s.band = d.settings.band;
     out.settings = s;
+  }
+  // 같은 폰이 주소만 옮길 때(옛 주소 → 새 주소 다리)만 싱크 보정도 같이 (다른 폰이면 안 맞아서 안 보냄)
+  if (d.calib && typeof d.calib === 'object' && Number.isFinite(d.calib.offsetMs)) {
+    out.calib = { offsetMs: Math.max(-300, Math.min(300, Math.round(d.calib.offsetMs))), calibrated: !!d.calib.calibrated };
   }
   return JSON.stringify(out).length <= 32 * 1024 ? out : null;
 }
@@ -278,7 +304,7 @@ export function createHandler(cfg, { store }) {
       const pl = await getPlayer(request);
       const name = body.name === undefined || body.name === '' ? null : cleanNickname(body.name);
       if (body.name && !name) return json(400, { error: 'bad_name' });
-      if (!pl && !name) return json(400, { error: 'bad_name' });
+      if (!pl && !name && !body.ig) return json(400, { error: 'bad_name' });
       const ig = body.ig ? cleanInstagram(body.ig) : null;
       if (body.ig && !ig) return json(400, { error: 'bad_ig' });
       if (!ig && !(pl && pl.ig)) return json(400, { error: 'bad_ig' });
@@ -286,12 +312,34 @@ export function createHandler(cfg, { store }) {
         passFail(ip);
         return json(403, { error: 'wrong_password' });
       }
-      const igsid = pl ? pl.igsid : 'g_' + newId().replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
-      await store.upsertPlayer(igsid, { username: name || pl.username, ig });
-      if (!pl) setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
+      // 기록 되찾기: 이 인스타 아이디로 된 예전 계정(랭킹 기록이 가장 많은 것)이 있으면 그 계정으로 다시 붙음.
+      //   새 주소로 옮기며 쿠키가 끊겨 새로 인증한 사람 → 새 계정 점수는 예전 계정으로 합치고 새 계정은 지움
+      const wantIg = ig || pl.ig;
+      const olds = (await store.playersByIg(wantIg)).filter((o) => !pl || o.igsid !== pl.igsid);
+      const old = olds[0] && (!pl || olds[0].scores > 0) ? olds[0] : null;
+      if (!old && !pl && !name) return json(400, { error: 'bad_name' });
+      let igsid;
+      let restored = null;
+      if (old) {
+        igsid = old.igsid;
+        if (pl && pl.ig === wantIg) {
+          await store.moveScores(pl.igsid, igsid);
+          await store.deletePlayer(pl.igsid);
+        }
+        await store.upsertPlayer(igsid, { ig: wantIg });
+        setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
+        restored = { username: old.username };
+      } else {
+        igsid = pl ? pl.igsid : 'g_' + newId().replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
+        await store.upsertPlayer(igsid, { username: name || pl.username, ig });
+        if (!pl) setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
+      }
       await store.setChecked(igsid, true);
       const rec = await store.getPlayer(igsid);
-      return json(200, meOf({ username: rec.username, ig: rec.ig, checkedAt: rec.checkedAt, hiddenAt: rec.hiddenAt }));
+      // 랭킹에 올렸던 기록으로 깬 단계·별·다이아를 다시 채워 줌 (화면이 자기 기록과 합침)
+      const bests = bestsFromScores(await store.scoresOf(igsid));
+      if (restored) restored.levels = Object.keys(bests).filter((k) => /^\d+$/.test(k)).length;
+      return json(200, { ...meOf({ username: rec.username, ig: rec.ig, checkedAt: rec.checkedAt, hiddenAt: rec.hiddenAt }), restored, bests });
     }
 
     // 📱 기기 옮기기 (계정 연동): 옛 폰이 기록을 올리고 6자리 코드를 받음 → 새 폰이 코드를 넣으면 기록 + 랭킹 계정(인증 포함)을 가져감

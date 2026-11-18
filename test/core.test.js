@@ -302,3 +302,23 @@ test('👍 경계 근처 터치·엄지가 넘어온 터치는 노트 있는 옆
   assert.equal(kk.judged, true);
   assert.equal(g.counts.wrong, 0);
 });
+
+test('📦 랭킹 기록 → 깬 단계(별) 어림: 무제한은 다이아·깬 단계', async () => {
+  const { bestsFromScores, endlessKey } = await import('../server/handler.js');
+  const { isUnlocked, noteCount: nc, getLevel } = await import('../public/js/charts.js');
+  const b = bestsFromScores([
+    { level: 1, score: 100, grade: 'SS', maxCombo: 1 },
+    { level: 2, score: 90, grade: 'S', maxCombo: nc(getLevel(2)) },
+    { level: 3, score: 80, grade: 'B', maxCombo: 3 },
+    { level: 4, score: 10, grade: 'D', maxCombo: 1 },
+    { level: 0, score: endlessKey(7, 5000), grade: null, maxCombo: 0 },
+    { level: -3, score: endlessKey(2, 100), grade: null, maxCombo: 0 },
+    { level: 999, score: 1, grade: 'A', maxCombo: 1 },
+  ]);
+  assert.deepEqual([b[1].stars, b[2].stars, b[3].stars, b[4].stars], [3, 3, 2, 1]);
+  assert.equal(b[999], undefined);
+  assert.equal(b.endless.roundsCleared, 7);
+  assert.equal(b.endless.diamonds, 2);
+  assert.equal(b.e3.roundsCleared, 2);
+  assert.ok(isUnlocked(5, b), '4단계까지 깼으면 5단계 열림');
+});

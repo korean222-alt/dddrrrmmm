@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=fffe5edec1" />
+  <link rel="stylesheet" href="css/style.css?v=1d0aab02be" />
 </head>
 <body>
   <div id="app">
@@ -345,6 +345,7 @@
         <p class="muted small">폰을 바꾸거나 인스타 앱에서 사파리·크롬으로 옮길 때. 깬 단계·별·다이아에 랭킹 닉네임·팔로워 인증까지 같이 옮겨져요.</p>
         <div class="transfer-code" id="transfer-code" hidden><b id="transfer-code-num"></b><small>새 폰에서 10분 안에 이 숫자를 넣어 주세요 (한 번만 쓸 수 있어요)</small></div>
         <button class="btn btn-ghost btn-sm" data-action="transfer-make">이 폰 기록 보내기 (코드 받기)</button>
+        <button class="link transfer-restore" data-action="restore-open">예전 주소(vercel.app)에서 인증했던 기록 되찾기</button>
         <div class="transfer-take">
           <input type="text" id="transfer-input" inputmode="numeric" maxlength="7" placeholder="받은 숫자 6자리" autocomplete="off" />
           <button class="btn btn-primary btn-sm" data-action="transfer-take">가져오기</button>
@@ -518,6 +519,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=5e6e1e09cb" defer></script>
+  <script src="js/app.js?v=8976ecdb89" defer></script>
 </body>
 </html>

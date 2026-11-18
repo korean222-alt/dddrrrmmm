@@ -351,6 +351,21 @@ END $$`);
     return { rank: Number(ahead ? ahead.n : 0) + 1, score: Number(mine.score) };
   }
 
+  /** 이 인스타 아이디로 된 참여자들 (기록 되찾기용): 점수 많은 순 → 오래된 순 */
+  async playersByIg(ig) {
+    const rows = await this.q(
+      `SELECT p.igsid, p.username, p.checked_at, p.created_at, (SELECT COUNT(*) FROM scores s WHERE s.igsid = p.igsid) AS n
+         FROM players p WHERE p.ig = $1 AND p.username IS NOT NULL ORDER BY n DESC, p.created_at ASC NULLS LAST LIMIT 20`,
+      [ig]
+    );
+    return rows.map((r) => ({ igsid: r.igsid, username: r.username, checkedAt: num(r.checked_at) ?? null, createdAt: num(r.created_at) ?? null, scores: Number(r.n) }));
+  }
+  /** 한 사람의 랭킹 기록 전부 (level: 단계 번호 / 0 = 그리그 무제한 / -N = N단계 무제한) */
+  async scoresOf(igsid) {
+    const rows = await this.q('SELECT level, score, grade, max_combo FROM scores WHERE igsid = $1', [igsid]);
+    return rows.map((r) => ({ level: Number(r.level), score: Number(r.score), grade: r.grade || null, maxCombo: Number(r.max_combo) || 0 }));
+  }
+
   /** 게스트 기록을 인증된 플레이어로 옮김 (단계별 더 높은 점수만 남김) */
   async moveScores(from, to) {
     if (from === to) return;

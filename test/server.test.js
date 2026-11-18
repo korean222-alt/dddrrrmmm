@@ -618,3 +618,75 @@ test('📱 기기 옮기기: 코드 만들기 → 새 기기에서 넣으면 기
   assert.equal(g2.json.data.bests[2].stars, 1);
   assert.equal((await anon('POST', '/api/transfer', { op: 'make', data: 'x' })).json.error, 'bad_data');
 });
+
+test('📦 예전 기록 되찾기: 같은 인스타 아이디 + 암호 → 원래 계정·랭킹 점수·깬 단계 / 새로 생긴 중복 계정은 합침', async () => {
+  // 예전 주소에서 인증하고 1·2단계 점수를 올린 사람
+  const oldPhone = client();
+  await oldPhone('POST', '/api/verify/password', { name: '옛날사람', ig: 'old.timer', password: '시험1234' });
+  for (const lv of [1, 2]) {
+    const run = (await oldPhone('POST', '/api/runs', { level: lv })).json.runToken;
+    assert.equal((await oldPhone('POST', '/api/scores', { runToken: run, level: lv, ...perfectRun(lv) })).status, 200);
+  }
+  // 새 주소: 쿠키가 없음 → 닉네임 없이 아이디 + 암호만으로 되찾기
+  const fresh = client();
+  const r = await fresh('POST', '/api/verify/password', { ig: '@Old.Timer', password: '시험1234' });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.restored.username, '옛날사람');
+  assert.equal(r.json.restored.levels, 2);
+  assert.equal(r.json.player.username, '옛날사람');
+  assert.equal(r.json.confirmed, true);
+  assert.equal(r.json.bests[1].stars, 3, 'SS 면 별 3개');
+  assert.ok(r.json.bests[2].score > 0);
+  // 같은 계정이라 랭킹에 한 번만, 내 기록으로 보임
+  const lb = (await fresh('GET', '/api/leaderboard?level=1')).json;
+  assert.equal(lb.entries.filter((e) => e.username === '옛날사람').length, 1);
+  assert.ok(lb.me && lb.me.score > 0);
+
+  // 예전 기록이 없는 아이디 + 닉네임 없음 → bad_name (처음이면 닉네임이 필요)
+  assert.equal((await client()('POST', '/api/verify/password', { ig: 'never.seen', password: '시험1234' })).json.error, 'bad_name');
+  // 처음 온 사람은 예전처럼 새 계정
+  const first = await client()('POST', '/api/verify/password', { name: '처음왔어', ig: 'brand.new', password: '시험1234' });
+  assert.equal(first.json.restored, null);
+  assert.equal(first.json.player.username, '처음왔어');
+  // 암호가 틀리면 아무것도 안 줌
+  assert.equal((await client()('POST', '/api/verify/password', { ig: 'old.timer', password: '틀림' })).json.error, 'wrong_password');
+});
+
+test('📦 옛 주소 다리: 같은 폰이면 싱크 보정까지 넘김', async () => {
+  const c = client();
+  const m = await c('POST', '/api/transfer', { op: 'make', data: { bests: {}, settings: { offsetMs: 80 }, calib: { offsetMs: 80, calibrated: true } } });
+  const t = await client()('POST', '/api/transfer', { op: 'take', code: m.json.code });
+  assert.deepEqual(t.json.data.calib, { offsetMs: 80, calibrated: true });
+  assert.equal(t.json.data.settings.offsetMs, undefined);
+});
+
+test('📦 되찾기: 새 주소에서 아이디만 적어 생긴 중복 계정은 예전 계정으로 합쳐짐 (따로 띄운 서버: 닉네임 요청 제한 안 걸리게)', async (t) => {
+  const tmp3 = fs.mkdtempSync(path.join(os.tmpdir(), 'kk-dup-'));
+  const { server: s3 } = createApp(loadConfig({ SESSION_SECRET: 's3', DATA_FILE: path.join(tmp3, 'db.json'), GATE_MODE: 'soft', MIN_RUN_RATIO: '0', ADMIN_TOKEN: 'admin-pw', FOLLOW_PASSWORD: '시험1234' }));
+  await new Promise((r) => s3.listen(0, r));
+  t.after(() => {
+    s3.close();
+    fs.rmSync(tmp3, { recursive: true, force: true });
+  });
+  const saved = base;
+  base = `http://127.0.0.1:${s3.address().port}`;
+  try {
+    // 이미 새 주소에서 새로 인증해서 중복 계정이 생긴 사람 → '예전 기록 되찾기'(같은 아이디로 다시 인증)하면 합쳐짐
+    const p2 = client();
+    await p2('POST', '/api/verify/password', { name: '중복원조', ig: 'dup.user', password: '시험1234' });
+    const run3 = (await p2('POST', '/api/runs', { level: 3 })).json.runToken;
+    await p2('POST', '/api/scores', { runToken: run3, level: 3, ...perfectRun(3) });
+    const newPhone = client();
+    const g = await newPhone('POST', '/api/guest', { name: '새로만든', ig: 'dup.user' }); // 아이디만 적은 새 계정 (예전 주소 기록을 못 보고)
+    assert.equal(g.status, 200, JSON.stringify(g.json));
+    const run1 = (await newPhone('POST', '/api/runs', { level: 1 })).json.runToken;
+    assert.ok(run1);
+    const back = await newPhone('POST', '/api/verify/password', { password: '시험1234' });
+    assert.equal(back.json.restored.username, '중복원조');
+    assert.equal(back.json.player.username, '중복원조');
+    const players = (await newPhone('GET', '/api/admin/players', null, adm)).json.players.filter((x) => x.ig === 'dup.user');
+    assert.equal(players.length, 1, '새로 만든 계정은 지워지고 하나만');
+  } finally {
+    base = saved;
+  }
+});

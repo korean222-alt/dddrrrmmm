@@ -194,6 +194,18 @@ export class JsonStore {
     return r ? { rank: r.rank, score: r.score } : null;
   }
 
+  playersByIg(ig) {
+    return Object.values(this.data.players)
+      .filter((p) => p.ig === ig && p.username)
+      .map((p) => ({ igsid: p.igsid, username: p.username, checkedAt: p.checkedAt || null, createdAt: p.createdAt || null, scores: Object.keys(p.bests || {}).length }))
+      .sort((a, b) => b.scores - a.scores || (a.createdAt ?? Infinity) - (b.createdAt ?? Infinity))
+      .slice(0, 20);
+  }
+  scoresOf(igsid) {
+    const p = this.data.players[igsid];
+    return Object.entries((p && p.bests) || {}).map(([lv, b]) => ({ level: Number(lv), score: b.score, grade: b.grade || null, maxCombo: b.maxCombo || 0 }));
+  }
+
   /** 게스트 기록을 인증된 플레이어로 옮김 (단계별 더 높은 점수만 남김) */
   moveScores(from, to) {
     const a = this.data.players[from];

@@ -176,17 +176,20 @@ const closedLocked = (id) => state.cfg.gateMode !== 'open' && isClosed(id) && !i
 /** 인스타 댓글에 쓸 키워드 (키티챗 자동 DM 키워드와 같아야 함) */
 const VERIFY_KEYWORD = '쿵';
 
-function openVerify(id, { pass = '', label = '', then = null } = {}) {
+function openVerify(id, { pass = '', label = '', then = null, restore = false } = {}) {
+  state.verifyRestore = restore;
   state.verifyFor = id ?? state.verifyFor ?? null;
   // 인증하면 이어서 할 일 (멀티 창 열기·건의하기 등)
   state.verifyThen = then;
   const lv = label ? { label } : id == null ? null : id === ENDLESS_ID ? { label: '💎 무제한 모드 · 그리그' } : levelEndlessBase(id) ? { label: `💎 ${levelEndlessBase(id).id}단계 무제한 · ${levelEndlessBase(id).name}` } : getLevel(id) ? { label: `${id}단계 · ${getLevel(id).composer} ${getLevel(id).name}` } : null;
   $('#verify-level').hidden = !lv;
   if (lv) $('#verify-level').textContent = lv.label;
-  const done = isConfirmed();
+  const done = isConfirmed() && !restore;
   $('#verify-mascots').innerHTML = mascotSVG('kong', 'cheer') + mascotSVG('jjak', done ? 'cheer' : 'idle');
-  $('#verify-title').textContent = done ? '팔로워 인증 완료!' : '팔로워 인증';
-  $('#verify-desc').innerHTML = done
+  $('#verify-title').textContent = restore ? '예전 기록 되찾기' : done ? '팔로워 인증 완료!' : '팔로워 인증';
+  $('#verify-desc').innerHTML = restore
+    ? `예전 주소(kongkong-drum.vercel.app)에서 <b>팔로워 인증</b>을 받았던 분은, 그때 쓴 <b>인스타 아이디</b>와 이번 주 <b>팔로워 암호</b>를 넣으면 랭킹 닉네임·점수·깬 단계를 되찾아요.`
+    : done
     ? `이미 인증됐어요 🎉 잠긴 단계와 💎 무제한 모드가 전부 열려 있어요.`
     : `1~${FREE_UPTO}단계는 맛보기! <b>${VERIFY_WHAT()}</b>는 ${igWho()} 팔로워 인증을 받으면 전부 열려요.<br>랭킹에도 인증한 사람만 올라가요.`;
   const step = (n, text) => `<li class="${done ? 'done' : ''}"><b>${done ? '✓' : n}</b><span>${text}</span></li>`;
@@ -203,8 +206,8 @@ function openVerify(id, { pass = '', label = '', then = null } = {}) {
   const hasIg = !!(hasName && me.player.ig && !me.hidden);
   $('#verify-form').hidden = done;
   $('#verify-note').hidden = done;
-  $('#verify-name-row').hidden = hasName;
-  $('#verify-ig-row').hidden = hasIg;
+  $('#verify-name-row').hidden = hasName || restore;
+  $('#verify-ig-row').hidden = hasIg && !restore;
   $('#verify-name').value = hasName ? me.player.username : load('lastNick', '');
   $('#verify-ig').value = (me.player && me.player.ig) || load('lastIg', '');
   if (pass) $('#verify-pass').value = pass;
@@ -239,7 +242,9 @@ async function submitVerify() {
   const btn = $('#verify-submit');
   btn.disabled = true;
   try {
-    state.me = await state.api.verifyPassword(body);
+    const { restored, bests, ...me } = await state.api.verifyPassword(body);
+    state.me = me;
+    if (bests && Object.keys(bests).length) save('bests', mergeBests(loadBests(), bests));
     if (body.name) save('lastNick', body.name);
     if (body.ig) save('lastIg', body.ig);
     $('#verify-pass').value = '';
@@ -247,7 +252,10 @@ async function submitVerify() {
     refreshTitle();
     refreshFollowChip();
     renderLevels();
-    toast(`🎉 팔로워 인증 완료! 잠긴 단계·💎 무제한·멀티·건의하기가 전부 열렸어요`, 3600);
+    if (restored) toast(`📦 예전 기록을 되찾았어요! 「${restored.username}」 계정${restored.levels ? ` · ${restored.levels}개 단계` : ''} 그대로예요`, 4200);
+    else if (state.verifyRestore) toast('이 인스타 아이디로 된 예전 랭킹 기록은 없었어요. 인증은 완료!', 3600);
+    else toast(`🎉 팔로워 인증 완료! 잠긴 단계·💎 무제한·멀티·건의하기가 전부 열렸어요`, 3600);
+    state.verifyRestore = false;
     submitRank();
     state.verifyFor = null;
     const then = state.verifyThen;
@@ -259,6 +267,7 @@ async function submitVerify() {
       c === 'wrong_password' ? '암호가 달라요. DM 속 암호를 다시 확인해 주세요. (암호는 매주 바뀌어요)'
         : c === 'rate_limited' || e.status === 429 ? '너무 여러 번 틀렸어요. 10분 뒤에 다시 해 주세요.'
         : c === 'bad_ig' ? '인스타 아이디를 정확히 써 주세요.'
+        : c === 'bad_name' && state.verifyRestore ? '이 인스타 아이디로 된 예전 기록이 없어요. 아이디를 다시 확인하거나, 처음이면 닫고 「팔로워 인증」으로 해 주세요.'
         : c === 'bad_name' ? '닉네임을 2~12자로 써 주세요.'
         : c === 'password_off' ? '지금은 암호 인증을 쉬고 있어요. 아래 "아이디만 적고 신청하기"를 써 주세요.'
         : '인증하지 못했어요. 다시 시도해 주세요.'
@@ -1404,21 +1413,44 @@ async function transferMake() {
     toast(e.status === 429 ? '너무 자주 눌렀어요. 10분 뒤에 다시 해 주세요' : '코드를 못 만들었어요. 다시 해 주세요');
   }
 }
+/** 가져온 기록 적용: 기록 합치기 + 닉네임 칸 + 설정 (+ 같은 폰이면 싱크 보정) + 랭킹 계정 */
+function applyTransfer(data, me) {
+  save('bests', mergeBests(loadBests(), data.bests));
+  for (const f of ['nick', 'lastNick', 'lastIg']) if (data[f] && !load(f, '')) save(f, data[f]);
+  if (data.settings || data.calib) {
+    state.settings = { ...state.settings, ...(data.settings || {}) };
+    if (data.calib) {
+      state.settings.offsetMs = data.calib.offsetMs;
+      if (data.calib.calibrated) save('calibrated', true);
+    }
+    saveSettings(state.settings);
+    audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx });
+    applyLite();
+  }
+  if (me) state.me = me;
+}
+
+/** 옛 주소(kongkong-drum.vercel.app)의 다리 페이지가 기록을 챙겨 ?t=코드 로 보내 줌 → 자동으로 가져옴 */
+async function takeBridgeCode(code) {
+  if (!(await reconnectServer({ force: true }))) return toast('예전 기록을 가져오려면 인터넷 연결을 확인하고 새로고침해 주세요', 3600);
+  try {
+    const { data, me } = await state.api.transfer({ op: 'take', code });
+    applyTransfer(data, me);
+    refreshTitle();
+    renderLevels();
+    toast('📦 주소가 바뀌었어요! 예전에 하던 기록을 그대로 가져왔어요', 3600);
+  } catch (e) {
+    if (e.status === 404) toast('예전 기록 코드가 지났어요. 예전 주소로 한 번 더 들어와 주세요', 3600);
+  }
+}
+
 async function transferTake() {
   const code = $('#transfer-input').value.replace(/\D/g, '');
   if (code.length !== 6) return toast('옛 폰에서 받은 숫자 6자리를 넣어 주세요');
   if (!(await reconnectServer({ force: true }))) return toast('지금은 서버에 연결이 안 돼요. 잠시 후 다시 해 주세요');
   try {
     const { data, me } = await state.api.transfer({ op: 'take', code });
-    save('bests', mergeBests(loadBests(), data.bests));
-    for (const f of ['nick', 'lastNick', 'lastIg']) if (data[f] && !load(f, '')) save(f, data[f]);
-    if (data.settings) {
-      state.settings = { ...state.settings, ...data.settings };
-      saveSettings(state.settings);
-      audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx });
-      applyLite();
-    }
-    if (me) state.me = me;
+    applyTransfer(data, me);
     $('#transfer-input').value = '';
     closeModal('modal-settings');
     refreshTitle();
@@ -2468,6 +2500,10 @@ const ACTIONS = {
   'close-share': () => closeModal('modal-share'),
   'studio-cover': () => studioCover(),
   'transfer-make': () => transferMake(),
+  'restore-open': () => {
+    closeModal('modal-settings');
+    openVerify(null, { restore: true });
+  },
   'transfer-take': () => transferTake(),
   'beat-pick': () => pickBeat(),
   'beat-reroll': () => {
@@ -2713,6 +2749,16 @@ async function boot() {
   refreshNewsDot();
   // 서버가 늦게 깨서 서버 없는 모드로 시작했으면 몇 초 뒤 한 번 더 붙어 봄
   if (state.api.mode !== 'server') setTimeout(() => reconnectServer({ force: true }), 4000);
+  // 옛 주소에서 넘어옴 (/?t=123456): 그쪽 기록·로그인을 자동으로 가져옴
+  const bridgeCode = params.get('t');
+  if (/^\d{6}$/.test(bridgeCode || '')) {
+    try {
+      const u = new URL(location.href);
+      u.searchParams.delete('t');
+      history.replaceState(null, '', u.pathname + u.search + u.hash);
+    } catch {}
+    takeBridgeCode(bridgeCode);
+  }
   $('#room-level').addEventListener('change', (e) => {
     if (state.roomClient.isHost) state.roomClient.send({ level: Number(e.target.value) }, true);
   });
