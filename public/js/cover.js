@@ -49,6 +49,10 @@ function pill(ctx, text, cx, cy, size, fill, color) {
  * @returns {Promise<HTMLCanvasElement>} 1080×1920
  */
 export async function makeReelCover({ lv, title, sub, bottom }) {
+  // 그릴 글자가 든 글꼴 묶음을 미리 받음 (안 그러면 처음 보는 글자만 기본 글꼴로 나옴, 예: '캉캉')
+  try {
+    await Promise.race([document.fonts.load(`40px ${FONT.split(',')[0]}`, `${title}${sub || ''}${bottom || ''}0123456789`), new Promise((r) => setTimeout(r, 3000))]);
+  } catch {}
   const cv = document.createElement('canvas');
   cv.style.cssText = `position:fixed;left:-20000px;top:0;width:${W}px;height:${H}px;pointer-events:none`;
   document.body.appendChild(cv);

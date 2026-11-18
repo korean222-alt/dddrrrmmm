@@ -471,9 +471,14 @@ async function tryStart(id, { free = false } = {}) {
   startLevel(id);
 }
 
-async function fontsReady() {
+// 구글 글꼴(Jua)은 한글을 글자 묶음별로 나눠 받아서, 캔버스에만 쓰는 글자는 따로 받아 둬야 깨지지 않음
+const CANVAS_TEXT = '쿵짝챙츠둥왼쪽오른엄지킥스네어하이햇크래시탐연타황금콩다가온선에닿을때그줄을톡여기눌러도OK키클릭NEW노을피크닉네온시티콘서트홀블랙스테이지용암보스전오로라설원우주무대GROOVECOMBO점';
+async function fontsReady(extra = '') {
   try {
-    await Promise.race([document.fonts.load('40px "Jua"'), new Promise((r) => setTimeout(r, 1500))]);
+    await Promise.race([
+      Promise.all([document.fonts.load('40px "Jua"'), document.fonts.load('40px "Jua"', CANVAS_TEXT + extra)]),
+      new Promise((r) => setTimeout(r, 2500)),
+    ]);
   } catch {}
 }
 
@@ -523,7 +528,7 @@ async function startLevel(id, opts = {}) {
   $('#screen-game').classList.toggle('studio-mode', st.active);
   renderer.studio = st.active ? studioOverlay(lv) : null;
   setKit(lv);
-  await fontsReady();
+  await fontsReady(renderer.studio ? `${renderer.studio.top || ''}${renderer.studio.bottom || ''}${renderer.studio.label || ''}` : '');
   await new Promise((r) => requestAnimationFrame(r));
   const cw = $('#game-canvas').clientWidth || window.innerWidth;
   await renderer.resize(st.active ? Math.min(3, Math.max(2, 1080 / cw)) : 2);
@@ -1512,8 +1517,8 @@ async function studioCover() {
   const bottom = $('#studio-bottom').value.trim();
   toast('썸네일 만드는 중…', 1500);
   try {
-    await fontsReady();
     const sub = lv.challenge ? `${lv.composer} ${lv.songName} · 레벨업 챌린지` : `${lv.composer} ${lv.name}`;
+    await fontsReady(top + sub + bottom);
     const canvas = await makeReelCover({ lv, title: top, sub, bottom });
     const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
     const file = new File([blob], `okaystra-cover-${lv.id}.png`, { type: 'image/png' });
@@ -1551,7 +1556,7 @@ async function studioStart() {
   const lv = playable(st.level) || getLevel(1);
   renderer.studio = studioOverlay(lv);
   setKit(lv);
-  await fontsReady();
+  await fontsReady(`${renderer.studio.top || ''}${renderer.studio.bottom || ''}${renderer.studio.label || ''}`);
   await new Promise((r) => requestAnimationFrame(r));
   await renderer.resize(Math.min(3, Math.max(2, 1080 / ($('#game-canvas').clientWidth || 390))));
   renderer.draw({ now: -1, notes: [], approach: 1.5, beatDur: 60 / lv.bpm, combo: 0, score: 0, playing: false }, performance.now() / 1000);
