@@ -22,6 +22,12 @@ export const REVIVE_LIVES = 2;
 const REVIVE_GRACE = 1.6;
 /** 헛침으로 목숨이 깎인 뒤 이 시간(초) 안의 헛침은 또 안 깎음 (두 엄지 동시 실수) */
 const WRONG_GAP = 0.12;
+/**
+ * 지나간 노트를 MISS 로 넘기기 전에 이만큼(초) 더 기다림.
+ *   폰이 한 프레임 버벅이면 터치 이벤트가 늦게 도착함(시각은 실제로 누른 때). 그 사이 화면 갱신이 먼저
+ *   돌면서 노트를 MISS 로 지워 버리면, 제때 누른 터치가 '안 먹힌' 것처럼 됨 → 늦게 온 터치도 판정되게 여유를 둠
+ */
+const MISS_SLACK = 0.12;
 
 export class Game {
   /**
@@ -376,7 +382,7 @@ export class Game {
           this.ptr[lane]++;
           continue;
         }
-        if (now - n.time > JUDGE.good) {
+        if (now - n.time > JUDGE.good + MISS_SLACK) {
           this._miss(n, rt);
           this.ptr[lane]++;
           continue;

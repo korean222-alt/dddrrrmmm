@@ -1,5 +1,5 @@
 // 맵 분위기(테마): 단계를 묶어서 묶음마다 무대가 바뀜. 곡이 달아오르면(heat) 조명·입자가 같이 커짐.
-//   1~3 노을 피크닉 · 4~6 네온 시티 · 7~9 황금 콘서트홀 · 10~12 블랙 스테이지 · 13~15 용암 보스전 · 16 오로라 설원
+//   1~3 노을 피크닉 · 4~6 네온 시티 · 7~9 황금 콘서트홀 · 10~12 블랙 스테이지 · 13~15 용암 보스전 · 16~17 오로라 설원
 //   그리그 무제한·레벨업 챌린지는 우주 무대에서 시작해 Lv 이 오를 때마다 맵이 바뀜(THEME_CYCLE).
 //   단계별 무제한(e5 등)은 그 단계 맵 그대로.
 //
@@ -226,7 +226,7 @@ export const THEME_GROUPS = [
   { from: 7, to: 9, key: 'hall' },
   { from: 10, to: 12, key: 'void' },
   { from: 13, to: 15, key: 'lava' },
-  { from: 16, to: 16, key: 'aurora' },
+  { from: 16, to: 17, key: 'aurora' },
 ];
 
 /** 그리그 무제한·레벨업 챌린지: Lv 이 오를 때마다 이 순서로 맵이 바뀜 */
@@ -236,7 +236,7 @@ export function themeKeyForId(id) {
   const n = Number(id);
   if (!Number.isFinite(n)) return 'space';
   const g = THEME_GROUPS.find((t) => n >= t.from && n <= t.to);
-  return g ? g.key : n > 16 ? 'aurora' : 'sunset';
+  return g ? g.key : n > 17 ? 'aurora' : 'sunset';
 }
 
 /** 레벨(판) → { key, cycle } . cycle 이면 Lv 마다 맵이 바뀜 */

@@ -729,6 +729,60 @@ const LEVELS = [
       'X...B...X.......',
     ],
   },
+  {
+    id: 17,
+    name: '라 쿠카라차',
+    composer: '멕시코 민요',
+    tagline: '클래식 말고 축제! · 다섯 악기 · 킥 연타',
+    difficulty: 5,
+    bpm: 132,
+    song: {
+      // 작곡가 미상 멕시코 전통 민요 (퍼블릭 도메인). '라 쿠카라차, 라 쿠카라차' — 따따따 딴~ 따!
+      prog: ['F', 'F', 'C7', 'C7', 'C7', 'C7', 'C7 F', 'F'],
+      hat: '................',
+      bass: 'x...x.x.x...x.x.',
+      chord: '..x...x...x...x.',
+      melody: [
+        'C5:2 C5:2 C5:2 F5:6 A5:4',
+        'C5:2 C5:2 C5:2 F5:6 A5:4',
+        'F5:2 F5:2 E5:2 E5:2 D5:2 D5:2 C5:4',
+        'C5:8 _:4 E5:2 G5:2',
+        'C5:2 C5:2 C5:2 E5:6 G5:4',
+        'C5:2 C5:2 C5:2 E5:6 G5:4',
+        'C6:2 D6:2 C6:2 Bb5:2 A5:2 G5:2 F5:4',
+        'F5:4 A5:2 C6:2 F5:4 _:4',
+        'C5:2 C5:2 C5:2 F5:6 A5:4',
+        'C5:2 C5:2 C5:2 F5:6 A5:4',
+        'F5:2 F5:2 E5:2 E5:2 D5:2 D5:2 C5:4',
+        'C5:8 _:4 E5:2 G5:2',
+        'C5:2 C5:2 C5:2 E5:6 G5:4',
+        'C5:2 C5:2 C5:2 E5:6 G5:4',
+        'C6:2 D6:2 C6:2 Bb5:2 A5:2 G5:2 F5:4',
+        'F5:4 C5:4 F4:8',
+      ],
+    },
+    // 💥 연타 구간: 이번엔 킥
+    rolls: [{ bar: 11, from: 4, len: 10, lane: KICK }],
+    bars: [
+      // 멜로디 '따따따 딴~ 따!' 를 그대로 두드림. 같은 엄지 16분음표 연타 없음 (엄지 번갈아 KSK·TS)
+      'X...K.S.KSK.S.H.',
+      'K.SKS.SKH.SKS.X.',
+      'T.TSK.KSK.TSK.H.',
+      'C...S.H.KSKSKSK.',
+      'J.H.S.HKS.HKS.H.',
+      'X.H.KSK.X.H.KSK.',
+      'K.S.KSK.TSK.T.B.',
+      'X...B...C.T.K.S.',
+      'X.HKS.HKS.HKS.H.',
+      'KSK.KSK.KSK.X...',
+      'T.TSTSK.B.TSK.H.',
+      'C...............', // 💥 킥 연타 (rolls)
+      'J.H.S.HKS.HKS.HK',
+      'S.H.KSK.X.H.KSK.',
+      'KSKSKSK.TSTSKSK.',
+      'X...B...X.......',
+    ],
+  },
 ];
 
 // ---------------------------------------------------------------
@@ -3283,7 +3337,7 @@ return { SNARE_RY, lighten, darken, buildKit };
 // ---- themes.js ----
 const __m_themes = (() => {
 // 맵 분위기(테마): 단계를 묶어서 묶음마다 무대가 바뀜. 곡이 달아오르면(heat) 조명·입자가 같이 커짐.
-//   1~3 노을 피크닉 · 4~6 네온 시티 · 7~9 황금 콘서트홀 · 10~12 블랙 스테이지 · 13~15 용암 보스전 · 16 오로라 설원
+//   1~3 노을 피크닉 · 4~6 네온 시티 · 7~9 황금 콘서트홀 · 10~12 블랙 스테이지 · 13~15 용암 보스전 · 16~17 오로라 설원
 //   그리그 무제한·레벨업 챌린지는 우주 무대에서 시작해 Lv 이 오를 때마다 맵이 바뀜(THEME_CYCLE).
 //   단계별 무제한(e5 등)은 그 단계 맵 그대로.
 //
@@ -3510,7 +3564,7 @@ const THEME_GROUPS = [
   { from: 7, to: 9, key: 'hall' },
   { from: 10, to: 12, key: 'void' },
   { from: 13, to: 15, key: 'lava' },
-  { from: 16, to: 16, key: 'aurora' },
+  { from: 16, to: 17, key: 'aurora' },
 ];
 
 /** 그리그 무제한·레벨업 챌린지: Lv 이 오를 때마다 이 순서로 맵이 바뀜 */
@@ -3520,7 +3574,7 @@ function themeKeyForId(id) {
   const n = Number(id);
   if (!Number.isFinite(n)) return 'space';
   const g = THEME_GROUPS.find((t) => n >= t.from && n <= t.to);
-  return g ? g.key : n > 16 ? 'aurora' : 'sunset';
+  return g ? g.key : n > 17 ? 'aurora' : 'sunset';
 }
 
 /** 레벨(판) → { key, cycle } . cycle 이면 Lv 마다 맵이 바뀜 */
@@ -5991,6 +6045,12 @@ const REVIVE_LIVES = 2;
 const REVIVE_GRACE = 1.6;
 /** 헛침으로 목숨이 깎인 뒤 이 시간(초) 안의 헛침은 또 안 깎음 (두 엄지 동시 실수) */
 const WRONG_GAP = 0.12;
+/**
+ * 지나간 노트를 MISS 로 넘기기 전에 이만큼(초) 더 기다림.
+ *   폰이 한 프레임 버벅이면 터치 이벤트가 늦게 도착함(시각은 실제로 누른 때). 그 사이 화면 갱신이 먼저
+ *   돌면서 노트를 MISS 로 지워 버리면, 제때 누른 터치가 '안 먹힌' 것처럼 됨 → 늦게 온 터치도 판정되게 여유를 둠
+ */
+const MISS_SLACK = 0.12;
 
 class Game {
   /**
@@ -6345,7 +6405,7 @@ class Game {
           this.ptr[lane]++;
           continue;
         }
-        if (now - n.time > JUDGE.good) {
+        if (now - n.time > JUDGE.good + MISS_SLACK) {
           this._miss(n, rt);
           this.ptr[lane]++;
           continue;
@@ -7127,6 +7187,15 @@ const __m_news = (() => {
 //   잠금·인증·운영 정책(누가 무엇을 쓸 수 있나) 같은 건 안 씀
 
 const NEWS = [
+  {
+    id: '2026-11-18h',
+    date: '11월 18일',
+    title: '17단계 라 쿠카라차 · 터치 안 먹던 것 고침',
+    items: [
+      '🥁 <b>17단계</b> 이번엔 클래식 말고 <b>멕시코 민요 라 쿠카라차</b>! 따따따 딴~ 따! 다섯 악기 지옥 단계, 중간에 <b>킥 연타 구간</b>이 있어요',
+      '👆 가끔 <b>터치가 안 먹던 것</b>을 고쳤어요. 폰이 잠깐 버벅여도 제때 누른 건 제대로 판정되고, 두 엄지를 거의 동시에 눌러도 둘 다 들어가요',
+    ],
+  },
   {
     id: '2026-11-18g',
     date: '11월 18일',
@@ -8817,16 +8886,28 @@ const KEY_LABELS = { 2: ['F', 'J'], 3: ['F', 'J', 'K'], 4: ['D', 'F', 'J', 'K'],
 
 function bindGameInput() {
   const canvas = $('#game-canvas');
+  // 폰·태블릿: 손가락마다 touchstart 의 changedTouches 로 바로 받음 (두 엄지가 거의 동시에 닿아도 하나씩 다 들어옴).
+  //   pointerdown 은 마우스·펜(그리고 터치 이벤트가 없는 기기의 터치)만 → 같은 터치를 두 번 치지 않게
+  const touchEvents = 'ontouchstart' in window;
   canvas.addEventListener(
     'pointerdown',
     (e) => {
       e.preventDefault();
-      if (!state.game) return;
+      if (!state.game || (touchEvents && e.pointerType === 'touch')) return;
       state.game.input(laneFromPoint(e.clientX, e.clientY), e.timeStamp);
     },
     { passive: false }
   );
-  ['touchstart', 'touchmove', 'gesturestart', 'dblclick', 'contextmenu'].forEach((ev) =>
+  canvas.addEventListener(
+    'touchstart',
+    (e) => {
+      e.preventDefault();
+      if (!state.game) return;
+      for (const t of e.changedTouches) state.game.input(laneFromPoint(t.clientX, t.clientY), e.timeStamp);
+    },
+    { passive: false }
+  );
+  ['touchmove', 'gesturestart', 'dblclick', 'contextmenu'].forEach((ev) =>
     canvas.addEventListener(ev, (e) => e.preventDefault(), { passive: false })
   );
   window.addEventListener('keydown', (e) => {

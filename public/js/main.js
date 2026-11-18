@@ -675,16 +675,28 @@ const KEY_LABELS = { 2: ['F', 'J'], 3: ['F', 'J', 'K'], 4: ['D', 'F', 'J', 'K'],
 
 function bindGameInput() {
   const canvas = $('#game-canvas');
+  // 폰·태블릿: 손가락마다 touchstart 의 changedTouches 로 바로 받음 (두 엄지가 거의 동시에 닿아도 하나씩 다 들어옴).
+  //   pointerdown 은 마우스·펜(그리고 터치 이벤트가 없는 기기의 터치)만 → 같은 터치를 두 번 치지 않게
+  const touchEvents = 'ontouchstart' in window;
   canvas.addEventListener(
     'pointerdown',
     (e) => {
       e.preventDefault();
-      if (!state.game) return;
+      if (!state.game || (touchEvents && e.pointerType === 'touch')) return;
       state.game.input(laneFromPoint(e.clientX, e.clientY), e.timeStamp);
     },
     { passive: false }
   );
-  ['touchstart', 'touchmove', 'gesturestart', 'dblclick', 'contextmenu'].forEach((ev) =>
+  canvas.addEventListener(
+    'touchstart',
+    (e) => {
+      e.preventDefault();
+      if (!state.game) return;
+      for (const t of e.changedTouches) state.game.input(laneFromPoint(t.clientX, t.clientY), e.timeStamp);
+    },
+    { passive: false }
+  );
+  ['touchmove', 'gesturestart', 'dblclick', 'contextmenu'].forEach((ev) =>
     canvas.addEventListener(ev, (e) => e.preventDefault(), { passive: false })
   );
   window.addEventListener('keydown', (e) => {
