@@ -117,6 +117,40 @@ const igWho = () => (handle() ? `@${handle()} 인스타` : '인스타');
 const isInApp = () => /Instagram|FBAN|FBAV|KAKAOTALK|NAVER/i.test(navigator.userAgent);
 
 const isLocalDev = () => /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+
+/**
+ * 서버 없는 모드로 시작한 화면(첫 접속 때 서버가 늦게 깨서 기다리다 포기함)을 서버에 다시 붙임. 붙으면 true.
+ *   그대로 두면 새로고침 전까지 인증·기록 옮기기·랭킹이 계속 '서버 연결 안 됨'이라서.
+ *   부르는 곳: 시작 몇 초 뒤 한 번, 앱으로 돌아올 때(30초에 한 번), 인증·기록 옮기기 누를 때
+ */
+let reconnecting = null;
+let reconnectTriedAt = 0;
+function reconnectServer({ force = false } = {}) {
+  if (state.api && state.api.mode === 'server') return Promise.resolve(true);
+  if (CONFIG.apiMode === 'mock') return Promise.resolve(false);
+  if (!force && Date.now() - reconnectTriedAt < 30 * 1000) return Promise.resolve(false);
+  reconnectTriedAt = Date.now();
+  reconnecting ??= (async () => {
+    try {
+      const api = await createApi({ ...CONFIG, apiMode: 'auto' });
+      if (api.mode !== 'server') return false;
+      state.api = api;
+      if (state.roomClient) state.roomClient.api = api;
+      initTracker({ enabled: true });
+      try {
+        state.me = await api.me();
+      } catch {}
+      refreshTitle();
+      renderLevels();
+      return true;
+    } catch {
+      return false;
+    } finally {
+      reconnecting = null;
+    }
+  })();
+  return reconnecting;
+}
 /** 테스트용 주소 옵션(?gate= ?level= …)은 내 컴퓨터(localhost)에서만. 실제 사이트에선 무시 */
 const devParam = (k) => (isLocalDev() ? params.get(k) : null);
 /** 서버 없이 배포된 상태(정적 호스팅): 랭킹은 아직 안 열림 */
@@ -201,7 +235,7 @@ async function submitVerify() {
     body.ig = ig;
   }
   if (!body.password) return err('DM 으로 받은 팔로워 암호를 적어 주세요.');
-  if (!state.api || state.api.mode !== 'server') return err('지금은 서버에 연결이 안 돼서 인증할 수 없어요. 잠시 후 다시 해 주세요.');
+  if (!(await reconnectServer({ force: true }))) return err('지금은 서버에 연결이 안 돼서 인증할 수 없어요. 잠시 후 다시 해 주세요.');
   const btn = $('#verify-submit');
   btn.disabled = true;
   try {
@@ -1359,7 +1393,7 @@ function mergeBests(mine, theirs) {
   return out;
 }
 async function transferMake() {
-  if (!state.api || state.api.mode !== 'server') return toast('지금은 서버에 연결이 안 돼요. 잠시 후 다시 해 주세요');
+  if (!(await reconnectServer({ force: true }))) return toast('지금은 서버에 연결이 안 돼요. 잠시 후 다시 해 주세요');
   const { offsetMs, ...settings } = state.settings;
   const data = { bests: loadBests(), nick: load('nick', ''), lastNick: load('lastNick', ''), lastIg: load('lastIg', ''), settings };
   try {
@@ -1373,7 +1407,7 @@ async function transferMake() {
 async function transferTake() {
   const code = $('#transfer-input').value.replace(/\D/g, '');
   if (code.length !== 6) return toast('옛 폰에서 받은 숫자 6자리를 넣어 주세요');
-  if (!state.api || state.api.mode !== 'server') return toast('지금은 서버에 연결이 안 돼요. 잠시 후 다시 해 주세요');
+  if (!(await reconnectServer({ force: true }))) return toast('지금은 서버에 연결이 안 돼요. 잠시 후 다시 해 주세요');
   try {
     const { data, me } = await state.api.transfer({ op: 'take', code });
     save('bests', mergeBests(loadBests(), data.bests));
@@ -2677,6 +2711,8 @@ async function boot() {
   }
   refreshTitle();
   refreshNewsDot();
+  // 서버가 늦게 깨서 서버 없는 모드로 시작했으면 몇 초 뒤 한 번 더 붙어 봄
+  if (state.api.mode !== 'server') setTimeout(() => reconnectServer({ force: true }), 4000);
   $('#room-level').addEventListener('change', (e) => {
     if (state.roomClient.isHost) state.roomClient.send({ level: Number(e.target.value) }, true);
   });
@@ -2715,7 +2751,8 @@ async function boot() {
   // 앱으로 돌아올 때 인증 상태 다시 받기 (운영자가 '확인함'을 누르면 새로고침 없이 바로 열림)
   let meCheckedAt = Date.now();
   document.addEventListener('visibilitychange', async () => {
-    if (document.hidden || state.api.mode !== 'server') return;
+    if (document.hidden) return;
+    if (state.api.mode !== 'server') return void reconnectServer();
     // 앱으로 자주 왔다 갔다 해도 2분에 한 번만 (Vercel 요청 수 아끼기)
     if (Date.now() - meCheckedAt < 120 * 1000) return;
     meCheckedAt = Date.now();
