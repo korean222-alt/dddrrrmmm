@@ -322,3 +322,9 @@ test('📦 랭킹 기록 → 깬 단계(별) 어림: 무제한은 다이아·깬
   assert.equal(b.e3.roundsCleared, 2);
   assert.ok(isUnlocked(5, b), '4단계까지 깼으면 5단계 열림');
 });
+
+test('📦 인스타 아이디 거의 같음: 점·밑줄·대소문자·오타 1~2개는 봐줌, 전혀 다르면 아님', async () => {
+  const { igSimilar } = await import('../server/handler.js');
+  for (const [a, b] of [['jiminnn_12', 'jimin_12'], ['My.Insta', 'my_insta'], ['drummer_kim', 'drumer_kim'], ['kongkong', 'kongkong.drum'], ['abc', 'abc']]) assert.ok(igSimilar(a, b), `${a} ~ ${b}`);
+  for (const [a, b] of [['jiminnn_12', 'totally.other'], ['abc', 'abd1x'], ['', 'abc'], ['ab', 'ac']]) assert.ok(!igSimilar(a, b), `${a} ≠ ${b}`);
+});

@@ -7368,7 +7368,8 @@ const NEWS = [
     items: [
       '🏠 사람이 너무 많이 와서 <b>새 주소</b>로 옮겼어요! 이제 더 많은 분이 함께 쳐도 끄떡없어요',
       '📦 예전 주소에서 <b>팔로워 인증</b>을 받았던 분은 ⚙️ 설정 → <b>예전 기록 되찾기</b>에서 그때 쓴 인스타 아이디와 이번 주 팔로워 암호를 넣으면 랭킹 닉네임·점수·깬 단계가 돌아와요',
-      '그냥 인증만 다시 해도 같은 인스타 아이디면 원래 계정으로 돌아와요',
+      '그냥 인증만 다시 해도 같은 인스타 아이디면 원래 계정으로 돌아와요. 아이디가 헷갈리면 <b>예전 닉네임</b>도 같이 적어 보세요',
+      '그래도 안 되면 인스타 <b>DM</b> 으로 알려 주세요. 확인하고 되찾기 코드를 보내 드려요 (⚙️ 설정 → 기록 옮기기에 넣으면 끝)',
     ],
   },
   {
@@ -8654,8 +8655,10 @@ function openVerify(id, { pass = '', label = '', then = null, restore = false } 
   const hasIg = !!(hasName && me.player.ig && !me.hidden);
   $('#verify-form').hidden = done;
   $('#verify-note').hidden = done;
-  $('#verify-name-row').hidden = hasName || restore;
+  // 되찾기: 닉네임은 '아이디를 대충 적었을 때' 같이 찾는 용도 (안 적어도 됨)
+  $('#verify-name-row').hidden = hasName && !restore;
   $('#verify-ig-row').hidden = hasIg && !restore;
+  $('#verify-name-hint').textContent = restore ? '예전 랭킹 닉네임 · 아이디가 헷갈리면 같이 적어요' : '2~12자 · 랭킹에 보여요';
   $('#verify-name').value = hasName ? me.player.username : load('lastNick', '');
   $('#verify-ig').value = (me.player && me.player.ig) || load('lastIg', '');
   if (pass) $('#verify-pass').value = pass;
@@ -8671,7 +8674,8 @@ async function submitVerify() {
   };
   $('#verify-err').hidden = true;
   const body = { password: $('#verify-pass').value.trim() };
-  if (!$('#verify-name-row').hidden) {
+  if (state.verifyRestore) body.restore = true;
+  if (!$('#verify-name-row').hidden && !(state.verifyRestore && !$('#verify-name').value.trim())) {
     const name = $('#verify-name').value.trim();
     if ([...name].length < 2) return err('닉네임을 2자 이상으로 써 주세요.');
     if (!/^[\p{L}\p{N}_. ]+$/u.test(name)) return err('닉네임은 한글·영문·숫자·_ . 만 쓸 수 있어요.');
@@ -8715,7 +8719,8 @@ async function submitVerify() {
       c === 'wrong_password' ? '암호가 달라요. DM 속 암호를 다시 확인해 주세요. (암호는 매주 바뀌어요)'
         : c === 'rate_limited' || e.status === 429 ? '너무 여러 번 틀렸어요. 10분 뒤에 다시 해 주세요.'
         : c === 'bad_ig' ? '인스타 아이디를 정확히 써 주세요.'
-        : c === 'bad_name' && state.verifyRestore ? '이 인스타 아이디로 된 예전 기록이 없어요. 아이디를 다시 확인하거나, 처음이면 닫고 「팔로워 인증」으로 해 주세요.'
+        : c === 'no_old' || (c === 'bad_name' && state.verifyRestore)
+          ? '예전 기록을 못 찾았어요. 예전 랭킹 닉네임도 같이 적어 보세요. 그래도 안 되면 인스타 DM 으로 알려 주세요 — 확인하고 되찾기 코드를 보내 드려요.'
         : c === 'bad_name' ? '닉네임을 2~12자로 써 주세요.'
         : c === 'password_off' ? '지금은 암호 인증을 쉬고 있어요. 아래 "아이디만 적고 신청하기"를 써 주세요.'
         : '인증하지 못했어요. 다시 시도해 주세요.'

@@ -360,6 +360,15 @@ END $$`);
     );
     return rows.map((r) => ({ igsid: r.igsid, username: r.username, checkedAt: num(r.checked_at) ?? null, createdAt: num(r.created_at) ?? null, scores: Number(r.n) }));
   }
+  /** 이 닉네임(대소문자·앞뒤 띄어쓰기 무시)인 참여자들 + 인스타 아이디 (기록 되찾기: 아이디를 대충 적었던 사람) */
+  async playersByName(name) {
+    const rows = await this.q(
+      `SELECT p.igsid, p.username, p.ig, p.created_at, (SELECT COUNT(*) FROM scores s WHERE s.igsid = p.igsid) AS n
+         FROM players p WHERE lower(trim(p.username)) = lower(trim($1)) ORDER BY n DESC, p.created_at ASC NULLS LAST LIMIT 20`,
+      [name]
+    );
+    return rows.map((r) => ({ igsid: r.igsid, username: r.username, ig: r.ig || null, createdAt: num(r.created_at) ?? null, scores: Number(r.n) }));
+  }
   /** 한 사람의 랭킹 기록 전부 (level: 단계 번호 / 0 = 그리그 무제한 / -N = N단계 무제한) */
   async scoresOf(igsid) {
     const rows = await this.q('SELECT level, score, grade, max_combo FROM scores WHERE igsid = $1', [igsid]);

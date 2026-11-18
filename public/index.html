@@ -269,7 +269,7 @@
       <ol class="steps" id="verify-steps"></ol>
       <div class="stack" id="verify-acts"></div>
       <form id="verify-form" class="stack verify-form">
-        <label class="field" id="verify-name-row"><span>닉네임 <small class="muted">2~12자 · 랭킹에 보여요</small></span><input type="text" id="verify-name" maxlength="12" autocomplete="nickname" placeholder="예: 쿵짝왕" /></label>
+        <label class="field" id="verify-name-row"><span>닉네임 <small class="muted" id="verify-name-hint">2~12자 · 랭킹에 보여요</small></span><input type="text" id="verify-name" maxlength="12" autocomplete="nickname" placeholder="예: 쿵짝왕" /></label>
         <label class="field" id="verify-ig-row"><span>내 인스타 아이디 <small class="muted">댓글 단 계정 · 다른 사람에겐 안 보여요</small></span><input type="text" id="verify-ig" maxlength="40" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="예: my_insta_id" /></label>
         <label class="field"><span><span data-icon="key" data-e></span> 팔로워 암호 <small class="muted">DM 으로 받은 암호</small></span><input type="text" id="verify-pass" maxlength="40" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="DM 속 암호를 적어 주세요" /></label>
         <p class="join-err small" id="verify-err" hidden></p>
@@ -342,7 +342,7 @@
       <div class="account" id="settings-account"></div>
       <div class="transfer" id="transfer-box">
         <h4><span data-icon="phone" data-e></span> 다른 폰으로 옮기기</h4>
-        <p class="muted small">폰을 바꾸거나 인스타 앱에서 사파리·크롬으로 옮길 때. 깬 단계·별·다이아에 랭킹 닉네임·팔로워 인증까지 같이 옮겨져요.</p>
+        <p class="muted small">폰을 바꾸거나 인스타 앱에서 사파리·크롬으로 옮길 때 (운영자에게 받은 되찾기 코드도 아래에 넣으면 돼요). 깬 단계·별·다이아에 랭킹 닉네임·팔로워 인증까지 같이 옮겨져요.</p>
         <div class="transfer-code" id="transfer-code" hidden><b id="transfer-code-num"></b><small>새 폰에서 10분 안에 이 숫자를 넣어 주세요 (한 번만 쓸 수 있어요)</small></div>
         <button class="btn btn-ghost btn-sm" data-action="transfer-make">이 폰 기록 보내기 (코드 받기)</button>
         <button class="link transfer-restore" data-action="restore-open">예전 주소(vercel.app)에서 인증했던 기록 되찾기</button>
@@ -519,6 +519,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=ea4df239db" defer></script>
+  <script src="js/app.js?v=4bb75a1652" defer></script>
 </body>
 </html>

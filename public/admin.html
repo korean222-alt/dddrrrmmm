@@ -90,7 +90,7 @@
           <div style="display:flex;gap:8px"><input id="fp-input" maxlength="40" autocomplete="off" style="flex:1" /><button type="button" id="fp-save">저장</button></div>
           <div class="msg" id="fp-msg"></div>
         </div>
-        <div class="card"><div class="head"><b id="players-count"></b><span><button type="button" class="ghost" id="players-purge" hidden style="color:var(--bad)">미인증 전부 삭제</button> <button type="button" class="ghost" id="players-reload">새로고침</button></span></div><ul id="players"></ul></div>
+        <div class="card"><div class="head"><b id="players-count"></b><span><button type="button" class="ghost" id="players-purge" hidden style="color:var(--bad)">미인증 전부 삭제</button> <button type="button" class="ghost" id="players-reload">새로고침</button></span></div><input type="search" id="players-q" placeholder="닉네임·인스타 아이디로 찾기" style="width:100%;box-sizing:border-box;margin:8px 0;padding:10px 12px;font-size:16px;border-radius:10px;border:1px solid #ccc" /><ul id="players"></ul></div>
       </section>
       <section id="tab-stats">
         <div class="tabs" id="ranges">
@@ -223,7 +223,7 @@
               : '<span class="meta">인스타 아이디 없음</span>';
             return `<li data-igsid="${esc(p.igsid)}"><div><div><b>${esc(p.username)}</b> ${id}</div>
               <div class="meta">${old ? '미인증' : '인증'} · ${ago(p.createdAt)} · 총 ${fmtN(p.total)}점 (${p.levels}단계)${p.endless != null ? ' · 무제한 Lv.' + Math.floor(p.endless / 1000000000) : ''}</div></div>
-              <div class="acts"><button type="button" class="ghost" data-do="delete" style="color:var(--bad)">삭제</button></div></li>`;
+              <div class="acts"><button type="button" class="ghost" data-do="recover">되찾기 코드</button> <button type="button" class="ghost" data-do="delete" style="color:var(--bad)">삭제</button></div></li>`;
           }).join('')
         : `<li class="empty">${old ? '미인증 참가자가 없어요.' : '아직 인증한 사람이 없어요.'}</li>`;
       lastList = ps;
@@ -243,6 +243,16 @@
       const li = b.closest('li');
       const igsid = li.dataset.igsid;
       const name = li.querySelector('b').textContent;
+      if (b.dataset.do === 'recover') {
+        // 인스타 DM 으로 본인인지 확인한 뒤에만! 이 코드를 넣은 폰이 이 계정(인증·랭킹)이 됨
+        if (!confirm(`"${name}" 님 계정의 되찾기 코드를 만들까요?\n\n인스타 DM 으로 본인인지 먼저 확인하세요. 코드를 넣은 폰이 이 계정이 돼요. (24시간 · 한 번만)`)) return;
+        const r = await call('POST', '/api/admin/players/recover', { igsid });
+        if (r.status !== 200) return alert('코드를 못 만들었어요.');
+        const msg = `[오케이스트라] ${r.data.username} 님 기록 되찾기 코드: ${r.data.code}\n사이트 → ⚙️ 설정 → '받은 숫자 6자리'에 넣고 가져오기 (24시간 안에)`;
+        try { await navigator.clipboard.writeText(msg); } catch (e) {}
+        prompt('DM 으로 보낼 글이에요 (복사됐어요)', msg);
+        return;
+      }
       if (b.dataset.do === 'delete') {
         if (!confirm(`"${name}" 님을 삭제할까요?\n닉네임과 모든 랭킹 기록이 지워져요.`)) return;
         await call('POST', '/api/admin/players/delete', { igsid });
@@ -250,6 +260,10 @@
       loadPlayers();
     });
     $('#players-reload').addEventListener('click', loadPlayers);
+    $('#players-q').addEventListener('input', () => {
+      const q = $('#players-q').value.trim().toLowerCase();
+      for (const li of document.querySelectorAll('#players li[data-igsid]')) li.hidden = !!q && !li.textContent.toLowerCase().includes(q);
+    });
     async function loadFollowPass() {
       const r = await call('GET', '/api/admin/follow-password');
       if (r.status !== 200) return;

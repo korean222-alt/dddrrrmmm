@@ -690,3 +690,36 @@ test('📦 되찾기: 새 주소에서 아이디만 적어 생긴 중복 계정�
     base = saved;
   }
 });
+
+test('📦 되찾기: 아이디를 대충 적었던 사람 → 닉네임 + 비슷한 아이디로 / 운영자 되찾기 코드', async () => {
+  // 예전 주소: 아이디를 'jiminnn_12' 로 대충 적고 인증 + 1단계 점수
+  const oldPhone = client();
+  await oldPhone('POST', '/api/verify/password', { name: '지민이', ig: 'jiminnn_12', password: '시험1234' });
+  const run = (await oldPhone('POST', '/api/runs', { level: 1 })).json.runToken;
+  await oldPhone('POST', '/api/scores', { runToken: run, level: 1, ...perfectRun(1) });
+
+  // 되찾기 창: 아이디만 (정확히 기억 못 함) → 못 찾음 (새 계정 안 만듦)
+  const p = client();
+  assert.equal((await p('POST', '/api/verify/password', { ig: 'jimin.12', password: '시험1234', restore: true })).json.error, 'no_old');
+  assert.equal((await p('GET', '/api/me')).json.verified, false, '아무것도 안 생김');
+  // 닉네임 + 비슷한 아이디 → 찾음
+  const r = await p('POST', '/api/verify/password', { name: '지민이', ig: 'jimin_12', password: '시험1234', restore: true });
+  assert.equal(r.json.restored.username, '지민이');
+  assert.equal(r.json.bests[1].stars, 3);
+  assert.equal(r.json.player.ig, 'jimin_12', '아이디는 이번에 적은 걸로 고쳐짐');
+  // 닉네임만 같고 아이디가 전혀 다르면 못 가져감 (닉네임은 랭킹에 보이니까)
+  const thief = client();
+  assert.equal((await thief('POST', '/api/verify/password', { name: '지민이', ig: 'totally.other', password: '시험1234', restore: true })).json.error, 'no_old');
+
+  // 운영자 되찾기 코드: 관리자만, 넣은 폰이 그 계정이 됨 (+ 깬 단계)
+  const target = (await p('GET', '/api/admin/players', null, adm)).json.players.find((x) => x.username === '지민이');
+  assert.equal((await client()('POST', '/api/admin/players/recover', { igsid: target.igsid })).status, 401);
+  const rc = await client()('POST', '/api/admin/players/recover', { igsid: target.igsid }, adm);
+  assert.match(rc.json.code, /^\d{6}$/);
+  assert.ok(rc.json.expiresAt - Date.now() > 23 * 3600 * 1000, '24시간');
+  const lost = client();
+  const got = await lost('POST', '/api/transfer', { op: 'take', code: rc.json.code });
+  assert.equal(got.json.me.player.username, '지민이');
+  assert.equal(got.json.me.confirmed, true);
+  assert.equal(got.json.data.bests[1].stars, 3);
+});

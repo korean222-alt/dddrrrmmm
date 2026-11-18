@@ -49,6 +49,29 @@ export function bestsFromScores(rows) {
   return out;
 }
 
+/**
+ * 인스타 아이디가 '거의 같은지' (기록 되찾기에서 예전에 대충 적은 아이디 봐주기).
+ *   영문·숫자만 남기고 소문자로 비교 → 같거나, 한쪽이 다른 쪽을 품거나(4자 이상), 오타 1개(5자 이상)·2개(8자 이상)까지
+ */
+export function igSimilar(a, b) {
+  const n = (s) => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const x = n(a);
+  const y = n(b);
+  if (!x || !y) return false;
+  if (x === y) return true;
+  if (Math.min(x.length, y.length) >= 4 && (x.includes(y) || y.includes(x))) return true;
+  // 짧은 아이디(5자 미만)는 똑같아야 함
+  const max = Math.min(x.length, y.length) < 5 ? 0 : Math.max(x.length, y.length) >= 8 ? 2 : 1;
+  if (Math.abs(x.length - y.length) > max) return false;
+  let prev = Array.from({ length: y.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= x.length; i++) {
+    const cur = [i];
+    for (let j = 1; j <= y.length; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (x[i - 1] === y[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[y.length] <= max;
+}
+
 const PLAYER_COOKIE = 'kk_player';
 const TRANSFER_TTL_MS = 10 * 60 * 1000;
 /**
@@ -304,6 +327,7 @@ export function createHandler(cfg, { store }) {
       const pl = await getPlayer(request);
       const name = body.name === undefined || body.name === '' ? null : cleanNickname(body.name);
       if (body.name && !name) return json(400, { error: 'bad_name' });
+      const restoreOnly = body.restore === true;
       if (!pl && !name && !body.ig) return json(400, { error: 'bad_name' });
       const ig = body.ig ? cleanInstagram(body.ig) : null;
       if (body.ig && !ig) return json(400, { error: 'bad_ig' });
@@ -316,7 +340,14 @@ export function createHandler(cfg, { store }) {
       //   새 주소로 옮기며 쿠키가 끊겨 새로 인증한 사람 → 새 계정 점수는 예전 계정으로 합치고 새 계정은 지움
       const wantIg = ig || pl.ig;
       const olds = (await store.playersByIg(wantIg)).filter((o) => !pl || o.igsid !== pl.igsid);
-      const old = olds[0] && (!pl || olds[0].scores > 0) ? olds[0] : null;
+      let old = olds[0] && (!pl || olds[0].scores > 0) ? olds[0] : null;
+      // 아이디로 못 찾으면: 닉네임이 같고 예전 아이디가 '거의 같은' 계정 (예전에 아이디를 대충 적은 사람). 랭킹 기록이 있는 것만
+      if (!old && name) {
+        const near = (await store.playersByName(name)).filter((o) => o.scores > 0 && (!pl || o.igsid !== pl.igsid) && igSimilar(o.ig, wantIg));
+        if (near.length) old = near[0];
+      }
+      // 되찾기 창: 예전 계정을 못 찾으면 새로 만들지 않고 알려 줌
+      if (!old && restoreOnly) return json(404, { error: 'no_old' });
       if (!old && !pl && !name) return json(400, { error: 'bad_name' });
       let igsid;
       let restored = null;
@@ -484,6 +515,21 @@ export function createHandler(cfg, { store }) {
         const b = await readJson(request);
         if (typeof b.igsid !== 'string' || !b.igsid) return json(400, { error: 'bad_igsid' });
         return json(200, { ok: await store.deletePlayer(b.igsid) });
+      }
+      // 기록 되찾기 코드: 아이디가 기억 안 나는 사람을 운영자가 인스타 DM 으로 확인한 뒤 발급 → 그 사람이 설정 → 기록 옮기기에 넣음
+      if (p === '/api/admin/players/recover' && m === 'POST') {
+        const b = await readJson(request);
+        if (typeof b.igsid !== 'string' || !b.igsid) return json(400, { error: 'bad_igsid' });
+        const rec = await store.getPlayer(b.igsid);
+        if (!rec) return json(404, { error: 'not_found' });
+        const now = Date.now();
+        const expiresAt = now + 24 * 3600 * 1000;
+        const data = { bests: bestsFromScores(await store.scoresOf(b.igsid)) };
+        for (let i = 0; i < 8; i++) {
+          const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+          if (await store.putTransfer(code, { data, igsid: b.igsid }, now, expiresAt)) return json(200, { code, expiresAt, username: rec.username });
+        }
+        return json(503, { error: 'busy' });
       }
       if (p === '/api/admin/players/check' && m === 'POST') {
         const b = await readJson(request);
