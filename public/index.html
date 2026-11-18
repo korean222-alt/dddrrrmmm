@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=806364ccd4" />
+  <link rel="stylesheet" href="css/style.css?v=f8a8112aea" />
 </head>
 <body>
   <div id="app">
@@ -275,6 +275,7 @@
         <label class="field" id="verify-ig-row"><span>내 인스타 아이디 <small class="muted">댓글 단 계정 · 다른 사람에겐 안 보여요</small></span><input type="text" id="verify-ig" maxlength="40" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="예: my_insta_id" /></label>
         <label class="field"><span><span data-icon="key" data-e></span> 팔로워 암호 <small class="muted">DM 으로 받은 암호</small></span><input type="text" id="verify-pass" maxlength="40" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="DM 속 암호를 적어 주세요" /></label>
         <p class="join-err small" id="verify-err" hidden></p>
+        <button class="btn btn-ghost btn-sm" data-action="req-open" id="verify-req" hidden>되찾기 요청 보내기 (운영자가 찾아 드려요)</button>
         <button class="btn btn-primary" type="submit" id="verify-submit">인증하기</button>
       </form>
       <p class="verify-time" id="verify-note"><span data-icon="key" data-e></span> 암호를 맞게 적으면 <b>바로 인증 완료</b>! 잠긴 단계와 <span data-icon="gem" data-e></span> 무제한 모드가 전부 열려요. 암호는 매주 바뀌어요.</p>
@@ -511,11 +512,8 @@
         </li>
         <li>
           <b>그래도 안 찾아지면</b>
-          <span id="move-dm-text">인스타 계정으로 DM 에 <b>예전 닉네임</b>을 보내 주세요. 확인하고 <b>되찾기 코드</b>(숫자 6자리)를 보내 드려요 → <b>⚙️ 설정 → 다른 폰으로 옮기기</b>에 넣으면 끝!</span>
-          <div class="move-row">
-            <a class="btn btn-insta btn-sm" id="move-dm" href="https://www.instagram.com/" target="_blank" rel="noopener">DM 보내기</a>
-            <button class="btn btn-ghost btn-sm" data-action="move-transfer">코드 넣으러 가기</button>
-          </div>
+          <span><b>되찾기 요청</b>에 예전 닉네임·아이디를 적어 보내 주세요. 운영자가 확인하면 <b>이 폰에서 자동으로</b> 기록이 돌아와요. (사이트에 다시 들어오면 돼요)</span>
+          <button class="btn btn-primary btn-sm" data-action="req-open">되찾기 요청 보내기</button>
         </li>
         <li>
           <b>인증 없이 1~3단계만 하던 분</b>
@@ -527,6 +525,27 @@
         </li>
       </ol>
       <button class="btn btn-primary" data-action="move-ok">확인했어요</button>
+    </div>
+  </div>
+
+  <div class="modal" id="modal-req" hidden>
+    <div class="sheet">
+      <button class="icon-btn close" data-action="close-req" aria-label="닫기"><span data-icon="close"></span></button>
+      <h3>📮 기록 되찾기 요청</h3>
+      <p class="muted" id="req-desc">예전 주소에서 팔로워 인증을 받았는데 「예전 기록 되찾기」로 못 찾았다면 적어 주세요. 운영자가 확인하고 맞는 계정을 찾아 드려요. 확인되면 <b>이 폰에서 사이트에 다시 들어올 때 자동으로</b> 돌아와요.</p>
+      <div id="req-form">
+        <label class="field"><span>예전 랭킹 닉네임 <small class="muted">기억나는 대로</small></span><input type="text" id="req-nick" maxlength="20" autocomplete="off" placeholder="예: 쿵짝왕" /></label>
+        <label class="field"><span>예전에 적었던 인스타 아이디 <small class="muted">기억나는 만큼만</small></span><input type="text" id="req-old" maxlength="40" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="예: kungjjak_12 ?" /></label>
+        <label class="field"><span>지금 내 인스타 아이디 <small class="muted">본인 확인용</small></span><input type="text" id="req-now" maxlength="40" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="예: my_insta_id" /></label>
+        <label class="field"><span>팔로워 암호 <small class="muted">「쿵」 댓글 DM 으로 받은 암호</small></span><input type="text" id="req-pass" maxlength="40" autocomplete="off" autocapitalize="none" spellcheck="false" /></label>
+        <label class="field"><span>남길 말 <small class="muted">선택 · 예: 몇 단계까지 깼는지</small></span><textarea id="req-memo" maxlength="300" rows="2"></textarea></label>
+        <p class="join-err small" id="req-err" hidden></p>
+        <button class="btn btn-primary" data-action="req-send" id="req-send">요청 보내기</button>
+      </div>
+      <div id="req-wait" hidden>
+        <p class="req-wait-box">✅ 요청을 보냈어요!<br>운영자가 확인하면 <b>이 폰에서 사이트에 다시 들어올 때 자동으로</b> 기록이 돌아와요.<br><small class="muted">다른 폰이나 다른 브라우저로 들어오면 안 돼요. 이 화면 그대로 다시 들어와 주세요.</small></p>
+        <button class="btn btn-ghost btn-sm" data-action="req-check">지금 확인해 보기</button>
+      </div>
     </div>
   </div>
 
@@ -560,6 +579,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=c96712cf3f" defer></script>
+  <script src="js/app.js?v=abc6be5d64" defer></script>
 </body>
 </html>

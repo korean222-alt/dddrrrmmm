@@ -42,6 +42,11 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS rooms (code TEXT PRIMARY KEY, data JSONB NOT NULL, updated_at BIGINT NOT NULL, expires_at BIGINT NOT NULL)`,
   // 기기 옮기기: 6자리 코드 하나 = 행 하나 (10분, 한 번 쓰면 지움)
   `CREATE TABLE IF NOT EXISTS transfers (code TEXT PRIMARY KEY, data JSONB NOT NULL, expires_at BIGINT NOT NULL)`,
+  // 기록 되찾기 요청 (아이디가 기억 안 나는 사람 → 운영자가 admin 에서 계정을 골라 승인). token 은 요청한 폰만 앎
+  `CREATE TABLE IF NOT EXISTS recover_requests (
+     id BIGSERIAL PRIMARY KEY, token TEXT UNIQUE NOT NULL, at BIGINT NOT NULL, nick TEXT, old_ig TEXT, now_ig TEXT, memo TEXT,
+     status TEXT NOT NULL DEFAULT 'wait', igsid TEXT, done_at BIGINT)`,
+  `CREATE INDEX IF NOT EXISTS recover_requests_at ON recover_requests (at)`,
 ];
 
 /** init 에서 도는 옛 기록 옮기기 목록 — 새로 추가하면 여기에도 이름을 붙임 (SCHEMA_FLAG 가 바뀌어 다시 돎) */
@@ -502,6 +507,33 @@ END $$`);
   }
   async deleteRoom(code) {
     await this.q('DELETE FROM rooms WHERE code = $1', [code]);
+  }
+
+  // ----- 기록 되찾기 요청 -----
+  async addRecoverRequest({ token, at, nick, oldIg, nowIg, memo }) {
+    const r = await this.one(
+      'INSERT INTO recover_requests (token, at, nick, old_ig, now_ig, memo) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
+      [token, at, nick ?? null, oldIg ?? null, nowIg ?? null, memo ?? null]
+    );
+    return Number(r.id);
+  }
+  _recoverRow(r) {
+    return r && { id: Number(r.id), at: Number(r.at), nick: r.nick, oldIg: r.old_ig, nowIg: r.now_ig, memo: r.memo, status: r.status, igsid: r.igsid || null, doneAt: num(r.done_at) ?? null };
+  }
+  async listRecoverRequests(limit = 300) {
+    const rows = await this.q('SELECT * FROM recover_requests ORDER BY at DESC LIMIT $1', [limit]);
+    return rows.map((r) => this._recoverRow(r));
+  }
+  async recoverRequestByToken(token) {
+    return this._recoverRow(await this.one('SELECT * FROM recover_requests WHERE token = $1', [token]));
+  }
+  async setRecoverRequest(id, { status, igsid = null }, now = Date.now()) {
+    const r = await this.q('UPDATE recover_requests SET status = $2, igsid = $3, done_at = $4 WHERE id = $1 RETURNING id', [id, status, igsid, status === 'wait' ? null : now]);
+    return r.length === 1;
+  }
+  async deleteRecoverRequest(id) {
+    const r = await this.q('DELETE FROM recover_requests WHERE id = $1 RETURNING id', [id]);
+    return r.length === 1;
   }
 
   // ----- 기기 옮기기 -----

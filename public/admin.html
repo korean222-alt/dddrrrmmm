@@ -72,7 +72,18 @@
         <button type="button" data-tab="players">랭킹 참여자</button>
         <button type="button" data-tab="old">미인증</button>
         <button type="button" data-tab="suggest">건의함</button>
+        <button type="button" data-tab="recover">되찾기 요청</button>
       </div>
+      <section id="tab-recover" hidden>
+        <p>사이트의 <b>되찾기 요청</b>으로 들어온 글이에요 (예전 주소에서 인증했는데 자동으로 못 찾은 사람). 요청마다 <b>맞을 만한 계정</b>을 찾아 옆에 보여 줘요.
+          맞는 계정의 <b>이 계정으로 승인</b>을 누르면, 그 사람이 <b>요청을 보낸 폰으로 사이트에 다시 들어올 때 자동으로</b> 그 계정·깬 단계가 돌아가요.
+          <br><b>본인 확인:</b> '지금 인스타 아이디'가 후보 계정의 아이디와 같거나 비슷한지 보세요. 애매하면 그 인스타 계정에 DM 으로 물어본 뒤 승인하세요.</p>
+        <div class="tabs" id="rc-filter">
+          <button type="button" data-f="wait" class="on">기다리는 것</button>
+          <button type="button" data-f="all">전체</button>
+        </div>
+        <div class="card"><div class="head"><b id="rc-count"></b><span><button type="button" class="ghost" id="rc-reload">새로고침</button></span></div><ul id="recovers"></ul></div>
+      </section>
       <section id="tab-suggest" hidden>
         <p>사용자가 시작 화면 <b>건의하기</b>로 남긴 글이에요. 매일 아침 봇이 새 건의를 정리해서 알려줘요. 다 본 건 <b>처리함</b>, 필요 없는 건 <b>삭제</b>.</p>
         <div class="tabs" id="sg-filter">
@@ -284,13 +295,80 @@
       $('#tab-stats').hidden = b.dataset.tab !== 'stats';
       $('#tab-players').hidden = b.dataset.tab !== 'players' && b.dataset.tab !== 'old';
       $('#tab-suggest').hidden = b.dataset.tab !== 'suggest';
+      $('#tab-recover').hidden = b.dataset.tab !== 'recover';
       if (b.dataset.tab === 'suggest') loadSuggestions();
+      else if (b.dataset.tab === 'recover') loadRecovers();
       else if (b.dataset.tab !== 'stats') {
         playersView = b.dataset.tab === 'old' ? 'old' : 'ig';
         $('#fp-card').hidden = playersView === 'old';
         loadPlayers();
         loadFollowPass();
       }
+    });
+
+    // ---------- 📮 되찾기 요청 ----------
+    let rcFilter = 'wait';
+    const RC_STATUS = { wait: '기다리는 중', done: '승인함', rejected: '못 찾음' };
+    async function loadRecovers() {
+      const r = await call('GET', '/api/admin/recover-requests');
+      if (r.status === 401) return logout('비밀번호가 맞지 않아요.');
+      if (r.status !== 200) {
+        $('#recovers').innerHTML = '<li class="empty">불러오지 못했어요.</li>';
+        return;
+      }
+      const all = r.data.requests || [];
+      const wait = all.filter((x) => x.status === 'wait');
+      const list = rcFilter === 'wait' ? wait : all;
+      document.querySelector('[data-tab="recover"]').textContent = `되찾기 요청 ${wait.length}`;
+      $('#rc-count').textContent = rcFilter === 'wait' ? `기다리는 요청 ${wait.length}개` : `전체 ${all.length}개`;
+      const igLink = (ig) => (ig ? `<a href="https://www.instagram.com/${esc(ig)}/" target="_blank" rel="noopener" style="color:var(--pink)">@${esc(ig)}</a>` : '<span class="meta">(아이디 없음)</span>');
+      $('#recovers').innerHTML = list.length
+        ? list.map((x) => {
+            const cands = x.status === 'wait'
+              ? (x.candidates.length
+                  ? x.candidates.map((c) => `<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:6px;padding:8px;border-radius:10px;background:rgba(0,0,0,.04)">
+                      <div style="min-width:0"><b>${esc(c.username)}</b> ${igLink(c.ig)}<div class="meta">${esc(c.why.join(' · '))} · ${c.levels}단계 · 총 ${fmtN(c.total)}점${c.checked ? '' : ' · 미인증'}</div></div>
+                      <button type="button" data-do="approve" data-igsid="${esc(c.igsid)}" data-name="${esc(c.username)}">이 계정으로 승인</button></div>`).join('')
+                  : '<div class="meta" style="margin-top:6px">맞는 계정을 못 찾았어요. 랭킹 참여자 탭에서 직접 찾아보세요.</div>')
+              : x.status === 'done'
+              ? `<div class="meta" style="margin-top:6px">→ ${x.target ? `<b>${esc(x.target.username)}</b> ${igLink(x.target.ig)}` : '(지워진 계정)'} 으로 승인함</div>`
+              : '';
+            return `<li data-id="${x.id}" style="${x.status !== 'wait' ? 'opacity:.6' : ''}"><div style="flex:1;min-width:0">
+              <div class="meta">${RC_STATUS[x.status] || x.status} · ${ago(x.at).replace('가입', '')}</div>
+              <div style="margin-top:4px">예전 닉네임 <b>${esc(x.nick || '-')}</b> · 예전 아이디 <b>${esc(x.oldIg || '-')}</b></div>
+              <div>지금 인스타 ${igLink(x.nowIg)}</div>
+              ${x.memo ? `<div style="white-space:pre-wrap;word-break:break-word;margin-top:4px">💬 ${esc(x.memo)}</div>` : ''}
+              ${cands}</div>
+              <div class="acts">${x.status === 'wait' ? '<button type="button" class="ghost" data-do="reject">못 찾음</button>' : '<button type="button" class="ghost" data-do="undo">되돌리기</button>'}
+              <button type="button" class="ghost" data-do="del" style="color:var(--bad)">삭제</button></div></li>`;
+          }).join('')
+        : `<li class="empty">${rcFilter === 'wait' ? '기다리는 요청이 없어요' : '아직 요청이 없어요.'}</li>`;
+    }
+    $('#recovers').addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-do]');
+      if (!b) return;
+      const id = Number(b.closest('li').dataset.id);
+      if (b.dataset.do === 'approve') {
+        if (!confirm(`"${b.dataset.name}" 계정으로 승인할까요?\n요청을 보낸 폰이 이 계정(인증·랭킹·깬 단계)이 돼요.\n본인이 맞는지 꼭 확인하세요.`)) return;
+        await call('POST', '/api/admin/recover-requests/approve', { id, igsid: b.dataset.igsid });
+      } else if (b.dataset.do === 'reject') {
+        if (!confirm('맞는 계정을 못 찾았다고 알릴까요?\n그 사람이 다시 들어오면 "다시 적어 보내 달라"고 나와요.')) return;
+        await call('POST', '/api/admin/recover-requests/reject', { id });
+      } else if (b.dataset.do === 'undo') {
+        await call('POST', '/api/admin/recover-requests/reject', { id, undo: true });
+      } else if (b.dataset.do === 'del') {
+        if (!confirm('이 요청을 삭제할까요?')) return;
+        await call('POST', '/api/admin/recover-requests/delete', { id });
+      }
+      loadRecovers();
+    });
+    $('#rc-reload').addEventListener('click', loadRecovers);
+    $('#rc-filter').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-f]');
+      if (!b) return;
+      rcFilter = b.dataset.f;
+      document.querySelectorAll('#rc-filter [data-f]').forEach((x) => x.classList.toggle('on', x === b));
+      loadRecovers();
     });
 
     // ---------- 건의함 ----------
@@ -359,6 +437,7 @@
       $('#app').hidden = false;
       loadStats();
       loadSuggestions();
+      loadRecovers(); // 탭에 '되찾기 요청 N' 숫자 보이게
     }
 
     $('#login-btn').addEventListener('click', login);

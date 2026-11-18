@@ -154,6 +154,8 @@ export function createHandler(cfg, { store }) {
   // 기기 옮기기: 코드 만들기는 넉넉히, 코드 넣기(맞히기)는 적게
   const limitTransferMake = rateLimiter(10, 10 * 60 * 1000);
   const limitTransferTake = rateLimiter(10, 10 * 60 * 1000);
+  const limitRecoverReq = rateLimiter(5, 10 * 60 * 1000);
+  const limitRecoverCheck = rateLimiter(60, 10 * 60 * 1000);
   // 팔로워 암호: 틀린 시도만 셈. IP 당 10분에 10번 틀리면 잠깐 막음
   const passFails = new Map();
   const passBlocked = (ip) => {
@@ -407,6 +409,45 @@ export function createHandler(cfg, { store }) {
       return json(400, { error: 'bad_op' });
     }
 
+    // 📮 기록 되찾기 요청: 아이디가 기억 안 나 자동으로 못 찾은 사람 → 운영자가 admin 에서 계정을 골라 승인
+    //   팔로워 암호가 있어야 보냄(장난 방지). token 은 보낸 폰만 알고, 승인되면 그 폰이 status 를 물을 때 계정으로 붙음
+    if (p === '/api/recover-request' && m === 'POST') {
+      if (passBlocked(ip)) return json(429, { error: 'rate_limited' });
+      const b = await readJson(request);
+      const pw = await followPassword();
+      if (!pw) return json(503, { error: 'password_off' });
+      const nick = String(b.nick ?? '').replace(/\s+/g, ' ').trim().slice(0, 20);
+      const oldIg = String(b.oldIg ?? '').trim().replace(/^@+/, '').slice(0, 40);
+      const nowIg = cleanInstagram(b.nowIg);
+      const memo = String(b.memo ?? '').replace(/\r\n?/g, '\n').trim().slice(0, 300);
+      if (!nick && !oldIg) return json(400, { error: 'need_nick' });
+      if (!nowIg) return json(400, { error: 'bad_ig' });
+      if (!samePassword(b.password, pw)) {
+        passFail(ip);
+        return json(403, { error: 'wrong_password' });
+      }
+      if (!limitRecoverReq(ip)) return json(429, { error: 'rate_limited' });
+      const token = newId() + newId();
+      const id = await store.addRecoverRequest({ token, at: Date.now(), nick: nick || null, oldIg: oldIg || null, nowIg, memo: memo || null });
+      return json(200, { ok: true, id, token });
+    }
+    if (p === '/api/recover-request/status' && m === 'POST') {
+      if (!limitRecoverCheck(ip)) return json(429, { error: 'rate_limited' });
+      const b = await readJson(request);
+      if (typeof b.token !== 'string' || b.token.length < 20 || b.token.length > 80) return json(400, { error: 'bad_token' });
+      const r = await store.recoverRequestByToken(b.token);
+      if (!r) return json(404, { error: 'not_found' });
+      if (r.status !== 'done') return json(200, { status: r.status });
+      const rec = r.igsid ? await store.getPlayer(r.igsid) : null;
+      if (!rec || !rec.username) return json(200, { status: 'rejected' });
+      // 운영자가 이 계정이 맞다고 승인함 → 이 폰을 그 계정으로 (인증 완료 상태로)
+      await store.setChecked(rec.igsid, true);
+      const now = await store.getPlayer(rec.igsid);
+      setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid: rec.igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
+      const bests = bestsFromScores(await store.scoresOf(rec.igsid));
+      return json(200, { status: 'done', me: meOf({ username: now.username, ig: now.ig, checkedAt: now.checkedAt, hiddenAt: now.hiddenAt }), bests, levels: Object.keys(bests).filter((k) => /^\d+$/.test(k)).length });
+    }
+
     // 이용 통계 (익명): 접속 시간 + 곡 시작/끝. 이름·아이디·IP 는 저장하지 않음
     if (p === '/api/track' && m === 'POST') {
       if (!limitTrack(ip)) return json(429, { error: 'rate_limited' });
@@ -515,6 +556,48 @@ export function createHandler(cfg, { store }) {
         const b = await readJson(request);
         if (typeof b.igsid !== 'string' || !b.igsid) return json(400, { error: 'bad_igsid' });
         return json(200, { ok: await store.deletePlayer(b.igsid) });
+      }
+      // 📮 되찾기 요청 목록 + 요청마다 맞을 만한 계정 후보 (닉네임 같음 · 예전/지금 아이디 비슷)
+      if (p === '/api/admin/recover-requests' && m === 'GET') {
+        const reqs = await store.listRecoverRequests(300);
+        const players = await store.listPlayers();
+        const byId = new Map(players.map((x) => [x.igsid, x]));
+        const norm = (s) => String(s || '').trim().toLowerCase();
+        const out = reqs.map((r) => {
+          if (r.status === 'done') {
+            const t = byId.get(r.igsid);
+            return { ...r, target: t ? { igsid: t.igsid, username: t.username, ig: t.ig } : null, candidates: [] };
+          }
+          const candidates = players
+            .map((x) => {
+              const why = [];
+              if (r.nick && norm(x.username) === norm(r.nick)) why.push('닉네임 같음');
+              if (r.oldIg && igSimilar(x.ig, r.oldIg)) why.push(norm(x.ig) === norm(r.oldIg) ? '예전 아이디 같음' : '예전 아이디 비슷');
+              if (r.nowIg && igSimilar(x.ig, r.nowIg)) why.push(norm(x.ig) === norm(r.nowIg) ? '지금 아이디 같음' : '지금 아이디 비슷');
+              return { igsid: x.igsid, username: x.username, ig: x.ig, total: x.total, levels: x.levels, checked: !!x.checkedAt, why };
+            })
+            .filter((x) => x.why.length)
+            .sort((a, b) => b.why.length - a.why.length || b.levels - a.levels)
+            .slice(0, 6);
+          return { ...r, candidates };
+        });
+        return json(200, { requests: out });
+      }
+      if (p === '/api/admin/recover-requests/approve' && m === 'POST') {
+        const b = await readJson(request);
+        if (!Number.isInteger(b.id) || typeof b.igsid !== 'string') return json(400, { error: 'bad_request' });
+        if (!(await store.getPlayer(b.igsid))) return json(404, { error: 'not_found' });
+        return json(200, { ok: await store.setRecoverRequest(b.id, { status: 'done', igsid: b.igsid }) });
+      }
+      if (p === '/api/admin/recover-requests/reject' && m === 'POST') {
+        const b = await readJson(request);
+        if (!Number.isInteger(b.id)) return json(400, { error: 'bad_request' });
+        return json(200, { ok: await store.setRecoverRequest(b.id, { status: b.undo ? 'wait' : 'rejected' }) });
+      }
+      if (p === '/api/admin/recover-requests/delete' && m === 'POST') {
+        const b = await readJson(request);
+        if (!Number.isInteger(b.id)) return json(400, { error: 'bad_request' });
+        return json(200, { ok: await store.deleteRecoverRequest(b.id) });
       }
       // 기록 되찾기 코드: 아이디가 기억 안 나는 사람을 운영자가 인스타 DM 으로 확인한 뒤 발급 → 그 사람이 설정 → 기록 옮기기에 넣음
       if (p === '/api/admin/players/recover' && m === 'POST') {

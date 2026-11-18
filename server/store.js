@@ -23,7 +23,7 @@ export const sortPlayers = (rows) => rows.sort((a, b) => !!a.hiddenAt - !!b.hidd
 export class JsonStore {
   constructor(file) {
     this.file = file;
-    this.data = { players: {}, usedRuns: {}, sessions: {}, plays: {}, settings: {}, suggestions: [], rooms: {}, transfers: {} };
+    this.data = { players: {}, usedRuns: {}, sessions: {}, plays: {}, settings: {}, suggestions: [], rooms: {}, transfers: {}, recoverRequests: [] };
     this._timer = null;
   }
 
@@ -31,7 +31,7 @@ export class JsonStore {
     try {
       const raw = fs.readFileSync(this.file, 'utf8');
       const d = JSON.parse(raw);
-      this.data = { players: d.players || {}, usedRuns: d.usedRuns || {}, sessions: d.sessions || {}, plays: d.plays || {}, settings: d.settings || {}, suggestions: d.suggestions || [], rooms: d.rooms || {}, transfers: d.transfers || {} };
+      this.data = { players: d.players || {}, usedRuns: d.usedRuns || {}, sessions: d.sessions || {}, plays: d.plays || {}, settings: d.settings || {}, suggestions: d.suggestions || [], rooms: d.rooms || {}, transfers: d.transfers || {}, recoverRequests: d.recoverRequests || [] };
       // 인스타 아이디 등록 기능을 없앴으므로, 예전에 인증된 인스타 계정 기록과 인증 코드는 지움
       for (const [k, p] of Object.entries(this.data.players)) if (p.followVerifiedAt) delete this.data.players[k];
       // 무제한 기록(level <= 0): 예전 방식(깬 단계 × 100만 + 점수) → 새 방식(× 10억)
@@ -333,6 +333,40 @@ export class JsonStore {
   deleteRoom(code) {
     delete this.data.rooms[code];
     this._save();
+  }
+
+  // ----- 기록 되찾기 요청 -----
+  addRecoverRequest({ token, at, nick, oldIg, nowIg, memo }) {
+    const id = this.data.recoverRequests.reduce((m, r) => Math.max(m, r.id), 0) + 1;
+    this.data.recoverRequests.push({ id, token, at, nick: nick ?? null, oldIg: oldIg ?? null, nowIg: nowIg ?? null, memo: memo ?? null, status: 'wait', igsid: null, doneAt: null });
+    this._save();
+    return id;
+  }
+  listRecoverRequests(limit = 300) {
+    return this.data.recoverRequests
+      .slice()
+      .sort((a, b) => b.at - a.at)
+      .slice(0, limit)
+      .map(({ token, ...r }) => ({ ...r }));
+  }
+  recoverRequestByToken(token) {
+    const r = this.data.recoverRequests.find((x) => x.token === token);
+    if (!r) return null;
+    const { token: _t, ...rest } = r;
+    return { ...rest };
+  }
+  setRecoverRequest(id, { status, igsid = null }, now = Date.now()) {
+    const r = this.data.recoverRequests.find((x) => x.id === id);
+    if (!r) return false;
+    Object.assign(r, { status, igsid, doneAt: status === 'wait' ? null : now });
+    this._save();
+    return true;
+  }
+  deleteRecoverRequest(id) {
+    const n = this.data.recoverRequests.length;
+    this.data.recoverRequests = this.data.recoverRequests.filter((x) => x.id !== id);
+    this._save();
+    return this.data.recoverRequests.length !== n;
   }
 
   // ----- 기기 옮기기 -----

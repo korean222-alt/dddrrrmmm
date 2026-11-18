@@ -214,6 +214,7 @@ function openVerify(id, { pass = '', label = '', then = null, restore = false } 
   $('#verify-ig').value = (me.player && me.player.ig) || load('lastIg', '');
   if (pass) $('#verify-pass').value = pass;
   $('#verify-err').hidden = true;
+  $('#verify-req').hidden = true;
   $('#a2hs-inapp').hidden = !isInApp();
   openModal('modal-verify');
 }
@@ -224,6 +225,7 @@ async function submitVerify() {
     $('#verify-err').hidden = false;
   };
   $('#verify-err').hidden = true;
+  $('#verify-req').hidden = true;
   const body = { password: $('#verify-pass').value.trim() };
   if (state.verifyRestore) body.restore = true;
   if (!$('#verify-name-row').hidden && !(state.verifyRestore && !$('#verify-name').value.trim())) {
@@ -266,12 +268,13 @@ async function submitVerify() {
     if (then) setTimeout(then, 400);
   } catch (e) {
     const c = e.data && e.data.error;
+    if (state.verifyRestore && (c === 'no_old' || c === 'bad_name')) $('#verify-req').hidden = false;
     err(
       c === 'wrong_password' ? '암호가 달라요. DM 속 암호를 다시 확인해 주세요. (암호는 매주 바뀌어요)'
         : c === 'rate_limited' || e.status === 429 ? '너무 여러 번 틀렸어요. 10분 뒤에 다시 해 주세요.'
         : c === 'bad_ig' ? '인스타 아이디를 정확히 써 주세요.'
         : c === 'no_old' || (c === 'bad_name' && state.verifyRestore)
-          ? '예전 기록을 못 찾았어요. 예전 랭킹 닉네임도 같이 적어 보세요. 그래도 안 되면 인스타 DM 으로 알려 주세요 — 확인하고 되찾기 코드를 보내 드려요.'
+          ? '예전 기록을 못 찾았어요. 예전 랭킹 닉네임도 같이 적어 보세요. 그래도 안 되면 아래 「되찾기 요청」을 보내 주세요 — 운영자가 찾아 드려요.'
         : c === 'bad_name' ? '닉네임을 2~12자로 써 주세요.'
         : c === 'password_off' ? '지금은 암호 인증을 쉬고 있어요. 아래 "아이디만 적고 신청하기"를 써 주세요.'
         : '인증하지 못했어요. 다시 시도해 주세요.'
@@ -1472,9 +1475,81 @@ function refreshMoveBtn() {
   $('#btn-move').hidden = !!load('moveNoticeOk', false) || Date.now() > MOVE_NOTICE_UNTIL;
 }
 function openMove() {
-  const dm = $('#move-dm');
-  dm.href = handle() ? `https://ig.me/m/${handle()}` : 'https://www.instagram.com/';
   openModal('modal-move');
+}
+
+// ---------------- 📮 기록 되찾기 요청 (운영자가 admin 에서 계정을 골라 승인 → 이 폰이 다음에 들어올 때 자동으로) ----------------
+//   보낸 요청 표시(token)는 이 폰에만 저장. 확인은 사이트에 들어올 때 · 앱으로 돌아올 때(2분에 한 번)만 1번 (주기적 호출 없음)
+function openReq() {
+  const pending = !!load('recoverReq', null);
+  $('#req-form').hidden = pending;
+  $('#req-wait').hidden = !pending;
+  $('#req-err').hidden = true;
+  if (!pending) {
+    if (!$('#req-now').value) $('#req-now').value = load('lastIg', '');
+    if (!$('#req-old').value) $('#req-old').value = load('lastIg', '');
+    if (!$('#req-nick').value) $('#req-nick').value = load('lastNick', '') || load('nick', '');
+  }
+  openModal('modal-req');
+}
+async function sendReq() {
+  const err = (t) => {
+    $('#req-err').textContent = t;
+    $('#req-err').hidden = false;
+  };
+  $('#req-err').hidden = true;
+  const nick = $('#req-nick').value.trim();
+  const oldIg = $('#req-old').value.trim();
+  let nowIg = $('#req-now').value.trim().toLowerCase();
+  const um = nowIg.match(/instagram\.com\/([^/?#\s]+)/);
+  if (um) nowIg = um[1];
+  nowIg = nowIg.replace(/^@+/, '');
+  if (!nick && !oldIg) return err('예전 닉네임이나 예전 아이디 중 하나는 적어 주세요.');
+  if (!/^[a-z0-9._]{1,30}$/.test(nowIg)) return err('지금 인스타 아이디를 정확히 적어 주세요. (영문·숫자·_ . 만)');
+  const password = $('#req-pass').value.trim();
+  if (!password) return err('팔로워 암호를 적어 주세요. (게시물에 「쿵」 댓글을 달면 DM 으로 와요)');
+  if (!(await reconnectServer({ force: true }))) return err('지금은 서버에 연결이 안 돼요. 잠시 후 다시 해 주세요.');
+  $('#req-send').disabled = true;
+  try {
+    const r = await state.api.recoverRequest({ nick, oldIg, nowIg, password, memo: $('#req-memo').value.trim() });
+    save('recoverReq', { token: r.token, at: Date.now() });
+    $('#req-pass').value = '';
+    $('#req-memo').value = '';
+    openReq();
+  } catch (e) {
+    const c = e.data && e.data.error;
+    err(
+      c === 'wrong_password' ? '암호가 달라요. 「쿵」 댓글 DM 속 암호를 다시 확인해 주세요.'
+        : c === 'rate_limited' || e.status === 429 ? '너무 여러 번 보냈어요. 10분 뒤에 다시 해 주세요.'
+        : c === 'bad_ig' ? '지금 인스타 아이디를 정확히 적어 주세요.'
+        : '보내지 못했어요. 다시 해 주세요.'
+    );
+  } finally {
+    $('#req-send').disabled = false;
+  }
+}
+/** 보낸 요청이 승인됐나 확인 → 승인됐으면 계정·기록을 이 폰으로 */
+async function checkReq({ manual = false } = {}) {
+  const req = load('recoverReq', null);
+  if (!req || !req.token || !state.api || state.api.mode !== 'server') return;
+  try {
+    const r = await state.api.recoverStatus(req.token);
+    if (r.status === 'done') {
+      remove('recoverReq');
+      state.me = r.me;
+      if (r.bests) save('bests', mergeBests(loadBests(), r.bests));
+      closeModal('modal-req');
+      refreshTitle();
+      renderLevels();
+      toast(`📦 운영자가 확인했어요! 「${r.me.player.username}」 계정${r.levels ? ` · ${r.levels}개 단계` : ''}를 되찾았어요`, 4500);
+    } else if (r.status === 'rejected') {
+      remove('recoverReq');
+      closeModal('modal-req');
+      toast('되찾기 요청을 확인했는데 맞는 계정을 못 찾았어요. 닉네임·아이디를 다시 적어 보내 주세요', 4500);
+    } else if (manual) toast('아직 확인 중이에요. 조금 뒤에 다시 들어와 주세요', 2400);
+  } catch (e) {
+    if (e.status === 404) remove('recoverReq');
+  }
 }
 
 function updateSettingLabels() {
@@ -2429,11 +2504,15 @@ const ACTIONS = {
     closeModal('modal-move');
     openVerify(null, { restore: true });
   },
-  'move-transfer': () => {
+  // 📮 기록 되찾기 요청
+  'req-open': () => {
     closeModal('modal-move');
-    openSettings();
-    setTimeout(() => $('#transfer-box').scrollIntoView({ behavior: 'smooth', block: 'center' }), 150);
+    closeModal('modal-verify');
+    openReq();
   },
+  'close-req': () => closeModal('modal-req'),
+  'req-send': () => sendReq(),
+  'req-check': () => checkReq({ manual: true }),
   'move-copy': async () => {
     const url = 'https://play.kongkong-drum.workers.dev';
     try {
@@ -2794,6 +2873,7 @@ async function boot() {
   refreshTitle();
   refreshNewsDot();
   refreshMoveBtn();
+  checkReq();
   // 서버가 늦게 깨서 서버 없는 모드로 시작했으면 몇 초 뒤 한 번 더 붙어 봄
   if (state.api.mode !== 'server') setTimeout(() => reconnectServer({ force: true }), 4000);
   // 옛 주소에서 넘어옴 (/?t=123456): 그쪽 기록·로그인을 자동으로 가져옴
@@ -2849,6 +2929,7 @@ async function boot() {
     // 앱으로 자주 왔다 갔다 해도 2분에 한 번만 (Vercel 요청 수 아끼기)
     if (Date.now() - meCheckedAt < 120 * 1000) return;
     meCheckedAt = Date.now();
+    if (load('recoverReq', null)) return void checkReq();
     try {
       const me = await state.api.me();
       if (!me || (me.confirmed === state.me.confirmed && me.checked === state.me.checked && !!me.hidden === !!state.me.hidden)) return;

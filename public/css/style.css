@@ -618,3 +618,7 @@ html.lite .urgent-btn { animation: none; }
 #modal-move .move-steps .btn { justify-self: start; }
 #modal-move > .sheet > .btn { width: 100%; }
 #modal-move a.btn { text-decoration: none; display: flex; align-items: center; justify-content: center; text-align: center; }
+#modal-req textarea { width: 100%; font: inherit; font-size: 16px; padding: 10px 12px; border-radius: 12px; border: 2px solid var(--ink); background: var(--cream); color: var(--ink); resize: vertical; -webkit-user-select: text; user-select: text; }
+#modal-req .req-wait-box { margin: 10px 0 14px; padding: 14px; border-radius: 14px; background: #eafbe9; border: 2px solid var(--ink); line-height: 1.55; text-align: center; }
+#modal-req .btn, #verify-req { width: 100%; }
+#verify-req { margin: 0 0 10px; }

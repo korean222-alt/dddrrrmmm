@@ -723,3 +723,52 @@ test('📦 되찾기: 아이디를 대충 적었던 사람 → 닉네임 + 비�
   assert.equal(got.json.me.confirmed, true);
   assert.equal(got.json.data.bests[1].stars, 3);
 });
+
+test('📮 되찾기 요청: 암호 필요 → admin 에 후보와 함께 → 승인하면 보낸 폰이 다음 확인 때 그 계정으로', async () => {
+  // 예전 계정: 아이디를 엉망으로 적었던 사람
+  const oldPhone = client();
+  await oldPhone('POST', '/api/verify/password', { name: '잃어버린', ig: 'xx_lost_99', password: '시험1234' });
+  const run = (await oldPhone('POST', '/api/runs', { level: 2 })).json.runToken;
+  await oldPhone('POST', '/api/scores', { runToken: run, level: 2, ...perfectRun(2) });
+
+  const p = client();
+  assert.equal((await p('POST', '/api/recover-request', { nick: '잃어버린', nowIg: 'real.me', password: '틀림' })).json.error, 'wrong_password');
+  assert.equal((await p('POST', '/api/recover-request', { nowIg: 'real.me', password: '시험1234' })).json.error, 'need_nick');
+  assert.equal((await p('POST', '/api/recover-request', { nick: '잃어버린', nowIg: '!!', password: '시험1234' })).json.error, 'bad_ig');
+  const sent = await p('POST', '/api/recover-request', { nick: '잃어버린', oldIg: 'lost99?', nowIg: '@Real.Me', password: '시험1234', memo: '2단계까지 깼어요' });
+  assert.equal(sent.status, 200);
+  const token = sent.json.token;
+  assert.ok(token.length >= 20);
+  assert.equal((await p('POST', '/api/recover-request/status', { token })).json.status, 'wait');
+  assert.equal((await p('GET', '/api/me')).json.verified, false);
+
+  // admin: 관리자만, 후보 계정이 같이 나옴
+  assert.equal((await client()('GET', '/api/admin/recover-requests')).status, 401);
+  const list = (await p('GET', '/api/admin/recover-requests', null, adm)).json.requests;
+  const req = list.find((x) => x.nowIg === 'real.me');
+  assert.equal(req.status, 'wait');
+  assert.equal(req.memo, '2단계까지 깼어요');
+  assert.equal(req.token, undefined, '관리자 목록엔 토큰 안 나옴');
+  const cand = req.candidates.find((c) => c.username === '잃어버린');
+  assert.ok(cand && cand.why.includes('닉네임 같음'));
+
+  // 승인 → 보낸 폰이 확인하면 그 계정 + 깬 단계
+  assert.equal((await p('POST', '/api/admin/recover-requests/approve', { id: req.id, igsid: cand.igsid }, adm)).json.ok, true);
+  const done = await p('POST', '/api/recover-request/status', { token });
+  assert.equal(done.json.status, 'done');
+  assert.equal(done.json.me.player.username, '잃어버린');
+  assert.equal(done.json.me.confirmed, true);
+  assert.equal(done.json.bests[2].stars, 3);
+  assert.equal((await p('GET', '/api/me')).json.player.username, '잃어버린', '쿠키도 그 계정');
+  // 토큰 모르면 못 가져감
+  assert.equal((await client()('POST', '/api/recover-request/status', { token: 'x'.repeat(30) })).status, 404);
+
+  // 못 찾음 처리
+  const p2 = client();
+  const s2 = await p2('POST', '/api/recover-request', { nick: '없는사람', nowIg: 'nobody.here', password: '시험1234' });
+  const r2 = (await p2('GET', '/api/admin/recover-requests', null, adm)).json.requests.find((x) => x.nowIg === 'nobody.here');
+  assert.equal(r2.candidates.length, 0);
+  await p2('POST', '/api/admin/recover-requests/reject', { id: r2.id }, adm);
+  assert.equal((await p2('POST', '/api/recover-request/status', { token: s2.json.token })).json.status, 'rejected');
+  assert.equal((await p2('POST', '/api/admin/recover-requests/delete', { id: r2.id }, adm)).json.ok, true);
+});

@@ -56,6 +56,8 @@ function serverApi(boot = null) {
     suggest: (kind, text) => http('POST', '/api/suggestions', { kind, text }),
     room: (body) => http('POST', '/api/rooms', body),
     transfer: (body) => http('POST', '/api/transfer', body),
+    recoverRequest: (body) => http('POST', '/api/recover-request', body),
+    recoverStatus: (token) => http('POST', '/api/recover-request/status', { token }),
   };
 }
 
