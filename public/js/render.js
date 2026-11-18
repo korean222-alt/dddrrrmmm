@@ -225,6 +225,25 @@ export class Renderer {
     return order[clamp(i, 0, order.length - 1)];
   }
 
+  /**
+   * laneAt + 옆 줄 정보. near = 바로 옆 줄들과 경계까지 거리(줄 너비 기준, 0~1, 가까운 순).
+   *   엄지가 가운데 쪽으로 쏠려 경계 근처를 누르면 game.js 가 노트 있는 옆 줄로 봐줌
+   */
+  laneHit(x, y) {
+    const L = this.L;
+    const order = this.laneOrder;
+    if (!L) return { lane: order[0], near: [] };
+    const s = y === undefined ? 1 : clamp(this._sAtY(y), L.sFar, L.sBottom);
+    const u = (L.cx + (x - L.cx) / s - L.x0) / L.laneW;
+    const i = clamp(Math.floor(u), 0, order.length - 1);
+    const f = clamp(u - i, 0, 1);
+    const near = [];
+    if (i > 0) near.push({ lane: order[i - 1], d: f });
+    if (i < order.length - 1) near.push({ lane: order[i + 1], d: 1 - f });
+    near.sort((a, b) => a.d - b.d);
+    return { lane: order[i], near };
+  }
+
   // ---------- 원근 ----------
   /** 남은 시간 dt → 크기 배율 s (판정선 1, 멀수록 작아짐) */
   _s(dt, approach) {

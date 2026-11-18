@@ -246,3 +246,59 @@ test('빠른 대결 묶음: 쉬움·보통 = 1~8단계, 어려움·극악 = 9~17
   assert.equal(pickQuickLevel('easy', true, () => 0.99), 8);
   assert.equal(pickQuickLevel('hard', true, () => 0), 9);
 });
+
+test('👍 경계 근처 터치·엄지가 넘어온 터치는 노트 있는 옆 줄로 봐줌', async () => {
+  const { Game } = await import('../public/js/game.js');
+  const { KICK, SNARE } = await import('../public/js/charts.js');
+  const noop = () => {};
+  globalThis.cancelAnimationFrame ??= noop;
+  const renderer = { onJudge: noop, onLife: noop, onCombo: noop, onTap: noop, draw: noop, reset: noop };
+  let clock = 0;
+  const audio = { ctx: { suspend: async () => {}, resume: async () => {} }, heardTime: () => clock, crash: noop, playLane: noop };
+  const make = () => {
+    const g = new Game({ audio, renderer, level: LEVELS[0], settings: {}, onDeath: noop, onEnd: noop });
+    g.startTime = 0;
+    g.state = 'playing';
+    g.player = { stop: noop };
+    return g;
+  };
+  // 킥 혼자 나오는 곳 (스네어 노트 없음)
+  let g = make();
+  const kick = g.lanes[KICK].find((n) => !g.lanes[SNARE].some((m) => Math.abs(m.time - n.time) < 0.3));
+  clock = kick.time;
+  g.input(SNARE, 0, [{ lane: KICK, d: 0.1 }]); // 가운데 경계 바로 옆 → 킥으로
+  assert.equal(kick.judged, true);
+  assert.equal(g.counts.wrong, 0);
+
+  g = make();
+  const kick2 = g.lanes[KICK].find((n) => !g.lanes[SNARE].some((m) => Math.abs(m.time - n.time) < 0.3));
+  clock = kick2.time;
+  g.input(SNARE, 0, [{ lane: KICK, d: 0.8 }]); // 경계에서 멀면 그대로 헛침
+  assert.equal(kick2.judged, false);
+  assert.equal(g.counts.wrong, 1);
+
+  // 키보드(옆 줄 정보 없음)는 예전 그대로
+  g = make();
+  const kick3 = g.lanes[KICK].find((n) => !g.lanes[SNARE].some((m) => Math.abs(m.time - n.time) < 0.3));
+  clock = kick3.time;
+  g.input(SNARE, 0);
+  assert.equal(kick3.judged, false);
+
+  // 동시치기: 두 엄지가 둘 다 스네어 쪽을 누름 → 두 번째는 넘어온 엄지로 보고 킥
+  const lv = LEVELS.find((l) => {
+    const ns = buildNotes(l);
+    return ns.some((n) => n.lane === SNARE && ns.some((m) => m.lane === KICK && Math.abs(m.time - n.time) < 0.001));
+  });
+  assert.ok(lv, '킥+스네어 동시치기 있는 단계');
+  g = new Game({ audio, renderer, level: lv, settings: {}, onDeath: noop, onEnd: noop });
+  g.startTime = 0;
+  g.state = 'playing';
+  const sn = g.lanes[SNARE].find((n) => g.lanes[KICK].some((m) => Math.abs(m.time - n.time) < 0.001));
+  const kk = g.lanes[KICK].find((m) => Math.abs(m.time - sn.time) < 0.001);
+  clock = sn.time;
+  g.input(SNARE, 0, [{ lane: KICK, d: 0.9 }]);
+  g.input(SNARE, 0, [{ lane: KICK, d: 0.9 }]);
+  assert.equal(sn.judged, true);
+  assert.equal(kk.judged, true);
+  assert.equal(g.counts.wrong, 0);
+});

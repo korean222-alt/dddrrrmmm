@@ -28,6 +28,15 @@ const WRONG_GAP = 0.12;
  *   돌면서 노트를 MISS 로 지워 버리면, 제때 누른 터치가 '안 먹힌' 것처럼 됨 → 늦게 온 터치도 판정되게 여유를 둠
  */
 const MISS_SLACK = 0.12;
+/**
+ * 경계 근처 터치 봐주기. 엄지 두 개가 가운데로 모이면(손가락이 겹치면) 왼손이 오른쪽 줄을 누르기 쉬움.
+ *   - 줄 경계에서 줄 너비의 이 비율 안쪽을 눌렀는데 그 줄엔 칠 노트가 없고 옆 줄엔 있으면 → 옆 줄로 침
+ */
+const NEAR_EDGE = 0.3;
+/**
+ *   - 같은 줄을 이 시간(초) 안에 또 눌렀으면 다른 엄지가 넘어온 것 → 경계에서 멀어도 옆 줄 노트가 더 맞으면 옆 줄로
+ */
+const CROSS_GAP = 0.09;
 
 export class Game {
   /**
@@ -61,6 +70,8 @@ export class Game {
     this.maxCombo = 0;
     this.counts = { perfect: 0, great: 0, good: 0, miss: 0, wrong: 0 };
     this.offsets = [];
+    /** 줄마다 마지막으로 누른 시각(곡 시간) — 엄지가 옆 줄로 넘어왔는지 볼 때 */
+    this._tapAt = {};
     // 자동 연주(영상 찍기)나 죽었을 때 처리할 곳이 없으면 목숨 없음
     this.livesOn = !auto && !!this.onDeath;
     this.lives = MAX_LIVES;
@@ -183,14 +194,20 @@ export class Game {
     if (this.audio.ctx && this.audio.ctx.state === 'suspended') this.audio.ctx.resume().catch(() => {});
   }
 
-  /** 엄지 입력. lane = 악기 번호(charts.js KICK/SNARE/HAT/CRASH). perfMs = event.timeStamp */
-  input(lane, perfMs) {
+  /**
+   * 엄지 입력. lane = 악기 번호(charts.js KICK/SNARE/HAT/CRASH). perfMs = event.timeStamp
+   * near = 바로 옆 줄들 [{ lane, d }] (d = 경계까지 거리, 줄 너비 기준). 터치일 때만 옴 (render.laneHit)
+   */
+  input(lane, perfMs, near) {
     const rt = performance.now() / 1000;
     if (!this.laneOrder.includes(lane)) return;
+    const playing = this.state === 'playing' && !this.auto;
+    const t = playing ? this.songTime(perfMs) : 0;
+    if (playing && near && near.length) lane = this._pickLane(lane, t, near);
     if (!this.auto) this.audio.playLane(lane);
     this.r.onTap(lane, rt);
-    if (this.state !== 'playing' || this.auto) return;
-    const t = this.songTime(perfMs);
+    if (!playing) return;
+    this._tapAt[lane] = t;
     // 연타 구간: 그 줄은 칠 때마다 연타 +1, 다른 줄은 헛침 아님 (구간엔 노트가 없음)
     const roll = this._rollAt(t);
     if (roll && roll.lane === lane) {
@@ -219,6 +236,46 @@ export class Game {
     }
     // 노트 없는 곳을 누름 → 헛침: 점수 없음 + 콤보 끊김 (카운트인/끝난 뒤는 봐줌)
     if (t > this.firstNoteTime - this.beat && t < this.lastNoteTime + JUDGE.good) this._wrong(lane, rt, t);
+  }
+
+  /** 지금(t) 이 줄에서 누르면 판정될 노트 (없으면 null) */
+  _noteFor(lane, t) {
+    const list = this.lanes[lane];
+    for (let i = this.ptr[lane]; i < list.length; i++) {
+      const n = list[i];
+      if (n.judged) continue;
+      const dt = t - n.time;
+      if (dt > JUDGE.good) continue;
+      return dt < -JUDGE.good ? null : n;
+    }
+    return null;
+  }
+
+  /** 경계 근처·엄지가 넘어온 터치를 노트 있는 옆 줄로 옮김 (NEAR_EDGE, CROSS_GAP) */
+  _pickLane(lane, t, near) {
+    // 같은 줄을 방금 다른 엄지가 쳤음 → 이 손가락은 옆 줄로 가려던 것
+    const crossed = t - (this._tapAt[lane] ?? -9) < CROSS_GAP;
+    const roll = this._rollAt(t);
+    if (roll) {
+      if (roll.lane !== lane && near.some((c) => c.lane === roll.lane && (c.d <= NEAR_EDGE || crossed))) return roll.lane;
+      return lane;
+    }
+    const own = this._noteFor(lane, t);
+    let best = null;
+    let bestGap = Infinity;
+    for (const c of near) {
+      if (c.d > NEAR_EDGE && !crossed) continue;
+      const n = this._noteFor(c.lane, t);
+      if (n && Math.abs(t - n.time) < bestGap) {
+        best = c.lane;
+        bestGap = Math.abs(t - n.time);
+      }
+    }
+    if (best === null) return lane;
+    if (!own) return best;
+    // 둘 다 노트가 있으면 내 줄 우선. 다만 엄지가 넘어온 경우 옆 줄 노트가 확실히 더 가까우면 옆 줄
+    if (crossed && bestGap + JUDGE.perfect < Math.abs(t - own.time)) return best;
+    return lane;
   }
 
   /** 노트 없는 곳을 누름(헛침): 콤보 끊김 + 목숨 하나. 두 엄지가 동시에 미끄러져도(0.12초 안) 하나만 */

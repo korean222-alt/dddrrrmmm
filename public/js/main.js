@@ -672,7 +672,13 @@ function setKit(lv) {
 /** 누른 줄의 악기 (원근으로 비스듬한 줄 모양 그대로. 악기 그림을 정확히 안 눌러도 됨) */
 function laneFromPoint(x, y) {
   const r = $('#game-canvas').getBoundingClientRect();
-  return renderer.laneAt(x - r.left, y - r.top);
+  return renderer.laneHit(x - r.left, y - r.top);
+}
+
+/** 화면 터치 → 게임 입력 (옆 줄 정보까지 넘겨서 경계 근처 터치를 봐줌) */
+function tapAt(x, y, perfMs) {
+  const { lane, near } = laneFromPoint(x, y);
+  state.game.input(lane, perfMs, near);
 }
 
 // 키보드: 레인 수에 따라 왼쪽부터 키 배정
@@ -696,7 +702,7 @@ function bindGameInput() {
     (e) => {
       e.preventDefault();
       if (!state.game || (touchEvents && e.pointerType === 'touch')) return;
-      state.game.input(laneFromPoint(e.clientX, e.clientY), e.timeStamp);
+      tapAt(e.clientX, e.clientY, e.timeStamp);
     },
     { passive: false }
   );
@@ -705,7 +711,7 @@ function bindGameInput() {
     (e) => {
       e.preventDefault();
       if (!state.game) return;
-      for (const t of e.changedTouches) state.game.input(laneFromPoint(t.clientX, t.clientY), e.timeStamp);
+      for (const t of e.changedTouches) tapAt(t.clientX, t.clientY, e.timeStamp);
     },
     { passive: false }
   );
