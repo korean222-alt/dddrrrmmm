@@ -7087,6 +7087,7 @@ function serverApi(boot = null) {
     logout: () => http('POST', '/api/logout'),
     suggest: (kind, text) => http('POST', '/api/suggestions', { kind, text }),
     room: (body) => http('POST', '/api/rooms', body),
+    transfer: (body) => http('POST', '/api/transfer', body),
   };
 }
 
@@ -7359,6 +7360,15 @@ const __m_news = (() => {
 //   잠금·인증·운영 정책(누가 무엇을 쓸 수 있나) 같은 건 안 씀
 
 const NEWS = [
+  {
+    id: '2026-11-18k',
+    date: '11월 18일',
+    title: '다른 폰으로 기록 옮기기',
+    items: [
+      '📱 폰을 바꾸거나 인스타 앱에서 사파리·크롬으로 옮길 때 <b>기록을 그대로 가져갈 수 있어요</b>',
+      '옛 폰 ⚙️ 설정 → <b>이 폰 기록 보내기</b>로 숫자 6자리를 받고, 새 폰 ⚙️ 설정에서 그 숫자를 넣으면 끝! 깬 단계·별·다이아와 랭킹 닉네임까지 같이 와요 (숫자는 10분 동안 한 번만)',
+    ],
+  },
   {
     id: '2026-11-18j',
     date: '11월 18일',
@@ -9761,8 +9771,67 @@ function openSettings() {
   $('#settings-account').innerHTML = state.me.guest
     ? `랭킹 닉네임: <b>${escapeHtml(state.me.player?.username)}</b> · <button class="link" data-action="logout">닉네임 지우기</button>`
     : `랭킹은 팔로워 인증을 받은 사람만 올라가요 · <button class="link" data-action="rank-join">팔로워 인증 받기</button>`;
+  $('#transfer-code').hidden = true;
   openModal('modal-settings');
 }
+// ---------------- 📱 다른 폰으로 옮기기 (계정 연동) ----------------
+//   옛 폰: 기록을 서버에 올리고 6자리 코드(10분, 한 번만) → 새 폰: 코드를 넣으면 기록을 합치고 랭킹 계정(인증 포함)도 이어받음
+//   버튼 누를 때만 요청 1번씩 (주기적 호출 없음)
+/** 두 기록 합치기: 단계마다 점수 높은 쪽 + 별·다이아·깬 단계는 큰 값 */
+function mergeBests(mine, theirs) {
+  const out = { ...mine };
+  for (const [k, t] of Object.entries(theirs || {})) {
+    const m = out[k];
+    if (!m) {
+      out[k] = t;
+      continue;
+    }
+    const best = (t.score || 0) > (m.score || 0) ? { ...t } : { ...m };
+    for (const f of ['stars', 'diamonds', 'roundsCleared']) {
+      const v = Math.max(m[f] || 0, t[f] || 0);
+      if (v) best[f] = v;
+    }
+    out[k] = best;
+  }
+  return out;
+}
+async function transferMake() {
+  if (!state.api || state.api.mode !== 'server') return toast('지금은 서버에 연결이 안 돼요. 잠시 후 다시 해 주세요');
+  const { offsetMs, ...settings } = state.settings;
+  const data = { bests: loadBests(), nick: load('nick', ''), lastNick: load('lastNick', ''), lastIg: load('lastIg', ''), settings };
+  try {
+    const r = await state.api.transfer({ op: 'make', data });
+    $('#transfer-code-num').textContent = `${r.code.slice(0, 3)} ${r.code.slice(3)}`;
+    $('#transfer-code').hidden = false;
+  } catch (e) {
+    toast(e.status === 429 ? '너무 자주 눌렀어요. 10분 뒤에 다시 해 주세요' : '코드를 못 만들었어요. 다시 해 주세요');
+  }
+}
+async function transferTake() {
+  const code = $('#transfer-input').value.replace(/\D/g, '');
+  if (code.length !== 6) return toast('옛 폰에서 받은 숫자 6자리를 넣어 주세요');
+  if (!state.api || state.api.mode !== 'server') return toast('지금은 서버에 연결이 안 돼요. 잠시 후 다시 해 주세요');
+  try {
+    const { data, me } = await state.api.transfer({ op: 'take', code });
+    save('bests', mergeBests(loadBests(), data.bests));
+    for (const f of ['nick', 'lastNick', 'lastIg']) if (data[f] && !load(f, '')) save(f, data[f]);
+    if (data.settings) {
+      state.settings = { ...state.settings, ...data.settings };
+      saveSettings(state.settings);
+      audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx });
+      applyLite();
+    }
+    if (me) state.me = me;
+    $('#transfer-input').value = '';
+    closeModal('modal-settings');
+    refreshTitle();
+    renderLevels();
+    toast(me && me.confirmed ? '🎉 기록과 팔로워 인증을 가져왔어요!' : me ? '🎉 기록과 랭킹 닉네임을 가져왔어요!' : '🎉 기록을 가져왔어요!', 3200);
+  } catch (e) {
+    toast(e.status === 429 ? '너무 여러 번 틀렸어요. 10분 뒤에 다시 해 주세요' : e.status === 404 ? '코드가 틀렸거나 10분이 지났어요. 옛 폰에서 다시 받아 주세요' : '가져오지 못했어요. 다시 해 주세요', 3200);
+  }
+}
+
 function updateSettingLabels() {
   const s = state.settings;
   $('#set-offset-val').textContent = s.offsetMs === 0 ? '0ms' : `${s.offsetMs > 0 ? '+' : ''}${s.offsetMs}ms`;
@@ -10801,6 +10870,8 @@ const ACTIONS = {
   'close-settings': () => closeModal('modal-settings'),
   'close-share': () => closeModal('modal-share'),
   'studio-cover': () => studioCover(),
+  'transfer-make': () => transferMake(),
+  'transfer-take': () => transferTake(),
   'beat-pick': () => pickBeat(),
   'beat-reroll': () => {
     saveBeatForm({ reroll: true });

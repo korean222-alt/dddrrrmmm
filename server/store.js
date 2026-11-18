@@ -23,7 +23,7 @@ export const sortPlayers = (rows) => rows.sort((a, b) => !!a.hiddenAt - !!b.hidd
 export class JsonStore {
   constructor(file) {
     this.file = file;
-    this.data = { players: {}, usedRuns: {}, sessions: {}, plays: {}, settings: {}, suggestions: [], rooms: {} };
+    this.data = { players: {}, usedRuns: {}, sessions: {}, plays: {}, settings: {}, suggestions: [], rooms: {}, transfers: {} };
     this._timer = null;
   }
 
@@ -31,7 +31,7 @@ export class JsonStore {
     try {
       const raw = fs.readFileSync(this.file, 'utf8');
       const d = JSON.parse(raw);
-      this.data = { players: d.players || {}, usedRuns: d.usedRuns || {}, sessions: d.sessions || {}, plays: d.plays || {}, settings: d.settings || {}, suggestions: d.suggestions || [], rooms: d.rooms || {} };
+      this.data = { players: d.players || {}, usedRuns: d.usedRuns || {}, sessions: d.sessions || {}, plays: d.plays || {}, settings: d.settings || {}, suggestions: d.suggestions || [], rooms: d.rooms || {}, transfers: d.transfers || {} };
       // 인스타 아이디 등록 기능을 없앴으므로, 예전에 인증된 인스타 계정 기록과 인증 코드는 지움
       for (const [k, p] of Object.entries(this.data.players)) if (p.followVerifiedAt) delete this.data.players[k];
       // 무제한 기록(level <= 0): 예전 방식(깬 단계 × 100만 + 점수) → 새 방식(× 10억)
@@ -313,5 +313,21 @@ export class JsonStore {
   deleteRoom(code) {
     delete this.data.rooms[code];
     this._save();
+  }
+
+  // ----- 기기 옮기기 -----
+  putTransfer(code, data, now, expiresAt) {
+    for (const [k, t] of Object.entries(this.data.transfers)) if (t.expiresAt < now) delete this.data.transfers[k];
+    if (this.data.transfers[code]) return false;
+    this.data.transfers[code] = { data: structuredClone(data), expiresAt };
+    this._save();
+    return true;
+  }
+  takeTransfer(code, now = Date.now()) {
+    const t = this.data.transfers[code];
+    if (!t) return null;
+    delete this.data.transfers[code];
+    this._save();
+    return t.expiresAt > now ? t.data : null;
   }
 }

@@ -582,3 +582,39 @@ test('⚡ 빠른 대결: 같은 묶음에서 기다리는 사람과 바로 붙�
   assert.equal(c.json.waiting, true);
   await C('POST', '/api/rooms', { action: 'leave', code: c.json.code, slot: 'a', key: c.json.key });
 });
+
+test('📱 기기 옮기기: 코드 만들기 → 새 기기에서 넣으면 기록 + 랭킹 계정(인증 포함) · 한 번만 · 틀린 코드 거부', async () => {
+  const old = client();
+  const ok = await old('POST', '/api/verify/password', { name: '옮기는사람', ig: 'move.me', password: '시험1234' });
+  assert.equal(ok.json.confirmed, true);
+  const bests = { 1: { score: 900000, grade: 'S', stars: 3, fullCombo: true, at: 1 }, endless: { score: 5, diamonds: 2, roundsCleared: 7 }, 'bad key!': { score: 1 } };
+  const made = await old('POST', '/api/transfer', { op: 'make', data: { bests, nick: '옮기는사람', settings: { music: 0.3, offsetMs: 120, band: 'piano', evil: 1 } } });
+  assert.equal(made.status, 200);
+  assert.match(made.json.code, /^\d{6}$/);
+  assert.ok(made.json.expiresAt > Date.now());
+
+  const fresh = client();
+  assert.equal((await fresh('GET', '/api/me')).json.verified, false);
+  assert.equal((await fresh('POST', '/api/transfer', { op: 'take', code: '12' })).json.error, 'bad_code');
+  const wrong = String((Number(made.json.code) + 1) % 1_000_000).padStart(6, '0');
+  assert.equal((await fresh('POST', '/api/transfer', { op: 'take', code: wrong })).status, 404);
+  const got = await fresh('POST', '/api/transfer', { op: 'take', code: made.json.code.slice(0, 3) + ' ' + made.json.code.slice(3) });
+  assert.equal(got.status, 200);
+  assert.equal(got.json.data.bests[1].stars, 3);
+  assert.equal(got.json.data.bests.endless.roundsCleared, 7);
+  assert.equal(got.json.data.bests['bad key!'], undefined);
+  assert.deepEqual(got.json.data.settings, { music: 0.3, band: 'piano' }, '싱크 보정은 안 넘김');
+  assert.equal(got.json.me.confirmed, true);
+  // 새 기기가 같은 계정이 됨 → 잠긴 단계도 열림
+  assert.equal((await fresh('GET', '/api/me')).json.player.username, '옮기는사람');
+  assert.equal((await fresh('POST', '/api/runs', { level: 9 })).status, 200);
+  // 한 번만
+  assert.equal((await client()('POST', '/api/transfer', { op: 'take', code: made.json.code })).status, 404);
+  // 랭킹 참여 안 한 사람도 기록은 옮길 수 있음 (계정은 없음)
+  const anon = client();
+  const m2 = await anon('POST', '/api/transfer', { op: 'make', data: { bests: { 2: { score: 1, stars: 1 } } } });
+  const g2 = await client()('POST', '/api/transfer', { op: 'take', code: m2.json.code });
+  assert.equal(g2.json.me, null);
+  assert.equal(g2.json.data.bests[2].stars, 1);
+  assert.equal((await anon('POST', '/api/transfer', { op: 'make', data: 'x' })).json.error, 'bad_data');
+});

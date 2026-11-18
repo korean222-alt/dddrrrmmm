@@ -3,6 +3,7 @@
 // 저장소(store)는 메서드가 값이나 Promise 를 돌려줘도 되게 전부 await 로 부름
 //   - Node: JsonStore (파일 하나) / Vercel: PgStore (Neon Postgres)
 
+import crypto from 'node:crypto';
 import { sign, unsign, parseCookies, cookie, newId } from './session.js';
 import { buildStats } from './stats.js';
 import { createRoomHandler } from './rooms.js';
@@ -27,6 +28,36 @@ export const endlessKey = (rounds, score) => rounds * ENDLESS_MULT + Math.min(sc
 export const endlessParts = (v) => ({ rounds: Math.floor(v / ENDLESS_MULT), score: v % ENDLESS_MULT });
 
 const PLAYER_COOKIE = 'kk_player';
+const TRANSFER_TTL_MS = 10 * 60 * 1000;
+/**
+ * 기기 옮기기로 넘길 것만 골라 정리: 단계별 기록(bests) + 닉네임들 + 설정 일부.
+ *   싱크 보정(offsetMs)은 폰마다 달라서 안 넘김. 이상하거나 너무 크면 null
+ */
+export function cleanTransferData(d) {
+  if (!d || typeof d !== 'object') return null;
+  const out = {};
+  if (d.bests && typeof d.bests === 'object' && !Array.isArray(d.bests)) {
+    const bests = {};
+    for (const [k, v] of Object.entries(d.bests).slice(0, 200)) {
+      if (!/^[A-Za-z0-9_-]{1,12}$/.test(k) || !v || typeof v !== 'object') continue;
+      const e = {};
+      for (const f of ['score', 'stars', 'accuracy', 'maxCombo', 'diamonds', 'roundsCleared', 'at']) if (Number.isFinite(v[f])) e[f] = v[f];
+      if (typeof v.grade === 'string') e.grade = v.grade.slice(0, 3);
+      if (typeof v.fullCombo === 'boolean') e.fullCombo = v.fullCombo;
+      bests[k] = e;
+    }
+    out.bests = bests;
+  }
+  for (const f of ['nick', 'lastNick', 'lastIg']) if (typeof d[f] === 'string') out[f] = d[f].slice(0, 40);
+  if (d.settings && typeof d.settings === 'object') {
+    const s = {};
+    for (const f of ['music', 'sfx']) if (Number.isFinite(d.settings[f])) s[f] = Math.min(1, Math.max(0, d.settings[f]));
+    for (const f of ['vibrate', 'lite']) if (typeof d.settings[f] === 'boolean') s[f] = d.settings[f];
+    if (d.settings.band === 'orch' || d.settings.band === 'piano') s.band = d.settings.band;
+    out.settings = s;
+  }
+  return JSON.stringify(out).length <= 32 * 1024 ? out : null;
+}
 const VID_COOKIE = 'kk_vid'; // 익명 방문자 번호 (이용 통계용, 1년)
 const VID_MAX_AGE = 365 * 24 * 3600;
 const PLAYER_MAX_AGE = 180 * 24 * 3600;
@@ -71,6 +102,9 @@ export function createHandler(cfg, { store }) {
   // 대결 방: 2초마다 주고받으니 넉넉히 (방 만들기는 따로 적게)
   const limitRoom = rateLimiter(900, 10 * 60 * 1000);
   const limitRoomCreate = rateLimiter(15, 10 * 60 * 1000);
+  // 기기 옮기기: 코드 만들기는 넉넉히, 코드 넣기(맞히기)는 적게
+  const limitTransferMake = rateLimiter(10, 10 * 60 * 1000);
+  const limitTransferTake = rateLimiter(10, 10 * 60 * 1000);
   // 팔로워 암호: 틀린 시도만 셈. IP 당 10분에 10번 틀리면 잠깐 막음
   const passFails = new Map();
   const passBlocked = (ip) => {
@@ -258,6 +292,40 @@ export function createHandler(cfg, { store }) {
       await store.setChecked(igsid, true);
       const rec = await store.getPlayer(igsid);
       return json(200, meOf({ username: rec.username, ig: rec.ig, checkedAt: rec.checkedAt, hiddenAt: rec.hiddenAt }));
+    }
+
+    // 📱 기기 옮기기 (계정 연동): 옛 폰이 기록을 올리고 6자리 코드를 받음 → 새 폰이 코드를 넣으면 기록 + 랭킹 계정(인증 포함)을 가져감
+    //   코드는 10분, 한 번만. 서버엔 그 10분 동안만 남음 (가져가면 바로 지움)
+    if (p === '/api/transfer' && m === 'POST') {
+      const b = await readJson(request);
+      const now = Date.now();
+      if (b.op === 'make') {
+        if (!limitTransferMake(ip)) return json(429, { error: 'rate_limited' });
+        const data = cleanTransferData(b.data);
+        if (!data) return json(400, { error: 'bad_data' });
+        const pl = await getPlayer(request);
+        const expiresAt = now + TRANSFER_TTL_MS;
+        for (let i = 0; i < 8; i++) {
+          const code = String(crypto.randomInt(0, 1_000_000)).padStart(6, '0');
+          if (await store.putTransfer(code, { data, igsid: pl ? pl.igsid : null }, now, expiresAt)) return json(200, { code, expiresAt });
+        }
+        return json(503, { error: 'busy' });
+      }
+      if (b.op === 'take') {
+        if (!limitTransferTake(ip)) return json(429, { error: 'rate_limited' });
+        const code = String(b.code ?? '').replace(/\D/g, '');
+        if (code.length !== 6) return json(400, { error: 'bad_code' });
+        const t = await store.takeTransfer(code, now);
+        if (!t) return json(404, { error: 'bad_code' });
+        let me = null;
+        const rec = t.igsid ? await store.getPlayer(t.igsid) : null;
+        if (rec && rec.username) {
+          setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid: rec.igsid, v: now }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
+          me = meOf({ username: rec.username, ig: rec.ig || null, checkedAt: rec.checkedAt || null, hiddenAt: rec.hiddenAt || null });
+        }
+        return json(200, { data: t.data, me });
+      }
+      return json(400, { error: 'bad_op' });
     }
 
     // 이용 통계 (익명): 접속 시간 + 곡 시작/끝. 이름·아이디·IP 는 저장하지 않음

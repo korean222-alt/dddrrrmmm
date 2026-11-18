@@ -40,6 +40,8 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS suggestions_at ON suggestions (at)`,
   // 친구 대결 방: 방 하나 = 행 하나 (JSON). 2시간 동안 아무도 안 쓰면 지움
   `CREATE TABLE IF NOT EXISTS rooms (code TEXT PRIMARY KEY, data JSONB NOT NULL, updated_at BIGINT NOT NULL, expires_at BIGINT NOT NULL)`,
+  // 기기 옮기기: 6자리 코드 하나 = 행 하나 (10분, 한 번 쓰면 지움)
+  `CREATE TABLE IF NOT EXISTS transfers (code TEXT PRIMARY KEY, data JSONB NOT NULL, expires_at BIGINT NOT NULL)`,
 ];
 
 // 이용 통계는 1년 보관
@@ -461,6 +463,24 @@ END $$`);
   }
   async deleteRoom(code) {
     await this.q('DELETE FROM rooms WHERE code = $1', [code]);
+  }
+
+  // ----- 기기 옮기기 -----
+  /** 새 코드 (같은 코드가 살아 있으면 false). 지난 코드는 이때 같이 지움 */
+  async putTransfer(code, data, now, expiresAt) {
+    await this.q('DELETE FROM transfers WHERE expires_at < $1', [now]);
+    const r = await this.q(`INSERT INTO transfers (code, data, expires_at) VALUES ($1, $2::jsonb, $3) ON CONFLICT (code) DO NOTHING RETURNING code`, [
+      code,
+      JSON.stringify(data),
+      expiresAt,
+    ]);
+    return r.length === 1;
+  }
+  /** 코드로 꺼내고 바로 지움 (한 번만 쓸 수 있음). 없거나 지났으면 null */
+  async takeTransfer(code, now = Date.now()) {
+    const r = await this.one('DELETE FROM transfers WHERE code = $1 RETURNING data, expires_at', [code]);
+    if (!r || Number(r.expires_at) <= now) return null;
+    return typeof r.data === 'string' ? JSON.parse(r.data) : r.data;
   }
 
   flush() {}

@@ -55,6 +55,7 @@ function serverApi(boot = null) {
     logout: () => http('POST', '/api/logout'),
     suggest: (kind, text) => http('POST', '/api/suggestions', { kind, text }),
     room: (body) => http('POST', '/api/rooms', body),
+    transfer: (body) => http('POST', '/api/transfer', body),
   };
 }
 

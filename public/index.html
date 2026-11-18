@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=f9553792fd" />
+  <link rel="stylesheet" href="css/style.css?v=fffe5edec1" />
 </head>
 <body>
   <div id="app">
@@ -340,6 +340,16 @@
       <label class="field check"><input type="checkbox" id="set-lite" /><span>저사양 모드 <small class="muted">렉이 걸리면 켜 보세요 · 화질·반짝이 효과를 줄여요</small></span></label>
       <label class="field check"><input type="checkbox" id="set-vibrate" /><span>진동 (안드로이드)</span></label>
       <div class="account" id="settings-account"></div>
+      <div class="transfer" id="transfer-box">
+        <h4><span data-icon="phone" data-e></span> 다른 폰으로 옮기기</h4>
+        <p class="muted small">폰을 바꾸거나 인스타 앱에서 사파리·크롬으로 옮길 때. 깬 단계·별·다이아에 랭킹 닉네임·팔로워 인증까지 같이 옮겨져요.</p>
+        <div class="transfer-code" id="transfer-code" hidden><b id="transfer-code-num"></b><small>새 폰에서 10분 안에 이 숫자를 넣어 주세요 (한 번만 쓸 수 있어요)</small></div>
+        <button class="btn btn-ghost btn-sm" data-action="transfer-make">이 폰 기록 보내기 (코드 받기)</button>
+        <div class="transfer-take">
+          <input type="text" id="transfer-input" inputmode="numeric" maxlength="7" placeholder="받은 숫자 6자리" autocomplete="off" />
+          <button class="btn btn-primary btn-sm" data-action="transfer-take">가져오기</button>
+        </div>
+      </div>
       <p class="muted small credit">피아노 소리: Salamander Grand Piano V3 · Alexander Holm (CC BY 3.0)<br>오케스트라 소리: VS Chamber Orchestra Community Edition · Versilian Studios (CC0)<br><a href="privacy.html" target="_blank" rel="noopener">개인정보 처리방침</a></p>
     </div>
   </div>
@@ -508,6 +518,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=50173e3544" defer></script>
+  <script src="js/app.js?v=0336d52572" defer></script>
 </body>
 </html>
