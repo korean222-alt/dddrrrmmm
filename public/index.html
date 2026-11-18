@@ -113,8 +113,17 @@
           <p class="hint" id="studio-file-hint"></p>
         </div>
         <button class="btn btn-primary btn-big" data-action="studio-start"><span data-icon="video"></span> 녹화 시작</button>
-        <button class="btn btn-ghost" data-action="studio-cover">🖼 릴스 썸네일 만들기</button>
         <p class="hint">폰 화면 녹화로 찍을 땐: 녹화를 먼저 켜고 → "녹화 시작" → 3초 뒤 시작해요.</p>
+        <!-- 운영자 전용: /?thumb=okay 로 들어오면 이 기기에서만 보임 (?thumb=off 로 숨김) -->
+        <div class="studio-block" id="cover-block" hidden>
+          <h4>🖼 릴스 썸네일 <small class="muted">(이 기기에서만 보여요)</small></h4>
+          <p class="hint">위에서 고른 단계의 게임 화면 위에 아래 문구를 얹어서 1080×1920 표지를 만들어요.</p>
+          <label class="field"><span>큰 문구 1줄 <small class="muted">흰색</small></span><input type="text" id="cover-l1" maxlength="14" placeholder="예) 드럼 4개를" /></label>
+          <label class="field"><span>큰 문구 2줄 <small class="muted">노란색 · 비우면 1줄만</small></span><input type="text" id="cover-l2" maxlength="14" placeholder="예) 엄지로?!" /></label>
+          <label class="field"><span>곡 이름 배지 <small class="muted">비우면 없음</small></span><input type="text" id="cover-sub" maxlength="24" /></label>
+          <label class="field"><span>아래 문구 <small class="muted">비우면 없음</small></span><input type="text" id="cover-bottom" maxlength="26" /></label>
+          <button class="btn btn-hot" data-action="studio-cover">🖼 썸네일 만들기</button>
+        </div>
       </div>
     </section>
 
@@ -456,6 +465,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=445076079c" defer></script>
+  <script src="js/app.js?v=f8e0da81b1" defer></script>
 </body>
 </html>

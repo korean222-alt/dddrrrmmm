@@ -7089,7 +7089,8 @@ return { CONFIG };
 // ---- news.js ----
 const __m_news = (() => {
 // 업데이트 소식 (시작 화면 📢 버튼). 맨 위가 최신. 새 글이 올라오면 버튼에 빨간 점.
-//   새 기능을 배포할 때 여기 맨 위에 한 덩어리 추가 (id 는 겹치지 않게 날짜-번호)
+//   게임이 바뀌거나 기능이 추가될 때만 맨 위에 한 덩어리 추가 (id 는 겹치지 않게 날짜-번호).
+//   잠금·인증·운영 정책(누가 무엇을 쓸 수 있나) 같은 건 안 씀
 
 const NEWS = [
   {
@@ -7098,14 +7099,6 @@ const NEWS = [
     title: '같은 난이도 한 번에 열기',
     items: [
       '🔓 같은 난이도 단계를 <b>하나만 깨도 그 난이도는 전부</b> 열려요! (예: 지옥 하나 깨면 13~16단계 전부)',
-    ],
-  },
-  {
-    id: '2026-11-18e',
-    date: '11월 18일',
-    title: '멀티 · 건의하기는 팔로워 전용',
-    items: [
-      '⚔️ <b>멀티</b>(빠른 대결·친구 방)와 💬 <b>건의하기</b>는 팔로워 인증을 받으면 쓸 수 있어요. 버튼을 누르면 인증 방법이 나와요',
     ],
   },
   {
@@ -7156,10 +7149,9 @@ const NEWS = [
   {
     id: '2026-11-17a',
     date: '11월 17일',
-    title: '운명 교향곡 · 팔로워 인증',
+    title: '운명 교향곡 · 저사양 모드',
     items: [
       '8단계 <b>운명 교향곡</b>(베토벤) 추가',
-      '1~3단계는 누구나, 4단계부터·무제한·랭킹은 팔로워 인증으로 열려요',
       '설정에 <b>저사양 모드</b> 추가 (폰이 버벅이면 켜 보세요)',
     ],
   },
@@ -9415,6 +9407,12 @@ function pickStudioLevel(id) {
   const after = studioDefaults(id);
   if (!top.value.trim() || all.some((d) => d.top === top.value.trim())) top.value = after.top;
   if (!bottom.value.trim() || all.some((d) => d.bottom === bottom.value.trim())) bottom.value = after.bottom;
+  // 썸네일 곡 배지: 자동으로 들어간 값이었으면 새 곡으로 (직접 고쳤으면 그대로)
+  if (coverOn()) {
+    const sub = $('#cover-sub');
+    const prevAuto = coverSubOf(playable(st.level));
+    if (!sub.value.trim() || sub.value.trim() === prevAuto) sub.value = coverSubOf(playable(id));
+  }
   st.level = id;
 }
 
@@ -9450,19 +9448,42 @@ function openStudio() {
     ? '켜면 이 화면이 그대로 소리까지 영상 파일로 저장돼요. 끄면 폰 화면 녹화로 찍으면 돼요.'
     : '이 브라우저는 바로 저장이 안 돼요. 폰 화면 녹화(제어센터)로 찍어주세요.';
   closeModal('modal-studio-done');
+  fillCoverForm();
   show('screen-studio');
 }
 
-/** 🖼 릴스 썸네일: 고른 곡·위(훅)·아래 문구 그대로 1080×1920 표지 */
+// ---------------- 🖼 릴스 썸네일 (운영자 전용, /?thumb=okay) ----------------
+const coverOn = () => load('thumbTool', false) === true;
+const coverSubOf = (lv) => (!lv ? '' : lv.challenge ? `${lv.composer} ${lv.songName} · 레벨업 챌린지` : `${lv.composer} ${lv.name}`);
+/** 썸네일 칸 채우기: 직접 쓴 문구는 기억, 곡 배지는 곡을 바꾸면 따라 바뀜(직접 고쳤으면 그대로) */
+function fillCoverForm() {
+  $('#cover-block').hidden = !coverOn();
+  if (!coverOn()) return;
+  const saved = load('coverText', null) || { l1: '엄지 두 개로', l2: '따라 쳐봐!', bottom: '프로필 링크에서 바로 해보기' };
+  const lv = playable(state.studio.level);
+  $('#cover-l1').value = saved.l1 ?? '';
+  $('#cover-l2').value = saved.l2 ?? '';
+  $('#cover-bottom').value = saved.bottom ?? '';
+  $('#cover-sub').value = saved.subFixed ? saved.sub || '' : coverSubOf(lv);
+}
+function saveCoverForm() {
+  const lv = playable(state.studio.level);
+  const sub = $('#cover-sub').value.trim();
+  save('coverText', { l1: $('#cover-l1').value.trim(), l2: $('#cover-l2').value.trim(), bottom: $('#cover-bottom').value.trim(), sub, subFixed: sub !== coverSubOf(lv) });
+}
+/** 🖼 릴스 썸네일: 고른 곡의 게임 화면 + 직접 쓴 문구로 1080×1920 표지 */
 async function studioCover() {
   const st = state.studio;
   const lv = playable(st.level);
   if (!lv) return;
-  const top = $('#studio-top').value.trim() || '엄지 두 개로 따라 쳐봐!';
-  const bottom = $('#studio-bottom').value.trim();
+  saveCoverForm();
+  const l1 = $('#cover-l1').value.trim();
+  const l2 = $('#cover-l2').value.trim();
+  const top = l1 && l2 ? `${l1}\n${l2}` : l1 || l2 || '엄지로 드럼 쳐봐!';
+  const sub = $('#cover-sub').value.trim();
+  const bottom = $('#cover-bottom').value.trim();
   toast('썸네일 만드는 중…', 1500);
   try {
-    const sub = lv.challenge ? `${lv.composer} ${lv.songName} · 레벨업 챌린지` : `${lv.composer} ${lv.name}`;
     await fontsReady(top + sub + bottom);
     const canvas = await makeReelCover({ lv, title: top, sub, bottom });
     const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
@@ -10090,11 +10111,7 @@ const ACTIONS = {
   'close-rank': () => closeModal('modal-rank'),
   'close-settings': () => closeModal('modal-settings'),
   'close-share': () => closeModal('modal-share'),
-  'studio-cover': () => {
-    state.studio.top = $('#studio-top').value.trim();
-    state.studio.bottom = $('#studio-bottom').value.trim();
-    studioCover();
-  },
+  'studio-cover': () => studioCover(),
   'close-calibrate': () => !calib.required && closeModal('modal-calibrate'),
   calibrate: () => openCalibration(),
   'calib-done': () => {
@@ -10319,6 +10336,20 @@ async function boot() {
   $('#room-level').addEventListener('change', (e) => {
     if (state.roomClient.isHost) state.roomClient.send({ level: Number(e.target.value) }, true);
   });
+  // 🖼 릴스 썸네일 만들기 (운영자 전용): /?thumb=okay 로 들어오면 이 기기에서 켜지고 영상 찍기 화면으로, ?thumb=off 면 끔
+  const thumb = params.get('thumb');
+  if (thumb === 'okay' || thumb === 'off') {
+    save('thumbTool', thumb === 'okay');
+    try {
+      const u = new URL(location.href);
+      u.searchParams.delete('thumb');
+      history.replaceState(null, '', u.pathname + u.search + u.hash);
+    } catch {}
+    if (thumb === 'okay') setTimeout(() => {
+      openStudio();
+      toast('🖼 릴스 썸네일 칸이 켜졌어요 (영상 찍기 화면 맨 아래)', 3000);
+    }, 300);
+  }
   // 친구가 보낸 방 링크 (/?room=1234)
   if (/^\d{4}$/.test(params.get('room') || '')) {
     const code = params.get('room');
