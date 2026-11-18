@@ -1,0 +1,30 @@
+# 기본 브랜치에 푸시하면 Cloudflare(드럼 전용 계정)에 자동 배포 → https://play.kongkong-drum.workers.dev
+#   필요한 것: GitHub 저장소 Settings → Secrets and variables → Actions 에 CLOUDFLARE_API_TOKEN
+#   (Cloudflare 'Edit Cloudflare Workers' 템플릿 토큰). 서버 비밀값은 Cloudflare 대시보드에 따로 넣음
+name: Cloudflare 배포
+
+on:
+  push:
+    branches: [claude/eloquent-hamilton-5w1xwr]
+  workflow_dispatch:
+
+concurrency:
+  group: cloudflare-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --omit=dev
+      - name: wrangler deploy
+        run: npx -y wrangler@4.164.0 deploy
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: 9a61013ac8fa9c59d599e97b4b0362ec
+          WRANGLER_SEND_METRICS: 'false'

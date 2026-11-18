@@ -1,0 +1,18 @@
+// Cloudflare Worker 설정 (드럼 전용 계정). 배포: CLOUDFLARE_ACCOUNT_ID=... npx wrangler@4 deploy
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "play",
+  "main": "worker/index.js",
+  "compatibility_date": "2025-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "preview_urls": false,
+  "assets": {
+    "directory": "public",
+    "binding": "ASSETS",
+    // /api/* 만 Worker 코드로, 나머지(게임 화면 파일)는 정적 파일로 바로 → 요청 수에 안 셈
+    "run_worker_first": ["/api/*"],
+    "not_found_handling": "none"
+  },
+  "observability": { "enabled": true }
+}
