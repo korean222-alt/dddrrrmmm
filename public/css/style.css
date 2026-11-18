@@ -598,3 +598,23 @@ body.room-game #modal-pause [data-action='retry'], body.room-game #modal-continu
 .transfer-take input { flex: 1; min-width: 0; font-size: 20px; letter-spacing: 3px; text-align: center; padding: 8px 10px; border-radius: 12px; border: 2px solid var(--ink); background: var(--cream); color: var(--ink); font-family: inherit; -webkit-user-select: text; user-select: text; }
 .transfer-take .btn { width: auto; flex: none; }
 .transfer .transfer-restore { display: block; margin: 12px auto 0; font-size: 14px; text-decoration: underline; }
+
+/* 🚨 긴급 공지 (새 주소 이사) */
+.urgent-btn { position: relative; z-index: 3; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; width: 100%; max-width: 420px; margin: 10px auto 0; padding: 7px 12px; border-radius: 16px; border: 3px solid var(--ink); background: #ffe14d; color: var(--ink); box-shadow: 0 4px 0 var(--ink); text-align: left; animation: urgent-pulse 1.6s ease-in-out infinite; }
+.urgent-btn b { font-weight: 400; font-size: 14px; padding: 2px 8px; border-radius: 99px; background: #ff3b5c; color: #fff; white-space: nowrap; }
+.urgent-btn span { font-size: 15px; line-height: 1.3; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.urgent-btn i { font-style: normal; font-size: 22px; line-height: 1; }
+.urgent-btn:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
+@keyframes urgent-pulse { 50% { background: #fff27a; } }
+html.lite .urgent-btn { animation: none; }
+#modal-move .move-url { margin: 12px 0; padding: 12px; border: 2px solid var(--ink); border-radius: 14px; background: var(--cream); text-align: center; }
+#modal-move .move-url > b { display: block; font-size: 19px; word-break: break-all; -webkit-user-select: all; user-select: all; }
+#modal-move .move-row { display: flex; gap: 8px; justify-content: center; flex-wrap: wrap; margin-top: 10px; }
+#modal-move .move-row .btn { flex: 1; min-width: 120px; }
+#modal-move .move-steps { list-style: none; padding: 0; margin: 0 0 14px; display: grid; gap: 10px; counter-reset: mv; }
+#modal-move .move-steps li { counter-increment: mv; display: grid; gap: 6px; padding: 12px 12px 12px 44px; position: relative; border-radius: 14px; background: #fff5e8; font-size: 15px; line-height: 1.45; }
+#modal-move .move-steps li::before { content: counter(mv); position: absolute; left: 12px; top: 11px; width: 24px; height: 24px; border-radius: 50%; background: #ff8a4c; color: #fff; display: grid; place-items: center; font-size: 14px; }
+#modal-move .move-steps li > b { font-size: 16px; }
+#modal-move .move-steps .btn { justify-self: start; }
+#modal-move > .sheet > .btn { width: 100%; }
+#modal-move a.btn { text-decoration: none; display: flex; align-items: center; justify-content: center; text-align: center; }

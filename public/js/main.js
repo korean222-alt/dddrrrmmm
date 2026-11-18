@@ -1465,6 +1465,18 @@ async function transferTake() {
   }
 }
 
+// ---------------- 🚨 긴급 공지: 새 주소 이사 (2026-11-18) ----------------
+//   첫 화면 맨 위 노란 버튼. '확인했어요' 누르면 이 기기에선 숨김. 12월이 끝나면 저절로 안 보임
+const MOVE_NOTICE_UNTIL = Date.parse('2027-01-01T00:00:00+09:00');
+function refreshMoveBtn() {
+  $('#btn-move').hidden = !!load('moveNoticeOk', false) || Date.now() > MOVE_NOTICE_UNTIL;
+}
+function openMove() {
+  const dm = $('#move-dm');
+  dm.href = handle() ? `https://ig.me/m/${handle()}` : 'https://www.instagram.com/';
+  openModal('modal-move');
+}
+
 function updateSettingLabels() {
   const s = state.settings;
   $('#set-offset-val').textContent = s.offsetMs === 0 ? '0ms' : `${s.offsetMs > 0 ? '+' : ''}${s.offsetMs}ms`;
@@ -2405,6 +2417,36 @@ const ACTIONS = {
   'close-a2hs': () => closeModal('modal-a2hs'),
   'a2hs-install': a2hsInstall,
   'close-news': () => closeModal('modal-news'),
+  // 🚨 긴급 공지 (새 주소 이사)
+  'move-open': openMove,
+  'close-move': () => closeModal('modal-move'),
+  'move-ok': () => {
+    save('moveNoticeOk', true);
+    closeModal('modal-move');
+    refreshMoveBtn();
+  },
+  'move-restore': () => {
+    closeModal('modal-move');
+    openVerify(null, { restore: true });
+  },
+  'move-transfer': () => {
+    closeModal('modal-move');
+    openSettings();
+    setTimeout(() => $('#transfer-box').scrollIntoView({ behavior: 'smooth', block: 'center' }), 150);
+  },
+  'move-copy': async () => {
+    const url = 'https://play.kongkong-drum.workers.dev';
+    try {
+      await navigator.clipboard.writeText(url);
+      toast('새 주소를 복사했어요', 1600);
+    } catch {
+      toast(url, 3000);
+    }
+  },
+  'move-a2hs': () => {
+    closeModal('modal-move');
+    document.querySelector('[data-action="a2hs-open"]').click();
+  },
   'suggest-open': openSuggest,
   'close-suggest': () => closeModal('modal-suggest'),
   'suggest-send': sendSuggest,
@@ -2751,6 +2793,7 @@ async function boot() {
   }
   refreshTitle();
   refreshNewsDot();
+  refreshMoveBtn();
   // 서버가 늦게 깨서 서버 없는 모드로 시작했으면 몇 초 뒤 한 번 더 붙어 봄
   if (state.api.mode !== 'server') setTimeout(() => reconnectServer({ force: true }), 4000);
   // 옛 주소에서 넘어옴 (/?t=123456): 그쪽 기록·로그인을 자동으로 가져옴
