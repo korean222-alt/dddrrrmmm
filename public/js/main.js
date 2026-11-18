@@ -2,7 +2,7 @@
 
 import {
   LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES,
-  ENDLESS_ID, LAST_LEVEL_ID, makeEndless, isUnlocked, nextChallenge, DIAMOND_RULES, roundInfo,
+  ENDLESS_ID, LAST_LEVEL_ID, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo,
   ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId,
   STUDIO_LEVELS, getStudioLevel,
 } from './charts.js';
@@ -265,9 +265,12 @@ function progressLockText(id) {
   if (id === ENDLESS_ID) return `${ENDLESS_FROM}단계 ${getLevel(ENDLESS_FROM).name}을 깨면 무제한 모드가 열려요 💎`;
   const eb = levelEndlessBase(id);
   if (eb) return `${eb.id}단계 ${eb.name}을 별 1개 이상으로 깨면 무제한이 열려요 💎`;
-  return `${prevOpenId(id)}단계를 별 1개 이상으로 깨면 ${id}단계가 열려요`;
+  const h = unlockHint(id, loadBests());
+  return h && h.tier
+    ? `${h.word} 단계를 아무거나 하나 별 1개 이상으로 깨면 ${h.word} 단계가 전부 열려요`
+    : `${prevOpenId(id)}단계를 별 1개 이상으로 깨면 ${id}단계가 열려요`;
 }
-const LOCK_FROM_PREV = (id) => (id === ENDLESS_ID ? `${ENDLESS_FROM}단계 깨면 열림` : `${prevOpenId(id)}단계 깨면 열림`);
+const LOCK_FROM_PREV = (id) => (id === ENDLESS_ID ? `${ENDLESS_FROM}단계 깨면 열림` : (unlockHint(id, loadBests()) || { short: `${prevOpenId(id)}단계 깨면 열림` }).short);
 const CLOSED_META = () => `<span class="lockline">${icon('lock')} 팔로워 암호</span>`;
 
 // ---------------- 타이틀 ----------------
@@ -441,7 +444,7 @@ function renderLevels() {
   list.push(grieggCardHTML(bests));
   $('#level-list').innerHTML = list.join('');
   refreshToday();
-  $('#levels-foot').innerHTML = `${isConfirmed() ? '' : `🔒 1~${FREE_UPTO}단계는 맛보기! ${FREE_UPTO + 1}단계부터와 💎 무제한은 <b>팔로워 인증</b>을 받으면 열려요. <button class="link" data-action="verify-open">팔로워 인증</button><br>`}앞 단계를 별 1개 이상으로 깨면 다음 단계가 열려요.<br>별 3개: ${STAR_RULES[0].text}`;
+  $('#levels-foot').innerHTML = `${isConfirmed() ? '' : `🔒 1~${FREE_UPTO}단계는 맛보기! ${FREE_UPTO + 1}단계부터와 💎 무제한은 <b>팔로워 인증</b>을 받으면 열려요. <button class="link" data-action="verify-open">팔로워 인증</button><br>`}앞 단계를 별 1개 이상으로 깨면 다음 단계가 열려요.<br><b>같은 난이도를 하나 깨면 그 난이도는 전부 열려요</b> (예: 지옥 하나 깨면 지옥 전부)<br>별 3개: ${STAR_RULES[0].text}`;
 }
 
 // ---------------- 게임 ----------------
@@ -833,13 +836,18 @@ function showResult(res) {
   }
   const lv = getLevel(res.levelId);
   const nextId = nextOpenId(res.levelId);
-  const wasOpen = { next: nextId == null || !progressLocked(nextId), endless: !progressLocked(ENDLESS_ID) };
+  const wasOpen = { next: nextId == null || !progressLocked(nextId), endless: !progressLocked(ENDLESS_ID), levels: LEVELS.filter((l) => !progressLocked(l.id)).map((l) => l.id) };
   // 목숨 다 써서 끝난 판은 최고 기록에 안 들어감
   const best = state.auto || res.failed ? { isNew: false } : saveBest(res);
   // 이번 판으로 새로 열린 단계 알림
   if (!state.auto && !res.failed) {
     if (res.levelId === ENDLESS_FROM && !wasOpen.endless && !progressLocked(ENDLESS_ID)) setTimeout(() => toast('💎 무제한 모드가 열렸어요! 깰수록 빨라져요', 3200), 2600);
-    else if (nextId != null && !wasOpen.next && !progressLocked(nextId)) setTimeout(() => toast(`🔓 ${nextId}단계가 열렸어요!`, 2600), 2600);
+    else {
+      // 같은 난이도를 하나 깨면 그 난이도가 전부 열림 → 여러 단계가 한 번에 열렸으면 그렇게 알림
+      const opened = LEVELS.filter((l) => !wasOpen.levels.includes(l.id) && !progressLocked(l.id)).map((l) => l.id);
+      if (opened.length > 1) setTimeout(() => toast(`🔓 ${opened[0]}~${opened[opened.length - 1]}단계가 한꺼번에 열렸어요!`, 3000), 2600);
+      else if (opened.length === 1) setTimeout(() => toast(`🔓 ${opened[0]}단계가 열렸어요!`, 2600), 2600);
+    }
   }
   $('#res-level').textContent = `${lv.id}단계 · ${lv.composer} ${lv.name}`;
   $('#screen-result').classList.toggle('failed', !!res.failed);

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import {
   LEVELS, getLevel, levelLanes, buildNotes, parseMelody, stepDur, tempoOf, TempoMap, CRASH, HAT, KICK, SNARE,
   makeEndless, shiftOldLevelKey, roundBpm, roundInfo, roundBars, diamondsFor, ROUND_BARS, COUNT_IN_BARS,
-  isUnlocked, nextChallenge, ENDLESS_ID, LAST_LEVEL_ID, STEPS_PER_BAR, TOM, isLeftThumb,
+  isUnlocked, nextChallenge, ENDLESS_ID, LAST_LEVEL_ID, STEPS_PER_BAR, TOM, isLeftThumb, tierOf, unlockHint,
   ENDLESS_FROM, makeLevelEndless, levelEndlessBase, levelEndlessId, LEVEL_ENDLESS_STEP,
   STUDIO_LEVELS, getStudioLevel,
 } from '../public/js/charts.js';
@@ -293,4 +293,29 @@ test('🎬 영상 전용 릴스 4드럼: 4악기, 10단계보다 느리고 그 �
   for (const b of lv.bars) assert.match(b, /^[KSHCBJX.]{16}$/);
   assertNoSameThumb16th(buildNotes(lv), 'r4');
   assert.equal(STUDIO_LEVELS.length >= 1, true);
+});
+
+test('같은 난이도 하나를 깨면 그 난이도 단계가 전부 열림 (지옥 하나 깨면 지옥 전부)', () => {
+  assert.deepEqual(tierOf(13), [13, 14, 15, 16]);
+  assert.deepEqual(tierOf(9), [9, 10, 11, 12]);
+  const b = {};
+  for (let i = 1; i <= 12; i++) b[i] = { stars: 1 };
+  // 12단계까지 깼으면 13(지옥 첫 곡)만 열림
+  assert.ok(isUnlocked(13, b));
+  assert.ok(!isUnlocked(14, b) && !isUnlocked(16, b));
+  assert.equal(unlockHint(14, b).tier, true, '같은 난이도에 열린 단계가 있으면 그 난이도 하나만 깨면');
+  assert.equal(unlockHint(14, b).short, '지옥 단계 하나만 깨면 열림');
+  // 13단계를 깨면 지옥(13~16) 전부
+  b[13] = { stars: 1 };
+  for (const id of [14, 15, 16]) assert.ok(isUnlocked(id, b), `${id}단계`);
+  // 별 0개는 못 깬 것
+  const c = { 1: { stars: 1 }, 2: { stars: 1 }, 3: { stars: 1 }, 4: { stars: 1 }, 5: { stars: 0 } };
+  assert.ok(isUnlocked(5, c) && !isUnlocked(6, c) && !isUnlocked(8, c));
+  c[5].stars = 2;
+  for (const id of [6, 7, 8]) assert.ok(isUnlocked(id, c), `보통 ${id}단계`);
+  assert.ok(!isUnlocked(9, c), '다음 난이도는 그대로 앞 단계(8)를 깨야');
+  // 다른 난이도는 안 열림
+  const d = { 16: { stars: 3 } };
+  assert.ok(isUnlocked(13, d) && !isUnlocked(12, d));
+  assert.equal(unlockHint(10, {}).short, '9단계 깨면 열림');
 });

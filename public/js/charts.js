@@ -1080,6 +1080,8 @@ export const ENDLESS_FROM = 13;
 /** 1~3단계는 앞 단계를 안 깨도 바로 칠 수 있음 */
 export const FREE_LEVELS = 3;
 /** bests = { [levelId]: best } 일 때 이 단계가 열려 있는지 (1~3단계는 항상)
+ *  - 바로 앞 단계를 깨면 열림
+ *  - 같은 난이도(입문·쉬움·보통·어려움·지옥) 단계를 하나라도 깨면 그 난이도는 전부 열림 (2026-11-18)
  *  단계별 무제한('e5' 등)은 그 단계를 깨면 열림 */
 export function isUnlocked(levelId, bests) {
   if (levelId === ENDLESS_ID) return isClearBest(bests[ENDLESS_FROM]);
@@ -1087,7 +1089,22 @@ export function isUnlocked(levelId, bests) {
   if (base) return isClearBest(bests[base.id]);
   if (levelId >= 1 && levelId <= FREE_LEVELS) return true;
   const prev = prevOpenId(levelId);
-  return prev === null || isClearBest(bests[prev]);
+  if (prev === null || isClearBest(bests[prev])) return true;
+  const lv = getLevel(levelId);
+  return !!lv && LEVELS.some((l) => l.difficulty === lv.difficulty && isClearBest(bests[l.id]));
+}
+/** 같은 난이도 단계들 */
+export const tierOf = (levelId) => {
+  const lv = getLevel(levelId);
+  return lv ? LEVELS.filter((l) => l.difficulty === lv.difficulty).map((l) => l.id) : [];
+};
+/** 잠긴 단계 안내: 같은 난이도에 이미 열린 단계가 있으면 '그 난이도 하나만 깨면', 아니면 '앞 단계 깨면' */
+export function unlockHint(levelId, bests) {
+  const lv = getLevel(levelId);
+  if (!lv) return null;
+  const word = DIFFICULTY_WORDS[lv.difficulty];
+  const near = tierOf(levelId).some((id) => id !== lv.id && isUnlocked(id, bests));
+  return near ? { tier: true, word, short: `${word} 단계 하나만 깨면 열림` } : { tier: false, word, prev: prevOpenId(levelId), short: `${prevOpenId(levelId)}단계 깨면 열림` };
 }
 /** 아직 안 깬 첫 단계 (잠긴 단계는 건너뜀. 다 깼으면 무제한 모드) */
 export function nextChallenge(bests) {
