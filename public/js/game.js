@@ -38,6 +38,7 @@ export class Game {
     this.onHud = onHud || (() => {});
     this.onEnd = onEnd || (() => {});
     this.onDeath = onDeath || null;
+    this.onStall = null;
     this.tempo = tempoOf(level);
     /** 화면 왼쪽부터 레인(악기) 순서 */
     this.laneOrder = levelLanes(level);
@@ -62,7 +63,8 @@ export class Game {
     this._lostAt = null;
     this.state = 'idle';
     this.beat = 60 / this.tempo.bpm(0);
-    this.approach = 1.5 / (settings.noteSpeed || 1);
+    // 콩 다가오는 속도는 1로 고정 (설정에서 없앰. 예전에 바꿔 둔 값도 무시)
+    this.approach = 1.5;
     this.firstNoteTime = this.notes.length ? this.notes[0].time : 0;
     this._setEnd();
     this.maxScore = level.endless ? 0 : maxScore(level);
@@ -327,6 +329,18 @@ export class Game {
   _loop() {
     if (this.state !== 'playing') return;
     const rt = performance.now() / 1000;
+    // 소리 시계가 멈춤(폰이 소리를 잠깐 끊음: 알림·전화·다른 앱 소리 등) → 곡도 멈춰 보임.
+    //   바로 다시 켜 보고, 그래도 안 되면 '화면을 눌러 주세요' 안내 (iOS 는 터치해야 다시 켜짐)
+    const actx = this.audio.ctx;
+    if (actx && actx.state !== 'running') {
+      if (rt - (this._resumeTry || 0) > 0.7) {
+        this._resumeTry = rt;
+        actx.resume().catch(() => {});
+        this.audio.resetClock();
+        if (this.onStall && rt - (this._stallSince ?? rt) > 1.2) this.onStall();
+      }
+      this._stallSince ??= rt;
+    } else this._stallSince = null;
     const now = this.songTime();
     this._extend(now);
     this._checkRound(now, rt);

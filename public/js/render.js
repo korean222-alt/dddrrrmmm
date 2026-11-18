@@ -59,6 +59,7 @@ export class Renderer {
     this.themeKey = 'sunset'; // 맵 분위기 (themes.js)
     this.themeCycle = false; // 그리그 무제한·챌린지: Lv 마다 맵이 바뀜
     this.scene = new SceneFx();
+    this.quality = 2; // 자동 화질 (_autoQuality)
     this.reset();
   }
 
@@ -77,6 +78,26 @@ export class Renderer {
     this.heatS = 0;
     this.themeFx = null; // 맵 바뀔 때 { t0, prev(캔버스) } → 이전 맵이 서서히 사라짐
     if (this.scene) this.scene.reset();
+  }
+
+  /**
+   * 자동 화질: 화면이 버벅이면(프레임 간격 평균이 26ms 넘게 1.5초) 효과를 한 단계씩 줄임.
+   *   2 = 전부 / 1 = 입자·테마 장식 빼고 조명만 / 0 = 움직이는 무대 효과 없음 (영상 찍기는 항상 2)
+   *   한 번 내려간 화질은 이 기기에 기억 (onQualityDrop 으로 저장)
+   */
+  _autoQuality(st, rt) {
+    const dt = rt - (this._lastDraw || rt);
+    if (!st.playing || this.studio || this.lite || !(dt > 0) || dt > 0.25) return;
+    this._ema = this._ema == null ? dt : this._ema * 0.94 + dt * 0.06;
+    if (this._ema > 0.026) {
+      this._slowFor = (this._slowFor || 0) + dt;
+      if (this._slowFor > 1.5 && this.quality > 0) {
+        this.quality--;
+        this._slowFor = 0;
+        this._ema = 1 / 60;
+        if (this.onQualityDrop) this.onQualityDrop(this.quality);
+      }
+    } else this._slowFor = Math.max(0, (this._slowFor || 0) - dt);
   }
 
   /** 이 판의 맵 정하기 (단계 묶음별). 화면 크기가 정해진 뒤 resize() 가 그림을 만듦 */
@@ -127,7 +148,8 @@ export class Renderer {
    */
   async resize(maxDpr = 2) {
     // 저사양 모드: 화면 픽셀 수를 줄임 (레티나 2~3배 → 1배). 영상 찍기(studio)는 그대로
-    const dpr = this.studio ? maxDpr : Math.min(window.devicePixelRatio || 1, this.lite ? 1 : maxDpr);
+    //   자동 화질이 0까지 내려간 기기는 1.5배로 (다음 판부터)
+    const dpr = this.studio ? maxDpr : Math.min(window.devicePixelRatio || 1, this.lite ? 1 : this.quality <= 0 ? 1.5 : maxDpr);
     const W = this.canvas.clientWidth || window.innerWidth;
     const H = this.canvas.clientHeight || window.innerHeight;
     this.canvas.width = Math.round(W * dpr);
@@ -412,7 +434,9 @@ export class Renderer {
     const lite = this.lite && !this.studio;
     // 저사양 모드: 120Hz 화면에서도 초당 60번까지만 그림 (판정은 그대로)
     if (lite && rt - (this._lastDraw || 0) < 1 / 65 && rt >= (this._lastDraw || 0)) return;
+    this._autoQuality(st, rt);
     this._lastDraw = rt;
+    const q = lite ? 0 : this.studio ? 2 : this.quality;
     const pe = Math.exp(-(rt - this.punchAt) * 22) * this.punchPow; // 킥 펀치
     const ce = Math.exp(-(rt - this.crackAt) * 30); // 스네어 크랙
     // 무제한·챌린지: Lv 이 오르면 맵이 바뀜 (저사양 모드는 그대로)
@@ -460,6 +484,7 @@ export class Renderer {
       surge,
       playing: !!st.playing,
       lite,
+      quality: q,
     });
     if (!lite) this._drawLaneFlash(rt);
     ctx.save();
@@ -475,7 +500,7 @@ export class Renderer {
     this._drawRolls(st, rt);
     this._drawNotes(st);
     this._drawBursts(rt);
-    if (!lite) this._drawSparks(rt);
+    if (q >= 1) this._drawSparks(rt);
     this._drawJudges(rt);
     this._drawRollCount(st, rt);
     ctx.restore();
@@ -577,12 +602,16 @@ export class Renderer {
     ctx.save();
     ctx.strokeStyle = `rgba(255,255,255,${0.35 + pulse * 0.35})`;
     ctx.lineWidth = 3;
-    ctx.shadowColor = 'rgba(255,255,255,0.6)';
-    ctx.shadowBlur = this.lite && !this.studio ? 0 : 8 * pulse;
     ctx.beginPath();
     ctx.moveTo(L.x0, L.strikeY);
     ctx.lineTo(L.x1, L.strikeY);
     ctx.stroke();
+    // 박자마다 은은한 빛 (shadowBlur 는 느린 폰에서 무거워서 두꺼운 반투명 선으로)
+    if (pulse > 0.05) {
+      ctx.strokeStyle = `rgba(255,255,255,${0.18 * pulse})`;
+      ctx.lineWidth = 9;
+      ctx.stroke();
+    }
     ctx.restore();
     const k = 1 + pulse * 0.05;
     for (const lane of this.laneOrder) {
@@ -757,14 +786,7 @@ export class Renderer {
       if (gold) {
         ctx.globalAlpha = a;
         const R = Math.max(sp.w, sp.h) * 0.62;
-        const gl = ctx.createRadialGradient(0, 0, 0, 0, 0, R);
-        gl.addColorStop(0, 'rgba(255,220,90,0.9)');
-        gl.addColorStop(0.5, 'rgba(255,190,40,0.45)');
-        gl.addColorStop(1, 'rgba(255,190,40,0)');
-        ctx.fillStyle = gl;
-        ctx.beginPath();
-        ctx.ellipse(0, 0, R, R * 0.6, 0, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.drawImage(goldGlow(), -R, -R * 0.6, R * 2, R * 1.2);
       }
       ctx.globalAlpha = a;
       ctx.drawImage(sp.img, -sp.ax, -sp.ay, sp.w, sp.h);
@@ -1369,6 +1391,22 @@ export class Renderer {
     }
     ctx.restore();
   }
+}
+
+let _goldGlow = null;
+/** 황금 콩 후광 (한 번만 그려 둠) */
+function goldGlow() {
+  if (_goldGlow) return _goldGlow;
+  const c = (_goldGlow = document.createElement('canvas'));
+  c.width = c.height = 96;
+  const g = c.getContext('2d');
+  const gl = g.createRadialGradient(48, 48, 0, 48, 48, 48);
+  gl.addColorStop(0, 'rgba(255,220,90,0.9)');
+  gl.addColorStop(0.5, 'rgba(255,190,40,0.45)');
+  gl.addColorStop(1, 'rgba(255,190,40,0)');
+  g.fillStyle = gl;
+  g.fillRect(0, 0, 96, 96);
+  return c;
 }
 
 function fitFont(ctx, text, maxW, start) {

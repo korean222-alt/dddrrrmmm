@@ -6,6 +6,7 @@ import {
   makeEndless, shiftOldLevelKey, roundBpm, roundInfo, roundBars, diamondsFor, ROUND_BARS, COUNT_IN_BARS,
   isUnlocked, nextChallenge, ENDLESS_ID, LAST_LEVEL_ID, STEPS_PER_BAR, TOM, isLeftThumb,
   ENDLESS_FROM, makeLevelEndless, levelEndlessBase, levelEndlessId, LEVEL_ENDLESS_STEP,
+  STUDIO_LEVELS, getStudioLevel,
 } from '../public/js/charts.js';
 
 /** 같은 엄지(왼쪽: 킥·크래시·탐탐 / 오른쪽: 스네어·하이햇)로 2칸보다 촘촘한 연타가 없는지 */
@@ -278,4 +279,18 @@ test('헛침(노트 없는 곳 누름)도 목숨 1개, 두 엄지 동시 헛침�
   g.input(KICK, 0);
   assert.equal(g.lives, MAX_LIVES - 2);
   assert.equal(g.combo, 0);
+});
+
+test('🎬 영상 전용 릴스 4드럼: 4악기, 10단계보다 느리고 그 정도 난이도, 단계 목록엔 없음', () => {
+  const lv = getStudioLevel('r4');
+  assert.ok(lv && lv.studioOnly);
+  assert.ok(!LEVELS.includes(lv) && getLevel('r4') === null);
+  assert.deepEqual(levelLanes(lv), [CRASH, KICK, SNARE, HAT]);
+  const ten = getLevel(10);
+  assert.ok(lv.bpm < ten.bpm);
+  const density = (l) => buildNotes(l).length / (l.bars.length * (240 / l.bpm));
+  assert.ok(density(lv) <= density(ten) * 1.05, `${density(lv).toFixed(2)} vs 10단계 ${density(ten).toFixed(2)}`);
+  for (const b of lv.bars) assert.match(b, /^[KSHCBJX.]{16}$/);
+  assertNoSameThumb16th(buildNotes(lv), 'r4');
+  assert.equal(STUDIO_LEVELS.length >= 1, true);
 });

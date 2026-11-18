@@ -731,6 +731,44 @@ const LEVELS = [
   },
 ];
 
+// ---------------------------------------------------------------
+// 🎬 영상 찍기 전용 (릴스용): 단계 목록·랭킹·진행엔 안 나옴. '영상 찍기' 화면에서만.
+//   4악기가 다 나와서 화려해 보이지만, 패턴은 10단계(캉캉)와 같은 정도 + 조금 느리게(108 → 96 BPM)
+//   → 보는 사람은 '어려워 보이는데 잘 친다', 치는 사람은 할 만함
+// ---------------------------------------------------------------
+const STUDIO_LEVELS = [
+  {
+    id: 'r4',
+    studioOnly: true,
+    name: '캉캉 4드럼',
+    composer: '오펜바흐',
+    tagline: '릴스용 · 네 악기 총출동 (느리게)',
+    theme: 'city',
+    difficulty: 4,
+    bpm: 96,
+    song: LEVELS[9].song,
+    bars: [
+      'X.......B.......',
+      'B...S...B...S...',
+      'K.H.S...K.H.S...',
+      'K.H.S...K.H.S.H.',
+      'C.H.S.H.K.H.S.H.',
+      'K.H.S.H.K.K.S...',
+      'X...S...J...S...',
+      'B.B.S...B.B.S...',
+      'C.H.S.H.K.H.S.H.',
+      'J.H.S.H.J.H.S.H.',
+      'K.HKS.H.K.HKS.H.',
+      'X...S.H.B...S.H.',
+      'C.H.S.H.J.H.S.H.',
+      'K.HKS.H.K.HKS.H.',
+      'X.H.B.H.X.H.B.H.',
+      'X.B.X.B.X.......',
+    ],
+  },
+];
+const getStudioLevel = (id) => STUDIO_LEVELS.find((l) => l.id === id) || null;
+
 /** 누구나 칠 수 있는 단계: 1~FREE_UPTO. 그 뒤 단계와 💎 무제한 모드(그리그·단계별)는 전부 팔로워 인증(암호) 필요 */
 const FREE_UPTO = 3;
 /** (예전 '인증 신청만 해도 열림' 단계 — 이제 없음) */
@@ -1268,7 +1306,7 @@ function makeLevelEndless(base) {
   return run;
 }
 
-return { STEPS_PER_BAR, KICK, SNARE, HAT, CRASH, TOM, INSTRUMENTS, CHAR_LANES, isLeftThumb, COUNT_IN_BARS, OUTRO_BARS, JUDGE, POINTS, ACC_WEIGHT, STAR_RULES, DIFFICULTY_WORDS, LEVELS, FREE_UPTO, VERIFY_LEVELS, needsVerify, CLOSED_LEVELS, SKIP_LEVELS, isClosed, prevOpenId, nextOpenId, noteToMidi, parseChord, chordAt, parseMelody, getLevel, beatDur, stepDur, barDur, levelDuration, TempoMap, tempoOf, levelLanes, buildNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, GOLD_SPOTS, buildRolls, markGoldNotes, noteCount, comboMultiplier, pointsFor, maxScore, accuracy, gradeFor, starsFor, scoreBounds, isClearBest, LAST_LEVEL_ID, shiftOldLevelKey, ENDLESS_FROM, FREE_LEVELS, isUnlocked, nextChallenge, ENDLESS_ID, ROUND_BARS, ENDLESS_BASE_BPM, ENDLESS_BPM_STEP, DIAMOND_RULES, diamondsFor, roundBpm, roundInfo, roundBars, makeEndless, LEVEL_ENDLESS_STEP, levelEndlessId, levelEndlessBase, makeLevelEndless };
+return { STEPS_PER_BAR, KICK, SNARE, HAT, CRASH, TOM, INSTRUMENTS, CHAR_LANES, isLeftThumb, COUNT_IN_BARS, OUTRO_BARS, JUDGE, POINTS, ACC_WEIGHT, STAR_RULES, DIFFICULTY_WORDS, LEVELS, STUDIO_LEVELS, getStudioLevel, FREE_UPTO, VERIFY_LEVELS, needsVerify, CLOSED_LEVELS, SKIP_LEVELS, isClosed, prevOpenId, nextOpenId, noteToMidi, parseChord, chordAt, parseMelody, getLevel, beatDur, stepDur, barDur, levelDuration, TempoMap, tempoOf, levelLanes, buildNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, GOLD_SPOTS, buildRolls, markGoldNotes, noteCount, comboMultiplier, pointsFor, maxScore, accuracy, gradeFor, starsFor, scoreBounds, isClearBest, LAST_LEVEL_ID, shiftOldLevelKey, ENDLESS_FROM, FREE_LEVELS, isUnlocked, nextChallenge, ENDLESS_ID, ROUND_BARS, ENDLESS_BASE_BPM, ENDLESS_BPM_STEP, DIAMOND_RULES, diamondsFor, roundBpm, roundInfo, roundBars, makeEndless, LEVEL_ENDLESS_STEP, levelEndlessId, levelEndlessBase, makeLevelEndless };
 })();
 
 // ---- audio.js ----
@@ -3454,6 +3492,7 @@ function themeKeyForId(id) {
 /** 레벨(판) → { key, cycle } . cycle 이면 Lv 마다 맵이 바뀜 */
 function themeForLevel(lv) {
   if (!lv) return { key: 'sunset', cycle: false };
+  if (lv.theme && THEMES[lv.theme]) return { key: lv.theme, cycle: false };
   if (lv.baseId != null) return { key: themeKeyForId(lv.baseId), cycle: false };
   if (lv.challenge) return { key: 'space', cycle: true };
   return { key: themeKeyForId(lv.id), cycle: false };
@@ -4065,93 +4104,185 @@ function auroraBands(g, L, t, a) {
 }
 
 // ------------------------------------------------------------------ 동적
+// 매 프레임 그라데이션을 새로 만들면 느린 폰에서 버벅여서, 빛·기둥·햇살·오로라는 미리 그려 둔 그림(스프라이트)을
+// 크기·투명도만 바꿔 찍음. quality: 2 = 전부 / 1 = 입자·테마 장식 빼고 조명만 / 0 = 동적 효과 없음
 const BEAMS = { sunset: 'swing', city: 'swing', hall: 'down', void: 'down', lava: 'swing', space: 'swing', aurora: 'none' };
+
+const glowCache = new Map();
+/** 가운데가 밝은 동그란 빛 (색마다 한 번만 그림, 128px) */
+function glowSprite(rgb) {
+  let c = glowCache.get(rgb);
+  if (c) return c;
+  c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gr.addColorStop(0, `rgba(${rgb},1)`);
+  gr.addColorStop(0.4, `rgba(${rgb},0.4)`);
+  gr.addColorStop(1, `rgba(${rgb},0)`);
+  g.fillStyle = gr;
+  g.fillRect(0, 0, 128, 128);
+  glowCache.set(rgb, c);
+  return c;
+}
+/** 반지름 r 짜리 빛을 a 세기로 (ctx 는 이미 lighter 상태) */
+function glow(ctx, x, y, r, rgb, a) {
+  if (a <= 0.004 || r <= 0) return;
+  ctx.globalAlpha = Math.min(1, a);
+  ctx.drawImage(glowSprite(rgb), x - r, y - r, r * 2, r * 2);
+  ctx.globalAlpha = 1;
+}
+
+const beamCache = new Map();
+/** 위에서 아래로 퍼지는 조명 기둥 (꼭대기 0,0 · 길이 1 · 끝 너비 1 기준으로 늘려 씀) */
+function beamSprite(rgb) {
+  let c = beamCache.get(rgb);
+  if (c) return c;
+  c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 256;
+  const g = c.getContext('2d');
+  const gr = g.createLinearGradient(0, 0, 0, 256);
+  gr.addColorStop(0, `rgba(${rgb},1)`);
+  gr.addColorStop(1, `rgba(${rgb},0)`);
+  g.fillStyle = gr;
+  g.beginPath();
+  g.moveTo(30, 0);
+  g.lineTo(0, 256);
+  g.lineTo(64, 256);
+  g.lineTo(34, 0);
+  g.fill();
+  beamCache.set(rgb, c);
+  return c;
+}
+/** (x,y) 에서 ang 방향(0 = 아래)으로 len 길이, 끝 너비 w 인 기둥 */
+function beam(ctx, x, y, ang, len, w, rgb, a) {
+  if (a <= 0.004) return;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(-ang);
+  ctx.globalAlpha = Math.min(1, a);
+  ctx.drawImage(beamSprite(rgb), -w / 2, 0, w, len);
+  ctx.restore();
+}
 
 class SceneFx {
   constructor() {
     this.parts = [];
     this.last = 0;
     this.spawnAcc = 0;
+    this._key = '';
   }
 
   reset() {
     this.parts = [];
   }
 
+  /** 화면 크기·맵이 바뀌면 미리 그려 둘 것들 (햇살 바퀴·오로라 띠·아래 열기 그라데이션) */
+  _prepare(ctx, L, T) {
+    const key = `${T.key}:${L.W}x${L.H}`;
+    if (this._key === key) return;
+    this._key = key;
+    this.rays = null;
+    this.aurora = null;
+    this.heatGrad = null;
+    this.strobe = null;
+    if (T.key === 'sunset') {
+      const sr = L.GW * 0.26;
+      const R = sr * 2.6;
+      const c = document.createElement('canvas');
+      c.width = c.height = 256;
+      const g = c.getContext('2d');
+      g.translate(128, 128);
+      g.fillStyle = 'rgba(255,210,150,1)';
+      for (let i = 0; i < 12; i++) {
+        g.rotate((Math.PI * 2) / 12);
+        g.beginPath();
+        g.moveTo(0, 0);
+        g.lineTo(-128 * (0.12 / 2.6), -128);
+        g.lineTo(128 * (0.12 / 2.6), -128);
+        g.fill();
+      }
+      this.rays = { c, R };
+    }
+    if (T.key === 'aurora') {
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(L.W / 2));
+      c.height = Math.max(1, Math.round(L.topY / 2));
+      const g = c.getContext('2d');
+      g.scale(0.5, 0.5);
+      auroraBands(g, L, 0, 1);
+      this.aurora = c;
+    }
+    if (T.key === 'lava') {
+      const gr = ctx.createLinearGradient(0, L.H, 0, L.H * 0.6);
+      gr.addColorStop(0, 'rgba(255,70,10,1)');
+      gr.addColorStop(1, 'rgba(255,70,10,0)');
+      this.heatGrad = gr;
+    }
+    if (T.key === 'void') {
+      const gr = ctx.createLinearGradient(0, 0, 0, L.strikeY);
+      gr.addColorStop(0, 'rgba(255,255,255,1)');
+      gr.addColorStop(1, 'rgba(255,255,255,0)');
+      this.strobe = gr;
+    }
+  }
+
   /**
    * s = { rt, heat 0~1, beat(박 첫머리 1 → 0), barBeat(마디 첫 박이면 같은 값, 아니면 0),
-   *       pe(킥 펀치), fever, playing, lite }
+   *       pe(킥 펀치), fever, playing, lite, quality(2·1·0) }
    */
   draw(ctx, L, T, s) {
     const dt = Math.min(0.05, Math.max(0, s.rt - (this.last || s.rt)));
     this.last = s.rt;
-    if (s.lite) return;
+    const q = s.lite ? 0 : s.quality ?? 2;
+    if (q <= 0) return;
+    this._prepare(ctx, L, T);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    this._beams(ctx, L, T, s);
-    const fx = FX[T.key];
-    if (fx) fx(ctx, L, T, s);
+    this._beams(ctx, L, T, s, q);
+    if (q >= 2) {
+      const fx = FX[T.key];
+      if (fx) fx.call(this, ctx, L, T, s);
+    }
     // 곡이 달아오르면 지평선이 비트에 맞춰 크게 빛남
     const hk = s.heat * (0.55 + 0.45 * s.beat);
-    if (hk > 0.02) radial(ctx, L.cx, L.topY, L.GW * (0.55 + 0.25 * s.beat), T.hot, 0.28 * hk);
+    glow(ctx, L.cx, L.topY, L.GW * (0.55 + 0.25 * s.beat), T.hot, 0.28 * hk);
     // 곡이 한 단계 달아오른 순간: 지평선에서 빛이 퍼짐 + 입자 한 번에
     if (s.surge > 0.01) {
-      radial(ctx, L.cx, L.topY, L.GW * (0.5 + (1 - s.surge) * 0.9), T.hot, 0.45 * s.surge);
-      if (!this._surging) for (let i = 0; i < 24 && this.parts.length < 110; i++) this.parts.push(spawn(T.particle, L, s));
+      glow(ctx, L.cx, L.topY, L.GW * (0.5 + (1 - s.surge) * 0.9), T.hot, 0.45 * s.surge);
+      if (!this._surging && q >= 2) for (let i = 0; i < 24 && this.parts.length < 110; i++) this.parts.push(spawn(T.particle, L, s));
       this._surging = true;
     } else this._surging = false;
     ctx.restore();
-    this._particles(ctx, L, T, s, dt);
+    if (q >= 2) this._particles(ctx, L, T, s, dt);
+    else this.parts.length = 0;
   }
 
-  _beams(ctx, L, T, s) {
+  _beams(ctx, L, T, s, q) {
     const mode = BEAMS[T.key];
     if (mode === 'none') return;
     const a0 = 0.05 + s.heat * 0.07 + s.beat * (0.03 + s.heat * 0.05) + s.pe * 0.1 + (s.fever ? 0.04 : 0);
     if (mode === 'down') {
       const lamps = T.key === 'void' ? rigLamps(L) : [0.12, 0.5, 0.88].map((f) => ({ x: L.GX + L.GW * f, y: 0 }));
+      const yb = L.strikeY + (L.H - L.strikeY) * 0.2;
+      const spread = L.GW * (0.32 + 0.1 * s.heat);
       lamps.forEach((p, k) => {
+        if (q < 2 && k % 2) return;
         // 블랙 스테이지: 마디 첫 박에 조명이 하나씩 번갈아 '팍' (곡 절정일수록)
         const on = T.key === 'void' ? a0 * 0.6 + s.barBeat * s.heat * (k % 2 === (s.barIdx & 1) ? 0.22 : 0.05) : a0 * 0.8;
-        const col = T.spots[k % T.spots.length];
-        const yb = L.strikeY + (L.H - L.strikeY) * 0.2;
-        const spread = L.GW * (0.16 + 0.05 * s.heat);
-        const gr = ctx.createLinearGradient(0, p.y, 0, yb);
-        gr.addColorStop(0, `rgba(${col},${on * 1.6})`);
-        gr.addColorStop(1, `rgba(${col},0)`);
-        ctx.fillStyle = gr;
-        ctx.beginPath();
-        ctx.moveTo(p.x - 5, p.y + 6);
-        ctx.lineTo(p.x - spread, yb);
-        ctx.lineTo(p.x + spread, yb);
-        ctx.lineTo(p.x + 5, p.y + 6);
-        ctx.fill();
+        beam(ctx, p.x, p.y + 6, 0, yb - p.y, spread, T.spots[k % T.spots.length], on * 1.6);
       });
       return;
     }
     const speed = (s.fever ? 1.6 : 0.6) * (0.7 + s.heat * 0.8);
     [0.08, 0.34, 0.66, 0.92].forEach((fx, k) => {
+      if (q < 2 && (k === 1 || k === 2)) return;
       const x = L.GX + L.GW * fx;
       const ang = Math.sin(s.rt * speed + k * 1.7) * (0.3 + s.heat * 0.15) + (fx - 0.5) * -0.5;
-      const len = L.H * 0.95;
-      const spread = L.GW * 0.16;
-      const tx = x + Math.sin(ang) * len;
-      const ty = L.H * 0.02 + Math.cos(ang) * len;
       const col = T.spots[k];
-      const gr = ctx.createLinearGradient(x, 0, tx, ty);
-      gr.addColorStop(0, `rgba(${col},${a0 * 2})`);
-      gr.addColorStop(1, `rgba(${col},0)`);
-      ctx.fillStyle = gr;
-      ctx.beginPath();
-      ctx.moveTo(x - 4, L.H * 0.02);
-      ctx.lineTo(tx - spread * Math.cos(ang), ty + spread * Math.sin(ang));
-      ctx.lineTo(tx + spread * Math.cos(ang), ty - spread * Math.sin(ang));
-      ctx.lineTo(x + 4, L.H * 0.02);
-      ctx.fill();
-      ctx.fillStyle = `rgba(${col},0.8)`;
-      ctx.beginPath();
-      ctx.arc(x, L.H * 0.022, L.GW * 0.016, 0, TAU);
-      ctx.fill();
+      beam(ctx, x, L.H * 0.02, ang, L.H * 0.95, L.GW * 0.32, col, a0 * 2);
+      glow(ctx, x, L.H * 0.022, L.GW * 0.03, col, 0.9);
     });
   }
 
@@ -4160,7 +4291,7 @@ class SceneFx {
     // 곡이 달아오를수록 많이
     const rate = (PART_RATE[kind] || 6) * (0.35 + s.heat * 1.1) * (s.playing ? 1 : 0.4);
     this.spawnAcc += rate * dt;
-    while (this.spawnAcc >= 1 && this.parts.length < 80) {
+    while (this.spawnAcc >= 1 && this.parts.length < 60) {
       this.spawnAcc -= 1;
       this.parts.push(spawn(kind, L, s));
     }
@@ -4221,48 +4352,42 @@ function spawn(kind, L, s) {
 }
 
 function drawPart(ctx, p, fade, s) {
-  ctx.save();
   switch (p.kind) {
     case 'petal':
+      ctx.save();
       ctx.globalAlpha = 0.7 * fade;
       ctx.translate(p.x + Math.sin(p.rot) * 6, p.y);
       ctx.rotate(p.rot);
       ctx.fillStyle = `rgb(${p.col})`;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, p.size, p.size * 0.55, 0, 0, TAU);
-      ctx.fill();
+      ctx.fillRect(-p.size, -p.size * 0.5, p.size * 2, p.size);
+      ctx.restore();
       break;
     case 'gold':
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.globalAlpha = (p.conf ? 0.85 : 0.5 + 0.4 * s.beat) * fade;
-      ctx.fillStyle = `rgb(${p.col})`;
       if (p.conf) {
+        ctx.save();
+        ctx.globalAlpha = 0.85 * fade;
+        ctx.fillStyle = `rgb(${p.col})`;
         ctx.translate(p.x, p.y);
         ctx.rotate(p.rot);
         ctx.fillRect(-p.size, -p.size * 0.35, p.size * 2, p.size * 0.7 * Math.abs(Math.cos(p.rot * 2)));
+        ctx.restore();
       } else {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, TAU);
-        ctx.fill();
+        ctx.globalCompositeOperation = 'lighter';
+        glow(ctx, p.x, p.y, p.size * 2.5, p.col, (0.5 + 0.4 * s.beat) * fade);
+        ctx.globalCompositeOperation = 'source-over';
       }
+      break;
+    case 'haze':
+      glow(ctx, p.x, p.y, p.size, '255,255,255', fade * 0.05);
       break;
     case 'snow':
       ctx.globalAlpha = 0.85 * fade;
       ctx.fillStyle = '#FFFFFF';
-      ctx.beginPath();
-      ctx.arc(p.x + Math.sin(p.rot) * 5, p.y, p.size, 0, TAU);
-      ctx.fill();
+      ctx.fillRect(p.x + Math.sin(p.rot) * 5 - p.size / 2, p.y - p.size / 2, p.size, p.size);
+      ctx.globalAlpha = 1;
       break;
-    case 'haze': {
-      ctx.globalAlpha = fade * 0.05;
-      const gr = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
-      gr.addColorStop(0, 'rgba(255,255,255,1)');
-      gr.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = gr;
-      ctx.fillRect(p.x - p.size, p.y - p.size, p.size * 2, p.size * 2);
-      break;
-    }
     case 'star': {
+      ctx.save();
       ctx.globalCompositeOperation = 'lighter';
       ctx.globalAlpha = fade * 0.9;
       const k = 0.03 + s.heat * 0.06;
@@ -4273,53 +4398,41 @@ function drawPart(ctx, p, fade, s) {
       ctx.moveTo(p.x, p.y);
       ctx.lineTo(p.x - p.vx * k, p.y - p.vy * k);
       ctx.stroke();
+      ctx.restore();
       break;
     }
     default: {
       // neon · ember: 빛나는 점
       ctx.globalCompositeOperation = 'lighter';
-      ctx.globalAlpha = fade * (p.kind === 'ember' ? 0.9 : 0.6);
       const x = p.x + (p.kind === 'ember' ? Math.sin(p.rot * 2) * 4 : 0);
-      ctx.fillStyle = `rgba(${p.col},0.35)`;
-      ctx.beginPath();
-      ctx.arc(x, p.y, p.size * 3, 0, TAU);
-      ctx.fill();
-      ctx.fillStyle = `rgb(${p.col})`;
-      ctx.beginPath();
-      ctx.arc(x, p.y, p.size, 0, TAU);
-      ctx.fill();
+      glow(ctx, x, p.y, p.size * 3, p.col, fade * (p.kind === 'ember' ? 0.9 : 0.6));
+      ctx.globalCompositeOperation = 'source-over';
     }
   }
-  ctx.restore();
 }
 
+/** 테마별 장식 (this = SceneFx, ctx 는 lighter 상태) */
 const FX = {
   sunset(ctx, L, T, s) {
-    // 해 뒤로 도는 햇살
+    // 해 뒤로 도는 햇살 (미리 그린 바퀴를 돌림)
     const sr = L.GW * 0.26;
     const sy = L.topY - sr * 0.12;
-    const a = 0.04 + s.heat * 0.08 + s.beat * 0.04;
-    ctx.save();
-    ctx.translate(L.cx, sy);
-    ctx.rotate(s.rt * 0.08);
-    ctx.fillStyle = `rgba(255,210,150,${a})`;
-    for (let i = 0; i < 12; i++) {
-      ctx.rotate(TAU / 12);
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(-sr * 0.12, -sr * 2.6);
-      ctx.lineTo(sr * 0.12, -sr * 2.6);
-      ctx.fill();
+    if (this.rays) {
+      ctx.save();
+      ctx.translate(L.cx, sy);
+      ctx.rotate(s.rt * 0.08);
+      ctx.globalAlpha = Math.min(1, 0.04 + s.heat * 0.08 + s.beat * 0.04);
+      const R = this.rays.R;
+      ctx.drawImage(this.rays.c, -R, -R, R * 2, R * 2);
+      ctx.restore();
     }
-    ctx.restore();
     // 전구가 박자마다 번갈아 반짝
     const pts = garland(L);
     const cols = ['255,224,122', '255,154,184', '154,230,255', '200,255,154'];
     const b = Math.floor(s.beatNo || 0);
     pts.forEach((p, i) => {
       const on = (i + b) % 2 === 0 ? s.beat : 0;
-      const k = 0.25 + 0.25 * s.heat + on * (0.4 + 0.4 * s.heat);
-      radial(ctx, p.x, p.y + 4, 12 + 8 * on, cols[i % cols.length], k);
+      glow(ctx, p.x, p.y + 4, 12 + 8 * on, cols[i % cols.length], 0.25 + 0.25 * s.heat + on * (0.4 + 0.4 * s.heat));
     });
   },
   city(ctx, L, T, s) {
@@ -4327,47 +4440,53 @@ const FX = {
     const n = 18;
     const w = L.GW / n;
     const b = Math.floor(s.beatNo || 0);
+    ctx.globalAlpha = 0.25 + 0.3 * s.heat;
     for (let i = 0; i < n; i++) {
       const seed = Math.sin(i * 12.9898 + b * 78.233) * 43758.5453;
       const rnd = seed - Math.floor(seed);
       const h = L.topY * 0.06 * (0.3 + rnd * (0.4 + s.heat)) * (0.5 + s.beat * 0.8);
-      const x = L.GX + i * w;
-      const col = i % 2 ? '57,230,255' : '255,79,216';
-      ctx.fillStyle = `rgba(${col},${0.25 + 0.3 * s.heat})`;
-      ctx.fillRect(x + w * 0.15, L.topY - h, w * 0.7, h);
+      ctx.fillStyle = i % 2 ? 'rgb(57,230,255)' : 'rgb(255,79,216)';
+      ctx.fillRect(L.GX + i * w + w * 0.15, L.topY - h, w * 0.7, h);
     }
+    ctx.globalAlpha = 1;
   },
   hall(ctx, L, T, s) {
     // 금빛 오르간이 박자에 맞춰 은은하게
-    radial(ctx, L.cx, L.topY - L.topY * 0.35, L.GW * 0.6, '255,210,120', 0.06 + 0.1 * s.heat * s.beat);
+    glow(ctx, L.cx, L.topY - L.topY * 0.35, L.GW * 0.6, '255,210,120', 0.06 + 0.1 * s.heat * s.beat);
   },
   void(ctx, L, T, s) {
     // 절정: 마디 첫 박에 화면 위쪽이 하얗게 번쩍 (눈부시지 않게 약하게)
-    if (s.heat > 0.6 && s.barBeat > 0) {
-      const gr = ctx.createLinearGradient(0, 0, 0, L.strikeY);
-      gr.addColorStop(0, `rgba(255,255,255,${0.14 * s.barBeat * s.heat})`);
-      gr.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = gr;
+    if (this.strobe && s.heat > 0.6 && s.barBeat > 0) {
+      ctx.globalAlpha = 0.14 * s.barBeat * s.heat;
+      ctx.fillStyle = this.strobe;
       ctx.fillRect(0, 0, L.W, L.strikeY);
+      ctx.globalAlpha = 1;
     }
   },
   lava(ctx, L, T, s) {
-    // 분화구가 박자마다 끓어오름
+    // 분화구가 박자마다 끓어오름 + 화면 아래 열기
     const vh = L.topY * 0.42;
-    radial(ctx, L.cx, L.topY - vh, L.GW * (0.2 + 0.1 * s.beat + 0.1 * s.heat), '255,100,20', 0.25 + 0.35 * s.beat * (0.4 + s.heat));
-    // 화면 아래 열기
-    const gr = ctx.createLinearGradient(0, L.H, 0, L.H * 0.6);
-    gr.addColorStop(0, `rgba(255,70,10,${0.08 + 0.14 * s.heat})`);
-    gr.addColorStop(1, 'rgba(255,70,10,0)');
-    ctx.fillStyle = gr;
-    ctx.fillRect(0, L.H * 0.6, L.W, L.H * 0.4);
+    glow(ctx, L.cx, L.topY - vh, L.GW * (0.2 + 0.1 * s.beat + 0.1 * s.heat), '255,100,20', 0.25 + 0.35 * s.beat * (0.4 + s.heat));
+    if (this.heatGrad) {
+      ctx.globalAlpha = 0.08 + 0.14 * s.heat;
+      ctx.fillStyle = this.heatGrad;
+      ctx.fillRect(0, L.H * 0.6, L.W, L.H * 0.4);
+      ctx.globalAlpha = 1;
+    }
   },
   aurora(ctx, L, T, s) {
-    // 오로라가 박자·곡 세기에 맞춰 일렁이며 밝아짐
-    auroraBands(ctx, L, s.rt, 0.12 + 0.25 * s.heat + 0.15 * s.beat);
+    // 오로라가 박자·곡 세기에 맞춰 일렁이며 밝아짐 (미리 그린 띠를 좌우로 흔들며 겹쳐 찍음)
+    if (!this.aurora) return;
+    const a = Math.min(1, 0.12 + 0.25 * s.heat + 0.15 * s.beat);
+    const dx = Math.sin(s.rt * 0.35) * L.W * 0.04;
+    ctx.globalAlpha = a;
+    ctx.drawImage(this.aurora, dx, 0, L.W, L.topY);
+    ctx.globalAlpha = a * 0.5;
+    ctx.drawImage(this.aurora, -dx * 1.6, L.topY * 0.03, L.W, L.topY);
+    ctx.globalAlpha = 1;
   },
   space(ctx, L, T, s) {
-    radial(ctx, L.cx, L.topY, L.GW * 0.35, '160,140,255', 0.1 + 0.2 * s.beat * (0.3 + s.heat));
+    glow(ctx, L.cx, L.topY, L.GW * 0.35, '160,140,255', 0.1 + 0.2 * s.beat * (0.3 + s.heat));
   },
 };
 
@@ -4437,6 +4556,7 @@ class Renderer {
     this.themeKey = 'sunset'; // 맵 분위기 (themes.js)
     this.themeCycle = false; // 그리그 무제한·챌린지: Lv 마다 맵이 바뀜
     this.scene = new SceneFx();
+    this.quality = 2; // 자동 화질 (_autoQuality)
     this.reset();
   }
 
@@ -4455,6 +4575,26 @@ class Renderer {
     this.heatS = 0;
     this.themeFx = null; // 맵 바뀔 때 { t0, prev(캔버스) } → 이전 맵이 서서히 사라짐
     if (this.scene) this.scene.reset();
+  }
+
+  /**
+   * 자동 화질: 화면이 버벅이면(프레임 간격 평균이 26ms 넘게 1.5초) 효과를 한 단계씩 줄임.
+   *   2 = 전부 / 1 = 입자·테마 장식 빼고 조명만 / 0 = 움직이는 무대 효과 없음 (영상 찍기는 항상 2)
+   *   한 번 내려간 화질은 이 기기에 기억 (onQualityDrop 으로 저장)
+   */
+  _autoQuality(st, rt) {
+    const dt = rt - (this._lastDraw || rt);
+    if (!st.playing || this.studio || this.lite || !(dt > 0) || dt > 0.25) return;
+    this._ema = this._ema == null ? dt : this._ema * 0.94 + dt * 0.06;
+    if (this._ema > 0.026) {
+      this._slowFor = (this._slowFor || 0) + dt;
+      if (this._slowFor > 1.5 && this.quality > 0) {
+        this.quality--;
+        this._slowFor = 0;
+        this._ema = 1 / 60;
+        if (this.onQualityDrop) this.onQualityDrop(this.quality);
+      }
+    } else this._slowFor = Math.max(0, (this._slowFor || 0) - dt);
   }
 
   /** 이 판의 맵 정하기 (단계 묶음별). 화면 크기가 정해진 뒤 resize() 가 그림을 만듦 */
@@ -4505,7 +4645,8 @@ class Renderer {
    */
   async resize(maxDpr = 2) {
     // 저사양 모드: 화면 픽셀 수를 줄임 (레티나 2~3배 → 1배). 영상 찍기(studio)는 그대로
-    const dpr = this.studio ? maxDpr : Math.min(window.devicePixelRatio || 1, this.lite ? 1 : maxDpr);
+    //   자동 화질이 0까지 내려간 기기는 1.5배로 (다음 판부터)
+    const dpr = this.studio ? maxDpr : Math.min(window.devicePixelRatio || 1, this.lite ? 1 : this.quality <= 0 ? 1.5 : maxDpr);
     const W = this.canvas.clientWidth || window.innerWidth;
     const H = this.canvas.clientHeight || window.innerHeight;
     this.canvas.width = Math.round(W * dpr);
@@ -4790,7 +4931,9 @@ class Renderer {
     const lite = this.lite && !this.studio;
     // 저사양 모드: 120Hz 화면에서도 초당 60번까지만 그림 (판정은 그대로)
     if (lite && rt - (this._lastDraw || 0) < 1 / 65 && rt >= (this._lastDraw || 0)) return;
+    this._autoQuality(st, rt);
     this._lastDraw = rt;
+    const q = lite ? 0 : this.studio ? 2 : this.quality;
     const pe = Math.exp(-(rt - this.punchAt) * 22) * this.punchPow; // 킥 펀치
     const ce = Math.exp(-(rt - this.crackAt) * 30); // 스네어 크랙
     // 무제한·챌린지: Lv 이 오르면 맵이 바뀜 (저사양 모드는 그대로)
@@ -4838,6 +4981,7 @@ class Renderer {
       surge,
       playing: !!st.playing,
       lite,
+      quality: q,
     });
     if (!lite) this._drawLaneFlash(rt);
     ctx.save();
@@ -4853,7 +4997,7 @@ class Renderer {
     this._drawRolls(st, rt);
     this._drawNotes(st);
     this._drawBursts(rt);
-    if (!lite) this._drawSparks(rt);
+    if (q >= 1) this._drawSparks(rt);
     this._drawJudges(rt);
     this._drawRollCount(st, rt);
     ctx.restore();
@@ -4955,12 +5099,16 @@ class Renderer {
     ctx.save();
     ctx.strokeStyle = `rgba(255,255,255,${0.35 + pulse * 0.35})`;
     ctx.lineWidth = 3;
-    ctx.shadowColor = 'rgba(255,255,255,0.6)';
-    ctx.shadowBlur = this.lite && !this.studio ? 0 : 8 * pulse;
     ctx.beginPath();
     ctx.moveTo(L.x0, L.strikeY);
     ctx.lineTo(L.x1, L.strikeY);
     ctx.stroke();
+    // 박자마다 은은한 빛 (shadowBlur 는 느린 폰에서 무거워서 두꺼운 반투명 선으로)
+    if (pulse > 0.05) {
+      ctx.strokeStyle = `rgba(255,255,255,${0.18 * pulse})`;
+      ctx.lineWidth = 9;
+      ctx.stroke();
+    }
     ctx.restore();
     const k = 1 + pulse * 0.05;
     for (const lane of this.laneOrder) {
@@ -5135,14 +5283,7 @@ class Renderer {
       if (gold) {
         ctx.globalAlpha = a;
         const R = Math.max(sp.w, sp.h) * 0.62;
-        const gl = ctx.createRadialGradient(0, 0, 0, 0, 0, R);
-        gl.addColorStop(0, 'rgba(255,220,90,0.9)');
-        gl.addColorStop(0.5, 'rgba(255,190,40,0.45)');
-        gl.addColorStop(1, 'rgba(255,190,40,0)');
-        ctx.fillStyle = gl;
-        ctx.beginPath();
-        ctx.ellipse(0, 0, R, R * 0.6, 0, 0, Math.PI * 2);
-        ctx.fill();
+        ctx.drawImage(goldGlow(), -R, -R * 0.6, R * 2, R * 1.2);
       }
       ctx.globalAlpha = a;
       ctx.drawImage(sp.img, -sp.ax, -sp.ay, sp.w, sp.h);
@@ -5749,6 +5890,22 @@ class Renderer {
   }
 }
 
+let _goldGlow = null;
+/** 황금 콩 후광 (한 번만 그려 둠) */
+function goldGlow() {
+  if (_goldGlow) return _goldGlow;
+  const c = (_goldGlow = document.createElement('canvas'));
+  c.width = c.height = 96;
+  const g = c.getContext('2d');
+  const gl = g.createRadialGradient(48, 48, 0, 48, 48, 48);
+  gl.addColorStop(0, 'rgba(255,220,90,0.9)');
+  gl.addColorStop(0.5, 'rgba(255,190,40,0.45)');
+  gl.addColorStop(1, 'rgba(255,190,40,0)');
+  g.fillStyle = gl;
+  g.fillRect(0, 0, 96, 96);
+  return c;
+}
+
 function fitFont(ctx, text, maxW, start) {
   let fs = Math.round(start);
   ctx.font = `${fs}px ${FONT}`;
@@ -5799,6 +5956,7 @@ class Game {
     this.onHud = onHud || (() => {});
     this.onEnd = onEnd || (() => {});
     this.onDeath = onDeath || null;
+    this.onStall = null;
     this.tempo = tempoOf(level);
     /** 화면 왼쪽부터 레인(악기) 순서 */
     this.laneOrder = levelLanes(level);
@@ -5823,7 +5981,8 @@ class Game {
     this._lostAt = null;
     this.state = 'idle';
     this.beat = 60 / this.tempo.bpm(0);
-    this.approach = 1.5 / (settings.noteSpeed || 1);
+    // 콩 다가오는 속도는 1로 고정 (설정에서 없앰. 예전에 바꿔 둔 값도 무시)
+    this.approach = 1.5;
     this.firstNoteTime = this.notes.length ? this.notes[0].time : 0;
     this._setEnd();
     this.maxScore = level.endless ? 0 : maxScore(level);
@@ -6088,6 +6247,18 @@ class Game {
   _loop() {
     if (this.state !== 'playing') return;
     const rt = performance.now() / 1000;
+    // 소리 시계가 멈춤(폰이 소리를 잠깐 끊음: 알림·전화·다른 앱 소리 등) → 곡도 멈춰 보임.
+    //   바로 다시 켜 보고, 그래도 안 되면 '화면을 눌러 주세요' 안내 (iOS 는 터치해야 다시 켜짐)
+    const actx = this.audio.ctx;
+    if (actx && actx.state !== 'running') {
+      if (rt - (this._resumeTry || 0) > 0.7) {
+        this._resumeTry = rt;
+        actx.resume().catch(() => {});
+        this.audio.resetClock();
+        if (this.onStall && rt - (this._stallSince ?? rt) > 1.2) this.onStall();
+      }
+      this._stallSince ??= rt;
+    } else this._stallSince = null;
     const now = this.songTime();
     this._extend(now);
     this._checkRound(now, rt);
@@ -6905,6 +7076,16 @@ const __m_news = (() => {
 
 const NEWS = [
   {
+    id: '2026-11-18c',
+    date: '11월 18일',
+    title: '버벅임 줄이기 · 소리 멈춤 안내',
+    items: [
+      '⚡ 폰이 버거워하면 <b>무대 효과를 알아서 줄여요</b> (게임은 그대로, 조명·불빛만 덜)',
+      '🔇 폰이 소리를 잠깐 멈추면(알림·전화 등) 카운트가 멈출 수 있어요. 이제 바로 다시 켜고, 안 되면 화면을 한 번 눌러 달라고 알려 드려요',
+      '콩 다가오는 속도는 하나로 맞췄어요 (설정에서 빠짐)',
+    ],
+  },
+  {
     id: '2026-11-18b',
     date: '11월 18일',
     title: '친구랑 대결 방 · 16단계 · 연타 구간',
@@ -7375,7 +7556,7 @@ return { NAME_MAX, kstDateKey, todayLevel, cleanName, encodeChallenge, decodeCha
 const __m_main = (() => {
 // 오케이스트라 — 화면 전환, 잠금(팔로우 인증), 랭킹, 설정을 묶는 앱 본체
 
-const { LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES, ENDLESS_ID, LAST_LEVEL_ID, makeEndless, isUnlocked, nextChallenge, DIAMOND_RULES, roundInfo, ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId } = __m_charts;
+const { LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES, ENDLESS_ID, LAST_LEVEL_ID, makeEndless, isUnlocked, nextChallenge, DIAMOND_RULES, roundInfo, ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId, STUDIO_LEVELS, getStudioLevel } = __m_charts;
 const { AudioEngine, playMetronome } = __m_audio;
 const { Renderer } = __m_render;
 const { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } = __m_game;
@@ -7432,6 +7613,12 @@ const icon = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICO
 
 const audio = new AudioEngine();
 const renderer = new Renderer($('#game-canvas'));
+// 자동 화질: 이 기기에서 버벅여서 내려갔던 단계를 기억해 다음 판부터 그대로
+renderer.quality = Math.max(0, Math.min(2, Number(load('gfxQ', 2)) || 0));
+renderer.onQualityDrop = (q) => {
+  save('gfxQ', q);
+  if (q === 0) state.suggestLite = true;
+};
 
 const state = {
   api: null,
@@ -7614,7 +7801,7 @@ function playable(id) {
   const eb = levelEndlessBase(id);
   if (eb) return makeLevelEndless(eb);
   if (typeof id === 'string' && /^ch\d+$/.test(id)) return makeEndless({ rounds: Number(id.slice(2)) });
-  return getLevel(id);
+  return getStudioLevel(id) || getLevel(id);
 }
 const isChallengeId = (id) => id === ENDLESS_ID || (typeof id === 'string' && /^(ch|e)\d+$/.test(id));
 /** 앞 단계를 안 깨서 잠김 (팔로우 잠금과 별개) */
@@ -7852,7 +8039,7 @@ async function startLevel(id, opts = {}) {
   if (state.game) state.game.stop();
   closeModal('modal-pause');
   show('screen-game');
-  $('#hud-lv').textContent = lv.challenge ? (lv.endless ? '무제한' : '챌린지') : `${lv.id}단계`;
+  $('#hud-lv').textContent = lv.challenge ? (lv.endless ? '무제한' : '챌린지') : lv.studioOnly ? '🎬 릴스용' : `${lv.id}단계`;
   $('#hud-name').textContent = lv.challenge ? `${lv.songName} · ${lv.composer}` : `${lv.name} · ${lv.composer}`;
   $('#hud-score').textContent = '0';
   $('#hud-progress').style.width = '0%';
@@ -7989,6 +8176,12 @@ async function startLevel(id, opts = {}) {
     box.hidden = true;
     if (stale() || state.game !== g) return;
   }
+  let stallToastAt = 0;
+  state.game.onStall = () => {
+    if (Date.now() - stallToastAt < 4000) return;
+    stallToastAt = Date.now();
+    toast('🔇 폰이 소리를 잠깐 멈췄어요. 화면을 한 번 톡 눌러 주세요', 3000);
+  };
   state.game.start();
   // 영상 찍기·자동 연주는 통계에 안 셈
   if (!st.active && !state.auto) trackPlayStart(id, vs || room ? 'vs' : 'normal');
@@ -8161,6 +8354,10 @@ function giveUp() {
 
 // ---------------- 결과 ----------------
 function showResult(res) {
+  if (state.suggestLite && !state.settings.lite) {
+    state.suggestLite = false;
+    setTimeout(() => toast('폰이 버거워해서 무대 효과를 줄였어요. 그래도 버벅이면 ⚙ 설정 → 저사양 모드', 4200), 2600);
+  }
   res.runToken = state.runToken;
   state.lastResult = res;
   $('#screen-result').classList.toggle('in-room', !!res.room);
@@ -8626,7 +8823,6 @@ function openSettings() {
   const s = state.settings;
   $('#set-music').value = s.music;
   $('#set-sfx').value = s.sfx;
-  $('#set-speed').value = s.noteSpeed;
   $('#set-offset').value = s.offsetMs;
   $('#set-vibrate').checked = !!s.vibrate;
   $('#set-lite').checked = !!s.lite;
@@ -8639,12 +8835,16 @@ function openSettings() {
 }
 function updateSettingLabels() {
   const s = state.settings;
-  $('#set-speed-val').textContent = `x${Number(s.noteSpeed).toFixed(1)}`;
   $('#set-offset-val').textContent = s.offsetMs === 0 ? '0ms' : `${s.offsetMs > 0 ? '+' : ''}${s.offsetMs}ms`;
 }
 /** 저사양 모드 적용: 게임 그림(해상도·효과) + 화면 꾸밈(애니메이션·그림자) */
 function applyLite() {
   const on = !!state.settings.lite;
+  // 저사양 모드를 직접 껐으면 자동 화질도 처음(최고)부터 다시
+  if (!on && renderer.lite) {
+    renderer.quality = 2;
+    save('gfxQ', 2);
+  }
   renderer.lite = on;
   document.documentElement.classList.toggle('lite', on);
   if ($('#screen-game').classList.contains('active')) renderer.resize();
@@ -8654,7 +8854,6 @@ function bindSettings() {
     const s = state.settings;
     s.music = Number($('#set-music').value);
     s.sfx = Number($('#set-sfx').value);
-    s.noteSpeed = Number($('#set-speed').value);
     s.offsetMs = Number($('#set-offset').value);
     s.vibrate = $('#set-vibrate').checked;
     s.lite = $('#set-lite').checked;
@@ -8663,7 +8862,7 @@ function bindSettings() {
     saveSettings(s);
     updateSettingLabels();
   };
-  ['#set-music', '#set-sfx', '#set-speed', '#set-offset', '#set-vibrate', '#set-lite'].forEach((id) => $(id).addEventListener('input', upd));
+  ['#set-music', '#set-sfx', '#set-offset', '#set-vibrate', '#set-lite'].forEach((id) => $(id).addEventListener('input', upd));
   $('#set-band').addEventListener('click', async (e) => {
     const b = e.target.closest('[data-band]');
     if (!b) return;
@@ -8802,7 +9001,7 @@ function studioOverlay(lv) {
     top: st.top,
     bottom: st.bottom,
     challenge: !!lv.challenge,
-    label: lv.challenge ? '레벨업 챌린지' : `${lv.id}단계 · ${lv.composer} ${lv.name}`,
+    label: lv.challenge ? '레벨업 챌린지' : lv.studioOnly ? `${lv.composer} ${lv.name}` : `${lv.id}단계 · ${lv.composer} ${lv.name}`,
   };
 }
 
@@ -8815,6 +9014,7 @@ function openStudio() {
     STUDIO_CHALLENGES.map(
       (n) => `<button class="chip-hot" data-studio-level="ch${n}" aria-pressed="${st.level === 'ch' + n}">🔥 레벨업 챌린지 Lv.1→${n}</button>`
     ).join('') +
+    STUDIO_LEVELS.map((l) => `<button class="chip-hot" data-studio-level="${l.id}" aria-pressed="${l.id === st.level}">🎬 릴스용 · ${l.name} (느리게)</button>`).join('') +
     LEVELS.map((l) => `<button data-studio-level="${l.id}" aria-pressed="${l.id === st.level}">${l.id}. ${l.name}</button>`).join('');
   $$('#studio-mode button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.mode === st.mode));
   $('#studio-top').value = st.top;
@@ -9389,6 +9589,17 @@ function bindActions() {
     e.preventDefault();
     submitJoin();
   });
+  // 소리가 멈춰 있으면(iOS 는 터치가 있어야 다시 켜짐) 아무 데나 눌러도 다시 켬
+  document.addEventListener(
+    'pointerdown',
+    () => {
+      if (audio.ctx && audio.ctx.state !== 'running' && state.game && state.game.state === 'playing') {
+        audio.ctx.resume().catch(() => {});
+        audio.resetClock();
+      }
+    },
+    { capture: true, passive: true }
+  );
   document.addEventListener('click', (e) => {
     const newMode = e.target.closest('#room-mode-new [data-mode]');
     if (newMode) {

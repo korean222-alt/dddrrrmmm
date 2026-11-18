@@ -587,93 +587,185 @@ function auroraBands(g, L, t, a) {
 }
 
 // ------------------------------------------------------------------ 동적
+// 매 프레임 그라데이션을 새로 만들면 느린 폰에서 버벅여서, 빛·기둥·햇살·오로라는 미리 그려 둔 그림(스프라이트)을
+// 크기·투명도만 바꿔 찍음. quality: 2 = 전부 / 1 = 입자·테마 장식 빼고 조명만 / 0 = 동적 효과 없음
 const BEAMS = { sunset: 'swing', city: 'swing', hall: 'down', void: 'down', lava: 'swing', space: 'swing', aurora: 'none' };
+
+const glowCache = new Map();
+/** 가운데가 밝은 동그란 빛 (색마다 한 번만 그림, 128px) */
+function glowSprite(rgb) {
+  let c = glowCache.get(rgb);
+  if (c) return c;
+  c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const g = c.getContext('2d');
+  const gr = g.createRadialGradient(64, 64, 0, 64, 64, 64);
+  gr.addColorStop(0, `rgba(${rgb},1)`);
+  gr.addColorStop(0.4, `rgba(${rgb},0.4)`);
+  gr.addColorStop(1, `rgba(${rgb},0)`);
+  g.fillStyle = gr;
+  g.fillRect(0, 0, 128, 128);
+  glowCache.set(rgb, c);
+  return c;
+}
+/** 반지름 r 짜리 빛을 a 세기로 (ctx 는 이미 lighter 상태) */
+function glow(ctx, x, y, r, rgb, a) {
+  if (a <= 0.004 || r <= 0) return;
+  ctx.globalAlpha = Math.min(1, a);
+  ctx.drawImage(glowSprite(rgb), x - r, y - r, r * 2, r * 2);
+  ctx.globalAlpha = 1;
+}
+
+const beamCache = new Map();
+/** 위에서 아래로 퍼지는 조명 기둥 (꼭대기 0,0 · 길이 1 · 끝 너비 1 기준으로 늘려 씀) */
+function beamSprite(rgb) {
+  let c = beamCache.get(rgb);
+  if (c) return c;
+  c = document.createElement('canvas');
+  c.width = 64;
+  c.height = 256;
+  const g = c.getContext('2d');
+  const gr = g.createLinearGradient(0, 0, 0, 256);
+  gr.addColorStop(0, `rgba(${rgb},1)`);
+  gr.addColorStop(1, `rgba(${rgb},0)`);
+  g.fillStyle = gr;
+  g.beginPath();
+  g.moveTo(30, 0);
+  g.lineTo(0, 256);
+  g.lineTo(64, 256);
+  g.lineTo(34, 0);
+  g.fill();
+  beamCache.set(rgb, c);
+  return c;
+}
+/** (x,y) 에서 ang 방향(0 = 아래)으로 len 길이, 끝 너비 w 인 기둥 */
+function beam(ctx, x, y, ang, len, w, rgb, a) {
+  if (a <= 0.004) return;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(-ang);
+  ctx.globalAlpha = Math.min(1, a);
+  ctx.drawImage(beamSprite(rgb), -w / 2, 0, w, len);
+  ctx.restore();
+}
 
 export class SceneFx {
   constructor() {
     this.parts = [];
     this.last = 0;
     this.spawnAcc = 0;
+    this._key = '';
   }
 
   reset() {
     this.parts = [];
   }
 
+  /** 화면 크기·맵이 바뀌면 미리 그려 둘 것들 (햇살 바퀴·오로라 띠·아래 열기 그라데이션) */
+  _prepare(ctx, L, T) {
+    const key = `${T.key}:${L.W}x${L.H}`;
+    if (this._key === key) return;
+    this._key = key;
+    this.rays = null;
+    this.aurora = null;
+    this.heatGrad = null;
+    this.strobe = null;
+    if (T.key === 'sunset') {
+      const sr = L.GW * 0.26;
+      const R = sr * 2.6;
+      const c = document.createElement('canvas');
+      c.width = c.height = 256;
+      const g = c.getContext('2d');
+      g.translate(128, 128);
+      g.fillStyle = 'rgba(255,210,150,1)';
+      for (let i = 0; i < 12; i++) {
+        g.rotate((Math.PI * 2) / 12);
+        g.beginPath();
+        g.moveTo(0, 0);
+        g.lineTo(-128 * (0.12 / 2.6), -128);
+        g.lineTo(128 * (0.12 / 2.6), -128);
+        g.fill();
+      }
+      this.rays = { c, R };
+    }
+    if (T.key === 'aurora') {
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(L.W / 2));
+      c.height = Math.max(1, Math.round(L.topY / 2));
+      const g = c.getContext('2d');
+      g.scale(0.5, 0.5);
+      auroraBands(g, L, 0, 1);
+      this.aurora = c;
+    }
+    if (T.key === 'lava') {
+      const gr = ctx.createLinearGradient(0, L.H, 0, L.H * 0.6);
+      gr.addColorStop(0, 'rgba(255,70,10,1)');
+      gr.addColorStop(1, 'rgba(255,70,10,0)');
+      this.heatGrad = gr;
+    }
+    if (T.key === 'void') {
+      const gr = ctx.createLinearGradient(0, 0, 0, L.strikeY);
+      gr.addColorStop(0, 'rgba(255,255,255,1)');
+      gr.addColorStop(1, 'rgba(255,255,255,0)');
+      this.strobe = gr;
+    }
+  }
+
   /**
    * s = { rt, heat 0~1, beat(박 첫머리 1 → 0), barBeat(마디 첫 박이면 같은 값, 아니면 0),
-   *       pe(킥 펀치), fever, playing, lite }
+   *       pe(킥 펀치), fever, playing, lite, quality(2·1·0) }
    */
   draw(ctx, L, T, s) {
     const dt = Math.min(0.05, Math.max(0, s.rt - (this.last || s.rt)));
     this.last = s.rt;
-    if (s.lite) return;
+    const q = s.lite ? 0 : s.quality ?? 2;
+    if (q <= 0) return;
+    this._prepare(ctx, L, T);
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
-    this._beams(ctx, L, T, s);
-    const fx = FX[T.key];
-    if (fx) fx(ctx, L, T, s);
+    this._beams(ctx, L, T, s, q);
+    if (q >= 2) {
+      const fx = FX[T.key];
+      if (fx) fx.call(this, ctx, L, T, s);
+    }
     // 곡이 달아오르면 지평선이 비트에 맞춰 크게 빛남
     const hk = s.heat * (0.55 + 0.45 * s.beat);
-    if (hk > 0.02) radial(ctx, L.cx, L.topY, L.GW * (0.55 + 0.25 * s.beat), T.hot, 0.28 * hk);
+    glow(ctx, L.cx, L.topY, L.GW * (0.55 + 0.25 * s.beat), T.hot, 0.28 * hk);
     // 곡이 한 단계 달아오른 순간: 지평선에서 빛이 퍼짐 + 입자 한 번에
     if (s.surge > 0.01) {
-      radial(ctx, L.cx, L.topY, L.GW * (0.5 + (1 - s.surge) * 0.9), T.hot, 0.45 * s.surge);
-      if (!this._surging) for (let i = 0; i < 24 && this.parts.length < 110; i++) this.parts.push(spawn(T.particle, L, s));
+      glow(ctx, L.cx, L.topY, L.GW * (0.5 + (1 - s.surge) * 0.9), T.hot, 0.45 * s.surge);
+      if (!this._surging && q >= 2) for (let i = 0; i < 24 && this.parts.length < 110; i++) this.parts.push(spawn(T.particle, L, s));
       this._surging = true;
     } else this._surging = false;
     ctx.restore();
-    this._particles(ctx, L, T, s, dt);
+    if (q >= 2) this._particles(ctx, L, T, s, dt);
+    else this.parts.length = 0;
   }
 
-  _beams(ctx, L, T, s) {
+  _beams(ctx, L, T, s, q) {
     const mode = BEAMS[T.key];
     if (mode === 'none') return;
     const a0 = 0.05 + s.heat * 0.07 + s.beat * (0.03 + s.heat * 0.05) + s.pe * 0.1 + (s.fever ? 0.04 : 0);
     if (mode === 'down') {
       const lamps = T.key === 'void' ? rigLamps(L) : [0.12, 0.5, 0.88].map((f) => ({ x: L.GX + L.GW * f, y: 0 }));
+      const yb = L.strikeY + (L.H - L.strikeY) * 0.2;
+      const spread = L.GW * (0.32 + 0.1 * s.heat);
       lamps.forEach((p, k) => {
+        if (q < 2 && k % 2) return;
         // 블랙 스테이지: 마디 첫 박에 조명이 하나씩 번갈아 '팍' (곡 절정일수록)
         const on = T.key === 'void' ? a0 * 0.6 + s.barBeat * s.heat * (k % 2 === (s.barIdx & 1) ? 0.22 : 0.05) : a0 * 0.8;
-        const col = T.spots[k % T.spots.length];
-        const yb = L.strikeY + (L.H - L.strikeY) * 0.2;
-        const spread = L.GW * (0.16 + 0.05 * s.heat);
-        const gr = ctx.createLinearGradient(0, p.y, 0, yb);
-        gr.addColorStop(0, `rgba(${col},${on * 1.6})`);
-        gr.addColorStop(1, `rgba(${col},0)`);
-        ctx.fillStyle = gr;
-        ctx.beginPath();
-        ctx.moveTo(p.x - 5, p.y + 6);
-        ctx.lineTo(p.x - spread, yb);
-        ctx.lineTo(p.x + spread, yb);
-        ctx.lineTo(p.x + 5, p.y + 6);
-        ctx.fill();
+        beam(ctx, p.x, p.y + 6, 0, yb - p.y, spread, T.spots[k % T.spots.length], on * 1.6);
       });
       return;
     }
     const speed = (s.fever ? 1.6 : 0.6) * (0.7 + s.heat * 0.8);
     [0.08, 0.34, 0.66, 0.92].forEach((fx, k) => {
+      if (q < 2 && (k === 1 || k === 2)) return;
       const x = L.GX + L.GW * fx;
       const ang = Math.sin(s.rt * speed + k * 1.7) * (0.3 + s.heat * 0.15) + (fx - 0.5) * -0.5;
-      const len = L.H * 0.95;
-      const spread = L.GW * 0.16;
-      const tx = x + Math.sin(ang) * len;
-      const ty = L.H * 0.02 + Math.cos(ang) * len;
       const col = T.spots[k];
-      const gr = ctx.createLinearGradient(x, 0, tx, ty);
-      gr.addColorStop(0, `rgba(${col},${a0 * 2})`);
-      gr.addColorStop(1, `rgba(${col},0)`);
-      ctx.fillStyle = gr;
-      ctx.beginPath();
-      ctx.moveTo(x - 4, L.H * 0.02);
-      ctx.lineTo(tx - spread * Math.cos(ang), ty + spread * Math.sin(ang));
-      ctx.lineTo(tx + spread * Math.cos(ang), ty - spread * Math.sin(ang));
-      ctx.lineTo(x + 4, L.H * 0.02);
-      ctx.fill();
-      ctx.fillStyle = `rgba(${col},0.8)`;
-      ctx.beginPath();
-      ctx.arc(x, L.H * 0.022, L.GW * 0.016, 0, TAU);
-      ctx.fill();
+      beam(ctx, x, L.H * 0.02, ang, L.H * 0.95, L.GW * 0.32, col, a0 * 2);
+      glow(ctx, x, L.H * 0.022, L.GW * 0.03, col, 0.9);
     });
   }
 
@@ -682,7 +774,7 @@ export class SceneFx {
     // 곡이 달아오를수록 많이
     const rate = (PART_RATE[kind] || 6) * (0.35 + s.heat * 1.1) * (s.playing ? 1 : 0.4);
     this.spawnAcc += rate * dt;
-    while (this.spawnAcc >= 1 && this.parts.length < 80) {
+    while (this.spawnAcc >= 1 && this.parts.length < 60) {
       this.spawnAcc -= 1;
       this.parts.push(spawn(kind, L, s));
     }
@@ -743,48 +835,42 @@ function spawn(kind, L, s) {
 }
 
 function drawPart(ctx, p, fade, s) {
-  ctx.save();
   switch (p.kind) {
     case 'petal':
+      ctx.save();
       ctx.globalAlpha = 0.7 * fade;
       ctx.translate(p.x + Math.sin(p.rot) * 6, p.y);
       ctx.rotate(p.rot);
       ctx.fillStyle = `rgb(${p.col})`;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, p.size, p.size * 0.55, 0, 0, TAU);
-      ctx.fill();
+      ctx.fillRect(-p.size, -p.size * 0.5, p.size * 2, p.size);
+      ctx.restore();
       break;
     case 'gold':
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.globalAlpha = (p.conf ? 0.85 : 0.5 + 0.4 * s.beat) * fade;
-      ctx.fillStyle = `rgb(${p.col})`;
       if (p.conf) {
+        ctx.save();
+        ctx.globalAlpha = 0.85 * fade;
+        ctx.fillStyle = `rgb(${p.col})`;
         ctx.translate(p.x, p.y);
         ctx.rotate(p.rot);
         ctx.fillRect(-p.size, -p.size * 0.35, p.size * 2, p.size * 0.7 * Math.abs(Math.cos(p.rot * 2)));
+        ctx.restore();
       } else {
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.size, 0, TAU);
-        ctx.fill();
+        ctx.globalCompositeOperation = 'lighter';
+        glow(ctx, p.x, p.y, p.size * 2.5, p.col, (0.5 + 0.4 * s.beat) * fade);
+        ctx.globalCompositeOperation = 'source-over';
       }
+      break;
+    case 'haze':
+      glow(ctx, p.x, p.y, p.size, '255,255,255', fade * 0.05);
       break;
     case 'snow':
       ctx.globalAlpha = 0.85 * fade;
       ctx.fillStyle = '#FFFFFF';
-      ctx.beginPath();
-      ctx.arc(p.x + Math.sin(p.rot) * 5, p.y, p.size, 0, TAU);
-      ctx.fill();
+      ctx.fillRect(p.x + Math.sin(p.rot) * 5 - p.size / 2, p.y - p.size / 2, p.size, p.size);
+      ctx.globalAlpha = 1;
       break;
-    case 'haze': {
-      ctx.globalAlpha = fade * 0.05;
-      const gr = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.size);
-      gr.addColorStop(0, 'rgba(255,255,255,1)');
-      gr.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = gr;
-      ctx.fillRect(p.x - p.size, p.y - p.size, p.size * 2, p.size * 2);
-      break;
-    }
     case 'star': {
+      ctx.save();
       ctx.globalCompositeOperation = 'lighter';
       ctx.globalAlpha = fade * 0.9;
       const k = 0.03 + s.heat * 0.06;
@@ -795,53 +881,41 @@ function drawPart(ctx, p, fade, s) {
       ctx.moveTo(p.x, p.y);
       ctx.lineTo(p.x - p.vx * k, p.y - p.vy * k);
       ctx.stroke();
+      ctx.restore();
       break;
     }
     default: {
       // neon · ember: 빛나는 점
       ctx.globalCompositeOperation = 'lighter';
-      ctx.globalAlpha = fade * (p.kind === 'ember' ? 0.9 : 0.6);
       const x = p.x + (p.kind === 'ember' ? Math.sin(p.rot * 2) * 4 : 0);
-      ctx.fillStyle = `rgba(${p.col},0.35)`;
-      ctx.beginPath();
-      ctx.arc(x, p.y, p.size * 3, 0, TAU);
-      ctx.fill();
-      ctx.fillStyle = `rgb(${p.col})`;
-      ctx.beginPath();
-      ctx.arc(x, p.y, p.size, 0, TAU);
-      ctx.fill();
+      glow(ctx, x, p.y, p.size * 3, p.col, fade * (p.kind === 'ember' ? 0.9 : 0.6));
+      ctx.globalCompositeOperation = 'source-over';
     }
   }
-  ctx.restore();
 }
 
+/** 테마별 장식 (this = SceneFx, ctx 는 lighter 상태) */
 const FX = {
   sunset(ctx, L, T, s) {
-    // 해 뒤로 도는 햇살
+    // 해 뒤로 도는 햇살 (미리 그린 바퀴를 돌림)
     const sr = L.GW * 0.26;
     const sy = L.topY - sr * 0.12;
-    const a = 0.04 + s.heat * 0.08 + s.beat * 0.04;
-    ctx.save();
-    ctx.translate(L.cx, sy);
-    ctx.rotate(s.rt * 0.08);
-    ctx.fillStyle = `rgba(255,210,150,${a})`;
-    for (let i = 0; i < 12; i++) {
-      ctx.rotate(TAU / 12);
-      ctx.beginPath();
-      ctx.moveTo(0, 0);
-      ctx.lineTo(-sr * 0.12, -sr * 2.6);
-      ctx.lineTo(sr * 0.12, -sr * 2.6);
-      ctx.fill();
+    if (this.rays) {
+      ctx.save();
+      ctx.translate(L.cx, sy);
+      ctx.rotate(s.rt * 0.08);
+      ctx.globalAlpha = Math.min(1, 0.04 + s.heat * 0.08 + s.beat * 0.04);
+      const R = this.rays.R;
+      ctx.drawImage(this.rays.c, -R, -R, R * 2, R * 2);
+      ctx.restore();
     }
-    ctx.restore();
     // 전구가 박자마다 번갈아 반짝
     const pts = garland(L);
     const cols = ['255,224,122', '255,154,184', '154,230,255', '200,255,154'];
     const b = Math.floor(s.beatNo || 0);
     pts.forEach((p, i) => {
       const on = (i + b) % 2 === 0 ? s.beat : 0;
-      const k = 0.25 + 0.25 * s.heat + on * (0.4 + 0.4 * s.heat);
-      radial(ctx, p.x, p.y + 4, 12 + 8 * on, cols[i % cols.length], k);
+      glow(ctx, p.x, p.y + 4, 12 + 8 * on, cols[i % cols.length], 0.25 + 0.25 * s.heat + on * (0.4 + 0.4 * s.heat));
     });
   },
   city(ctx, L, T, s) {
@@ -849,46 +923,52 @@ const FX = {
     const n = 18;
     const w = L.GW / n;
     const b = Math.floor(s.beatNo || 0);
+    ctx.globalAlpha = 0.25 + 0.3 * s.heat;
     for (let i = 0; i < n; i++) {
       const seed = Math.sin(i * 12.9898 + b * 78.233) * 43758.5453;
       const rnd = seed - Math.floor(seed);
       const h = L.topY * 0.06 * (0.3 + rnd * (0.4 + s.heat)) * (0.5 + s.beat * 0.8);
-      const x = L.GX + i * w;
-      const col = i % 2 ? '57,230,255' : '255,79,216';
-      ctx.fillStyle = `rgba(${col},${0.25 + 0.3 * s.heat})`;
-      ctx.fillRect(x + w * 0.15, L.topY - h, w * 0.7, h);
+      ctx.fillStyle = i % 2 ? 'rgb(57,230,255)' : 'rgb(255,79,216)';
+      ctx.fillRect(L.GX + i * w + w * 0.15, L.topY - h, w * 0.7, h);
     }
+    ctx.globalAlpha = 1;
   },
   hall(ctx, L, T, s) {
     // 금빛 오르간이 박자에 맞춰 은은하게
-    radial(ctx, L.cx, L.topY - L.topY * 0.35, L.GW * 0.6, '255,210,120', 0.06 + 0.1 * s.heat * s.beat);
+    glow(ctx, L.cx, L.topY - L.topY * 0.35, L.GW * 0.6, '255,210,120', 0.06 + 0.1 * s.heat * s.beat);
   },
   void(ctx, L, T, s) {
     // 절정: 마디 첫 박에 화면 위쪽이 하얗게 번쩍 (눈부시지 않게 약하게)
-    if (s.heat > 0.6 && s.barBeat > 0) {
-      const gr = ctx.createLinearGradient(0, 0, 0, L.strikeY);
-      gr.addColorStop(0, `rgba(255,255,255,${0.14 * s.barBeat * s.heat})`);
-      gr.addColorStop(1, 'rgba(255,255,255,0)');
-      ctx.fillStyle = gr;
+    if (this.strobe && s.heat > 0.6 && s.barBeat > 0) {
+      ctx.globalAlpha = 0.14 * s.barBeat * s.heat;
+      ctx.fillStyle = this.strobe;
       ctx.fillRect(0, 0, L.W, L.strikeY);
+      ctx.globalAlpha = 1;
     }
   },
   lava(ctx, L, T, s) {
-    // 분화구가 박자마다 끓어오름
+    // 분화구가 박자마다 끓어오름 + 화면 아래 열기
     const vh = L.topY * 0.42;
-    radial(ctx, L.cx, L.topY - vh, L.GW * (0.2 + 0.1 * s.beat + 0.1 * s.heat), '255,100,20', 0.25 + 0.35 * s.beat * (0.4 + s.heat));
-    // 화면 아래 열기
-    const gr = ctx.createLinearGradient(0, L.H, 0, L.H * 0.6);
-    gr.addColorStop(0, `rgba(255,70,10,${0.08 + 0.14 * s.heat})`);
-    gr.addColorStop(1, 'rgba(255,70,10,0)');
-    ctx.fillStyle = gr;
-    ctx.fillRect(0, L.H * 0.6, L.W, L.H * 0.4);
+    glow(ctx, L.cx, L.topY - vh, L.GW * (0.2 + 0.1 * s.beat + 0.1 * s.heat), '255,100,20', 0.25 + 0.35 * s.beat * (0.4 + s.heat));
+    if (this.heatGrad) {
+      ctx.globalAlpha = 0.08 + 0.14 * s.heat;
+      ctx.fillStyle = this.heatGrad;
+      ctx.fillRect(0, L.H * 0.6, L.W, L.H * 0.4);
+      ctx.globalAlpha = 1;
+    }
   },
   aurora(ctx, L, T, s) {
-    // 오로라가 박자·곡 세기에 맞춰 일렁이며 밝아짐
-    auroraBands(ctx, L, s.rt, 0.12 + 0.25 * s.heat + 0.15 * s.beat);
+    // 오로라가 박자·곡 세기에 맞춰 일렁이며 밝아짐 (미리 그린 띠를 좌우로 흔들며 겹쳐 찍음)
+    if (!this.aurora) return;
+    const a = Math.min(1, 0.12 + 0.25 * s.heat + 0.15 * s.beat);
+    const dx = Math.sin(s.rt * 0.35) * L.W * 0.04;
+    ctx.globalAlpha = a;
+    ctx.drawImage(this.aurora, dx, 0, L.W, L.topY);
+    ctx.globalAlpha = a * 0.5;
+    ctx.drawImage(this.aurora, -dx * 1.6, L.topY * 0.03, L.W, L.topY);
+    ctx.globalAlpha = 1;
   },
   space(ctx, L, T, s) {
-    radial(ctx, L.cx, L.topY, L.GW * 0.35, '160,140,255', 0.1 + 0.2 * s.beat * (0.3 + s.heat));
+    glow(ctx, L.cx, L.topY, L.GW * 0.35, '160,140,255', 0.1 + 0.2 * s.beat * (0.3 + s.heat));
   },
 };

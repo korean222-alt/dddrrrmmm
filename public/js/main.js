@@ -4,6 +4,7 @@ import {
   LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES,
   ENDLESS_ID, LAST_LEVEL_ID, makeEndless, isUnlocked, nextChallenge, DIAMOND_RULES, roundInfo,
   ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId,
+  STUDIO_LEVELS, getStudioLevel,
 } from './charts.js';
 import { AudioEngine, playMetronome } from './audio.js';
 import { Renderer } from './render.js';
@@ -61,6 +62,12 @@ const icon = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICO
 
 const audio = new AudioEngine();
 const renderer = new Renderer($('#game-canvas'));
+// 자동 화질: 이 기기에서 버벅여서 내려갔던 단계를 기억해 다음 판부터 그대로
+renderer.quality = Math.max(0, Math.min(2, Number(load('gfxQ', 2)) || 0));
+renderer.onQualityDrop = (q) => {
+  save('gfxQ', q);
+  if (q === 0) state.suggestLite = true;
+};
 
 const state = {
   api: null,
@@ -243,7 +250,7 @@ function playable(id) {
   const eb = levelEndlessBase(id);
   if (eb) return makeLevelEndless(eb);
   if (typeof id === 'string' && /^ch\d+$/.test(id)) return makeEndless({ rounds: Number(id.slice(2)) });
-  return getLevel(id);
+  return getStudioLevel(id) || getLevel(id);
 }
 const isChallengeId = (id) => id === ENDLESS_ID || (typeof id === 'string' && /^(ch|e)\d+$/.test(id));
 /** 앞 단계를 안 깨서 잠김 (팔로우 잠금과 별개) */
@@ -481,7 +488,7 @@ async function startLevel(id, opts = {}) {
   if (state.game) state.game.stop();
   closeModal('modal-pause');
   show('screen-game');
-  $('#hud-lv').textContent = lv.challenge ? (lv.endless ? '무제한' : '챌린지') : `${lv.id}단계`;
+  $('#hud-lv').textContent = lv.challenge ? (lv.endless ? '무제한' : '챌린지') : lv.studioOnly ? '🎬 릴스용' : `${lv.id}단계`;
   $('#hud-name').textContent = lv.challenge ? `${lv.songName} · ${lv.composer}` : `${lv.name} · ${lv.composer}`;
   $('#hud-score').textContent = '0';
   $('#hud-progress').style.width = '0%';
@@ -618,6 +625,12 @@ async function startLevel(id, opts = {}) {
     box.hidden = true;
     if (stale() || state.game !== g) return;
   }
+  let stallToastAt = 0;
+  state.game.onStall = () => {
+    if (Date.now() - stallToastAt < 4000) return;
+    stallToastAt = Date.now();
+    toast('🔇 폰이 소리를 잠깐 멈췄어요. 화면을 한 번 톡 눌러 주세요', 3000);
+  };
   state.game.start();
   // 영상 찍기·자동 연주는 통계에 안 셈
   if (!st.active && !state.auto) trackPlayStart(id, vs || room ? 'vs' : 'normal');
@@ -790,6 +803,10 @@ function giveUp() {
 
 // ---------------- 결과 ----------------
 function showResult(res) {
+  if (state.suggestLite && !state.settings.lite) {
+    state.suggestLite = false;
+    setTimeout(() => toast('폰이 버거워해서 무대 효과를 줄였어요. 그래도 버벅이면 ⚙ 설정 → 저사양 모드', 4200), 2600);
+  }
   res.runToken = state.runToken;
   state.lastResult = res;
   $('#screen-result').classList.toggle('in-room', !!res.room);
@@ -1255,7 +1272,6 @@ function openSettings() {
   const s = state.settings;
   $('#set-music').value = s.music;
   $('#set-sfx').value = s.sfx;
-  $('#set-speed').value = s.noteSpeed;
   $('#set-offset').value = s.offsetMs;
   $('#set-vibrate').checked = !!s.vibrate;
   $('#set-lite').checked = !!s.lite;
@@ -1268,12 +1284,16 @@ function openSettings() {
 }
 function updateSettingLabels() {
   const s = state.settings;
-  $('#set-speed-val').textContent = `x${Number(s.noteSpeed).toFixed(1)}`;
   $('#set-offset-val').textContent = s.offsetMs === 0 ? '0ms' : `${s.offsetMs > 0 ? '+' : ''}${s.offsetMs}ms`;
 }
 /** 저사양 모드 적용: 게임 그림(해상도·효과) + 화면 꾸밈(애니메이션·그림자) */
 function applyLite() {
   const on = !!state.settings.lite;
+  // 저사양 모드를 직접 껐으면 자동 화질도 처음(최고)부터 다시
+  if (!on && renderer.lite) {
+    renderer.quality = 2;
+    save('gfxQ', 2);
+  }
   renderer.lite = on;
   document.documentElement.classList.toggle('lite', on);
   if ($('#screen-game').classList.contains('active')) renderer.resize();
@@ -1283,7 +1303,6 @@ function bindSettings() {
     const s = state.settings;
     s.music = Number($('#set-music').value);
     s.sfx = Number($('#set-sfx').value);
-    s.noteSpeed = Number($('#set-speed').value);
     s.offsetMs = Number($('#set-offset').value);
     s.vibrate = $('#set-vibrate').checked;
     s.lite = $('#set-lite').checked;
@@ -1292,7 +1311,7 @@ function bindSettings() {
     saveSettings(s);
     updateSettingLabels();
   };
-  ['#set-music', '#set-sfx', '#set-speed', '#set-offset', '#set-vibrate', '#set-lite'].forEach((id) => $(id).addEventListener('input', upd));
+  ['#set-music', '#set-sfx', '#set-offset', '#set-vibrate', '#set-lite'].forEach((id) => $(id).addEventListener('input', upd));
   $('#set-band').addEventListener('click', async (e) => {
     const b = e.target.closest('[data-band]');
     if (!b) return;
@@ -1431,7 +1450,7 @@ function studioOverlay(lv) {
     top: st.top,
     bottom: st.bottom,
     challenge: !!lv.challenge,
-    label: lv.challenge ? '레벨업 챌린지' : `${lv.id}단계 · ${lv.composer} ${lv.name}`,
+    label: lv.challenge ? '레벨업 챌린지' : lv.studioOnly ? `${lv.composer} ${lv.name}` : `${lv.id}단계 · ${lv.composer} ${lv.name}`,
   };
 }
 
@@ -1444,6 +1463,7 @@ function openStudio() {
     STUDIO_CHALLENGES.map(
       (n) => `<button class="chip-hot" data-studio-level="ch${n}" aria-pressed="${st.level === 'ch' + n}">🔥 레벨업 챌린지 Lv.1→${n}</button>`
     ).join('') +
+    STUDIO_LEVELS.map((l) => `<button class="chip-hot" data-studio-level="${l.id}" aria-pressed="${l.id === st.level}">🎬 릴스용 · ${l.name} (느리게)</button>`).join('') +
     LEVELS.map((l) => `<button data-studio-level="${l.id}" aria-pressed="${l.id === st.level}">${l.id}. ${l.name}</button>`).join('');
   $$('#studio-mode button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.mode === st.mode));
   $('#studio-top').value = st.top;
@@ -2018,6 +2038,17 @@ function bindActions() {
     e.preventDefault();
     submitJoin();
   });
+  // 소리가 멈춰 있으면(iOS 는 터치가 있어야 다시 켜짐) 아무 데나 눌러도 다시 켬
+  document.addEventListener(
+    'pointerdown',
+    () => {
+      if (audio.ctx && audio.ctx.state !== 'running' && state.game && state.game.state === 'playing') {
+        audio.ctx.resume().catch(() => {});
+        audio.resetClock();
+      }
+    },
+    { capture: true, passive: true }
+  );
   document.addEventListener('click', (e) => {
     const newMode = e.target.closest('#room-mode-new [data-mode]');
     if (newMode) {

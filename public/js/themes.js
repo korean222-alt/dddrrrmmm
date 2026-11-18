@@ -242,6 +242,7 @@ export function themeKeyForId(id) {
 /** 레벨(판) → { key, cycle } . cycle 이면 Lv 마다 맵이 바뀜 */
 export function themeForLevel(lv) {
   if (!lv) return { key: 'sunset', cycle: false };
+  if (lv.theme && THEMES[lv.theme]) return { key: lv.theme, cycle: false };
   if (lv.baseId != null) return { key: themeKeyForId(lv.baseId), cycle: false };
   if (lv.challenge) return { key: 'space', cycle: true };
   return { key: themeKeyForId(lv.id), cycle: false };

@@ -727,6 +727,44 @@ export const LEVELS = [
   },
 ];
 
+// ---------------------------------------------------------------
+// 🎬 영상 찍기 전용 (릴스용): 단계 목록·랭킹·진행엔 안 나옴. '영상 찍기' 화면에서만.
+//   4악기가 다 나와서 화려해 보이지만, 패턴은 10단계(캉캉)와 같은 정도 + 조금 느리게(108 → 96 BPM)
+//   → 보는 사람은 '어려워 보이는데 잘 친다', 치는 사람은 할 만함
+// ---------------------------------------------------------------
+export const STUDIO_LEVELS = [
+  {
+    id: 'r4',
+    studioOnly: true,
+    name: '캉캉 4드럼',
+    composer: '오펜바흐',
+    tagline: '릴스용 · 네 악기 총출동 (느리게)',
+    theme: 'city',
+    difficulty: 4,
+    bpm: 96,
+    song: LEVELS[9].song,
+    bars: [
+      'X.......B.......',
+      'B...S...B...S...',
+      'K.H.S...K.H.S...',
+      'K.H.S...K.H.S.H.',
+      'C.H.S.H.K.H.S.H.',
+      'K.H.S.H.K.K.S...',
+      'X...S...J...S...',
+      'B.B.S...B.B.S...',
+      'C.H.S.H.K.H.S.H.',
+      'J.H.S.H.J.H.S.H.',
+      'K.HKS.H.K.HKS.H.',
+      'X...S.H.B...S.H.',
+      'C.H.S.H.J.H.S.H.',
+      'K.HKS.H.K.HKS.H.',
+      'X.H.B.H.X.H.B.H.',
+      'X.B.X.B.X.......',
+    ],
+  },
+];
+export const getStudioLevel = (id) => STUDIO_LEVELS.find((l) => l.id === id) || null;
+
 /** 누구나 칠 수 있는 단계: 1~FREE_UPTO. 그 뒤 단계와 💎 무제한 모드(그리그·단계별)는 전부 팔로워 인증(암호) 필요 */
 export const FREE_UPTO = 3;
 /** (예전 '인증 신청만 해도 열림' 단계 — 이제 없음) */
