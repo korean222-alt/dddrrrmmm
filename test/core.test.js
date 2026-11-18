@@ -35,7 +35,9 @@ test('악기: 1~9단계 킥·스네어, 10단계 +하이햇, 13단계 +크래시
   assert.equal(LEVELS[9].newInstrument, HAT);
   assert.equal(LEVELS[12].newInstrument, CRASH);
   // 난이도는 단계가 올라갈수록 같거나 높아짐
-  for (let i = 1; i < LEVELS.length; i++) assert.ok(LEVELS[i].difficulty >= LEVELS[i - 1].difficulty, `Lv.${i + 1} 난이도`);
+  // (🎄 캐롤 단계는 본편 순서 밖이라 뺌)
+  const main = LEVELS.filter((l) => !l.xmas);
+  for (let i = 1; i < main.length; i++) assert.ok(main[i].difficulty >= main[i - 1].difficulty, `Lv.${i + 1} 난이도`);
   // 같은 엄지 레인(킥/크래시, 스네어/하이햇)에 동시 노트가 없어야 함
   for (const lv of LEVELS) {
     const byTime = new Map();

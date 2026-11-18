@@ -145,6 +145,7 @@ const LEVELS = [
     song: {
       prog: ['C', 'C', 'C', 'C', 'F', 'C', 'D7', 'G7', 'C', 'C', 'C', 'C', 'F', 'C', 'G7', 'C'],
       hat: 'x.x.x.x.x.x.x.x.',
+      bells: 'x.x.x.x.x.x.x.x.',
       bass: 'x...5...x...5...',
       chord: '..x...x...x...x.',
       melody: [
@@ -783,6 +784,134 @@ const LEVELS = [
       'X...B...X.......',
     ],
   },
+  // ---------------------------------------------------------------
+  // 🎄 크리스마스 캐롤 (18~20단계, 크리스마스 마을 맵). 퍼블릭 도메인 곡만.
+  //   xmas: 앞 단계를 안 깼어도 바로 칠 수 있음 (잠금은 4단계부터와 같음: 팔로워 인증)
+  //   song.bells = 썰매 방울 박자, song.glock = 멜로디 위에 글로켄슈필
+  // ---------------------------------------------------------------
+  {
+    id: 18,
+    xmas: true,
+    name: '기쁘다 구주 오셨네',
+    composer: '헨델·메이슨',
+    tagline: '크리스마스 캐롤 · 쿵짝 따라 치기',
+    difficulty: 2,
+    bpm: 96,
+    song: {
+      prog: ['D', 'A7 D', 'G A', 'D', 'D', 'D', 'D A7', 'A7 G', 'D A7', 'D'],
+      hat: '................',
+      bells: 'x...x...x...x...',
+      glock: true,
+      bass: 'x.......5.......',
+      chord: '....x.......x...',
+      melody: [
+        'D5:4 C#5:3 B4:1 A4:6 G4:2', 'F#4:4 E4:4 D4:6 A4:2', 'B4:6 B4:2 C#5:6 C#5:2', 'D5:6 D5:2 D5:2 C#5:2 B4:2 A4:2',
+        'A4:3 G4:1 F#4:2 D5:2 D5:2 C#5:2 B4:2 A4:2', 'A4:3 G4:1 F#4:4 F#4:2 F#4:2 F#4:2 F#4:1 G4:1',
+        'A4:6 G4:1 F#4:1 E4:2 E4:2 E4:2 E4:1 F#4:1', 'G4:6 F#4:1 E4:1 D4:2 D5:4 B4:2',
+        'A4:3 G4:1 F#4:2 G4:2 F#4:4 E4:4', 'D4:16',
+      ],
+    },
+    bars: [
+      'K...S...K...S...',
+      'K...S...K.K.S...',
+      'K...S...K...S...',
+      'K...S...K.K.S.S.',
+      'K...S...K...S...',
+      'K.K.S...K.K.S...',
+      'K.K.S...K.K.S...',
+      'K...S...K.K.S...',
+      'K...S...K...S...',
+      'B.......S.S.S...',
+      'K...S...K...S...',
+      'K...S...K.K.S...',
+      'K...S...K...S...',
+      'K.K.S...K.K.S.S.',
+      'K...S...K.K.S...',
+      'B.......B.......',
+    ],
+  },
+  {
+    id: 19,
+    xmas: true,
+    name: '데크 더 홀즈',
+    composer: '웨일스 민요',
+    tagline: '크리스마스 캐롤 · 팔라라라라 신나게',
+    difficulty: 3,
+    bpm: 112,
+    song: {
+      prog: ['G', 'G D7', 'G D7', 'D7 G', 'G', 'G D7', 'G D7', 'D7 G', 'D7', 'G D7', 'G A7', 'A7 D', 'G', 'G D7', 'C G', 'D7 G'],
+      hat: '................',
+      bells: 'x.x.x.x.x.x.x.x.',
+      glock: true,
+      bass: 'x...5...x...5...',
+      chord: '..x...x...x...x.',
+      melody: [
+        'D5:6 C5:2 B4:4 A4:4', 'G4 A4 B4 G4', 'A4:2 B4:2 C5:2 A4:2 B4:6 A4:2', 'G4:4 F#4:4 G4:8',
+        'D5:6 C5:2 B4:4 A4:4', 'G4 A4 B4 G4', 'A4:2 B4:2 C5:2 A4:2 B4:6 A4:2', 'G4:4 F#4:4 G4:8',
+        'A4:6 B4:2 C5:4 A4:4', 'B4:6 C5:2 D5:4 A4:4', 'B4:2 C#5:2 D5:4 E5:2 F#5:2 G5:4', 'F#5:4 E5:4 D5:8',
+        'D5:6 C5:2 B4:4 A4:4', 'G4 A4 B4 G4', 'E5:2 E5:2 E5:2 E5:2 D5:6 C5:2', 'B4:4 A4:4 G4:8',
+      ],
+    },
+    bars: [
+      'K...S...K...S...',
+      'K...S...K.K.S...',
+      'K.K.S.S.K...S...',
+      'K...S...B.......',
+      'K...S...K...S...',
+      'K...S...K.K.S...',
+      'K.K.S.S.K...S...',
+      'K...S...B.......',
+      'K..KS...K..KS...',
+      'K..KS...K.K.S...',
+      'K.K.S.K.K.K.S.S.',
+      'K...S...B...S...',
+      'K..KS...K..KS...',
+      'K.K.S.K.K.K.S...',
+      'S.S.S.S.K...S...',
+      'K...S...B.......',
+    ],
+  },
+  {
+    id: 20,
+    xmas: true,
+    name: '천사 찬송하기를',
+    composer: '멘델스존',
+    tagline: '크리스마스 캐롤 · 웅장한 합창',
+    difficulty: 3,
+    bpm: 104,
+    song: {
+      prog: ['G', 'G D', 'G D7', 'D7 G', 'G', 'G D', 'D', 'A7 D', 'G', 'C D7', 'G', 'C D7', 'C G', 'Am', 'D7 G', 'D7 G'],
+      hat: '................',
+      bells: 'x...x...x...x...',
+      glock: true,
+      bass: 'x...5...x...5...',
+      chord: '..x...x...x...x.',
+      melody: [
+        'D4 G4 G4:6 F#4:2', 'G4 B4 B4 A4', 'D5 D5 D5:6 C5:2', 'B4 A4 B4:8',
+        'D4 G4 G4:6 F#4:2', 'G4 B4 B4 A4', 'D5 A4 A4:6 F#4:2', 'F#4 E4 D4:8',
+        'D5 D5 D5 G4', 'C5 B4 B4 A4', 'D5 D5 D5 G4', 'C5 B4 B4 A4',
+        'E5 E5 E5 D5', 'C5 B4 C5:8', 'A4 B4:2 C5:2 D5:6 G4:2', 'G4 A4 B4:8',
+      ],
+    },
+    bars: [
+      'K...S...K...S...',
+      'K...S...K...S.S.',
+      'K...S...K.K.S...',
+      'K...S...B.......',
+      'K...S...K...S...',
+      'K...S...K.K.S...',
+      'K.K.S...K.K.S...',
+      'K...S...B.......',
+      'K.K.S...K.K.S...',
+      'K.K.S...K.K.S.S.',
+      'K.K.S...K.K.S...',
+      'K.K.S...K.K.S.S.',
+      'K.K.S.K.K.K.S...',
+      'K..KS...B.......',
+      'K.K.S...K.K.S.S.',
+      'K...S...B.......',
+    ],
+  },
 ];
 
 // ---------------------------------------------------------------
@@ -1123,7 +1252,8 @@ function scoreBounds(counts) {
 function isClearBest(best) {
   return !!best && (best.stars || 0) >= 1;
 }
-const LAST_LEVEL_ID = LEVELS[LEVELS.length - 1].id;
+/** 본편 마지막 단계 (🎄 캐롤 단계는 본편 순서 밖) */
+const LAST_LEVEL_ID = LEVELS.filter((l) => !l.xmas).at(-1).id;
 
 /** 2026-11-17: 8단계에 '운명 교향곡'을 끼워 넣어서, 예전 8~14단계는 번호가 하나씩 밀림(9~15).
  *  저장된 기록 키('8', 'e8', 서버 칸 '-8')를 새 번호로 바꿔 줌. 예전 번호가 아니면 그대로. */
@@ -1146,6 +1276,8 @@ function isUnlocked(levelId, bests) {
   const base = levelEndlessBase(levelId);
   if (base) return isClearBest(bests[base.id]);
   if (levelId >= 1 && levelId <= FREE_LEVELS) return true;
+  // 🎄 캐롤 단계는 앞 단계를 안 깼어도 바로 (잠금은 isClosed: 팔로워 인증)
+  if (getLevel(levelId)?.xmas) return true;
   const prev = prevOpenId(levelId);
   if (prev === null || isClearBest(bests[prev])) return true;
   const lv = getLevel(levelId);
@@ -1930,6 +2062,54 @@ class AudioEngine {
     this._noise(t, d + 0.02, hp);
   }
 
+  /** 🔔 썰매 방울 (캐롤): 높은 쇳소리 '찰랑' 두세 겹 */
+  sleigh(t, vel = 0.5, dest = this.musicBus) {
+    const ctx = this.ctx;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 9000;
+    bp.Q.value = 2.5;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.22 * vel, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+    bp.connect(g).connect(dest);
+    // 방울 여러 개가 아주 조금씩 늦게 부딪힘
+    for (const dt of [0, 0.012, 0.027]) this._noise(t + dt, 0.05, bp);
+    for (const [f, a] of [[5200, 0.05], [6900, 0.035]]) {
+      const o = ctx.createOscillator();
+      const og = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = f;
+      og.gain.setValueAtTime(0.0001, t);
+      og.gain.exponentialRampToValueAtTime(a * vel, t + 0.003);
+      og.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+      o.connect(og).connect(dest);
+      o.start(t);
+      o.stop(t + 0.14);
+    }
+  }
+
+  /** 🔔 글로켄슈필 (캐롤 멜로디를 한 옥타브 위에서 반짝이게) */
+  glock(t, midi, dest = this.musicBus, vel = 1) {
+    const ctx = this.ctx;
+    const g = ctx.createGain();
+    g.gain.value = 0.06 * vel;
+    g.connect(dest);
+    for (const [mult, amp, d] of [[1, 1, 1.1], [2.76, 0.25, 0.35], [5.4, 0.12, 0.15]]) {
+      const o = ctx.createOscillator();
+      const og = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = mtof(midi) * mult;
+      og.gain.setValueAtTime(0.0001, t);
+      og.gain.exponentialRampToValueAtTime(amp, t + 0.003);
+      og.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      o.connect(og).connect(g);
+      o.start(t);
+      o.stop(t + d + 0.02);
+    }
+  }
+
   /** 크래시 심벌 */
   crash(t = this.ctx.currentTime, dest = this.musicBus, vol = 0.5) {
     const ctx = this.ctx;
@@ -2268,6 +2448,8 @@ class SongPlayer {
     // 하이햇
     const hc = song.hat[s];
     if (hc === 'x' || hc === 'o') a.hat(t, s % 4 === 0 ? 0.6 : 0.35, hc === 'o', this.bus);
+    // 🎄 캐롤: 썰매 방울
+    if (song.bells && song.bells[s] === 'x') a.sleigh(t, s % 4 === 0 ? 0.7 : 0.45, this.bus);
     // 베이스 (오케스트라면 첼로가 같이 받쳐줌)
     const bc = song.bass[s];
     if (bc && bc !== '.') {
@@ -2285,6 +2467,8 @@ class SongPlayer {
       for (const n of this.melody) {
         if (n.bar !== mbar || n.step !== s) continue;
         const dur = n.len * sd * 0.92;
+        // 🎄 캐롤: 글로켄슈필이 한 옥타브 위에서 같이 (긴 음만, 너무 시끄럽지 않게)
+        if (song.glock && n.len >= 2) a.glock(t, n.midi + 12, this.bus, 0.6 + 0.4 * heat);
         if (!orch) {
           a.lead(t, n.midi, dur, this.bus);
           continue;
@@ -3411,6 +3595,7 @@ return { SNARE_RY, lighten, darken, buildKit };
 const __m_themes = (() => {
 // 맵 분위기(테마): 단계를 묶어서 묶음마다 무대가 바뀜. 곡이 달아오르면(heat) 조명·입자가 같이 커짐.
 //   1~3 노을 피크닉 · 4~6 네온 시티 · 7~9 황금 콘서트홀 · 10~12 블랙 스테이지 · 13~15 용암 보스전 · 16~17 오로라 설원
+//   18~20 크리스마스 마을 (캐롤)
 //   그리그 무제한·레벨업 챌린지는 우주 무대에서 시작해 Lv 이 오를 때마다 맵이 바뀜(THEME_CYCLE).
 //   단계별 무제한(e5 등)은 그 단계 맵 그대로.
 //
@@ -3597,6 +3782,36 @@ const THEMES = {
       cym: 'silver',
     },
   },
+  xmas: {
+    key: 'xmas',
+    name: '크리스마스 마을',
+    icon: 'tree',
+    sky: ['#06102A', '#132A55', '#3A4E86'],
+    ground: ['#E9F2FA', '#7C93AE'],
+    glow: '255,214,140',
+    hot: '255,90,90',
+    laneBase: 'rgba(14,20,44,0.74)',
+    laneTint: 0.75,
+    rail: null,
+    beat: '255,240,220',
+    fog: '60,40,90',
+    spots: ['255,90,90', '120,255,160', '255,214,120', '255,90,90'],
+    particle: 'snow',
+    kit: {
+      shell: ['#FF8A8A', '#D7263D', '#6E0F1C'],
+      finish: 'sparkle',
+      sparkle: '#FFFFFF',
+      snare: ['#C8FFD8', '#2FAF5E', '#0E5A2C'],
+      snareFinish: 'gloss',
+      hoop: ['#FFF4C2', '#E0B84A', '#7A5A14'],
+      inlay: '#FFD84A',
+      hw: 'gold',
+      head: '#FFF8F0',
+      emblem: '#D7263D',
+      emblemText: '#0E5A2C',
+      cym: 'gold',
+    },
+  },
   space: {
     key: 'space',
     name: '우주 무대',
@@ -3638,6 +3853,7 @@ const THEME_GROUPS = [
   { from: 10, to: 12, key: 'void' },
   { from: 13, to: 15, key: 'lava' },
   { from: 16, to: 17, key: 'aurora' },
+  { from: 18, to: 20, key: 'xmas' },
 ];
 
 /** 그리그 무제한·레벨업 챌린지: Lv 이 오를 때마다 이 순서로 맵이 바뀜 */
@@ -3647,7 +3863,7 @@ function themeKeyForId(id) {
   const n = Number(id);
   if (!Number.isFinite(n)) return 'space';
   const g = THEME_GROUPS.find((t) => n >= t.from && n <= t.to);
-  return g ? g.key : n > 17 ? 'aurora' : 'sunset';
+  return g ? g.key : n > 20 ? 'aurora' : 'sunset';
 }
 
 /** 레벨(판) → { key, cycle } . cycle 이면 Lv 마다 맵이 바뀜 */
@@ -3708,6 +3924,33 @@ function garland(L) {
   }
   return pts;
 }
+
+/** 크리스마스 마을: 길 양옆 트리 (정적 그림·동적 전구 공용) */
+function xmasTrees(L) {
+  const { cx, topY, GW } = L;
+  const out = [];
+  for (const [f, k] of [[-0.62, 1], [-0.36, 0.7], [0.4, 0.75], [0.66, 1.05]]) {
+    const h = topY * 0.5 * k;
+    out.push({ x: cx + GW * f, y: topY + h * 0.06, h, w: h * 0.36 });
+  }
+  return out;
+}
+/** 트리 위 전구 자리 (트리마다 지그재그로 감은 줄) */
+function xmasLights(L) {
+  const pts = [];
+  xmasTrees(L).forEach((t, ti) => {
+    for (let row = 0; row < 4; row++) {
+      const yy = t.y - t.h * (0.18 + row * 0.19);
+      const half = t.w * (1 - (row * 0.19 + 0.18)) * 0.95;
+      for (let j = 0; j < 4; j++) {
+        const u = (j + 0.5) / 4;
+        pts.push({ x: t.x - half + 2 * half * (row % 2 ? 1 - u : u), y: yy + t.h * 0.05 * u, k: ti * 16 + row * 4 + j });
+      }
+    }
+  });
+  return pts;
+}
+const XMAS_COLS = ['255,80,80', '255,214,90', '120,220,255', '130,255,150'];
 
 /** 블랙 스테이지 천장 조명 위치 */
 function rigLamps(L) {
@@ -4178,6 +4421,96 @@ const PAINT = {
     }
   },
 
+  xmas(g, L, T) {
+    const { W, H, cx, topY, GW } = L;
+    const r = rng(41);
+    // 별 + 큰 별 하나
+    for (let i = 0; i < 80; i++) {
+      g.fillStyle = `rgba(255,255,255,${0.25 + r() * 0.6})`;
+      g.fillRect(r() * W, r() * topY * 0.8, 1.3, 1.3);
+    }
+    g.save();
+    g.globalCompositeOperation = 'lighter';
+    radial(g, cx + GW * 0.05, topY * 0.16, GW * 0.12, '255,236,170', 0.6, 0.2);
+    g.restore();
+    // 눈 덮인 언덕
+    g.fillStyle = '#C9D9EA';
+    g.beginPath();
+    g.moveTo(0, topY + 1);
+    for (let i = 0; i <= 24; i++) {
+      const x = (i / 24) * W;
+      g.lineTo(x, topY - topY * (0.06 + 0.05 * Math.sin(i * 0.9) + 0.03 * Math.sin(i * 2.3)));
+    }
+    g.lineTo(W, topY + 1);
+    g.fill();
+    // 작은 집들 (불 켜진 창)
+    for (const [f, sc] of [[-0.18, 1], [0.16, 0.85], [-0.02, 0.7]]) {
+      const hw = topY * 0.07 * sc;
+      const hx = cx + GW * f;
+      const hy = topY - topY * 0.05;
+      g.fillStyle = '#5A3A4A';
+      g.fillRect(hx - hw, hy - hw * 1.2, hw * 2, hw * 1.2);
+      g.fillStyle = '#FFFFFF';
+      g.beginPath();
+      g.moveTo(hx - hw * 1.25, hy - hw * 1.15);
+      g.lineTo(hx, hy - hw * 2.1);
+      g.lineTo(hx + hw * 1.25, hy - hw * 1.15);
+      g.fill();
+      g.fillStyle = '#FFD27A';
+      g.fillRect(hx - hw * 0.6, hy - hw * 0.8, hw * 0.45, hw * 0.45);
+      g.fillRect(hx + hw * 0.15, hy - hw * 0.8, hw * 0.45, hw * 0.45);
+    }
+    // 트리
+    for (const t of xmasTrees(L)) {
+      g.fillStyle = '#5A3A22';
+      g.fillRect(t.x - t.w * 0.08, t.y - t.h * 0.08, t.w * 0.16, t.h * 0.12);
+      for (let k = 0; k < 3; k++) {
+        const top = t.y - t.h * (0.42 + k * 0.29);
+        const bot = t.y - t.h * (0.06 + k * 0.27);
+        const ww = t.w * (1 - k * 0.24);
+        const tg = g.createLinearGradient(t.x - ww, 0, t.x + ww, 0);
+        tg.addColorStop(0, '#0E4A2A');
+        tg.addColorStop(0.5, '#1F7A45');
+        tg.addColorStop(1, '#0B3A20');
+        g.fillStyle = tg;
+        g.beginPath();
+        g.moveTo(t.x, top - t.h * 0.12);
+        g.lineTo(t.x + ww, bot);
+        g.lineTo(t.x - ww, bot);
+        g.fill();
+        // 가지 위 눈
+        g.fillStyle = 'rgba(255,255,255,0.85)';
+        g.beginPath();
+        g.moveTo(t.x - ww, bot);
+        g.quadraticCurveTo(t.x, bot - t.h * 0.05, t.x + ww, bot);
+        g.quadraticCurveTo(t.x, bot - t.h * 0.015, t.x - ww, bot);
+        g.fill();
+      }
+      // 꼭대기 별
+      g.fillStyle = '#FFD84A';
+      g.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const a = -Math.PI / 2 + (i * Math.PI) / 5;
+        const rr = (i % 2 ? 0.4 : 1) * t.w * 0.16;
+        g.lineTo(t.x + Math.cos(a) * rr, t.y - t.h * 1.04 + Math.sin(a) * rr);
+      }
+      g.fill();
+    }
+    // 전구 (꺼진 상태로 작게. 반짝임은 FX)
+    for (const p of xmasLights(L)) {
+      g.fillStyle = `rgba(${XMAS_COLS[p.k % 4]},0.9)`;
+      g.beginPath();
+      g.arc(p.x, p.y, Math.max(1.2, GW * 0.006), 0, TAU);
+      g.fill();
+    }
+    // 눈밭 반짝이
+    for (let i = 0; i < 120; i++) {
+      const y = topY + (H - topY) * Math.pow(r(), 1.5);
+      g.fillStyle = `rgba(255,255,255,${0.3 + r() * 0.5})`;
+      g.fillRect(r() * W, y, 1.5, 1.5);
+    }
+  },
+
   space(g, L, T) {
     const { W, H, cx, topY, GW } = L;
     const r = rng(21);
@@ -4267,7 +4600,7 @@ function auroraBands(g, L, t, a) {
 // ------------------------------------------------------------------ 동적
 // 매 프레임 그라데이션을 새로 만들면 느린 폰에서 버벅여서, 빛·기둥·햇살·오로라는 미리 그려 둔 그림(스프라이트)을
 // 크기·투명도만 바꿔 찍음. quality: 2 = 전부 / 1 = 입자·테마 장식 빼고 조명만 / 0 = 동적 효과 없음
-const BEAMS = { sunset: 'swing', city: 'swing', hall: 'down', void: 'down', lava: 'swing', space: 'swing', aurora: 'none' };
+const BEAMS = { sunset: 'swing', city: 'swing', hall: 'down', void: 'down', lava: 'swing', space: 'swing', aurora: 'none', xmas: 'none' };
 
 const glowCache = new Map();
 /** 가운데가 밝은 동그란 빛 (색마다 한 번만 그림, 128px) */
@@ -4648,6 +4981,15 @@ const FX = {
   },
   space(ctx, L, T, s) {
     glow(ctx, L.cx, L.topY, L.GW * 0.35, '160,140,255', 0.1 + 0.2 * s.beat * (0.3 + s.heat));
+  },
+  xmas(ctx, L, T, s) {
+    // 트리 전구가 박자마다 색 무리별로 번갈아 반짝 + 큰 별이 박자에 맞춰 숨 쉼
+    const b = Math.floor(s.beatNo || 0);
+    for (const p of xmasLights(L)) {
+      const on = (p.k + b) % 3 === 0 ? s.beat : 0;
+      glow(ctx, p.x, p.y, L.GW * (0.018 + 0.016 * on), XMAS_COLS[p.k % 4], 0.3 + 0.2 * s.heat + on * (0.45 + 0.35 * s.heat));
+    }
+    glow(ctx, L.cx + L.GW * 0.05, L.topY * 0.16, L.GW * (0.07 + 0.03 * s.beat), '255,236,170', 0.25 + 0.3 * s.beat);
   },
 };
 
@@ -7051,6 +7393,152 @@ function migrateLevelOrder() {
 return { load, save, remove, DEFAULT_SETTINGS, loadSettings, saveSettings, loadBests, saveBest, migrateLevelOrder };
 })();
 
+// ---- track.js ----
+const __m_track = (() => {
+// 익명 이용 통계: 접속 시간(실제로 화면을 보고 만진 시간)과 곡 시작/끝을 서버에 모읍니다.
+// 이름·아이디·IP 는 보내지 않아요. 서버가 없는 모드(mock)에선 아무것도 안 함.
+//   · 세션 = 탭 하나에서 30분 넘게 안 쉬고 이어진 접속
+//   · 활동 시간 = 화면이 보이고 + 최근 1분 안에 터치/키 입력이 있었던 시간
+
+const KEY = 'kkTrack';
+const IDLE_MS = 60 * 1000; // 이 시간 동안 입력 없으면 활동 시간 안 셈
+const SESSION_GAP_MS = 30 * 60 * 1000;
+const TICK_MS = 5000;
+// 5분마다 (Cloudflare 무료 하루 10만 건 아끼기). 곡 시작·끝은 모아 두었다가 판 시작(/api/runs)·점수 올리기
+//   요청에 얹어 보냄(takeTrack) → 따로 요청 안 함. 화면을 떠날 때는 바로 (단, 1분 안에 보냈으면 판 기록이 있을 때만)
+const FLUSH_MS = 300 * 1000;
+const HIDE_GAP_MS = 60 * 1000;
+
+let on = false;
+let sess = null; // { sid, ref }
+let activeMs = 0;
+let lastInput = Date.now();
+let lastSent = -1;
+let lastSentAt = 0;
+let play = null; // 진행 중인 판 { id, level, mode, startedAt }
+const queue = []; // 아직 못 보낸 판 이벤트
+
+const rid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
+
+function readStore() {
+  try {
+    return JSON.parse(sessionStorage.getItem(KEY) || 'null');
+  } catch {
+    return null;
+  }
+}
+function writeStore() {
+  try {
+    sessionStorage.setItem(KEY, JSON.stringify({ ...sess, active: Math.round(activeMs / 1000), at: Date.now() }));
+  } catch {}
+}
+
+function referrer() {
+  try {
+    const q = new URLSearchParams(location.search);
+    const u = q.get('utm_source') || q.get('src') || q.get('ref');
+    if (u) return u;
+    if (document.referrer) {
+      const h = new URL(document.referrer).hostname;
+      if (h && h !== location.hostname) return h.replace(/^www\./, '');
+    }
+  } catch {}
+  return '';
+}
+
+function deviceKind() {
+  const ua = navigator.userAgent;
+  if (/Instagram|FBAN|FBAV|KAKAOTALK|NAVER/i.test(ua)) return 'inapp';
+  return /Mobi|Android|iPhone|iPad/i.test(ua) ? 'mobile' : 'desktop';
+}
+
+function payloadNow() {
+  const payload = { sid: sess.sid, active: Math.round(activeMs / 1000), ref: sess.ref, device: deviceKind(), plays: queue.splice(0, 10) };
+  lastSent = payload.active;
+  lastSentAt = Date.now();
+  writeStore();
+  return payload;
+}
+
+/** 다른 API 요청에 얹어 보낼 통계 (없으면 null). 서버가 /api/runs·/api/scores 에서 같이 저장 */
+function takeTrack() {
+  if (!on || !sess) return null;
+  return payloadNow();
+}
+
+function send() {
+  if (!on || !sess) return;
+  const payload = payloadNow();
+  try {
+    fetch('/api/track', {
+      method: 'POST',
+      credentials: 'same-origin',
+      keepalive: true,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).catch(() => {});
+  } catch {}
+}
+
+/** 서버가 있을 때 한 번 부름 */
+function initTracker({ enabled }) {
+  if (!enabled || on) return;
+  on = true;
+  const prev = readStore();
+  if (prev && prev.sid && Date.now() - prev.at < SESSION_GAP_MS) {
+    sess = { sid: prev.sid, ref: prev.ref || '' };
+    activeMs = (prev.active || 0) * 1000;
+  } else {
+    sess = { sid: rid() + rid(), ref: referrer() };
+    activeMs = 0;
+  }
+  const touch = () => (lastInput = Date.now());
+  for (const ev of ['pointerdown', 'keydown', 'touchstart']) window.addEventListener(ev, touch, { capture: true, passive: true });
+  setInterval(() => {
+    if (!document.hidden && Date.now() - lastInput < IDLE_MS) activeMs += TICK_MS;
+  }, TICK_MS);
+  setInterval(() => {
+    if (!document.hidden && (queue.length || Math.round(activeMs / 1000) !== lastSent)) send();
+  }, FLUSH_MS);
+  const leave = () => {
+    if (queue.length || (Date.now() - lastSentAt > HIDE_GAP_MS && Math.round(activeMs / 1000) !== lastSent)) send();
+  };
+  document.addEventListener('visibilitychange', () => document.hidden && leave());
+  window.addEventListener('pagehide', leave);
+  // 들어오자마자 보내지 않음: 첫 판 시작 요청에 얹히거나, 5분 뒤·화면을 떠날 때 보냄
+}
+
+/** 곡 시작 (자동 연주·영상 찍기는 부르지 않음) */
+function trackPlayStart(level, mode = 'normal') {
+  if (!on) return;
+  if (play) trackPlayEnd({ result: 'quit' });
+  play = { id: rid() + rid(), level, mode, startedAt: Date.now() };
+  queue.push({ ev: 'start', id: play.id, level, mode });
+}
+
+/** 곡 끝. res: { result: 'clear'|'fail'|'quit', score?, stars? }. 진행 중인 판이 없으면 무시 */
+function trackPlayEnd(res = {}) {
+  if (!on || !play) return;
+  const p = play;
+  play = null;
+  queue.push({
+    ev: 'end',
+    id: p.id,
+    level: p.level,
+    mode: p.mode,
+    result: res.result || 'quit',
+    score: res.score,
+    stars: res.stars,
+    sec: Math.round((Date.now() - p.startedAt) / 1000),
+  });
+  // 바로 안 보냄: 다음 판 시작·점수 올리기 요청에 얹히거나, 5분마다·화면을 떠날 때 같이 감
+}
+
+const hasOpenPlay = () => !!play;
+
+return { takeTrack, initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay };
+})();
+
 // ---- api.js ----
 const __m_api = (() => {
 // 서버 통신. 서버가 없으면(정적 호스팅/로컬 파일) 브라우저 안 가짜 API로 동작합니다.
@@ -7059,6 +7547,7 @@ const __m_api = (() => {
 
 const { load, save } = __m_storage;
 const { gradeFor } = __m_charts;
+const { takeTrack } = __m_track;
 
 async function http(method, url, body) {
   const res = await fetch(url, {
@@ -7079,6 +7568,9 @@ async function http(method, url, body) {
   }
   return data;
 }
+
+const LB_CACHE_MS = 60 * 1000;
+const lbCache = new Map();
 
 function serverApi(boot = null) {
   // 첫 접속 때 /api/health?boot=1 로 받은 설정·내 정보는 한 번만 그대로 씀 (요청 아끼기)
@@ -7104,9 +7596,21 @@ function serverApi(boot = null) {
     },
     guest: (name, ig) => http('POST', '/api/guest', { name, ig }),
     verifyPassword: (body) => http('POST', '/api/verify/password', body),
-    startRun: (level) => http('POST', '/api/runs', { level }),
-    submitScore: (payload) => http('POST', '/api/scores', payload),
-    leaderboard: (level) => http('GET', `/api/leaderboard?level=${level}`),
+    // 이용 통계는 따로 안 보내고 이 요청들에 얹어 보냄 (요청 수 아끼기)
+    startRun: (level) => http('POST', '/api/runs', { level, track: takeTrack() }),
+    submitScore: (payload) => {
+      lbCache.clear();
+      return http('POST', '/api/scores', { ...payload, track: takeTrack() });
+    },
+    // 랭킹은 1분 동안 같은 걸 다시 씀 (탭을 왔다 갔다 해도 요청 안 함). 점수 올리면 비움
+    leaderboard: (level) => {
+      const hit = lbCache.get(String(level));
+      if (hit && Date.now() - hit.at < LB_CACHE_MS) return hit.p;
+      const p = http('GET', `/api/leaderboard?level=${level}`);
+      lbCache.set(String(level), { at: Date.now(), p });
+      p.catch(() => lbCache.delete(String(level)));
+      return p;
+    },
     logout: () => http('POST', '/api/logout'),
     suggest: (kind, text, contact) => http('POST', '/api/suggestions', { kind, text, contact }),
     room: (body) => http('POST', '/api/rooms', body),
@@ -7219,134 +7723,6 @@ async function createApi(cfg) {
 return { createApi };
 })();
 
-// ---- track.js ----
-const __m_track = (() => {
-// 익명 이용 통계: 접속 시간(실제로 화면을 보고 만진 시간)과 곡 시작/끝을 서버에 모읍니다.
-// 이름·아이디·IP 는 보내지 않아요. 서버가 없는 모드(mock)에선 아무것도 안 함.
-//   · 세션 = 탭 하나에서 30분 넘게 안 쉬고 이어진 접속
-//   · 활동 시간 = 화면이 보이고 + 최근 1분 안에 터치/키 입력이 있었던 시간
-
-const KEY = 'kkTrack';
-const IDLE_MS = 60 * 1000; // 이 시간 동안 입력 없으면 활동 시간 안 셈
-const SESSION_GAP_MS = 30 * 60 * 1000;
-const TICK_MS = 5000;
-// 2분마다 (Vercel 요청 수 아끼기. 곡 시작·끝은 모아서 같이 보냄, 화면을 떠날 때는 바로)
-const FLUSH_MS = 120 * 1000;
-
-let on = false;
-let sess = null; // { sid, ref }
-let activeMs = 0;
-let lastInput = Date.now();
-let lastSent = -1;
-let play = null; // 진행 중인 판 { id, level, mode, startedAt }
-const queue = []; // 아직 못 보낸 판 이벤트
-
-const rid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-
-function readStore() {
-  try {
-    return JSON.parse(sessionStorage.getItem(KEY) || 'null');
-  } catch {
-    return null;
-  }
-}
-function writeStore() {
-  try {
-    sessionStorage.setItem(KEY, JSON.stringify({ ...sess, active: Math.round(activeMs / 1000), at: Date.now() }));
-  } catch {}
-}
-
-function referrer() {
-  try {
-    const q = new URLSearchParams(location.search);
-    const u = q.get('utm_source') || q.get('src') || q.get('ref');
-    if (u) return u;
-    if (document.referrer) {
-      const h = new URL(document.referrer).hostname;
-      if (h && h !== location.hostname) return h.replace(/^www\./, '');
-    }
-  } catch {}
-  return '';
-}
-
-function deviceKind() {
-  const ua = navigator.userAgent;
-  if (/Instagram|FBAN|FBAV|KAKAOTALK|NAVER/i.test(ua)) return 'inapp';
-  return /Mobi|Android|iPhone|iPad/i.test(ua) ? 'mobile' : 'desktop';
-}
-
-function send() {
-  if (!on || !sess) return;
-  const payload = { sid: sess.sid, active: Math.round(activeMs / 1000), ref: sess.ref, device: deviceKind(), plays: queue.splice(0, 10) };
-  lastSent = payload.active;
-  writeStore();
-  try {
-    fetch('/api/track', {
-      method: 'POST',
-      credentials: 'same-origin',
-      keepalive: true,
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    }).catch(() => {});
-  } catch {}
-}
-
-/** 서버가 있을 때 한 번 부름 */
-function initTracker({ enabled }) {
-  if (!enabled || on) return;
-  on = true;
-  const prev = readStore();
-  if (prev && prev.sid && Date.now() - prev.at < SESSION_GAP_MS) {
-    sess = { sid: prev.sid, ref: prev.ref || '' };
-    activeMs = (prev.active || 0) * 1000;
-  } else {
-    sess = { sid: rid() + rid(), ref: referrer() };
-    activeMs = 0;
-  }
-  const touch = () => (lastInput = Date.now());
-  for (const ev of ['pointerdown', 'keydown', 'touchstart']) window.addEventListener(ev, touch, { capture: true, passive: true });
-  setInterval(() => {
-    if (!document.hidden && Date.now() - lastInput < IDLE_MS) activeMs += TICK_MS;
-  }, TICK_MS);
-  setInterval(() => {
-    if (!document.hidden && (queue.length || Math.round(activeMs / 1000) !== lastSent)) send();
-  }, FLUSH_MS);
-  document.addEventListener('visibilitychange', () => document.hidden && send());
-  window.addEventListener('pagehide', send);
-  send();
-}
-
-/** 곡 시작 (자동 연주·영상 찍기는 부르지 않음) */
-function trackPlayStart(level, mode = 'normal') {
-  if (!on) return;
-  if (play) trackPlayEnd({ result: 'quit' });
-  play = { id: rid() + rid(), level, mode, startedAt: Date.now() };
-  queue.push({ ev: 'start', id: play.id, level, mode });
-}
-
-/** 곡 끝. res: { result: 'clear'|'fail'|'quit', score?, stars? }. 진행 중인 판이 없으면 무시 */
-function trackPlayEnd(res = {}) {
-  if (!on || !play) return;
-  const p = play;
-  play = null;
-  queue.push({
-    ev: 'end',
-    id: p.id,
-    level: p.level,
-    mode: p.mode,
-    result: res.result || 'quit',
-    score: res.score,
-    stars: res.stars,
-    sec: Math.round((Date.now() - p.startedAt) / 1000),
-  });
-  send();
-}
-
-const hasOpenPlay = () => !!play;
-
-return { initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay };
-})();
-
 // ---- config.js ----
 const __m_config = (() => {
 // 사이트 기본 설정. 서버(/api/config)가 있으면 서버 값이 우선합니다.
@@ -7386,6 +7762,16 @@ const __m_news = (() => {
 //   잠금·인증·운영 정책(누가 무엇을 쓸 수 있나) 같은 건 안 씀
 
 const NEWS = [
+  {
+    id: '2026-11-18o',
+    date: '11월 18일',
+    title: '🎄 크리스마스 캐롤 3곡 + 크리스마스 마을',
+    items: [
+      '🎄 <b>캐롤 3곡</b> 추가! <b>기쁘다 구주 오셨네 · 데크 더 홀즈 · 천사 찬송하기를</b> (18~20단계, 단계 목록 맨 위)',
+      '앞 단계를 다 안 깼어도 바로 칠 수 있어요. 눈 내리는 <b>크리스마스 마을</b> 맵에서 트리 전구가 박자에 맞춰 반짝여요',
+      '캐롤엔 썰매 방울 소리와 반짝이는 종소리가 같이 나와요. 3단계 <b>징글벨</b>에도 썰매 방울을 달았어요',
+    ],
+  },
   {
     id: '2026-11-18n',
     date: '11월 18일',
@@ -7534,17 +7920,18 @@ return { NEWS, LATEST_NEWS };
 // ---- room.js ----
 const __m_room = (() => {
 // 친구 대결 방 클라이언트
-//   서버(/api/rooms): 방 만들기·들어가기·빠른 대결 짝짓기·준비·시작 시각·최종 점수. 대기실 2.5초마다 주고받음.
+//   서버(/api/rooms): 방 만들기·들어가기·빠른 대결 짝짓기·준비·시작 시각·최종 점수. 대기실 3초마다 주고받음.
 //   ⚡ 실시간: 두 폰을 직접 이어서(WebRTC 데이터 채널) 치는 동안 점수를 0.2초마다 바로 주고받음.
 //     처음 이을 때만 서버로 서로 주소(SDP)를 한 번씩 건넴. 이어지면 치는 동안 서버 요청은 15초에 한 번(살아 있음 표시)만.
 //     통신사 망에 따라 직접 연결이 안 되면 예전처럼 서버로 4초마다 (자동으로 바뀜).
 //   서버 시계와 내 시계 차이(offset)를 재서 '같은 시각에 시작'을 맞춤.
 
 // Vercel 요청 수를 아끼려고 넉넉하게
-const ROOM_POLL_LOBBY_MS = 2500;
-const ROOM_POLL_PLAY_MS = 4000;
+// 하루 10만 건(Cloudflare 무료) 아끼기: 실시간 연결이 안 됐을 때만 서버로 주고받으니 너무 촘촘하지 않게
+const ROOM_POLL_LOBBY_MS = 3000;
+const ROOM_POLL_PLAY_MS = 5000;
 const ROOM_POLL_RT_MS = 15000; // 실시간 연결됐을 때 치는 중
-const ROOM_POLL_WAIT_MS = 4000; // 빠른 대결 상대 기다리는 중
+const ROOM_POLL_WAIT_MS = 5000; // 빠른 대결 상대 기다리는 중
 const LIVE_EVERY_MS = 200;
 const LINK_GIVEUP_MS = 20000;
 const ICE_SERVERS = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }];
@@ -7899,7 +8286,7 @@ class RoomClient {
       this.room = r.room;
       this._update();
     } catch {}
-    // 치는 중엔 15초 간격이었으니 대기실 간격(2.5초)으로 다시 잡음 (상대 준비·규칙 바뀐 게 늦게 보이던 것)
+    // 치는 중엔 15초 간격이었으니 대기실 간격(3초)으로 다시 잡음 (상대 준비·규칙 바뀐 게 늦게 보이던 것)
     this._schedule();
   }
 
@@ -8287,6 +8674,7 @@ const ICONS = {
   spot: `<path d="M8.5 2.5h7L14 7.5h-4z" ${F}/><path d="M10 8.5L5.5 18.5M14 8.5l4.5 10" ${S} stroke-width="2"/><ellipse cx="12" cy="19" rx="7.5" ry="2.3" ${S} stroke-width="2"/>`,
   volcano: `<path d="M2 21.5l6-10h8l6 10z" ${F}/><path d="M9.5 8c.9-1.7 1.6-2.2 2.5-2.2s1.6.5 2.5 2.2M12 2v1.5M7.5 3.5l1 1.2M16.5 3.5l-1 1.2" ${S} stroke-width="2"/>`,
   planet: `<circle cx="12" cy="12" r="5.5" ${F}/><ellipse cx="12" cy="12" rx="10.5" ry="3.6" transform="rotate(-20 12 12)" ${S} stroke-width="1.8"/>`,
+  tree: `<path d="M12 2.5l1.1 2.2 2.4.3-1.8 1.6.5 2.4L12 7.8 9.8 9l.5-2.4L8.5 5l2.4-.3z" ${F}/><path d="M12 9l-5 6h3l-4 5h12l-4-5h3z" ${F}/><path d="M11 20h2v2.5h-2z" ${F}/>`,
   moon: `<path d="M14 3a8.5 8.5 0 107 12.5A7 7 0 0114 3z" ${F}/><path d="M19 3.5v3M17.5 5h3" ${S} stroke-width="1.6"/>`,
   mute: `<path d="M3.5 9.5H7L12 5v14l-5-4.5H3.5z" ${F} stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M16 9.5l5 5M21 9.5l-5 5" ${S} stroke-width="2.2"/>`,
   camera: `<path d="M4 7.5h3l1.6-2.5h6.8L17 7.5h3A1.5 1.5 0 0121.5 9v9.5A1.5 1.5 0 0120 20H4a1.5 1.5 0 01-1.5-1.5V9A1.5 1.5 0 014 7.5z" ${S} stroke-width="2"/><circle cx="12" cy="13.5" r="3.6" ${S} stroke-width="2"/>`,
@@ -8307,7 +8695,7 @@ const EMOJI = {
   '💎': 'gem', '⚔': 'swords', '✨': 'sparkle', '⚡': 'bolt', '💥': 'burst', '🥁': 'drum', '💬': 'chat', '🖼': 'image',
   '🎉': 'party', '🔒': 'lock', '❤': 'heart', '🎵': 'note', '🔥': 'fire', '🏆': 'trophy', '✅': 'ok', '✓': 'check',
   '🤝': 'team', '👫': 'team', '🎬': 'clapper', '📢': 'megaphone', '🔓': 'unlock', '🌱': 'sprout', '⚠': 'warn', '🔑': 'key',
-  '🌅': 'sunset', '🌃': 'city', '🎻': 'hall', '🖤': 'spot', '🌋': 'volcano', '🪐': 'planet', '🌌': 'moon', '🔇': 'mute',
+  '🌅': 'sunset', '🌃': 'city', '🎻': 'hall', '🖤': 'spot', '🌋': 'volcano', '🪐': 'planet', '🌌': 'moon', '🎄': 'tree', '🔇': 'mute',
   '📸': 'camera', '🎹': 'piano', '💡': 'bulb', '🐞': 'bug', '⚙': 'gear', '♾': 'infinity', '🥇': 'medal', '🥈': 'medal',
   '🥉': 'medal', '🔄': 'retry', '👑': 'crown', '💌': 'mail', '💔': 'heartbreak', '✕': 'close', '🏠': 'home', '📲': 'phone',
   '⬆': 'share', '▶': 'play',
@@ -8942,7 +9330,8 @@ function renderLevels() {
     renderEndlessLevels(bests);
     return;
   }
-  const list = LEVELS.map((lv) => {
+  // 🎄 캐롤 묶음은 맨 위에
+  const list = [...LEVELS.filter((l) => l.xmas), ...LEVELS.filter((l) => !l.xmas)].map((lv) => {
     const prevLock = !isUnlocked(lv.id, bests);
     const closed = closedLocked(lv.id);
     const vLock = verifyLocked(lv.id);
@@ -8995,7 +9384,7 @@ async function tryStart(id, { free = false } = {}) {
 }
 
 // 구글 글꼴(Jua)은 한글을 글자 묶음별로 나눠 받아서, 캔버스에만 쓰는 글자는 따로 받아 둬야 깨지지 않음
-const CANVAS_TEXT = '쿵짝챙츠둥왼쪽오른엄지킥스네어하이햇크래시탐연타황금콩다가온선에닿을때그줄을톡여기눌러도OK키클릭NEW노을피크닉네온시티콘서트홀블랙스테이지용암보스전오로라설원우주무대GROOVECOMBO점';
+const CANVAS_TEXT = '쿵짝챙츠둥왼쪽오른엄지킥스네어하이햇크래시탐연타황금콩다가온선에닿을때그줄을톡여기눌러도OK키클릭NEW노을피크닉네온시티콘서트홀블랙스테이지용암보스전오로라설원우주무대크리스마스마을GROOVECOMBO점';
 async function fontsReady(extra = '') {
   try {
     await Promise.race([
@@ -11415,8 +11804,9 @@ async function boot() {
   document.addEventListener('visibilitychange', async () => {
     if (document.hidden) return;
     if (state.api.mode !== 'server') return void reconnectServer();
-    // 앱으로 자주 왔다 갔다 해도 2분에 한 번만 (Vercel 요청 수 아끼기)
-    if (Date.now() - meCheckedAt < 120 * 1000) return;
+    // 앱으로 자주 왔다 갔다 해도 10분에 한 번만, 이미 인증 끝난 사람은 안 물어봄 (요청 수 아끼기)
+    if (state.me.confirmed && !state.me.hidden && !load('recoverReq', null)) return;
+    if (Date.now() - meCheckedAt < 600 * 1000) return;
     meCheckedAt = Date.now();
     if (load('recoverReq', null)) return void checkReq();
     try {

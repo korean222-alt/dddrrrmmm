@@ -261,6 +261,27 @@ export function createHandler(cfg, { store }) {
   }
 
   // ------------------- API -------------------
+  /** 이용 통계 저장 (/api/track, 또는 /api/runs·/api/scores 에 얹혀 온 것). 형식이 틀리면 false */
+  async function saveTrack(request, raw, setCookies) {
+    const t = cleanTrack(raw);
+    if (!t) return false;
+    let vid = cookiesOf(request)[VID_COOKIE];
+    if (!/^[A-Za-z0-9_-]{16,32}$/.test(vid || '')) {
+      vid = newId();
+      setCookies.push(cookie(VID_COOKIE, vid, { maxAge: VID_MAX_AGE, secure: cfg.cookieSecure }));
+    }
+    const now = Date.now();
+    await store.trackSession({ sid: t.sid, vid, now, activeSec: t.activeSec, ref: t.ref, device: t.device });
+    for (const e of t.plays) {
+      await store.trackPlay(
+        e.ev === 'start'
+          ? { id: e.id, sid: t.sid, vid, level: e.level, mode: e.mode, startedAt: now }
+          : { id: e.id, sid: t.sid, vid, level: e.level, mode: e.mode, startedAt: now - e.sec * 1000, endedAt: now, result: e.result, score: e.score, stars: e.stars, sec: e.sec }
+      );
+    }
+    return true;
+  }
+
   async function api(request, url, ip, json, setCookies) {
     const p = url.pathname;
     const m = request.method;
@@ -451,22 +472,8 @@ export function createHandler(cfg, { store }) {
     // 이용 통계 (익명): 접속 시간 + 곡 시작/끝. 이름·아이디·IP 는 저장하지 않음
     if (p === '/api/track' && m === 'POST') {
       if (!limitTrack(ip)) return json(429, { error: 'rate_limited' });
-      const t = cleanTrack(await readJson(request));
-      if (!t) return json(400, { error: 'bad_track' });
-      let vid = cookiesOf(request)[VID_COOKIE];
-      if (!/^[A-Za-z0-9_-]{16,32}$/.test(vid || '')) {
-        vid = newId();
-        setCookies.push(cookie(VID_COOKIE, vid, { maxAge: VID_MAX_AGE, secure: cfg.cookieSecure }));
-      }
-      const now = Date.now();
-      await store.trackSession({ sid: t.sid, vid, now, activeSec: t.activeSec, ref: t.ref, device: t.device });
-      for (const e of t.plays) {
-        await store.trackPlay(
-          e.ev === 'start'
-            ? { id: e.id, sid: t.sid, vid, level: e.level, mode: e.mode, startedAt: now }
-            : { id: e.id, sid: t.sid, vid, level: e.level, mode: e.mode, startedAt: now - e.sec * 1000, endedAt: now, result: e.result, score: e.score, stars: e.stars, sec: e.sec }
-        );
-      }
+      const ok = await saveTrack(request, await readJson(request), setCookies);
+      if (!ok) return json(400, { error: 'bad_track' });
       return json(200, { ok: true });
     }
 
@@ -653,6 +660,8 @@ export function createHandler(cfg, { store }) {
     // 3) 판 시작 토큰 (점수 위조 방지용 최소 장치)
     if (p === '/api/runs' && m === 'POST') {
       const body = await readJson(request);
+      // 이용 통계가 얹혀 왔으면 같이 저장 (따로 /api/track 요청 안 해도 되게)
+      if (body.track && limitTrack(ip)) await saveTrack(request, body.track, setCookies).catch(() => {});
       const level = endlessMode(body.level) || getLevel(body.level);
       if (!level) return json(400, { error: 'bad_level' });
       // 4단계부터와 무제한(그리그·단계별)은 팔로워 인증(암호 또는 운영자 확인)한 사람만
@@ -669,11 +678,12 @@ export function createHandler(cfg, { store }) {
     // 4) 점수 등록 (닉네임 또는 인스타 인증 필요)
     if (p === '/api/scores' && m === 'POST') {
       if (!limitScores(ip)) return json(429, { error: 'rate_limited' });
+      const body = await readJson(request);
+      if (body.track && limitTrack(ip)) await saveTrack(request, body.track, setCookies).catch(() => {});
       const pl = await getPlayer(request);
       if (!pl) return json(401, { error: 'verify_required' });
       // 랭킹은 팔로워 인증(인증 완료)한 사람만 (GATE_MODE=open 이면 닉네임만 있어도)
       if (cfg.gateMode !== 'open' && !isConfirmed(pl)) return json(403, { error: 'verify_required' });
-      const body = await readJson(request);
       const em = endlessMode(body.level);
       if (em) {
         const e = validateEndless(body, cfg);

@@ -480,6 +480,54 @@ export class AudioEngine {
     this._noise(t, d + 0.02, hp);
   }
 
+  /** 🔔 썰매 방울 (캐롤): 높은 쇳소리 '찰랑' 두세 겹 */
+  sleigh(t, vel = 0.5, dest = this.musicBus) {
+    const ctx = this.ctx;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 9000;
+    bp.Q.value = 2.5;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.22 * vel, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+    bp.connect(g).connect(dest);
+    // 방울 여러 개가 아주 조금씩 늦게 부딪힘
+    for (const dt of [0, 0.012, 0.027]) this._noise(t + dt, 0.05, bp);
+    for (const [f, a] of [[5200, 0.05], [6900, 0.035]]) {
+      const o = ctx.createOscillator();
+      const og = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = f;
+      og.gain.setValueAtTime(0.0001, t);
+      og.gain.exponentialRampToValueAtTime(a * vel, t + 0.003);
+      og.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+      o.connect(og).connect(dest);
+      o.start(t);
+      o.stop(t + 0.14);
+    }
+  }
+
+  /** 🔔 글로켄슈필 (캐롤 멜로디를 한 옥타브 위에서 반짝이게) */
+  glock(t, midi, dest = this.musicBus, vel = 1) {
+    const ctx = this.ctx;
+    const g = ctx.createGain();
+    g.gain.value = 0.06 * vel;
+    g.connect(dest);
+    for (const [mult, amp, d] of [[1, 1, 1.1], [2.76, 0.25, 0.35], [5.4, 0.12, 0.15]]) {
+      const o = ctx.createOscillator();
+      const og = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = mtof(midi) * mult;
+      og.gain.setValueAtTime(0.0001, t);
+      og.gain.exponentialRampToValueAtTime(amp, t + 0.003);
+      og.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      o.connect(og).connect(g);
+      o.start(t);
+      o.stop(t + d + 0.02);
+    }
+  }
+
   /** 크래시 심벌 */
   crash(t = this.ctx.currentTime, dest = this.musicBus, vol = 0.5) {
     const ctx = this.ctx;
@@ -818,6 +866,8 @@ export class SongPlayer {
     // 하이햇
     const hc = song.hat[s];
     if (hc === 'x' || hc === 'o') a.hat(t, s % 4 === 0 ? 0.6 : 0.35, hc === 'o', this.bus);
+    // 🎄 캐롤: 썰매 방울
+    if (song.bells && song.bells[s] === 'x') a.sleigh(t, s % 4 === 0 ? 0.7 : 0.45, this.bus);
     // 베이스 (오케스트라면 첼로가 같이 받쳐줌)
     const bc = song.bass[s];
     if (bc && bc !== '.') {
@@ -835,6 +885,8 @@ export class SongPlayer {
       for (const n of this.melody) {
         if (n.bar !== mbar || n.step !== s) continue;
         const dur = n.len * sd * 0.92;
+        // 🎄 캐롤: 글로켄슈필이 한 옥타브 위에서 같이 (긴 음만, 너무 시끄럽지 않게)
+        if (song.glock && n.len >= 2) a.glock(t, n.midi + 12, this.bus, 0.6 + 0.4 * heat);
         if (!orch) {
           a.lead(t, n.midi, dur, this.bus);
           continue;

@@ -456,7 +456,8 @@ function renderLevels() {
     renderEndlessLevels(bests);
     return;
   }
-  const list = LEVELS.map((lv) => {
+  // 🎄 캐롤 묶음은 맨 위에
+  const list = [...LEVELS.filter((l) => l.xmas), ...LEVELS.filter((l) => !l.xmas)].map((lv) => {
     const prevLock = !isUnlocked(lv.id, bests);
     const closed = closedLocked(lv.id);
     const vLock = verifyLocked(lv.id);
@@ -509,7 +510,7 @@ async function tryStart(id, { free = false } = {}) {
 }
 
 // 구글 글꼴(Jua)은 한글을 글자 묶음별로 나눠 받아서, 캔버스에만 쓰는 글자는 따로 받아 둬야 깨지지 않음
-const CANVAS_TEXT = '쿵짝챙츠둥왼쪽오른엄지킥스네어하이햇크래시탐연타황금콩다가온선에닿을때그줄을톡여기눌러도OK키클릭NEW노을피크닉네온시티콘서트홀블랙스테이지용암보스전오로라설원우주무대GROOVECOMBO점';
+const CANVAS_TEXT = '쿵짝챙츠둥왼쪽오른엄지킥스네어하이햇크래시탐연타황금콩다가온선에닿을때그줄을톡여기눌러도OK키클릭NEW노을피크닉네온시티콘서트홀블랙스테이지용암보스전오로라설원우주무대크리스마스마을GROOVECOMBO점';
 async function fontsReady(extra = '') {
   try {
     await Promise.race([
@@ -2929,8 +2930,9 @@ async function boot() {
   document.addEventListener('visibilitychange', async () => {
     if (document.hidden) return;
     if (state.api.mode !== 'server') return void reconnectServer();
-    // 앱으로 자주 왔다 갔다 해도 2분에 한 번만 (Vercel 요청 수 아끼기)
-    if (Date.now() - meCheckedAt < 120 * 1000) return;
+    // 앱으로 자주 왔다 갔다 해도 10분에 한 번만, 이미 인증 끝난 사람은 안 물어봄 (요청 수 아끼기)
+    if (state.me.confirmed && !state.me.hidden && !load('recoverReq', null)) return;
+    if (Date.now() - meCheckedAt < 600 * 1000) return;
     meCheckedAt = Date.now();
     if (load('recoverReq', null)) return void checkReq();
     try {

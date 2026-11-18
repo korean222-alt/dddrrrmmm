@@ -21,8 +21,9 @@ const SLOTS = ['a', 'b'];
 // ⚡ 빠른 대결 (모르는 사람과): 사람이 적을 수 있어서 난이도를 두 묶음으로만
 //   easy = 쉬움·보통 (난이도 1~3 = 1~8단계) / hard = 어려움·극악 (난이도 4~5 = 9~17단계)
 export const BRACKETS = {
-  easy: LEVELS.filter((l) => l.difficulty <= 3).map((l) => l.id),
-  hard: LEVELS.filter((l) => l.difficulty >= 4).map((l) => l.id),
+  // 🎄 캐롤(18~20단계)은 빠른 대결엔 안 넣음 (친구 방에선 고를 수 있음)
+  easy: LEVELS.filter((l) => !l.xmas && l.difficulty <= 3).map((l) => l.id),
+  hard: LEVELS.filter((l) => !l.xmas && l.difficulty >= 4).map((l) => l.id),
 };
 /** 기다리는 방은 이 시간 안에 주고받은 적이 있어야 '살아 있음' (창을 닫고 나간 방은 안 잡힘) */
 export const QUICK_FRESH_MS = 15_000;

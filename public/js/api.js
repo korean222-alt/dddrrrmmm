@@ -4,6 +4,7 @@
 
 import { load, save } from './storage.js';
 import { gradeFor } from './charts.js';
+import { takeTrack } from './track.js';
 
 async function http(method, url, body) {
   const res = await fetch(url, {
@@ -24,6 +25,9 @@ async function http(method, url, body) {
   }
   return data;
 }
+
+const LB_CACHE_MS = 60 * 1000;
+const lbCache = new Map();
 
 function serverApi(boot = null) {
   // 첫 접속 때 /api/health?boot=1 로 받은 설정·내 정보는 한 번만 그대로 씀 (요청 아끼기)
@@ -49,9 +53,21 @@ function serverApi(boot = null) {
     },
     guest: (name, ig) => http('POST', '/api/guest', { name, ig }),
     verifyPassword: (body) => http('POST', '/api/verify/password', body),
-    startRun: (level) => http('POST', '/api/runs', { level }),
-    submitScore: (payload) => http('POST', '/api/scores', payload),
-    leaderboard: (level) => http('GET', `/api/leaderboard?level=${level}`),
+    // 이용 통계는 따로 안 보내고 이 요청들에 얹어 보냄 (요청 수 아끼기)
+    startRun: (level) => http('POST', '/api/runs', { level, track: takeTrack() }),
+    submitScore: (payload) => {
+      lbCache.clear();
+      return http('POST', '/api/scores', { ...payload, track: takeTrack() });
+    },
+    // 랭킹은 1분 동안 같은 걸 다시 씀 (탭을 왔다 갔다 해도 요청 안 함). 점수 올리면 비움
+    leaderboard: (level) => {
+      const hit = lbCache.get(String(level));
+      if (hit && Date.now() - hit.at < LB_CACHE_MS) return hit.p;
+      const p = http('GET', `/api/leaderboard?level=${level}`);
+      lbCache.set(String(level), { at: Date.now(), p });
+      p.catch(() => lbCache.delete(String(level)));
+      return p;
+    },
     logout: () => http('POST', '/api/logout'),
     suggest: (kind, text, contact) => http('POST', '/api/suggestions', { kind, text, contact }),
     room: (body) => http('POST', '/api/rooms', body),

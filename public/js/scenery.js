@@ -31,6 +31,33 @@ function garland(L) {
   return pts;
 }
 
+/** 크리스마스 마을: 길 양옆 트리 (정적 그림·동적 전구 공용) */
+function xmasTrees(L) {
+  const { cx, topY, GW } = L;
+  const out = [];
+  for (const [f, k] of [[-0.62, 1], [-0.36, 0.7], [0.4, 0.75], [0.66, 1.05]]) {
+    const h = topY * 0.5 * k;
+    out.push({ x: cx + GW * f, y: topY + h * 0.06, h, w: h * 0.36 });
+  }
+  return out;
+}
+/** 트리 위 전구 자리 (트리마다 지그재그로 감은 줄) */
+function xmasLights(L) {
+  const pts = [];
+  xmasTrees(L).forEach((t, ti) => {
+    for (let row = 0; row < 4; row++) {
+      const yy = t.y - t.h * (0.18 + row * 0.19);
+      const half = t.w * (1 - (row * 0.19 + 0.18)) * 0.95;
+      for (let j = 0; j < 4; j++) {
+        const u = (j + 0.5) / 4;
+        pts.push({ x: t.x - half + 2 * half * (row % 2 ? 1 - u : u), y: yy + t.h * 0.05 * u, k: ti * 16 + row * 4 + j });
+      }
+    }
+  });
+  return pts;
+}
+const XMAS_COLS = ['255,80,80', '255,214,90', '120,220,255', '130,255,150'];
+
 /** 블랙 스테이지 천장 조명 위치 */
 function rigLamps(L) {
   const n = 5;
@@ -500,6 +527,96 @@ const PAINT = {
     }
   },
 
+  xmas(g, L, T) {
+    const { W, H, cx, topY, GW } = L;
+    const r = rng(41);
+    // 별 + 큰 별 하나
+    for (let i = 0; i < 80; i++) {
+      g.fillStyle = `rgba(255,255,255,${0.25 + r() * 0.6})`;
+      g.fillRect(r() * W, r() * topY * 0.8, 1.3, 1.3);
+    }
+    g.save();
+    g.globalCompositeOperation = 'lighter';
+    radial(g, cx + GW * 0.05, topY * 0.16, GW * 0.12, '255,236,170', 0.6, 0.2);
+    g.restore();
+    // 눈 덮인 언덕
+    g.fillStyle = '#C9D9EA';
+    g.beginPath();
+    g.moveTo(0, topY + 1);
+    for (let i = 0; i <= 24; i++) {
+      const x = (i / 24) * W;
+      g.lineTo(x, topY - topY * (0.06 + 0.05 * Math.sin(i * 0.9) + 0.03 * Math.sin(i * 2.3)));
+    }
+    g.lineTo(W, topY + 1);
+    g.fill();
+    // 작은 집들 (불 켜진 창)
+    for (const [f, sc] of [[-0.18, 1], [0.16, 0.85], [-0.02, 0.7]]) {
+      const hw = topY * 0.07 * sc;
+      const hx = cx + GW * f;
+      const hy = topY - topY * 0.05;
+      g.fillStyle = '#5A3A4A';
+      g.fillRect(hx - hw, hy - hw * 1.2, hw * 2, hw * 1.2);
+      g.fillStyle = '#FFFFFF';
+      g.beginPath();
+      g.moveTo(hx - hw * 1.25, hy - hw * 1.15);
+      g.lineTo(hx, hy - hw * 2.1);
+      g.lineTo(hx + hw * 1.25, hy - hw * 1.15);
+      g.fill();
+      g.fillStyle = '#FFD27A';
+      g.fillRect(hx - hw * 0.6, hy - hw * 0.8, hw * 0.45, hw * 0.45);
+      g.fillRect(hx + hw * 0.15, hy - hw * 0.8, hw * 0.45, hw * 0.45);
+    }
+    // 트리
+    for (const t of xmasTrees(L)) {
+      g.fillStyle = '#5A3A22';
+      g.fillRect(t.x - t.w * 0.08, t.y - t.h * 0.08, t.w * 0.16, t.h * 0.12);
+      for (let k = 0; k < 3; k++) {
+        const top = t.y - t.h * (0.42 + k * 0.29);
+        const bot = t.y - t.h * (0.06 + k * 0.27);
+        const ww = t.w * (1 - k * 0.24);
+        const tg = g.createLinearGradient(t.x - ww, 0, t.x + ww, 0);
+        tg.addColorStop(0, '#0E4A2A');
+        tg.addColorStop(0.5, '#1F7A45');
+        tg.addColorStop(1, '#0B3A20');
+        g.fillStyle = tg;
+        g.beginPath();
+        g.moveTo(t.x, top - t.h * 0.12);
+        g.lineTo(t.x + ww, bot);
+        g.lineTo(t.x - ww, bot);
+        g.fill();
+        // 가지 위 눈
+        g.fillStyle = 'rgba(255,255,255,0.85)';
+        g.beginPath();
+        g.moveTo(t.x - ww, bot);
+        g.quadraticCurveTo(t.x, bot - t.h * 0.05, t.x + ww, bot);
+        g.quadraticCurveTo(t.x, bot - t.h * 0.015, t.x - ww, bot);
+        g.fill();
+      }
+      // 꼭대기 별
+      g.fillStyle = '#FFD84A';
+      g.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const a = -Math.PI / 2 + (i * Math.PI) / 5;
+        const rr = (i % 2 ? 0.4 : 1) * t.w * 0.16;
+        g.lineTo(t.x + Math.cos(a) * rr, t.y - t.h * 1.04 + Math.sin(a) * rr);
+      }
+      g.fill();
+    }
+    // 전구 (꺼진 상태로 작게. 반짝임은 FX)
+    for (const p of xmasLights(L)) {
+      g.fillStyle = `rgba(${XMAS_COLS[p.k % 4]},0.9)`;
+      g.beginPath();
+      g.arc(p.x, p.y, Math.max(1.2, GW * 0.006), 0, TAU);
+      g.fill();
+    }
+    // 눈밭 반짝이
+    for (let i = 0; i < 120; i++) {
+      const y = topY + (H - topY) * Math.pow(r(), 1.5);
+      g.fillStyle = `rgba(255,255,255,${0.3 + r() * 0.5})`;
+      g.fillRect(r() * W, y, 1.5, 1.5);
+    }
+  },
+
   space(g, L, T) {
     const { W, H, cx, topY, GW } = L;
     const r = rng(21);
@@ -589,7 +706,7 @@ function auroraBands(g, L, t, a) {
 // ------------------------------------------------------------------ 동적
 // 매 프레임 그라데이션을 새로 만들면 느린 폰에서 버벅여서, 빛·기둥·햇살·오로라는 미리 그려 둔 그림(스프라이트)을
 // 크기·투명도만 바꿔 찍음. quality: 2 = 전부 / 1 = 입자·테마 장식 빼고 조명만 / 0 = 동적 효과 없음
-const BEAMS = { sunset: 'swing', city: 'swing', hall: 'down', void: 'down', lava: 'swing', space: 'swing', aurora: 'none' };
+const BEAMS = { sunset: 'swing', city: 'swing', hall: 'down', void: 'down', lava: 'swing', space: 'swing', aurora: 'none', xmas: 'none' };
 
 const glowCache = new Map();
 /** 가운데가 밝은 동그란 빛 (색마다 한 번만 그림, 128px) */
@@ -970,5 +1087,14 @@ const FX = {
   },
   space(ctx, L, T, s) {
     glow(ctx, L.cx, L.topY, L.GW * 0.35, '160,140,255', 0.1 + 0.2 * s.beat * (0.3 + s.heat));
+  },
+  xmas(ctx, L, T, s) {
+    // 트리 전구가 박자마다 색 무리별로 번갈아 반짝 + 큰 별이 박자에 맞춰 숨 쉼
+    const b = Math.floor(s.beatNo || 0);
+    for (const p of xmasLights(L)) {
+      const on = (p.k + b) % 3 === 0 ? s.beat : 0;
+      glow(ctx, p.x, p.y, L.GW * (0.018 + 0.016 * on), XMAS_COLS[p.k % 4], 0.3 + 0.2 * s.heat + on * (0.45 + 0.35 * s.heat));
+    }
+    glow(ctx, L.cx + L.GW * 0.05, L.topY * 0.16, L.GW * (0.07 + 0.03 * s.beat), '255,236,170', 0.25 + 0.3 * s.beat);
   },
 };

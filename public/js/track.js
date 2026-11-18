@@ -7,14 +7,17 @@ const KEY = 'kkTrack';
 const IDLE_MS = 60 * 1000; // 이 시간 동안 입력 없으면 활동 시간 안 셈
 const SESSION_GAP_MS = 30 * 60 * 1000;
 const TICK_MS = 5000;
-// 2분마다 (Vercel 요청 수 아끼기. 곡 시작·끝은 모아서 같이 보냄, 화면을 떠날 때는 바로)
-const FLUSH_MS = 120 * 1000;
+// 5분마다 (Cloudflare 무료 하루 10만 건 아끼기). 곡 시작·끝은 모아 두었다가 판 시작(/api/runs)·점수 올리기
+//   요청에 얹어 보냄(takeTrack) → 따로 요청 안 함. 화면을 떠날 때는 바로 (단, 1분 안에 보냈으면 판 기록이 있을 때만)
+const FLUSH_MS = 300 * 1000;
+const HIDE_GAP_MS = 60 * 1000;
 
 let on = false;
 let sess = null; // { sid, ref }
 let activeMs = 0;
 let lastInput = Date.now();
 let lastSent = -1;
+let lastSentAt = 0;
 let play = null; // 진행 중인 판 { id, level, mode, startedAt }
 const queue = []; // 아직 못 보낸 판 이벤트
 
@@ -52,11 +55,23 @@ function deviceKind() {
   return /Mobi|Android|iPhone|iPad/i.test(ua) ? 'mobile' : 'desktop';
 }
 
-function send() {
-  if (!on || !sess) return;
+function payloadNow() {
   const payload = { sid: sess.sid, active: Math.round(activeMs / 1000), ref: sess.ref, device: deviceKind(), plays: queue.splice(0, 10) };
   lastSent = payload.active;
+  lastSentAt = Date.now();
   writeStore();
+  return payload;
+}
+
+/** 다른 API 요청에 얹어 보낼 통계 (없으면 null). 서버가 /api/runs·/api/scores 에서 같이 저장 */
+export function takeTrack() {
+  if (!on || !sess) return null;
+  return payloadNow();
+}
+
+function send() {
+  if (!on || !sess) return;
+  const payload = payloadNow();
   try {
     fetch('/api/track', {
       method: 'POST',
@@ -88,9 +103,12 @@ export function initTracker({ enabled }) {
   setInterval(() => {
     if (!document.hidden && (queue.length || Math.round(activeMs / 1000) !== lastSent)) send();
   }, FLUSH_MS);
-  document.addEventListener('visibilitychange', () => document.hidden && send());
-  window.addEventListener('pagehide', send);
-  send();
+  const leave = () => {
+    if (queue.length || (Date.now() - lastSentAt > HIDE_GAP_MS && Math.round(activeMs / 1000) !== lastSent)) send();
+  };
+  document.addEventListener('visibilitychange', () => document.hidden && leave());
+  window.addEventListener('pagehide', leave);
+  // 들어오자마자 보내지 않음: 첫 판 시작 요청에 얹히거나, 5분 뒤·화면을 떠날 때 보냄
 }
 
 /** 곡 시작 (자동 연주·영상 찍기는 부르지 않음) */
@@ -116,7 +134,7 @@ export function trackPlayEnd(res = {}) {
     stars: res.stars,
     sec: Math.round((Date.now() - p.startedAt) / 1000),
   });
-  send();
+  // 바로 안 보냄: 다음 판 시작·점수 올리기 요청에 얹히거나, 5분마다·화면을 떠날 때 같이 감
 }
 
 export const hasOpenPlay = () => !!play;

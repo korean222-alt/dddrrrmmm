@@ -141,6 +141,7 @@ export const LEVELS = [
     song: {
       prog: ['C', 'C', 'C', 'C', 'F', 'C', 'D7', 'G7', 'C', 'C', 'C', 'C', 'F', 'C', 'G7', 'C'],
       hat: 'x.x.x.x.x.x.x.x.',
+      bells: 'x.x.x.x.x.x.x.x.',
       bass: 'x...5...x...5...',
       chord: '..x...x...x...x.',
       melody: [
@@ -779,6 +780,134 @@ export const LEVELS = [
       'X...B...X.......',
     ],
   },
+  // ---------------------------------------------------------------
+  // 🎄 크리스마스 캐롤 (18~20단계, 크리스마스 마을 맵). 퍼블릭 도메인 곡만.
+  //   xmas: 앞 단계를 안 깼어도 바로 칠 수 있음 (잠금은 4단계부터와 같음: 팔로워 인증)
+  //   song.bells = 썰매 방울 박자, song.glock = 멜로디 위에 글로켄슈필
+  // ---------------------------------------------------------------
+  {
+    id: 18,
+    xmas: true,
+    name: '기쁘다 구주 오셨네',
+    composer: '헨델·메이슨',
+    tagline: '크리스마스 캐롤 · 쿵짝 따라 치기',
+    difficulty: 2,
+    bpm: 96,
+    song: {
+      prog: ['D', 'A7 D', 'G A', 'D', 'D', 'D', 'D A7', 'A7 G', 'D A7', 'D'],
+      hat: '................',
+      bells: 'x...x...x...x...',
+      glock: true,
+      bass: 'x.......5.......',
+      chord: '....x.......x...',
+      melody: [
+        'D5:4 C#5:3 B4:1 A4:6 G4:2', 'F#4:4 E4:4 D4:6 A4:2', 'B4:6 B4:2 C#5:6 C#5:2', 'D5:6 D5:2 D5:2 C#5:2 B4:2 A4:2',
+        'A4:3 G4:1 F#4:2 D5:2 D5:2 C#5:2 B4:2 A4:2', 'A4:3 G4:1 F#4:4 F#4:2 F#4:2 F#4:2 F#4:1 G4:1',
+        'A4:6 G4:1 F#4:1 E4:2 E4:2 E4:2 E4:1 F#4:1', 'G4:6 F#4:1 E4:1 D4:2 D5:4 B4:2',
+        'A4:3 G4:1 F#4:2 G4:2 F#4:4 E4:4', 'D4:16',
+      ],
+    },
+    bars: [
+      'K...S...K...S...',
+      'K...S...K.K.S...',
+      'K...S...K...S...',
+      'K...S...K.K.S.S.',
+      'K...S...K...S...',
+      'K.K.S...K.K.S...',
+      'K.K.S...K.K.S...',
+      'K...S...K.K.S...',
+      'K...S...K...S...',
+      'B.......S.S.S...',
+      'K...S...K...S...',
+      'K...S...K.K.S...',
+      'K...S...K...S...',
+      'K.K.S...K.K.S.S.',
+      'K...S...K.K.S...',
+      'B.......B.......',
+    ],
+  },
+  {
+    id: 19,
+    xmas: true,
+    name: '데크 더 홀즈',
+    composer: '웨일스 민요',
+    tagline: '크리스마스 캐롤 · 팔라라라라 신나게',
+    difficulty: 3,
+    bpm: 112,
+    song: {
+      prog: ['G', 'G D7', 'G D7', 'D7 G', 'G', 'G D7', 'G D7', 'D7 G', 'D7', 'G D7', 'G A7', 'A7 D', 'G', 'G D7', 'C G', 'D7 G'],
+      hat: '................',
+      bells: 'x.x.x.x.x.x.x.x.',
+      glock: true,
+      bass: 'x...5...x...5...',
+      chord: '..x...x...x...x.',
+      melody: [
+        'D5:6 C5:2 B4:4 A4:4', 'G4 A4 B4 G4', 'A4:2 B4:2 C5:2 A4:2 B4:6 A4:2', 'G4:4 F#4:4 G4:8',
+        'D5:6 C5:2 B4:4 A4:4', 'G4 A4 B4 G4', 'A4:2 B4:2 C5:2 A4:2 B4:6 A4:2', 'G4:4 F#4:4 G4:8',
+        'A4:6 B4:2 C5:4 A4:4', 'B4:6 C5:2 D5:4 A4:4', 'B4:2 C#5:2 D5:4 E5:2 F#5:2 G5:4', 'F#5:4 E5:4 D5:8',
+        'D5:6 C5:2 B4:4 A4:4', 'G4 A4 B4 G4', 'E5:2 E5:2 E5:2 E5:2 D5:6 C5:2', 'B4:4 A4:4 G4:8',
+      ],
+    },
+    bars: [
+      'K...S...K...S...',
+      'K...S...K.K.S...',
+      'K.K.S.S.K...S...',
+      'K...S...B.......',
+      'K...S...K...S...',
+      'K...S...K.K.S...',
+      'K.K.S.S.K...S...',
+      'K...S...B.......',
+      'K..KS...K..KS...',
+      'K..KS...K.K.S...',
+      'K.K.S.K.K.K.S.S.',
+      'K...S...B...S...',
+      'K..KS...K..KS...',
+      'K.K.S.K.K.K.S...',
+      'S.S.S.S.K...S...',
+      'K...S...B.......',
+    ],
+  },
+  {
+    id: 20,
+    xmas: true,
+    name: '천사 찬송하기를',
+    composer: '멘델스존',
+    tagline: '크리스마스 캐롤 · 웅장한 합창',
+    difficulty: 3,
+    bpm: 104,
+    song: {
+      prog: ['G', 'G D', 'G D7', 'D7 G', 'G', 'G D', 'D', 'A7 D', 'G', 'C D7', 'G', 'C D7', 'C G', 'Am', 'D7 G', 'D7 G'],
+      hat: '................',
+      bells: 'x...x...x...x...',
+      glock: true,
+      bass: 'x...5...x...5...',
+      chord: '..x...x...x...x.',
+      melody: [
+        'D4 G4 G4:6 F#4:2', 'G4 B4 B4 A4', 'D5 D5 D5:6 C5:2', 'B4 A4 B4:8',
+        'D4 G4 G4:6 F#4:2', 'G4 B4 B4 A4', 'D5 A4 A4:6 F#4:2', 'F#4 E4 D4:8',
+        'D5 D5 D5 G4', 'C5 B4 B4 A4', 'D5 D5 D5 G4', 'C5 B4 B4 A4',
+        'E5 E5 E5 D5', 'C5 B4 C5:8', 'A4 B4:2 C5:2 D5:6 G4:2', 'G4 A4 B4:8',
+      ],
+    },
+    bars: [
+      'K...S...K...S...',
+      'K...S...K...S.S.',
+      'K...S...K.K.S...',
+      'K...S...B.......',
+      'K...S...K...S...',
+      'K...S...K.K.S...',
+      'K.K.S...K.K.S...',
+      'K...S...B.......',
+      'K.K.S...K.K.S...',
+      'K.K.S...K.K.S.S.',
+      'K.K.S...K.K.S...',
+      'K.K.S...K.K.S.S.',
+      'K.K.S.K.K.K.S...',
+      'K..KS...B.......',
+      'K.K.S...K.K.S.S.',
+      'K...S...B.......',
+    ],
+  },
 ];
 
 // ---------------------------------------------------------------
@@ -1119,7 +1248,8 @@ export function scoreBounds(counts) {
 export function isClearBest(best) {
   return !!best && (best.stars || 0) >= 1;
 }
-export const LAST_LEVEL_ID = LEVELS[LEVELS.length - 1].id;
+/** 본편 마지막 단계 (🎄 캐롤 단계는 본편 순서 밖) */
+export const LAST_LEVEL_ID = LEVELS.filter((l) => !l.xmas).at(-1).id;
 
 /** 2026-11-17: 8단계에 '운명 교향곡'을 끼워 넣어서, 예전 8~14단계는 번호가 하나씩 밀림(9~15).
  *  저장된 기록 키('8', 'e8', 서버 칸 '-8')를 새 번호로 바꿔 줌. 예전 번호가 아니면 그대로. */
@@ -1142,6 +1272,8 @@ export function isUnlocked(levelId, bests) {
   const base = levelEndlessBase(levelId);
   if (base) return isClearBest(bests[base.id]);
   if (levelId >= 1 && levelId <= FREE_LEVELS) return true;
+  // 🎄 캐롤 단계는 앞 단계를 안 깼어도 바로 (잠금은 isClosed: 팔로워 인증)
+  if (getLevel(levelId)?.xmas) return true;
   const prev = prevOpenId(levelId);
   if (prev === null || isClearBest(bests[prev])) return true;
   const lv = getLevel(levelId);

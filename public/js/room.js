@@ -1,15 +1,16 @@
 // 친구 대결 방 클라이언트
-//   서버(/api/rooms): 방 만들기·들어가기·빠른 대결 짝짓기·준비·시작 시각·최종 점수. 대기실 2.5초마다 주고받음.
+//   서버(/api/rooms): 방 만들기·들어가기·빠른 대결 짝짓기·준비·시작 시각·최종 점수. 대기실 3초마다 주고받음.
 //   ⚡ 실시간: 두 폰을 직접 이어서(WebRTC 데이터 채널) 치는 동안 점수를 0.2초마다 바로 주고받음.
 //     처음 이을 때만 서버로 서로 주소(SDP)를 한 번씩 건넴. 이어지면 치는 동안 서버 요청은 15초에 한 번(살아 있음 표시)만.
 //     통신사 망에 따라 직접 연결이 안 되면 예전처럼 서버로 4초마다 (자동으로 바뀜).
 //   서버 시계와 내 시계 차이(offset)를 재서 '같은 시각에 시작'을 맞춤.
 
 // Vercel 요청 수를 아끼려고 넉넉하게
-export const ROOM_POLL_LOBBY_MS = 2500;
-export const ROOM_POLL_PLAY_MS = 4000;
+// 하루 10만 건(Cloudflare 무료) 아끼기: 실시간 연결이 안 됐을 때만 서버로 주고받으니 너무 촘촘하지 않게
+export const ROOM_POLL_LOBBY_MS = 3000;
+export const ROOM_POLL_PLAY_MS = 5000;
 export const ROOM_POLL_RT_MS = 15000; // 실시간 연결됐을 때 치는 중
-export const ROOM_POLL_WAIT_MS = 4000; // 빠른 대결 상대 기다리는 중
+export const ROOM_POLL_WAIT_MS = 5000; // 빠른 대결 상대 기다리는 중
 const LIVE_EVERY_MS = 200;
 const LINK_GIVEUP_MS = 20000;
 const ICE_SERVERS = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }];
@@ -364,7 +365,7 @@ export class RoomClient {
       this.room = r.room;
       this._update();
     } catch {}
-    // 치는 중엔 15초 간격이었으니 대기실 간격(2.5초)으로 다시 잡음 (상대 준비·규칙 바뀐 게 늦게 보이던 것)
+    // 치는 중엔 15초 간격이었으니 대기실 간격(3초)으로 다시 잡음 (상대 준비·규칙 바뀐 게 늦게 보이던 것)
     this._schedule();
   }
 

@@ -437,6 +437,16 @@ test('이용 통계: 접속·판 기록 → 관리자만 집계 조회', async (
   const st2 = (await a('GET', '/api/admin/stats?days=7', null, { 'x-admin-token': 'admin-pw' })).json;
   assert.equal(st2.totals.visitors, 2);
   assert.equal(st2.totals.sessions, 3);
+
+  // 판 시작(/api/runs) 요청에 얹혀 온 통계도 저장 (따로 /api/track 안 보내도 됨)
+  const r = await a('POST', '/api/runs', { level: 1, track: { sid: 'sess-aaaaaaaa-3', active: 40, plays: [{ ev: 'end', id: 'play-aaaa-0003', level: 1, result: 'clear', score: 10, stars: 1, sec: 30 }] } });
+  assert.equal(r.status, 200);
+  assert.ok(r.json.runToken);
+  // 잘못된 통계가 얹혀도 판 시작은 됨
+  assert.equal((await a('POST', '/api/runs', { level: 1, track: { sid: 'x' } })).status, 200);
+  const st3 = (await a('GET', '/api/admin/stats?days=7', null, { 'x-admin-token': 'admin-pw' })).json;
+  assert.equal(st3.totals.sessions, 4);
+  assert.equal(st3.totals.plays, 4);
 });
 
 /** 팔로워 암호로 인증한 사람 (멀티·건의하기는 인증한 사람만) */
