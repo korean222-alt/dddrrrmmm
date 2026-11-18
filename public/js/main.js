@@ -4,7 +4,7 @@ import {
   LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES,
   ENDLESS_ID, LAST_LEVEL_ID, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo,
   ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId,
-  STUDIO_LEVELS, getStudioLevel,
+  STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase,
 } from './charts.js';
 import { AudioEngine, playMetronome } from './audio.js';
 import { Renderer } from './render.js';
@@ -16,7 +16,7 @@ import { CONFIG } from './config.js';
 import { mascotSVG, stickSVG, bassDrumSVG, snareSVG } from './mascot.js';
 import { groupStarting } from './themes.js';
 import { NEWS, LATEST_NEWS } from './news.js';
-import { RoomClient, roomOutcome } from './room.js';
+import { RoomClient, roomOutcome, survivalOutcome } from './room.js';
 import { makeReelCover } from './cover.js';
 import { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder } from './storage.js';
 
@@ -236,6 +236,8 @@ async function submitVerify() {
 /** 단계 id → 칠 판 (숫자 = 일반 단계, 'endless' = 무제한 모드, 'e13' = 13단계 무제한, 'ch4' = 영상용 레벨업 챌린지 4단계까지) */
 function playable(id) {
   if (id === ENDLESS_ID) return makeEndless();
+  const sb = levelSurvivalBase(id);
+  if (sb) return makeLevelEndless(sb, { intro: true });
   const eb = levelEndlessBase(id);
   if (eb) return makeLevelEndless(eb);
   if (typeof id === 'string' && /^ch\d+$/.test(id)) return makeEndless({ rounds: Number(id.slice(2)) });
@@ -489,7 +491,7 @@ async function startLevel(id, opts = {}) {
   if (state.game) state.game.stop();
   closeModal('modal-pause');
   show('screen-game');
-  $('#hud-lv').textContent = lv.challenge ? (lv.endless ? '무제한' : '챌린지') : lv.studioOnly ? '🎬 릴스용' : `${lv.id}단계`;
+  $('#hud-lv').textContent = lv.survival ? '⚔️ 서바이벌' : lv.challenge ? (lv.endless ? '무제한' : '챌린지') : lv.studioOnly ? '🎬 릴스용' : `${lv.id}단계`;
   $('#hud-name').textContent = lv.challenge ? `${lv.songName} · ${lv.composer}` : `${lv.name} · ${lv.composer}`;
   $('#hud-score').textContent = '0';
   $('#hud-progress').style.width = '0%';
@@ -560,6 +562,11 @@ async function startLevel(id, opts = {}) {
         state.roomClient.send({ live: { score: h.score, combo: state.game ? state.game.combo : 0, progress: h.progress, lives: h.lives } });
         const o = state.roomClient.other;
         const op = o && o.final ? o.final.score : o && o.live ? o.live.score : 0;
+        // ⚔️ 서바이벌: 상대가 목숨을 다 써서 끝났거나(최종 점수 도착) 방을 나갔으면 이 판도 바로 끝 → 내가 이김
+        if (lv.survival && state.game && state.game.state === 'playing' && (!o || o.final)) {
+          state.game.endNow();
+          return;
+        }
         const rtNow = state.roomClient.realtime;
         if (rtNow !== last.rt) {
           $('#vs-name').textContent = (rtNow ? '⚡' : '') + roomOtherName();
@@ -567,7 +574,8 @@ async function startLevel(id, opts = {}) {
         }
         if (op !== last.op || h.score !== last.score) {
           $('#vs-me').textContent = fmt(h.score);
-          $('#vs-op').textContent = room.mode === 'team' ? `${fmt(op)} · 팀 ${fmt(h.score + op)}` : fmt(op);
+          const ol = o && o.live && o.live.lives != null ? ` ♥${o.live.lives}` : '';
+          $('#vs-op').textContent = room.mode === 'team' ? `${fmt(op)} · 팀 ${fmt(h.score + op)}` : fmt(op) + ol;
           const tot = h.score + op;
           $('#vs-fill').style.width = (tot ? (h.score / tot) * 100 : 50).toFixed(1) + '%';
         }
@@ -603,12 +611,15 @@ async function startLevel(id, opts = {}) {
       if (!state.studio.active && !res.auto) trackPlayEnd({ result: res.failed || res.died ? 'fail' : 'clear', score: res.score, stars: res.stars });
       if (room && state.roomClient.active) {
         res.room = { mode: room.mode, round: room.round };
-        state.roomClient.send({ final: { score: res.score, stars: res.stars, grade: res.grade, failed: !!res.failed, maxCombo: res.maxCombo, accuracy: res.accuracy } }, true);
+        state.roomClient.send(
+          { final: { score: res.score, stars: res.stars, grade: res.grade, failed: !!res.failed, maxCombo: res.maxCombo, accuracy: res.accuracy, died: !!(res.died || res.failed), survived: res.survived || 0, lv: res.roundReached || 0 } },
+          true
+        );
       }
       return state.studio.active ? studioFinish(res) : showResult(res);
     },
-    // 영상 찍기 땐 목숨 없음 (녹화 중에 멈추면 안 되니까)
-    onDeath: st.active ? null : onDeath,
+    // 영상 찍기 땐 목숨 없음 (녹화 중에 멈추면 안 되니까). 멀티는 광고 이어하기 없이 그 자리에서 끝
+    onDeath: st.active ? null : room ? onRoomDeath : onDeath,
   });
   if (room) {
     // 친구와 같은 시각에 시작: 남은 시간 카운트다운 (Game.start 가 0.35초 뒤에 첫 박을 놓음)
@@ -639,7 +650,7 @@ async function startLevel(id, opts = {}) {
   };
   state.game.start();
   // 영상 찍기·자동 연주는 통계에 안 셈
-  if (!st.active && !state.auto) trackPlayStart(id, vs || room ? 'vs' : 'normal');
+  if (!st.active && !state.auto) trackPlayStart(lv.survival ? lv.baseId : id, vs || room ? 'vs' : 'normal');
 }
 
 /** 단계에 맞게 화면 레인(악기) 세팅 */
@@ -791,6 +802,12 @@ function onDeath(info) {
   openModal('modal-continue');
 }
 
+/** ⚔️ 멀티: 목숨을 다 쓰면 이어하기(광고) 없이 바로 끝 → 결과 (상대 판도 이걸 받고 끝남) */
+function onRoomDeath() {
+  const g = state.game;
+  if (g && g.state === 'dead') g.giveUp();
+}
+
 async function continueWithAd() {
   const g = state.game;
   if (!g || g.state !== 'dead') return;
@@ -907,17 +924,19 @@ function showResult(res) {
 
 /** 무제한 모드 결과: 등급 자리에 "Lv.N", 별 대신 다이아몬드 */
 function showChallengeResult(res) {
-  const base = levelEndlessBase(res.levelId);
+  const sv = levelSurvivalBase(res.levelId); // ⚔️ 멀티 서바이벌: 기록·랭킹·다이아 안 남김
+  const base = levelEndlessBase(res.levelId) || sv;
   const lv = base || getLevel(8);
-  const best = state.auto ? { isNew: false } : saveBest(res);
-  $('#res-level').textContent = base ? `${base.id}단계 무제한 · ${base.composer} ${base.name}` : `무제한 모드 · ${lv.composer} ${lv.name}`;
+  const best = state.auto || sv ? { isNew: false } : saveBest(res);
+  $('#res-level').textContent = sv ? `⚔️ 서바이벌 · ${sv.composer} ${sv.name}` : base ? `${base.id}단계 무제한 · ${base.composer} ${base.name}` : `무제한 모드 · ${lv.composer} ${lv.name}`;
   $('#screen-result').classList.remove('failed');
   const g = $('#res-grade');
   g.textContent = `Lv.${res.roundReached}`;
   g.style.color = '#FFD84A';
   const next = DIAMOND_RULES.slice().reverse().find((r) => r.diamonds > res.diamonds);
-  $('#res-star-hint').innerHTML =
-    res.diamonds === 3
+  $('#res-star-hint').innerHTML = sv
+    ? `Lv.${res.roundReached} · ${res.bpmReached} BPM 까지 버텼어요`
+    : res.diamonds === 3
       ? `다이아 3개! 진짜 드러머예요 💎💎💎`
       : `${res.roundsCleared ? `Lv.${res.roundsCleared}까지 클리어` : 'Lv.1부터 다시 도전!'} · 다음 💎: ${next.text}`;
   $('#res-new').hidden = !best.isNew;
@@ -929,12 +948,12 @@ function showChallengeResult(res) {
   $('#res-meta').innerHTML = `최고 속도 ${res.bpmReached} BPM · 최대 콤보 ${res.maxCombo} · 정확도 ${(res.accuracy * 100).toFixed(1)}%${prev}${state.auto ? '<br>(자동 연주 — 기록 저장 안 됨)' : ''}`;
   $('#btn-next').hidden = true;
   // 무제한 모드는 랭킹이 따로 있어서 끝나면 알아서 올려요 (Lv.1 이상 깼을 때)
-  $('#btn-rank').hidden = state.auto || !res.endless;
+  $('#btn-rank').hidden = state.auto || !res.endless || !!sv;
   $('#btn-vs').hidden = true;
   show('screen-result');
   renderLevels();
-  animateResult({ ...res, stars: res.diamonds }, null, true);
-  if (!state.auto && res.endless) setTimeout(() => submitRank(res), 1800);
+  animateResult({ ...res, stars: sv ? 0 : res.diamonds }, null, true);
+  if (!state.auto && res.endless && !sv) setTimeout(() => submitRank(res), 1800);
 }
 
 const clampOffset = (ms) => Math.max(-200, Math.min(200, Math.round(ms / 5) * 5));
@@ -1791,15 +1810,21 @@ function renderRoom(room) {
     const startAt = c.toLocal(room.startAt);
     if (startAt - Date.now() > -2000) {
       closeModal('modal-room');
-      startLevel(room.level, { room: { startAt, mode: room.mode, round: room.round } });
+      // 개인전 = 서바이벌 (먼저 목숨 다 쓰면 짐, 둘 다 살아 있으면 곡이 끝없이 빨라짐). 팀전은 원래 곡 그대로
+      startLevel(room.mode === 'versus' ? levelSurvivalId(room.level) : room.level, { room: { startAt, mode: room.mode, round: room.round } });
       return;
     }
   }
   if ($('#screen-result').classList.contains('in-room')) renderRoomResult();
   // 빠른 대결: 아직 상대가 없으면 '찾는 중' 화면
   if (c.waiting) {
+    roomUi.wasWaiting = true;
     roomPanel('wait');
     return;
+  }
+  if (roomUi.wasWaiting) {
+    roomUi.wasWaiting = false;
+    if (c.other) toast(`상대를 찾았어요! '준비!'를 누르면 시작해요`, 2800);
   }
   stopWaitTimer();
   roomPanel('lobby');
@@ -1847,13 +1872,15 @@ function renderRoom(room) {
   $('#room-ready').textContent = me && me.ready ? '준비 취소' : '준비!';
   $('#room-hint').textContent = !other
     ? `친구에게 코드 ${room.code} 를 알려 주세요. 들어오면 같이 '준비!'`
+    : pub && !(me && me.ready) && !other.ready
+      ? `${other.name} 님과 붙었어요! 둘 다 '준비!'를 누르면 시작 (곡은 무작위)`
     : me && me.ready && !other.ready
       ? `${other.name} 님이 준비하면 바로 시작해요`
       : !(me && me.ready) && other.ready
         ? `${other.name} 님은 준비 완료! '준비!'를 누르면 시작해요`
         : room.mode === 'team'
           ? '팀전: 둘의 점수를 합쳐요. 피아노 파트는 곧 나와요!'
-          : '개인전: 같은 곡을 동시에 치고 점수로 승부!';
+          : '⚔️ 서바이벌: 먼저 목숨을 다 쓰면 져요! 둘 다 살아 있으면 곡이 끝없이 빨라져요';
 }
 async function roomCreate() {
   const name = $('#room-name').value.trim();
@@ -1938,8 +1965,13 @@ async function roomQuick(bracket) {
   roomUi.bracket = bracket;
   try {
     const waiting = await state.roomClient.quick(name, bracket);
-    // 바로 붙었으면 renderRoom 이 게임을 시작함 (창은 이미 닫힘)
-    if (!waiting) return;
+    // 바로 붙었으면 대기실로 → 둘 다 '준비!'를 눌러야 시작
+    if (!waiting) {
+      openModal('modal-room');
+      renderRoom(state.roomClient.room);
+      toast(`상대를 찾았어요! '준비!'를 누르면 시작해요`, 2800);
+      return;
+    }
     openModal('modal-room');
     roomPanel('wait');
     const t0 = Date.now();
@@ -1999,12 +2031,19 @@ function renderRoomResult() {
   const mine = res.score;
   const theirs = o && o.final ? o.final.score : null;
   const team = res.room.mode === 'team';
+  const surv = !!levelSurvivalBase(res.levelId);
+  const word = { win: '승리! 🎉', lose: '아쉽게 패배…', draw: '무승부!' };
   let head;
-  if (!c.active) head = '<div class="room-word">방이 닫혔어요</div>';
+  if (surv && !res.died && (!c.active || !o || !o.final)) head = `<div class="room-word win">${word.win} ${c.active && o ? '' : '상대가 나갔어요'}</div>`;
+  else if (!c.active) head = '<div class="room-word">방이 닫혔어요</div>';
   else if (!o) head = '<div class="room-word">친구가 나갔어요</div>';
-  else if (theirs == null) head = `<div class="room-word">${escapeHtml(o.name)} 님 아직 치는 중… ${o.live ? Math.round((o.live.progress || 0) * 100) + '%' : ''}</div>`;
+  else if (theirs == null) head = `<div class="room-word">${escapeHtml(o.name)} 님 ${surv ? '결과 기다리는 중…' : '아직 치는 중… ' + (o.live ? Math.round((o.live.progress || 0) * 100) + '%' : '')}</div>`;
   else if (team) head = `<div class="room-word win">🤝 팀 점수 ${fmt(roomOutcome('team', mine, theirs).team)}</div>`;
-  else {
+  else if (surv) {
+    const r = survivalOutcome({ died: !!res.died, survived: res.survived, score: mine }, { died: !!o.final.died, survived: o.final.survived, score: theirs });
+    const why = r === 'win' ? `${escapeHtml(o.name)} 님이 먼저 목숨을 다 썼어요` : r === 'lose' ? '내가 먼저 목숨을 다 썼어요' : '';
+    head = `<div class="room-word ${r}">${word[r]}</div>${why ? `<div class="room-why">${why}</div>` : ''}`;
+  } else {
     const r = roomOutcome('versus', mine, theirs).result;
     head = `<div class="room-word ${r}">${{ win: '승리! 🎉', lose: '아쉽게 패배…', draw: '무승부!' }[r]}</div>`;
   }

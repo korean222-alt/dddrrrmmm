@@ -1332,11 +1332,27 @@ function levelEndlessBase(id) {
   return m ? getLevel(Number(m[1])) : null;
 }
 
-function makeLevelEndless(base) {
+// ⚔️ 멀티 서바이벌: 곡을 원래 빠르기로 한 번 다 치고, 둘 다 살아 있으면 그때부터 4마디마다 빨라지며 끝없이.
+//   먼저 목숨을 다 쓴 사람이 짐 (그 순간 판이 끝남). id = 'v' + 단계 번호 (예: 'v13'). 기록·랭킹엔 안 들어감
+const levelSurvivalId = (id) => `v${id}`;
+/** 'v13' → 13단계 레벨 (아니면 null) */
+function levelSurvivalBase(id) {
+  const m = /^v(\d+)$/.exec(String(id));
+  return m ? getLevel(Number(m[1])) : null;
+}
+
+/**
+ * 단계별 무제한 판. intro = true 면 첫 단계가 '곡 전체'(원래 빠르기), 그 뒤부터 4마디씩 빨라짐 (멀티 서바이벌)
+ */
+function makeLevelEndless(base, { intro = false } = {}) {
   const bpmOf = (r) => base.bpm + LEVEL_ENDLESS_STEP * (r - 1);
+  const introBars = intro ? base.bars.length : 0;
   const run = {
-    id: levelEndlessId(base.id),
+    id: intro ? levelSurvivalId(base.id) : levelEndlessId(base.id),
     baseId: base.id,
+    survival: intro,
+    introBars,
+    rolls: intro ? base.rolls : undefined,
     endless: true,
     challenge: true,
     maxRounds: Infinity,
@@ -1355,8 +1371,11 @@ function makeLevelEndless(base) {
     ensureBars(n) {
       while (this.bars.length < n) {
         const r = ++this.roundsBuilt;
-        for (let i = 0; i < ROUND_BARS; i++) {
-          this.bars.push(base.bars[((r - 1) * ROUND_BARS + i) % base.bars.length]);
+        // intro: 1단계 = 곡 전체, 2단계부터 곡 처음부터 4마디씩
+        const len = introBars && r === 1 ? introBars : ROUND_BARS;
+        const from = introBars ? (r === 1 ? 0 : (r - 2) * ROUND_BARS) : (r - 1) * ROUND_BARS;
+        for (let i = 0; i < len; i++) {
+          this.bars.push(base.bars[(from + i) % base.bars.length]);
           this.barMult.push(1 + 0.1 * (r - 1));
           this.barRound.push(r);
         }
@@ -1365,7 +1384,14 @@ function makeLevelEndless(base) {
     },
     roundOfBar(mb) {
       if (mb < 0) return 1;
+      if (introBars) return mb < introBars ? 1 : Math.floor((mb - introBars) / ROUND_BARS) + 2;
       return Math.floor(mb / ROUND_BARS) + 1;
+    },
+    /** 지금 단계 안에서 얼마나 왔나 0~1 */
+    roundProgress(mb) {
+      if (mb < 0) return 0;
+      if (introBars && mb < introBars) return mb / introBars;
+      return ((mb - introBars) % ROUND_BARS) / ROUND_BARS;
     },
     /** 화면에 띄울 단계 정보 (그리그 무제한의 roundInfo 대신) */
     roundInfo(r) {
@@ -1373,11 +1399,11 @@ function makeLevelEndless(base) {
     },
   };
   run.tempo = new TempoMap((bar) => bpmOf(run.roundOfBar(bar - COUNT_IN_BARS)));
-  run.ensureBars(ROUND_BARS * 2);
+  run.ensureBars(introBars + ROUND_BARS * 2);
   return run;
 }
 
-return { STEPS_PER_BAR, KICK, SNARE, HAT, CRASH, TOM, INSTRUMENTS, CHAR_LANES, isLeftThumb, COUNT_IN_BARS, OUTRO_BARS, JUDGE, POINTS, ACC_WEIGHT, STAR_RULES, DIFFICULTY_WORDS, LEVELS, STUDIO_LEVELS, getStudioLevel, FREE_UPTO, VERIFY_LEVELS, needsVerify, CLOSED_LEVELS, SKIP_LEVELS, isClosed, prevOpenId, nextOpenId, noteToMidi, parseChord, chordAt, parseMelody, getLevel, beatDur, stepDur, barDur, levelDuration, TempoMap, tempoOf, levelLanes, buildNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, GOLD_SPOTS, buildRolls, markGoldNotes, noteCount, comboMultiplier, pointsFor, maxScore, accuracy, gradeFor, starsFor, scoreBounds, isClearBest, LAST_LEVEL_ID, shiftOldLevelKey, ENDLESS_FROM, FREE_LEVELS, isUnlocked, tierOf, unlockHint, nextChallenge, ENDLESS_ID, ROUND_BARS, ENDLESS_BASE_BPM, ENDLESS_BPM_STEP, DIAMOND_RULES, diamondsFor, roundBpm, roundInfo, roundBars, makeEndless, LEVEL_ENDLESS_STEP, levelEndlessId, levelEndlessBase, makeLevelEndless };
+return { STEPS_PER_BAR, KICK, SNARE, HAT, CRASH, TOM, INSTRUMENTS, CHAR_LANES, isLeftThumb, COUNT_IN_BARS, OUTRO_BARS, JUDGE, POINTS, ACC_WEIGHT, STAR_RULES, DIFFICULTY_WORDS, LEVELS, STUDIO_LEVELS, getStudioLevel, FREE_UPTO, VERIFY_LEVELS, needsVerify, CLOSED_LEVELS, SKIP_LEVELS, isClosed, prevOpenId, nextOpenId, noteToMidi, parseChord, chordAt, parseMelody, getLevel, beatDur, stepDur, barDur, levelDuration, TempoMap, tempoOf, levelLanes, buildNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, GOLD_SPOTS, buildRolls, markGoldNotes, noteCount, comboMultiplier, pointsFor, maxScore, accuracy, gradeFor, starsFor, scoreBounds, isClearBest, LAST_LEVEL_ID, shiftOldLevelKey, ENDLESS_FROM, FREE_LEVELS, isUnlocked, tierOf, unlockHint, nextChallenge, ENDLESS_ID, ROUND_BARS, ENDLESS_BASE_BPM, ENDLESS_BPM_STEP, DIAMOND_RULES, diamondsFor, roundBpm, roundInfo, roundBars, makeEndless, LEVEL_ENDLESS_STEP, levelEndlessId, levelEndlessBase, levelSurvivalId, levelSurvivalBase, makeLevelEndless };
 })();
 
 // ---- audio.js ----
@@ -6348,6 +6374,20 @@ class Game {
     return true;
   }
 
+  /** ⚔️ 멀티: 상대가 먼저 목숨을 다 씀 → 내 판도 지금 끝 (살아남아서 이김) */
+  endNow() {
+    if (this.state !== 'playing' && this.state !== 'paused' && this.state !== 'dead') return false;
+    const wasDead = this.state === 'dead';
+    const at = wasDead ? this.diedAt : this.songTime();
+    this.state = 'finished';
+    cancelAnimationFrame(this._raf);
+    if (this.audio.ctx && this.audio.ctx.state === 'suspended') this.audio.ctx.resume().catch(() => {});
+    this.player.stop(0.6);
+    if (this.level.challenge) this._finishChallenge(wasDead, at);
+    else this._finish(wasDead);
+    return true;
+  }
+
   /** 이어하기 안 하고 끝내기 → 실패 결과 */
   giveUp() {
     if (this.state !== 'dead') return;
@@ -6439,7 +6479,9 @@ class Game {
     if (!this.level.challenge) return;
     const mb = this.tempo.barAt(now) - COUNT_IN_BARS;
     // 새 단계 시작 한 박 전부터 크게 띄움 (첫 단계는 카운트인 마지막 박)
-    const r = Math.min(this.level.maxRounds, Math.max(1, Math.floor((mb + 0.25) / ROUND_BARS) + 1));
+    const r = this.level.introBars
+      ? this.level.roundOfBar(mb + 0.25)
+      : Math.min(this.level.maxRounds, Math.max(1, Math.floor((mb + 0.25) / ROUND_BARS) + 1));
     if (r !== this.round) {
       this.round = r;
       this.roundInfo = this._roundInfo(r);
@@ -6450,13 +6492,15 @@ class Game {
   /** 지금까지 깬 단계 수 */
   _roundsCleared(now) {
     const mb = this.tempo.barAt(now) - COUNT_IN_BARS;
+    if (this.level.introBars) return Math.max(0, this.level.roundOfBar(mb) - 1);
     return Math.max(0, Math.min(this.level.maxRounds, Math.floor(mb / ROUND_BARS)));
   }
 
   _hud(now) {
     const barPos = this.tempo.barAt(now) - COUNT_IN_BARS;
     let progress;
-    if (this.level.endless) progress = Math.max(0, (barPos % ROUND_BARS) / ROUND_BARS);
+    if (this.level.roundProgress) progress = Math.max(0, this.level.roundProgress(barPos));
+    else if (this.level.endless) progress = Math.max(0, (barPos % ROUND_BARS) / ROUND_BARS);
     else progress = Math.max(0, Math.min(1, now / this.endTime));
     return {
       score: this.score,
@@ -6582,10 +6626,11 @@ class Game {
   }
 
   /** 무제한 모드 / 레벨업 챌린지 결과: 몇 단계까지 깼나 + 다이아몬드 */
-  _finishChallenge(died) {
+  _finishChallenge(died, atOverride) {
     const lv = this.level;
-    const at = died ? this.diedAt ?? this.songTime() : this.endTime;
-    const cleared = died ? this._roundsCleared(at) : lv.maxRounds;
+    const stopped = atOverride !== undefined; // 멀티: 상대가 먼저 져서 중간에 끝남
+    const at = stopped ? atOverride : died ? this.diedAt ?? this.songTime() : this.endTime;
+    const cleared = died || stopped ? this._roundsCleared(at) : lv.maxRounds;
     const avgOffsetMs = this.offsets.length
       ? Math.round((this.offsets.reduce((a, b) => a + b, 0) / this.offsets.length) * 1000)
       : 0;
@@ -6603,7 +6648,9 @@ class Game {
       grade: gradeFor(this.counts),
       roundsCleared: cleared,
       roundReached: Math.min(lv.maxRounds, cleared + 1),
-      bpmReached: this._roundInfo(Math.max(1, Math.min(lv.maxRounds, cleared + (died ? 1 : 0)))).bpm,
+      bpmReached: this._roundInfo(Math.max(1, Math.min(lv.maxRounds, cleared + (died || stopped ? 1 : 0)))).bpm,
+      // 멀티 승부용: 얼마나 오래 버텼나 (곡 시작부터 초)
+      survived: Math.max(0, Number.isFinite(at) ? at : 0),
       diamonds: diamondsFor(cleared),
       stars: 0,
       fullCombo: false,
@@ -7188,6 +7235,17 @@ const __m_news = (() => {
 
 const NEWS = [
   {
+    id: '2026-11-18i',
+    date: '11월 18일',
+    title: '⚔️ 멀티 서바이벌',
+    items: [
+      '⚔️ 개인전이 <b>서바이벌</b>로 바뀌었어요! 먼저 목숨을 다 쓰는 사람이 지고, 그 순간 판이 끝나요',
+      '🔥 둘 다 곡 끝까지 살아남으면 곡이 <b>끝없이 빨라져요</b>. 누가 먼저 쓰러지나 끝까지 승부!',
+      '⚡ 빠른 대결도 상대를 찾으면 바로 시작하지 않고 <b>대기실</b>로 가요. 둘 다 <b>준비!</b>를 누르면 시작',
+      '멀티에서는 광고 보고 이어하기가 없어요',
+    ],
+  },
+  {
     id: '2026-11-18h',
     date: '11월 18일',
     title: '17단계 라 쿠카라차 · 터치 안 먹던 것 고침',
@@ -7562,7 +7620,7 @@ class RoomClient {
       if (!m || typeof m !== 'object') return;
       if (m.t === 'live') this.peerLive = { round: m.round, score: m.score | 0, combo: m.combo | 0, progress: +m.progress || 0, lives: m.lives };
       else if (m.t === 'final') {
-        this.peerFinal = { round: m.round, score: m.score | 0, stars: m.stars | 0, grade: String(m.grade || ''), failed: !!m.failed, maxCombo: m.maxCombo | 0, accuracy: +m.accuracy || 0 };
+        this.peerFinal = { round: m.round, score: m.score | 0, stars: m.stars | 0, grade: String(m.grade || ''), failed: !!m.failed, maxCombo: m.maxCombo | 0, accuracy: +m.accuracy || 0, died: !!m.died, survived: +m.survived || 0, lv: m.lv | 0 };
         this.onUpdate(this.room);
       }
     };
@@ -7657,6 +7715,19 @@ class RoomClient {
   }
 }
 
+/**
+ * ⚔️ 서바이벌 승패: 먼저 목숨을 다 쓴 사람이 짐. 둘 다 졌으면(거의 동시) 더 오래 버틴 쪽, 그것도 같으면 점수.
+ * me/them = { died, survived(초), score }
+ */
+function survivalOutcome(me, them) {
+  if (!me.died && them.died) return 'win';
+  if (me.died && !them.died) return 'lose';
+  const d = (me.survived || 0) - (them.survived || 0);
+  if (Math.abs(d) > 0.05) return d > 0 ? 'win' : 'lose';
+  if (me.score === them.score) return 'draw';
+  return me.score > them.score ? 'win' : 'lose';
+}
+
 /** 방 결과: 개인전은 승패, 팀전은 합계 */
 function roomOutcome(mode, mine, theirs) {
   if (mode === 'team') return { team: (mine || 0) + (theirs || 0) };
@@ -7664,7 +7735,7 @@ function roomOutcome(mode, mine, theirs) {
   return { result: mine > theirs ? 'win' : 'lose' };
 }
 
-return { ROOM_POLL_LOBBY_MS, ROOM_POLL_PLAY_MS, ROOM_POLL_RT_MS, ROOM_POLL_WAIT_MS, RoomClient, roomOutcome };
+return { ROOM_POLL_LOBBY_MS, ROOM_POLL_PLAY_MS, ROOM_POLL_RT_MS, ROOM_POLL_WAIT_MS, RoomClient, survivalOutcome, roomOutcome };
 })();
 
 // ---- cover.js ----
@@ -8216,7 +8287,7 @@ return { NAME_MAX, kstDateKey, todayLevel, cleanName, encodeChallenge, decodeCha
 const __m_main = (() => {
 // 오케이스트라 — 화면 전환, 잠금(팔로우 인증), 랭킹, 설정을 묶는 앱 본체
 
-const { LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES, ENDLESS_ID, LAST_LEVEL_ID, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo, ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId, STUDIO_LEVELS, getStudioLevel } = __m_charts;
+const { LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES, ENDLESS_ID, LAST_LEVEL_ID, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo, ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId, STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase } = __m_charts;
 const { AudioEngine, playMetronome } = __m_audio;
 const { Renderer } = __m_render;
 const { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } = __m_game;
@@ -8227,7 +8298,7 @@ const { CONFIG } = __m_config;
 const { mascotSVG, stickSVG, bassDrumSVG, snareSVG } = __m_mascot;
 const { groupStarting } = __m_themes;
 const { NEWS, LATEST_NEWS } = __m_news;
-const { RoomClient, roomOutcome } = __m_room;
+const { RoomClient, roomOutcome, survivalOutcome } = __m_room;
 const { makeReelCover } = __m_cover;
 const { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder } = __m_storage;
 
@@ -8447,6 +8518,8 @@ async function submitVerify() {
 /** 단계 id → 칠 판 (숫자 = 일반 단계, 'endless' = 무제한 모드, 'e13' = 13단계 무제한, 'ch4' = 영상용 레벨업 챌린지 4단계까지) */
 function playable(id) {
   if (id === ENDLESS_ID) return makeEndless();
+  const sb = levelSurvivalBase(id);
+  if (sb) return makeLevelEndless(sb, { intro: true });
   const eb = levelEndlessBase(id);
   if (eb) return makeLevelEndless(eb);
   if (typeof id === 'string' && /^ch\d+$/.test(id)) return makeEndless({ rounds: Number(id.slice(2)) });
@@ -8700,7 +8773,7 @@ async function startLevel(id, opts = {}) {
   if (state.game) state.game.stop();
   closeModal('modal-pause');
   show('screen-game');
-  $('#hud-lv').textContent = lv.challenge ? (lv.endless ? '무제한' : '챌린지') : lv.studioOnly ? '🎬 릴스용' : `${lv.id}단계`;
+  $('#hud-lv').textContent = lv.survival ? '⚔️ 서바이벌' : lv.challenge ? (lv.endless ? '무제한' : '챌린지') : lv.studioOnly ? '🎬 릴스용' : `${lv.id}단계`;
   $('#hud-name').textContent = lv.challenge ? `${lv.songName} · ${lv.composer}` : `${lv.name} · ${lv.composer}`;
   $('#hud-score').textContent = '0';
   $('#hud-progress').style.width = '0%';
@@ -8771,6 +8844,11 @@ async function startLevel(id, opts = {}) {
         state.roomClient.send({ live: { score: h.score, combo: state.game ? state.game.combo : 0, progress: h.progress, lives: h.lives } });
         const o = state.roomClient.other;
         const op = o && o.final ? o.final.score : o && o.live ? o.live.score : 0;
+        // ⚔️ 서바이벌: 상대가 목숨을 다 써서 끝났거나(최종 점수 도착) 방을 나갔으면 이 판도 바로 끝 → 내가 이김
+        if (lv.survival && state.game && state.game.state === 'playing' && (!o || o.final)) {
+          state.game.endNow();
+          return;
+        }
         const rtNow = state.roomClient.realtime;
         if (rtNow !== last.rt) {
           $('#vs-name').textContent = (rtNow ? '⚡' : '') + roomOtherName();
@@ -8778,7 +8856,8 @@ async function startLevel(id, opts = {}) {
         }
         if (op !== last.op || h.score !== last.score) {
           $('#vs-me').textContent = fmt(h.score);
-          $('#vs-op').textContent = room.mode === 'team' ? `${fmt(op)} · 팀 ${fmt(h.score + op)}` : fmt(op);
+          const ol = o && o.live && o.live.lives != null ? ` ♥${o.live.lives}` : '';
+          $('#vs-op').textContent = room.mode === 'team' ? `${fmt(op)} · 팀 ${fmt(h.score + op)}` : fmt(op) + ol;
           const tot = h.score + op;
           $('#vs-fill').style.width = (tot ? (h.score / tot) * 100 : 50).toFixed(1) + '%';
         }
@@ -8814,12 +8893,15 @@ async function startLevel(id, opts = {}) {
       if (!state.studio.active && !res.auto) trackPlayEnd({ result: res.failed || res.died ? 'fail' : 'clear', score: res.score, stars: res.stars });
       if (room && state.roomClient.active) {
         res.room = { mode: room.mode, round: room.round };
-        state.roomClient.send({ final: { score: res.score, stars: res.stars, grade: res.grade, failed: !!res.failed, maxCombo: res.maxCombo, accuracy: res.accuracy } }, true);
+        state.roomClient.send(
+          { final: { score: res.score, stars: res.stars, grade: res.grade, failed: !!res.failed, maxCombo: res.maxCombo, accuracy: res.accuracy, died: !!(res.died || res.failed), survived: res.survived || 0, lv: res.roundReached || 0 } },
+          true
+        );
       }
       return state.studio.active ? studioFinish(res) : showResult(res);
     },
-    // 영상 찍기 땐 목숨 없음 (녹화 중에 멈추면 안 되니까)
-    onDeath: st.active ? null : onDeath,
+    // 영상 찍기 땐 목숨 없음 (녹화 중에 멈추면 안 되니까). 멀티는 광고 이어하기 없이 그 자리에서 끝
+    onDeath: st.active ? null : room ? onRoomDeath : onDeath,
   });
   if (room) {
     // 친구와 같은 시각에 시작: 남은 시간 카운트다운 (Game.start 가 0.35초 뒤에 첫 박을 놓음)
@@ -8850,7 +8932,7 @@ async function startLevel(id, opts = {}) {
   };
   state.game.start();
   // 영상 찍기·자동 연주는 통계에 안 셈
-  if (!st.active && !state.auto) trackPlayStart(id, vs || room ? 'vs' : 'normal');
+  if (!st.active && !state.auto) trackPlayStart(lv.survival ? lv.baseId : id, vs || room ? 'vs' : 'normal');
 }
 
 /** 단계에 맞게 화면 레인(악기) 세팅 */
@@ -9002,6 +9084,12 @@ function onDeath(info) {
   openModal('modal-continue');
 }
 
+/** ⚔️ 멀티: 목숨을 다 쓰면 이어하기(광고) 없이 바로 끝 → 결과 (상대 판도 이걸 받고 끝남) */
+function onRoomDeath() {
+  const g = state.game;
+  if (g && g.state === 'dead') g.giveUp();
+}
+
 async function continueWithAd() {
   const g = state.game;
   if (!g || g.state !== 'dead') return;
@@ -9118,17 +9206,19 @@ function showResult(res) {
 
 /** 무제한 모드 결과: 등급 자리에 "Lv.N", 별 대신 다이아몬드 */
 function showChallengeResult(res) {
-  const base = levelEndlessBase(res.levelId);
+  const sv = levelSurvivalBase(res.levelId); // ⚔️ 멀티 서바이벌: 기록·랭킹·다이아 안 남김
+  const base = levelEndlessBase(res.levelId) || sv;
   const lv = base || getLevel(8);
-  const best = state.auto ? { isNew: false } : saveBest(res);
-  $('#res-level').textContent = base ? `${base.id}단계 무제한 · ${base.composer} ${base.name}` : `무제한 모드 · ${lv.composer} ${lv.name}`;
+  const best = state.auto || sv ? { isNew: false } : saveBest(res);
+  $('#res-level').textContent = sv ? `⚔️ 서바이벌 · ${sv.composer} ${sv.name}` : base ? `${base.id}단계 무제한 · ${base.composer} ${base.name}` : `무제한 모드 · ${lv.composer} ${lv.name}`;
   $('#screen-result').classList.remove('failed');
   const g = $('#res-grade');
   g.textContent = `Lv.${res.roundReached}`;
   g.style.color = '#FFD84A';
   const next = DIAMOND_RULES.slice().reverse().find((r) => r.diamonds > res.diamonds);
-  $('#res-star-hint').innerHTML =
-    res.diamonds === 3
+  $('#res-star-hint').innerHTML = sv
+    ? `Lv.${res.roundReached} · ${res.bpmReached} BPM 까지 버텼어요`
+    : res.diamonds === 3
       ? `다이아 3개! 진짜 드러머예요 💎💎💎`
       : `${res.roundsCleared ? `Lv.${res.roundsCleared}까지 클리어` : 'Lv.1부터 다시 도전!'} · 다음 💎: ${next.text}`;
   $('#res-new').hidden = !best.isNew;
@@ -9140,12 +9230,12 @@ function showChallengeResult(res) {
   $('#res-meta').innerHTML = `최고 속도 ${res.bpmReached} BPM · 최대 콤보 ${res.maxCombo} · 정확도 ${(res.accuracy * 100).toFixed(1)}%${prev}${state.auto ? '<br>(자동 연주 — 기록 저장 안 됨)' : ''}`;
   $('#btn-next').hidden = true;
   // 무제한 모드는 랭킹이 따로 있어서 끝나면 알아서 올려요 (Lv.1 이상 깼을 때)
-  $('#btn-rank').hidden = state.auto || !res.endless;
+  $('#btn-rank').hidden = state.auto || !res.endless || !!sv;
   $('#btn-vs').hidden = true;
   show('screen-result');
   renderLevels();
-  animateResult({ ...res, stars: res.diamonds }, null, true);
-  if (!state.auto && res.endless) setTimeout(() => submitRank(res), 1800);
+  animateResult({ ...res, stars: sv ? 0 : res.diamonds }, null, true);
+  if (!state.auto && res.endless && !sv) setTimeout(() => submitRank(res), 1800);
 }
 
 const clampOffset = (ms) => Math.max(-200, Math.min(200, Math.round(ms / 5) * 5));
@@ -10002,15 +10092,21 @@ function renderRoom(room) {
     const startAt = c.toLocal(room.startAt);
     if (startAt - Date.now() > -2000) {
       closeModal('modal-room');
-      startLevel(room.level, { room: { startAt, mode: room.mode, round: room.round } });
+      // 개인전 = 서바이벌 (먼저 목숨 다 쓰면 짐, 둘 다 살아 있으면 곡이 끝없이 빨라짐). 팀전은 원래 곡 그대로
+      startLevel(room.mode === 'versus' ? levelSurvivalId(room.level) : room.level, { room: { startAt, mode: room.mode, round: room.round } });
       return;
     }
   }
   if ($('#screen-result').classList.contains('in-room')) renderRoomResult();
   // 빠른 대결: 아직 상대가 없으면 '찾는 중' 화면
   if (c.waiting) {
+    roomUi.wasWaiting = true;
     roomPanel('wait');
     return;
+  }
+  if (roomUi.wasWaiting) {
+    roomUi.wasWaiting = false;
+    if (c.other) toast(`상대를 찾았어요! '준비!'를 누르면 시작해요`, 2800);
   }
   stopWaitTimer();
   roomPanel('lobby');
@@ -10058,13 +10154,15 @@ function renderRoom(room) {
   $('#room-ready').textContent = me && me.ready ? '준비 취소' : '준비!';
   $('#room-hint').textContent = !other
     ? `친구에게 코드 ${room.code} 를 알려 주세요. 들어오면 같이 '준비!'`
+    : pub && !(me && me.ready) && !other.ready
+      ? `${other.name} 님과 붙었어요! 둘 다 '준비!'를 누르면 시작 (곡은 무작위)`
     : me && me.ready && !other.ready
       ? `${other.name} 님이 준비하면 바로 시작해요`
       : !(me && me.ready) && other.ready
         ? `${other.name} 님은 준비 완료! '준비!'를 누르면 시작해요`
         : room.mode === 'team'
           ? '팀전: 둘의 점수를 합쳐요. 피아노 파트는 곧 나와요!'
-          : '개인전: 같은 곡을 동시에 치고 점수로 승부!';
+          : '⚔️ 서바이벌: 먼저 목숨을 다 쓰면 져요! 둘 다 살아 있으면 곡이 끝없이 빨라져요';
 }
 async function roomCreate() {
   const name = $('#room-name').value.trim();
@@ -10149,8 +10247,13 @@ async function roomQuick(bracket) {
   roomUi.bracket = bracket;
   try {
     const waiting = await state.roomClient.quick(name, bracket);
-    // 바로 붙었으면 renderRoom 이 게임을 시작함 (창은 이미 닫힘)
-    if (!waiting) return;
+    // 바로 붙었으면 대기실로 → 둘 다 '준비!'를 눌러야 시작
+    if (!waiting) {
+      openModal('modal-room');
+      renderRoom(state.roomClient.room);
+      toast(`상대를 찾았어요! '준비!'를 누르면 시작해요`, 2800);
+      return;
+    }
     openModal('modal-room');
     roomPanel('wait');
     const t0 = Date.now();
@@ -10210,12 +10313,19 @@ function renderRoomResult() {
   const mine = res.score;
   const theirs = o && o.final ? o.final.score : null;
   const team = res.room.mode === 'team';
+  const surv = !!levelSurvivalBase(res.levelId);
+  const word = { win: '승리! 🎉', lose: '아쉽게 패배…', draw: '무승부!' };
   let head;
-  if (!c.active) head = '<div class="room-word">방이 닫혔어요</div>';
+  if (surv && !res.died && (!c.active || !o || !o.final)) head = `<div class="room-word win">${word.win} ${c.active && o ? '' : '상대가 나갔어요'}</div>`;
+  else if (!c.active) head = '<div class="room-word">방이 닫혔어요</div>';
   else if (!o) head = '<div class="room-word">친구가 나갔어요</div>';
-  else if (theirs == null) head = `<div class="room-word">${escapeHtml(o.name)} 님 아직 치는 중… ${o.live ? Math.round((o.live.progress || 0) * 100) + '%' : ''}</div>`;
+  else if (theirs == null) head = `<div class="room-word">${escapeHtml(o.name)} 님 ${surv ? '결과 기다리는 중…' : '아직 치는 중… ' + (o.live ? Math.round((o.live.progress || 0) * 100) + '%' : '')}</div>`;
   else if (team) head = `<div class="room-word win">🤝 팀 점수 ${fmt(roomOutcome('team', mine, theirs).team)}</div>`;
-  else {
+  else if (surv) {
+    const r = survivalOutcome({ died: !!res.died, survived: res.survived, score: mine }, { died: !!o.final.died, survived: o.final.survived, score: theirs });
+    const why = r === 'win' ? `${escapeHtml(o.name)} 님이 먼저 목숨을 다 썼어요` : r === 'lose' ? '내가 먼저 목숨을 다 썼어요' : '';
+    head = `<div class="room-word ${r}">${word[r]}</div>${why ? `<div class="room-why">${why}</div>` : ''}`;
+  } else {
     const r = roomOutcome('versus', mine, theirs).result;
     head = `<div class="room-word ${r}">${{ win: '승리! 🎉', lose: '아쉽게 패배…', draw: '무승부!' }[r]}</div>`;
   }

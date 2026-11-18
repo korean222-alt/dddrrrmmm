@@ -545,12 +545,22 @@ test('⚡ 빠른 대결: 같은 묶음에서 기다리는 사람과 바로 붙�
   const b = await B('POST', '/api/rooms', { action: 'quick', name: '찾음', bracket: 'easy' });
   assert.equal(b.status, 200);
   assert.equal(b.json.code, a.json.code, '기다리던 방에 붙음');
-  assert.equal(b.json.room.status, 'playing');
-  assert.ok(b.json.room.level >= 1 && b.json.room.level <= 8, '쉬움·보통 = 1~8단계');
-  assert.ok(b.json.room.startAt > b.json.now);
-  // 방장도 곡·모드를 못 바꿈 (빠른 대결)
+  assert.equal(b.json.room.status, 'lobby', '붙어도 바로 시작 안 함 → 대기실');
   const ka = { code: a.json.code, slot: 'a', key: a.json.key };
   const kb = { code: b.json.code, slot: 'b', key: b.json.key };
+  // 한 사람만 준비 → 아직 대기
+  let q = await A('POST', '/api/rooms', { action: 'sync', ...ka, ready: true });
+  assert.equal(q.json.room.status, 'lobby');
+  assert.equal(q.json.room.players.a.ready, true);
+  // 둘 다 준비 → 시작 (곡은 그 묶음에서 무작위)
+  q = await B('POST', '/api/rooms', { action: 'sync', ...kb, ready: true });
+  assert.equal(q.json.room.status, 'playing');
+  assert.ok(q.json.room.level >= 1 && q.json.room.level <= 8, '쉬움·보통 = 1~8단계');
+  assert.ok(q.json.room.startAt > q.json.now);
+  // 서바이벌 결과: 목숨 다 씀 · 버틴 시간 · Lv 이 상대에게 전달
+  await A('POST', '/api/rooms', { action: 'sync', ...ka, final: { score: 1200, died: true, survived: 42.5, lv: 2 } });
+  q = await B('POST', '/api/rooms', { action: 'sync', ...kb });
+  assert.deepEqual([q.json.room.players.a.final.died, q.json.room.players.a.final.survived, q.json.room.players.a.final.lv], [true, 42.5, 2]);
   // 실시간 연결 신호: A 가 offer, B 가 answer
   await A('POST', '/api/rooms', { action: 'sync', ...ka, sig: { id: 'x1', to: b.json.room.players.b.pid, type: 'offer', sdp: 'v=0 offer' } });
   let r = await B('POST', '/api/rooms', { action: 'sync', ...kb });

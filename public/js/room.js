@@ -279,7 +279,7 @@ export class RoomClient {
       if (!m || typeof m !== 'object') return;
       if (m.t === 'live') this.peerLive = { round: m.round, score: m.score | 0, combo: m.combo | 0, progress: +m.progress || 0, lives: m.lives };
       else if (m.t === 'final') {
-        this.peerFinal = { round: m.round, score: m.score | 0, stars: m.stars | 0, grade: String(m.grade || ''), failed: !!m.failed, maxCombo: m.maxCombo | 0, accuracy: +m.accuracy || 0 };
+        this.peerFinal = { round: m.round, score: m.score | 0, stars: m.stars | 0, grade: String(m.grade || ''), failed: !!m.failed, maxCombo: m.maxCombo | 0, accuracy: +m.accuracy || 0, died: !!m.died, survived: +m.survived || 0, lv: m.lv | 0 };
         this.onUpdate(this.room);
       }
     };
@@ -372,6 +372,19 @@ export class RoomClient {
       await this.api.room(body);
     } catch {}
   }
+}
+
+/**
+ * ⚔️ 서바이벌 승패: 먼저 목숨을 다 쓴 사람이 짐. 둘 다 졌으면(거의 동시) 더 오래 버틴 쪽, 그것도 같으면 점수.
+ * me/them = { died, survived(초), score }
+ */
+export function survivalOutcome(me, them) {
+  if (!me.died && them.died) return 'win';
+  if (me.died && !them.died) return 'lose';
+  const d = (me.survived || 0) - (them.survived || 0);
+  if (Math.abs(d) > 0.05) return d > 0 ? 'win' : 'lose';
+  if (me.score === them.score) return 'draw';
+  return me.score > them.score ? 'win' : 'lose';
 }
 
 /** 방 결과: 개인전은 승패, 팀전은 합계 */

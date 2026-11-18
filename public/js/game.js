@@ -325,6 +325,20 @@ export class Game {
     return true;
   }
 
+  /** ⚔️ 멀티: 상대가 먼저 목숨을 다 씀 → 내 판도 지금 끝 (살아남아서 이김) */
+  endNow() {
+    if (this.state !== 'playing' && this.state !== 'paused' && this.state !== 'dead') return false;
+    const wasDead = this.state === 'dead';
+    const at = wasDead ? this.diedAt : this.songTime();
+    this.state = 'finished';
+    cancelAnimationFrame(this._raf);
+    if (this.audio.ctx && this.audio.ctx.state === 'suspended') this.audio.ctx.resume().catch(() => {});
+    this.player.stop(0.6);
+    if (this.level.challenge) this._finishChallenge(wasDead, at);
+    else this._finish(wasDead);
+    return true;
+  }
+
   /** 이어하기 안 하고 끝내기 → 실패 결과 */
   giveUp() {
     if (this.state !== 'dead') return;
@@ -416,7 +430,9 @@ export class Game {
     if (!this.level.challenge) return;
     const mb = this.tempo.barAt(now) - COUNT_IN_BARS;
     // 새 단계 시작 한 박 전부터 크게 띄움 (첫 단계는 카운트인 마지막 박)
-    const r = Math.min(this.level.maxRounds, Math.max(1, Math.floor((mb + 0.25) / ROUND_BARS) + 1));
+    const r = this.level.introBars
+      ? this.level.roundOfBar(mb + 0.25)
+      : Math.min(this.level.maxRounds, Math.max(1, Math.floor((mb + 0.25) / ROUND_BARS) + 1));
     if (r !== this.round) {
       this.round = r;
       this.roundInfo = this._roundInfo(r);
@@ -427,13 +443,15 @@ export class Game {
   /** 지금까지 깬 단계 수 */
   _roundsCleared(now) {
     const mb = this.tempo.barAt(now) - COUNT_IN_BARS;
+    if (this.level.introBars) return Math.max(0, this.level.roundOfBar(mb) - 1);
     return Math.max(0, Math.min(this.level.maxRounds, Math.floor(mb / ROUND_BARS)));
   }
 
   _hud(now) {
     const barPos = this.tempo.barAt(now) - COUNT_IN_BARS;
     let progress;
-    if (this.level.endless) progress = Math.max(0, (barPos % ROUND_BARS) / ROUND_BARS);
+    if (this.level.roundProgress) progress = Math.max(0, this.level.roundProgress(barPos));
+    else if (this.level.endless) progress = Math.max(0, (barPos % ROUND_BARS) / ROUND_BARS);
     else progress = Math.max(0, Math.min(1, now / this.endTime));
     return {
       score: this.score,
@@ -559,10 +577,11 @@ export class Game {
   }
 
   /** 무제한 모드 / 레벨업 챌린지 결과: 몇 단계까지 깼나 + 다이아몬드 */
-  _finishChallenge(died) {
+  _finishChallenge(died, atOverride) {
     const lv = this.level;
-    const at = died ? this.diedAt ?? this.songTime() : this.endTime;
-    const cleared = died ? this._roundsCleared(at) : lv.maxRounds;
+    const stopped = atOverride !== undefined; // 멀티: 상대가 먼저 져서 중간에 끝남
+    const at = stopped ? atOverride : died ? this.diedAt ?? this.songTime() : this.endTime;
+    const cleared = died || stopped ? this._roundsCleared(at) : lv.maxRounds;
     const avgOffsetMs = this.offsets.length
       ? Math.round((this.offsets.reduce((a, b) => a + b, 0) / this.offsets.length) * 1000)
       : 0;
@@ -580,7 +599,9 @@ export class Game {
       grade: gradeFor(this.counts),
       roundsCleared: cleared,
       roundReached: Math.min(lv.maxRounds, cleared + 1),
-      bpmReached: this._roundInfo(Math.max(1, Math.min(lv.maxRounds, cleared + (died ? 1 : 0)))).bpm,
+      bpmReached: this._roundInfo(Math.max(1, Math.min(lv.maxRounds, cleared + (died || stopped ? 1 : 0)))).bpm,
+      // 멀티 승부용: 얼마나 오래 버텼나 (곡 시작부터 초)
+      survived: Math.max(0, Number.isFinite(at) ? at : 0),
       diamonds: diamondsFor(cleared),
       stars: 0,
       fullCombo: false,

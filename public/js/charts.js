@@ -1328,11 +1328,27 @@ export function levelEndlessBase(id) {
   return m ? getLevel(Number(m[1])) : null;
 }
 
-export function makeLevelEndless(base) {
+// ⚔️ 멀티 서바이벌: 곡을 원래 빠르기로 한 번 다 치고, 둘 다 살아 있으면 그때부터 4마디마다 빨라지며 끝없이.
+//   먼저 목숨을 다 쓴 사람이 짐 (그 순간 판이 끝남). id = 'v' + 단계 번호 (예: 'v13'). 기록·랭킹엔 안 들어감
+export const levelSurvivalId = (id) => `v${id}`;
+/** 'v13' → 13단계 레벨 (아니면 null) */
+export function levelSurvivalBase(id) {
+  const m = /^v(\d+)$/.exec(String(id));
+  return m ? getLevel(Number(m[1])) : null;
+}
+
+/**
+ * 단계별 무제한 판. intro = true 면 첫 단계가 '곡 전체'(원래 빠르기), 그 뒤부터 4마디씩 빨라짐 (멀티 서바이벌)
+ */
+export function makeLevelEndless(base, { intro = false } = {}) {
   const bpmOf = (r) => base.bpm + LEVEL_ENDLESS_STEP * (r - 1);
+  const introBars = intro ? base.bars.length : 0;
   const run = {
-    id: levelEndlessId(base.id),
+    id: intro ? levelSurvivalId(base.id) : levelEndlessId(base.id),
     baseId: base.id,
+    survival: intro,
+    introBars,
+    rolls: intro ? base.rolls : undefined,
     endless: true,
     challenge: true,
     maxRounds: Infinity,
@@ -1351,8 +1367,11 @@ export function makeLevelEndless(base) {
     ensureBars(n) {
       while (this.bars.length < n) {
         const r = ++this.roundsBuilt;
-        for (let i = 0; i < ROUND_BARS; i++) {
-          this.bars.push(base.bars[((r - 1) * ROUND_BARS + i) % base.bars.length]);
+        // intro: 1단계 = 곡 전체, 2단계부터 곡 처음부터 4마디씩
+        const len = introBars && r === 1 ? introBars : ROUND_BARS;
+        const from = introBars ? (r === 1 ? 0 : (r - 2) * ROUND_BARS) : (r - 1) * ROUND_BARS;
+        for (let i = 0; i < len; i++) {
+          this.bars.push(base.bars[(from + i) % base.bars.length]);
           this.barMult.push(1 + 0.1 * (r - 1));
           this.barRound.push(r);
         }
@@ -1361,7 +1380,14 @@ export function makeLevelEndless(base) {
     },
     roundOfBar(mb) {
       if (mb < 0) return 1;
+      if (introBars) return mb < introBars ? 1 : Math.floor((mb - introBars) / ROUND_BARS) + 2;
       return Math.floor(mb / ROUND_BARS) + 1;
+    },
+    /** 지금 단계 안에서 얼마나 왔나 0~1 */
+    roundProgress(mb) {
+      if (mb < 0) return 0;
+      if (introBars && mb < introBars) return mb / introBars;
+      return ((mb - introBars) % ROUND_BARS) / ROUND_BARS;
     },
     /** 화면에 띄울 단계 정보 (그리그 무제한의 roundInfo 대신) */
     roundInfo(r) {
@@ -1369,6 +1395,6 @@ export function makeLevelEndless(base) {
     },
   };
   run.tempo = new TempoMap((bar) => bpmOf(run.roundOfBar(bar - COUNT_IN_BARS)));
-  run.ensureBars(ROUND_BARS * 2);
+  run.ensureBars(introBars + ROUND_BARS * 2);
   return run;
 }

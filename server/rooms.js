@@ -1,6 +1,7 @@
 // 친구 대결 방 (1:1 개인전 · 팀전)
 //   실시간 연결(웹소켓) 없이: 두 사람이 2초마다 /api/rooms 에 내 점수를 보내고 상대 점수를 받음 (폴링).
-//   방 하나 = DB 행 하나. 두 사람 다 '준비'를 누르면 서버가 몇 초 뒤 시작 시각(startAt)을 정해 같이 시작.
+//   방 하나 = DB 행 하나. 두 사람 다 '준비'를 누르면 서버가 몇 초 뒤 시작 시각(startAt)을 정해 같이 시작 (빠른 대결도 같음).
+//   개인전은 서바이벌: 곡을 치다가 먼저 목숨을 다 쓰는 사람이 지고, 둘 다 살아 있으면 곡이 끝없이 빨라짐 (판 끝은 폰끼리 판단).
 //   방 판은 랭킹에 안 들어감 (랭킹은 혼자 친 판만).
 //
 // 방 data: { code, mode: 'versus'|'team', level, status: 'lobby'|'playing', round, cfgVer, startAt, host: 'a'|'b', createdAt,
@@ -24,7 +25,6 @@ export const BRACKETS = {
 };
 /** 기다리는 방은 이 시간 안에 주고받은 적이 있어야 '살아 있음' (창을 닫고 나간 방은 안 잡힘) */
 export const QUICK_FRESH_MS = 15_000;
-export const QUICK_START_DELAY_MS = 6000;
 const pidOf = () => newId().replace(/[^A-Za-z0-9]/g, '').slice(0, 10);
 
 /** 빠른 대결 곡: 두 사람 다 칠 수 있는 곡 중에서 무작위 (인증 안 한 사람이 있으면 1~3단계만) */
@@ -137,7 +137,7 @@ export function createRoomHandler({ store, getPlayer, canPlay, isConfirmed = () 
       return [200, { waiting: { easy: easy.length, hard: hard.length } }];
     }
 
-    // ⚡ 빠른 대결: 같은 묶음에서 기다리는 사람이 있으면 바로 붙고 몇 초 뒤 시작, 없으면 내가 방을 열고 기다림
+    // ⚡ 빠른 대결: 같은 묶음에서 기다리는 사람이 있으면 그 방(대기실)에 붙음, 없으면 내가 방을 열고 기다림
     if (action === 'quick') {
       const name = cleanRoomName(body.name);
       if (!name) return [400, { error: 'bad_name' }];
@@ -156,16 +156,8 @@ export function createRoomHandler({ store, getPlayer, canPlay, isConfirmed = () 
         if (!d || !d.players || !d.players.a || d.players.b) continue;
         const joined = await store.patchRoom(code, { slot: 'b', player: me, cond: { slotFree: 'b', status: 'lobby', round: d.round || 0 } }, now, exp(now));
         if (!joined) continue;
-        const level = pickQuickLevel(bracket, ok && !!joined.players.a.ok);
-        const lv = getLevel(level);
-        const started =
-          (await store.patchRoom(
-            code,
-            { top: { level, cfgVer: (joined.cfgVer || 0) + 1, status: 'playing', round: (joined.round || 0) + 1, startAt: now + QUICK_START_DELAY_MS, endBy: now + QUICK_START_DELAY_MS + levelDuration(lv) * 1000 + 120_000 }, cond: { status: 'lobby', round: joined.round || 0 } },
-            now,
-            exp(now)
-          )) || joined;
-        return [200, { code, slot: 'b', key, room: publicRoom(started, now), now }];
+        // 바로 시작하지 않고 대기실로: 둘 다 '준비!'를 누르면 시작 (곡은 그때 무작위)
+        return [200, { code, slot: 'b', key, room: publicRoom(joined, now), now }];
       }
       const data = { mode: 'versus', level: BRACKETS[bracket][0], status: 'lobby', round: 0, cfgVer: 1, host: 'a', createdAt: now, pub: bracket, players: { a: me } };
       const code = await newCode(data, now);
@@ -235,6 +227,10 @@ export function createRoomHandler({ store, getPlayer, canPlay, isConfirmed = () 
             failed: !!f.failed,
             maxCombo: int(f.maxCombo, 0, 1e5) ?? 0,
             accuracy: Math.max(0, Math.min(1, Number(f.accuracy) || 0)),
+            // ⚔️ 서바이벌: 목숨을 다 썼나 · 버틴 시간(초) · 도달한 Lv
+            died: !!f.died,
+            survived: Math.max(0, Math.min(36000, Number(f.survived) || 0)),
+            lv: int(f.lv, 0, 9999) ?? 0,
           };
       }
       let out = await store.patchRoom(code, { top, slot, player: me }, now, exp(now));

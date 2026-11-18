@@ -522,6 +522,7 @@ html.lite .hud-lives i, html.lite .icon-btn.gear-btn img { filter: none; }
 .res-room .room-word { font-size: 28px; line-height: 1.1; }
 .res-room .room-word.win { color: var(--grass-dark, #2f9a4a); }
 .res-room .room-word.lose { color: #7f4ccf; }
+.res-room .room-why { font-size: 14px; color: var(--muted); margin-top: 4px; }
 .res-room .room-row { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 6px; margin: 8px 0; font-size: 14px; }
 .res-room .room-row b { display: block; font-size: 20px; font-weight: 400; }
 .res-room .room-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }

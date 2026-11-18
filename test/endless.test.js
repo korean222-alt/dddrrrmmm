@@ -334,3 +334,60 @@ test('같은 난이도 하나를 깨면 그 난이도 단계가 전부 열림 (�
   assert.ok(isUnlocked(13, d) && !isUnlocked(12, d));
   assert.equal(unlockHint(10, {}).short, '9단계 깨면 열림');
 });
+
+test('⚔️ 멀티 서바이벌: 곡 전체를 원래 빠르기로 한 번 → 그 뒤 4마디마다 빨라지며 끝없이, 상대가 지면 내 판도 바로 끝', async () => {
+  const { levelSurvivalId, levelSurvivalBase, LEVEL_ENDLESS_STEP } = await import('../public/js/charts.js');
+  const { survivalOutcome } = await import('../public/js/room.js');
+  const base = getLevel(5);
+  assert.equal(levelSurvivalId(5), 'v5');
+  assert.equal(levelSurvivalBase('v5'), base);
+  assert.equal(levelSurvivalBase('e5'), null);
+  const lv = makeLevelEndless(base, { intro: true });
+  assert.equal(lv.id, 'v5');
+  assert.equal(lv.survival, true);
+  const n = base.bars.length;
+  assert.deepEqual(lv.bars.slice(0, n), base.bars, '1단계 = 곡 전체 그대로');
+  assert.deepEqual(lv.bars.slice(n, n + ROUND_BARS), base.bars.slice(0, ROUND_BARS), '그다음은 곡 처음부터 4마디씩');
+  assert.equal(lv.roundOfBar(n - 1), 1);
+  assert.equal(lv.roundOfBar(n), 2);
+  assert.equal(lv.roundOfBar(n + ROUND_BARS), 3);
+  assert.equal(lv.tempo.bpm(COUNT_IN_BARS + n - 1), base.bpm, '곡 끝까지는 원래 빠르기');
+  assert.equal(lv.tempo.bpm(COUNT_IN_BARS + n), base.bpm + LEVEL_ENDLESS_STEP);
+  assert.equal(lv.tempo.bpm(COUNT_IN_BARS + n + ROUND_BARS), base.bpm + LEVEL_ENDLESS_STEP * 2);
+  assert.equal(lv.roundProgress(n / 2), 0.5);
+  assert.deepEqual(levelLanes(lv), levelLanes(base));
+
+  const { Game } = await import('../public/js/game.js');
+  const noop = () => {};
+  globalThis.cancelAnimationFrame ??= noop;
+  const rounds = [];
+  const renderer = { onJudge: noop, onLife: noop, onCombo: noop, onTap: noop, draw: noop, reset: noop, onRound: (i) => rounds.push(i.round) };
+  const audio = { ctx: { state: 'running', suspend: async () => {}, resume: async () => {} }, heardTime: () => 0, crash: noop };
+  let ended = null;
+  const g = new Game({ audio, renderer, level: lv, settings: {}, onDeath: noop, onEnd: (r) => (ended = r) });
+  assert.equal(g.endTime, Infinity, '둘 다 살아 있으면 끝없음');
+  g.startTime = 0;
+  g.state = 'playing';
+  g.player = { stop: noop };
+  // 곡이 끝나고 두 번째 4마디(Lv.3) 중간까지 버팀
+  const t = lv.tempo.barStart(COUNT_IN_BARS + n + ROUND_BARS + 2);
+  g._extend(t);
+  g._checkRound(t, 0);
+  assert.equal(g.round, 3);
+  // 상대가 먼저 목숨을 다 씀 → 내 판도 지금 끝 (죽은 게 아님)
+  g.songTime = () => t;
+  assert.equal(g.endNow(), true);
+  assert.equal(g.state, 'finished');
+  assert.equal(ended.died, false);
+  assert.equal(ended.roundsCleared, 2);
+  assert.equal(ended.roundReached, 3);
+  assert.ok(Math.abs(ended.survived - t) < 1e-9);
+  assert.equal(g.endNow(), false, '두 번은 안 끝남');
+
+  // 승패: 먼저 목숨 다 쓴 사람이 짐, 둘 다 졌으면 더 오래 버틴 쪽, 같으면 점수
+  assert.equal(survivalOutcome({ died: false, survived: 10, score: 1 }, { died: true, survived: 10, score: 999 }), 'win');
+  assert.equal(survivalOutcome({ died: true, survived: 50, score: 999 }, { died: false, survived: 50, score: 1 }), 'lose');
+  assert.equal(survivalOutcome({ died: true, survived: 30, score: 1 }, { died: true, survived: 20, score: 999 }), 'win');
+  assert.equal(survivalOutcome({ died: true, survived: 20, score: 5 }, { died: true, survived: 20.01, score: 3 }), 'win');
+  assert.equal(survivalOutcome({ died: true, survived: 20, score: 3 }, { died: true, survived: 20, score: 3 }), 'draw');
+});
