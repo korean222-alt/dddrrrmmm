@@ -548,13 +548,21 @@ test('⚡ 빠른 대결: 같은 묶음에서 기다리는 사람과 바로 붙�
   assert.equal(b.json.room.status, 'lobby', '붙어도 바로 시작 안 함 → 대기실');
   const ka = { code: a.json.code, slot: 'a', key: a.json.key };
   const kb = { code: b.json.code, slot: 'b', key: b.json.key };
+  // 방장(a)만 무제한(서바이벌) 켜기. 켜면 준비가 풀림
+  let q = await B('POST', '/api/rooms', { action: 'sync', ...kb, endless: true });
+  assert.equal(q.json.room.endless, false, '방장 아니면 못 바꿈');
+  q = await B('POST', '/api/rooms', { action: 'sync', ...kb, ready: true });
+  q = await A('POST', '/api/rooms', { action: 'sync', ...ka, endless: true });
+  assert.equal(q.json.room.endless, true);
+  assert.equal(q.json.room.players.b.ready, false, '규칙이 바뀌면 준비 풀림');
   // 한 사람만 준비 → 아직 대기
-  let q = await A('POST', '/api/rooms', { action: 'sync', ...ka, ready: true });
+  q = await A('POST', '/api/rooms', { action: 'sync', ...ka, ready: true });
   assert.equal(q.json.room.status, 'lobby');
   assert.equal(q.json.room.players.a.ready, true);
   // 둘 다 준비 → 시작 (곡은 그 묶음에서 무작위)
   q = await B('POST', '/api/rooms', { action: 'sync', ...kb, ready: true });
   assert.equal(q.json.room.status, 'playing');
+  assert.equal(q.json.room.endless, true);
   assert.ok(q.json.room.level >= 1 && q.json.room.level <= 8, '쉬움·보통 = 1~8단계');
   assert.ok(q.json.room.startAt > q.json.now);
   // 서바이벌 결과: 목숨 다 씀 · 버틴 시간 · Lv 이 상대에게 전달

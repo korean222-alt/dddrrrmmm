@@ -537,7 +537,13 @@ body.room-game #modal-pause [data-action='retry'], body.room-game #modal-continu
 .mode-card:active { transform: translateY(3px); box-shadow: 0 2px 0 var(--ink); }
 .mode-single { background: linear-gradient(160deg, #ffb35c, #ff7a59); }
 .mode-multi { background: linear-gradient(160deg, #b388ff, #6a5cff); }
-.title-mini { grid-template-columns: 1fr 1fr; }
+.title-mini { grid-template-columns: 1fr 1fr 1fr; }
+.title-mini.two { grid-template-columns: 1fr 1fr; }
+.a2hs-lead { margin: 4px 0 12px; line-height: 1.5; }
+.a2hs-warn { background: #fff4d6; border: 2px solid #f4c84a; border-radius: 12px; padding: 8px 10px; font-size: 14px; line-height: 1.5; }
+#modal-a2hs .a2hs-os { background: var(--cream); border-radius: 14px; padding: 4px 12px 10px; margin-top: 8px; }
+#modal-a2hs .a2hs-os.me { border: 2px solid var(--grass, #4cbf6a); }
+#a2hs-install { width: 100%; margin-bottom: 8px; }
 .room-sec { border: 2px solid #ece6f2; border-radius: 16px; padding: 10px 12px 4px; margin-bottom: 12px; }
 .room-sec h4 { margin: 0 0 8px; font-weight: 400; font-size: 17px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; }
 .room-sec h4 small { font-size: 12px; color: var(--muted); }

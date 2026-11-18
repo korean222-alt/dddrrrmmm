@@ -562,8 +562,10 @@ async function startLevel(id, opts = {}) {
         state.roomClient.send({ live: { score: h.score, combo: state.game ? state.game.combo : 0, progress: h.progress, lives: h.lives } });
         const o = state.roomClient.other;
         const op = o && o.final ? o.final.score : o && o.live ? o.live.score : 0;
-        // ⚔️ 서바이벌: 상대가 목숨을 다 써서 끝났거나(최종 점수 도착) 방을 나갔으면 이 판도 바로 끝 → 내가 이김
-        if (lv.survival && state.game && state.game.state === 'playing' && (!o || o.final)) {
+        // ⚔️ 개인전: 상대가 목숨을 다 써서 끝났거나 방을 나갔으면 이 판도 바로 끝 → 내가 이김
+        //   (무제한 서바이벌은 곡 끝이 없으니 상대 판이 끝났다는 건 쓰러졌다는 것)
+        const opDown = !o || (o.final && (lv.survival || o.final.died));
+        if (room.mode === 'versus' && opDown && state.game && state.game.state === 'playing') {
           state.game.endNow();
           return;
         }
@@ -855,9 +857,10 @@ function showResult(res) {
   const nextId = nextOpenId(res.levelId);
   const wasOpen = { next: nextId == null || !progressLocked(nextId), endless: !progressLocked(ENDLESS_ID), levels: LEVELS.filter((l) => !progressLocked(l.id)).map((l) => l.id) };
   // 목숨 다 써서 끝난 판은 최고 기록에 안 들어감
-  const best = state.auto || res.failed ? { isNew: false } : saveBest(res);
+  // 멀티에서 상대가 먼저 쓰러져 중간에 끝난 판(stopped)도 기록엔 안 남김
+  const best = state.auto || res.failed || res.stopped ? { isNew: false } : saveBest(res);
   // 이번 판으로 새로 열린 단계 알림
-  if (!state.auto && !res.failed) {
+  if (!state.auto && !res.failed && !res.stopped) {
     if (res.levelId === ENDLESS_FROM && !wasOpen.endless && !progressLocked(ENDLESS_ID)) setTimeout(() => toast('💎 무제한 모드가 열렸어요! 깰수록 빨라져요', 3200), 2600);
     else {
       // 같은 난이도를 하나 깨면 그 난이도가 전부 열림 → 여러 단계가 한 번에 열렸으면 그렇게 알림
@@ -1810,8 +1813,8 @@ function renderRoom(room) {
     const startAt = c.toLocal(room.startAt);
     if (startAt - Date.now() > -2000) {
       closeModal('modal-room');
-      // 개인전 = 서바이벌 (먼저 목숨 다 쓰면 짐, 둘 다 살아 있으면 곡이 끝없이 빨라짐). 팀전은 원래 곡 그대로
-      startLevel(room.mode === 'versus' ? levelSurvivalId(room.level) : room.level, { room: { startAt, mode: room.mode, round: room.round } });
+      // 개인전 + 방장이 '무제한'을 켰으면 서바이벌 (곡이 끝나도 둘 다 살아 있으면 끝없이 빨라짐). 아니면 원래 곡으로 점수 승부
+      startLevel(room.mode === 'versus' && room.endless ? levelSurvivalId(room.level) : room.level, { room: { startAt, mode: room.mode, round: room.round } });
       return;
     }
   }
@@ -1839,6 +1842,18 @@ function renderRoom(room) {
   lk.classList.toggle('on', c.realtime);
   lk.textContent = c.realtime ? '⚡ 실시간 연결됨 — 점수가 바로바로 보여요' : '🔄 실시간 연결 중… (안 되면 조금 늦게 보여요)';
   const host = c.isHost;
+  // 개인전 규칙: 점수 승부 / 💎 무제한(서바이벌) — 방장이 고름 (빠른 대결 방도)
+  const versus = room.mode === 'versus';
+  $('#room-rule').hidden = !versus;
+  $('#room-rule-note').hidden = !versus;
+  $$('#room-rule [data-rule]').forEach((b) => {
+    const on = (b.dataset.rule === 'endless') === !!room.endless;
+    b.setAttribute('aria-pressed', String(on));
+    b.disabled = !host && !on;
+  });
+  $('#room-rule-note').textContent = room.endless
+    ? `💎 무제한: 곡이 끝나도 둘 다 살아 있으면 끝없이 빨라져요. 먼저 쓰러지면 져요${host ? '' : ' (방장이 골라요)'}`
+    : `🏆 점수 승부: 곡이 끝났을 때 점수가 높으면 이겨요. 먼저 쓰러지면 바로 져요${host ? '' : ' (방장이 골라요)'}`;
   $$('#room-mode [data-mode]').forEach((b) => {
     b.setAttribute('aria-pressed', String(b.dataset.mode === room.mode));
     b.disabled = !host && b.dataset.mode !== room.mode;
@@ -1880,7 +1895,9 @@ function renderRoom(room) {
         ? `${other.name} 님은 준비 완료! '준비!'를 누르면 시작해요`
         : room.mode === 'team'
           ? '팀전: 둘의 점수를 합쳐요. 피아노 파트는 곧 나와요!'
-          : '⚔️ 서바이벌: 먼저 목숨을 다 쓰면 져요! 둘 다 살아 있으면 곡이 끝없이 빨라져요';
+          : room.endless
+            ? '💎 무제한 서바이벌: 먼저 목숨을 다 쓰면 져요!'
+            : '개인전: 같은 곡을 동시에 치고 점수로 승부!';
 }
 async function roomCreate() {
   const name = $('#room-name').value.trim();
@@ -2034,13 +2051,18 @@ function renderRoomResult() {
   const surv = !!levelSurvivalBase(res.levelId);
   const word = { win: '승리! 🎉', lose: '아쉽게 패배…', draw: '무승부!' };
   let head;
-  if (surv && !res.died && (!c.active || !o || !o.final)) head = `<div class="room-word win">${word.win} ${c.active && o ? '' : '상대가 나갔어요'}</div>`;
+  if ((surv ? !res.died : res.stopped) && (!c.active || !o || !o.final)) head = `<div class="room-word win">${word.win} ${c.active && o ? '' : '상대가 나갔어요'}</div>`;
   else if (!c.active) head = '<div class="room-word">방이 닫혔어요</div>';
   else if (!o) head = '<div class="room-word">친구가 나갔어요</div>';
   else if (theirs == null) head = `<div class="room-word">${escapeHtml(o.name)} 님 ${surv ? '결과 기다리는 중…' : '아직 치는 중… ' + (o.live ? Math.round((o.live.progress || 0) * 100) + '%' : '')}</div>`;
   else if (team) head = `<div class="room-word win">🤝 팀 점수 ${fmt(roomOutcome('team', mine, theirs).team)}</div>`;
-  else if (surv) {
-    const r = survivalOutcome({ died: !!res.died, survived: res.survived, score: mine }, { died: !!o.final.died, survived: o.final.survived, score: theirs });
+  else if (surv || res.failed || res.stopped || o.final.died) {
+    // 누가 목숨을 다 써서 판이 끝났으면 쓰러진 쪽이 짐 (서바이벌은 둘 다 쓰러지면 더 오래 버틴 쪽)
+    const r = surv
+      ? survivalOutcome({ died: !!res.died, survived: res.survived, score: mine }, { died: !!o.final.died, survived: o.final.survived, score: theirs })
+      : !!res.failed !== !!o.final.died
+        ? res.failed ? 'lose' : 'win'
+        : roomOutcome('versus', mine, theirs).result;
     const why = r === 'win' ? `${escapeHtml(o.name)} 님이 먼저 목숨을 다 썼어요` : r === 'lose' ? '내가 먼저 목숨을 다 썼어요' : '';
     head = `<div class="room-word ${r}">${word[r]}</div>${why ? `<div class="room-why">${why}</div>` : ''}`;
   } else {
@@ -2060,6 +2082,53 @@ async function roomAgain() {
   show('screen-title');
   if (c.active) await c.again();
   openRoom();
+}
+
+// ---------------- 📲 홈 화면에 추가 (앱처럼) ----------------
+// 안드로이드 크롬은 설치 창을 바로 띄울 수 있음 (beforeinstallprompt). 아이폰은 안내만
+let installPrompt = null;
+const isStandalone = () => (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+const phoneOs = () => (/iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1) ? 'ios' : /Android/i.test(navigator.userAgent) ? 'android' : '');
+function initA2hs() {
+  // 이미 홈 화면 아이콘으로 열었으면 버튼 숨김
+  if (isStandalone()) {
+    $('#btn-a2hs').hidden = true;
+    $('#btn-a2hs').parentElement.classList.add('two');
+  }
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    installPrompt = e;
+    $('#a2hs-install').hidden = false;
+  });
+  window.addEventListener('appinstalled', () => {
+    installPrompt = null;
+    $('#a2hs-install').hidden = true;
+    closeModal('modal-a2hs');
+    toast('홈 화면에 추가됐어요! 이제 아이콘으로 바로 들어와요');
+  });
+}
+function openA2hs() {
+  const os = phoneOs();
+  $('#a2hs-tip-inapp').hidden = !isInApp();
+  $('#a2hs-install').hidden = !installPrompt;
+  // 내 폰 안내를 맨 위에 + 강조
+  $$('#modal-a2hs .a2hs-os').forEach((el) => {
+    el.classList.toggle('me', el.dataset.os === os);
+    el.style.order = '';
+  });
+  const box = $('#modal-a2hs .sheet');
+  const mine = os && $(`#modal-a2hs .a2hs-os[data-os="${os}"]`);
+  if (mine) box.insertBefore(mine, box.querySelector('.a2hs-os'));
+  openModal('modal-a2hs');
+}
+async function a2hsInstall() {
+  if (!installPrompt) return;
+  const p = installPrompt;
+  installPrompt = null;
+  $('#a2hs-install').hidden = true;
+  try {
+    await p.prompt();
+  } catch {}
 }
 
 // ---------------- 업데이트 소식 · 건의하기 ----------------
@@ -2124,6 +2193,9 @@ const ACTIONS = {
   'room-next': roomNext,
   'room-again': roomAgain,
   'news-open': openNews,
+  'a2hs-open': openA2hs,
+  'close-a2hs': () => closeModal('modal-a2hs'),
+  'a2hs-install': a2hsInstall,
   'close-news': () => closeModal('modal-news'),
   'suggest-open': openSuggest,
   'close-suggest': () => closeModal('modal-suggest'),
@@ -2298,6 +2370,11 @@ function bindActions() {
       $$('#room-mode-new [data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b === newMode)));
       return;
     }
+    const ruleBtn = e.target.closest('#room-rule [data-rule]');
+    if (ruleBtn) {
+      if (state.roomClient.isHost) state.roomClient.send({ endless: ruleBtn.dataset.rule === 'endless' }, true);
+      return;
+    }
     const roomMode = e.target.closest('#room-mode [data-mode]');
     if (roomMode) {
       if (state.roomClient.isHost) state.roomClient.send({ mode: roomMode.dataset.mode }, true);
@@ -2400,6 +2477,7 @@ function bindActions() {
 
 // ---------------- 시작 ----------------
 async function boot() {
+  initA2hs(); // 설치 창(beforeinstallprompt)은 일찍 올 수 있어서 맨 먼저
   $$('[data-icon]').forEach((el) => (el.innerHTML = icon(el.dataset.icon, el.hasAttribute('data-e'))));
   // 화면 글의 이모지 → 직접 그린 아이콘 (토스트·업데이트 소식 등 나중에 붙는 글까지)
   watchEmoji();

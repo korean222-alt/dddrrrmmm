@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=bd0875a413" />
+  <link rel="stylesheet" href="css/style.css?v=dbaaa16e44" />
 </head>
 <body>
   <div id="app">
@@ -48,6 +48,7 @@
         <div class="title-mini">
           <button class="mini-btn" data-action="news-open" id="btn-news"><span data-icon="megaphone" data-e></span><span>업데이트</span><i class="dot" id="news-dot" hidden></i></button>
           <button class="mini-btn" data-action="suggest-open"><span data-icon="chat" data-e></span><span>건의하기</span></button>
+          <button class="mini-btn" data-action="a2hs-open" id="btn-a2hs"><span data-icon="phone" data-e></span><span>앱처럼 하기</span></button>
         </div>
         <button class="link studio-link" data-action="studio"><span data-icon="video"></span> 영상 찍기</button>
       </div>
@@ -393,7 +394,7 @@
         <div class="room-sec">
           <h4><span data-icon="team" data-e></span> 친구랑</h4>
         <div class="chips room-chips" id="room-mode-new">
-          <button data-mode="versus" aria-pressed="true"><span data-icon="swords" data-e></span> 개인전 서바이벌</button>
+          <button data-mode="versus" aria-pressed="true"><span data-icon="swords" data-e></span> 개인전 (1:1)</button>
           <button data-mode="team" aria-pressed="false"><span data-icon="team" data-e></span> 팀전 (같이 깨기)</button>
         </div>
         <button class="btn btn-primary" data-action="room-create">방 만들기</button>
@@ -415,9 +416,14 @@
         <p class="room-link" id="room-link" hidden></p>
         <div class="room-code-box" id="room-code-box"><span>방 코드</span><b id="room-code-show">0000</b><button class="btn btn-sm btn-ghost" data-action="room-share"><span data-icon="share"></span> 친구 부르기</button></div>
         <div class="chips room-chips" id="room-mode">
-          <button data-mode="versus" aria-pressed="true"><span data-icon="swords" data-e></span> 개인전 서바이벌</button>
+          <button data-mode="versus" aria-pressed="true"><span data-icon="swords" data-e></span> 개인전</button>
           <button data-mode="team" aria-pressed="false"><span data-icon="team" data-e></span> 팀전</button>
         </div>
+        <div class="chips room-chips" id="room-rule">
+          <button data-rule="score" aria-pressed="true"><span data-icon="trophy" data-e></span> 점수 승부</button>
+          <button data-rule="endless" aria-pressed="false"><span data-icon="gem" data-e></span> 무제한</button>
+        </div>
+        <p class="muted small room-rule-note" id="room-rule-note"></p>
         <label class="field"><span>곡 <small id="room-level-note" class="muted"></small></span><select id="room-level"></select></label>
         <div class="room-players" id="room-players"></div>
         <div class="chips room-chips" id="room-part">
@@ -430,6 +436,25 @@
           <button class="link" data-action="room-leave">방 나가기</button>
         </div>
       </div>
+    </div>
+  </div>
+
+  <div class="modal" id="modal-a2hs" hidden>
+    <div class="sheet">
+      <button class="icon-btn close" data-action="close-a2hs" aria-label="닫기"><span data-icon="close"></span></button>
+      <h3><span data-icon="phone" data-e></span> 홈 화면에 추가하기</h3>
+      <p class="a2hs-lead">홈 화면에 아이콘을 만들어 두면 <b>앱처럼</b> 한 번에 들어와요. 주소창 없이 <b>전체 화면</b>으로 더 크게 칠 수 있어요!</p>
+      <button class="btn btn-primary" data-action="a2hs-install" id="a2hs-install" hidden><span data-icon="phone" data-e></span> 지금 바로 설치하기</button>
+      <p class="a2hs-warn" id="a2hs-tip-inapp" hidden>지금은 인스타·카톡 안의 브라우저라 추가가 안 돼요. 오른쪽 위 <b>⋯</b> → <b>외부 브라우저(Safari/Chrome)로 열기</b>를 먼저 눌러 주세요.</p>
+      <div class="a2hs-os" data-os="ios">
+        <h4>아이폰 (Safari)</h4>
+        <ol><li>화면 아래 <b>공유 버튼</b> (네모에 위 화살표 <span data-icon="share" data-e></span>)</li><li>아래로 내려서 <b>홈 화면에 추가</b></li><li>오른쪽 위 <b>추가</b></li></ol>
+      </div>
+      <div class="a2hs-os" data-os="android">
+        <h4>갤럭시 · 안드로이드</h4>
+        <ol><li><b>크롬</b>: 오른쪽 위 <b>⋮</b> → <b>홈 화면에 추가</b>(또는 <b>앱 설치</b>) → <b>추가</b></li><li><b>삼성 인터넷</b>: 아래 <b>≡ 메뉴</b> → <b>현재 페이지 추가</b> → <b>홈 화면</b></li></ol>
+      </div>
+      <p class="muted small">팔로워 인증·기록은 브라우저마다 따로 저장돼요. 아이폰은 홈 화면 아이콘과 사파리가 따로라서, 홈 화면 아이콘으로 열어서 한 번 더 인증해 주세요.</p>
     </div>
   </div>
 
@@ -463,6 +488,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=18596e0c9e" defer></script>
+  <script src="js/app.js?v=6707feb7cb" defer></script>
 </body>
 </html>

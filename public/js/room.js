@@ -233,8 +233,14 @@ export class RoomClient {
   }
 
   async poll() {
-    if (!this.code || this._busy) return;
+    if (!this.code) return;
+    // 주고받는 중에 '바로 보내기'가 오면 끝나자마자 한 번 더 (다음 주기까지 안 기다리게)
+    if (this._busy) {
+      this._again = true;
+      return;
+    }
     this._busy = true;
+    clearTimeout(this._timer); // 주기 타이머는 끝나고 다시 잡음 (겹쳐서 두 번 보내지 않게)
     const body = { action: 'sync', code: this.code, slot: this.slot, key: this.key, ...this.pending };
     this.pending = {};
     try {
@@ -256,7 +262,10 @@ export class RoomClient {
       }
     } finally {
       this._busy = false;
-      this._schedule();
+      if (this._again && this.code) {
+        this._again = false;
+        this.poll();
+      } else this._schedule();
     }
   }
 
@@ -355,6 +364,8 @@ export class RoomClient {
       this.room = r.room;
       this._update();
     } catch {}
+    // 치는 중엔 15초 간격이었으니 대기실 간격(2.5초)으로 다시 잡음 (상대 준비·규칙 바뀐 게 늦게 보이던 것)
+    this._schedule();
   }
 
   _stop() {

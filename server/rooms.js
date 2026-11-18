@@ -1,7 +1,8 @@
 // 친구 대결 방 (1:1 개인전 · 팀전)
 //   실시간 연결(웹소켓) 없이: 두 사람이 2초마다 /api/rooms 에 내 점수를 보내고 상대 점수를 받음 (폴링).
 //   방 하나 = DB 행 하나. 두 사람 다 '준비'를 누르면 서버가 몇 초 뒤 시작 시각(startAt)을 정해 같이 시작 (빠른 대결도 같음).
-//   개인전은 서바이벌: 곡을 치다가 먼저 목숨을 다 쓰는 사람이 지고, 둘 다 살아 있으면 곡이 끝없이 빨라짐 (판 끝은 폰끼리 판단).
+//   개인전은 점수 승부 (누가 목숨을 다 쓰면 그 판은 바로 끝, 쓰러진 쪽이 짐).
+//   방장이 '무제한'(endless)을 켜면 서바이벌: 둘 다 살아 있으면 곡이 끝없이 빨라지고 먼저 쓰러지는 쪽이 짐 (판 끝은 폰끼리 판단).
 //   방 판은 랭킹에 안 들어감 (랭킹은 혼자 친 판만).
 //
 // 방 data: { code, mode: 'versus'|'team', level, status: 'lobby'|'playing', round, cfgVer, startAt, host: 'a'|'b', createdAt,
@@ -60,7 +61,7 @@ export function publicRoom(d, now) {
       final: p.final && p.final.round === d.round ? p.final : null,
     };
   }
-  return { code: d.code, mode: d.mode, level: d.level, status: d.status, round: d.round || 0, startAt: d.startAt || null, host: d.host, pub: d.pub || null, players };
+  return { code: d.code, mode: d.mode, endless: !!d.endless, level: d.level, status: d.status, round: d.round || 0, startAt: d.startAt || null, host: d.host, pub: d.pub || null, players };
 }
 
 const readyTag = (d) => `${d.cfgVer || 0}.${d.round || 0}`;
@@ -201,6 +202,11 @@ export function createRoomHandler({ store, getPlayer, canPlay, isConfirmed = () 
         if (isHost && !d.pub && body.level !== undefined && getLevel(body.level) && getLevel(body.level).id !== d.level) {
           top.level = getLevel(body.level).id;
           top.cfgVer = (d.cfgVer || 0) + 1;
+        }
+        // 방장만: 개인전 무제한(서바이벌) 켜고 끄기 — 빠른 대결 방도 됨
+        if (isHost && typeof body.endless === 'boolean' && body.endless !== !!d.endless) {
+          top.endless = body.endless;
+          top.cfgVer = (top.cfgVer || d.cfgVer || 0) + 1;
         }
         if (isHost && !d.pub && (body.mode === 'team' || body.mode === 'versus') && body.mode !== d.mode) {
           top.mode = body.mode;

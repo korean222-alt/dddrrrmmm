@@ -325,7 +325,7 @@ export class Game {
     return true;
   }
 
-  /** ⚔️ 멀티: 상대가 먼저 목숨을 다 씀 → 내 판도 지금 끝 (살아남아서 이김) */
+  /** ⚔️ 멀티: 상대가 먼저 목숨을 다 씀(또는 나감) → 내 판도 지금 끝 (살아남아서 이김) */
   endNow() {
     if (this.state !== 'playing' && this.state !== 'paused' && this.state !== 'dead') return false;
     const wasDead = this.state === 'dead';
@@ -335,7 +335,7 @@ export class Game {
     if (this.audio.ctx && this.audio.ctx.state === 'suspended') this.audio.ctx.resume().catch(() => {});
     this.player.stop(0.6);
     if (this.level.challenge) this._finishChallenge(wasDead, at);
-    else this._finish(wasDead);
+    else this._finish(wasDead, true);
     return true;
   }
 
@@ -540,7 +540,8 @@ export class Game {
     return { hatAge, crashAge };
   }
 
-  _finish(failed = false) {
+  /** stopped: 멀티에서 상대가 먼저 쓰러져 곡 중간에 끝남 (기록엔 안 남김) */
+  _finish(failed = false, stopped = false) {
     this.state = 'finished';
     this.player.stop(0.6);
     if (this.level.challenge) {
@@ -565,8 +566,9 @@ export class Game {
       stars: failed ? 0 : starsFor(this.counts),
       fullCombo: !failed && this.counts.miss === 0 && this.counts.wrong === 0,
       failed,
+      stopped,
       continued: this.continues,
-      progress: failed ? Math.max(0, Math.min(1, (this.diedAt ?? 0) / this.endTime)) : 1,
+      progress: failed || stopped ? Math.max(0, Math.min(1, (failed ? this.diedAt ?? 0 : this.songTime()) / this.endTime)) : 1,
       avgOffsetMs,
       auto: this.auto,
       timeline: this.timeline.slice(),
