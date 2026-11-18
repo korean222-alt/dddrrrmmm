@@ -490,7 +490,8 @@ export function createHandler(cfg, { store }) {
       const now = Date.now();
       if ((await store.countSuggestions(vid, now - 3600 * 1000)) >= 5) return json(429, { error: 'rate_limited' });
       const pl = await getPlayer(request);
-      const id = await store.addSuggestion({ at: now, kind, body, nick: pl ? pl.username : null, vid });
+      const contact = String(b.contact ?? '').replace(/\s+/g, ' ').trim().slice(0, 80) || null;
+      const id = await store.addSuggestion({ at: now, kind, body, nick: pl ? pl.username : null, vid, contact });
       return json(200, { ok: true, id });
     }
 
@@ -508,7 +509,7 @@ export function createHandler(cfg, { store }) {
       return json(200, {
         days,
         count: rows.length,
-        suggestions: rows.map((r) => ({ id: r.id, at: kst(r.at) + ' KST', kind: r.kind, text: r.body, nick: r.nick, done: !!r.doneAt })),
+        suggestions: rows.map((r) => ({ id: r.id, at: kst(r.at) + ' KST', kind: r.kind, text: r.body, nick: r.nick, contact: r.contact || null, done: !!r.doneAt })),
       });
     }
 

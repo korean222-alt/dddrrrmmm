@@ -2449,6 +2449,7 @@ function openSuggest() {
     return;
   }
   $('#suggest-text').value = load('suggestDraft', '');
+  $('#suggest-contact').value = load('suggestContact', '');
   $('#suggest-count').textContent = `${[...$('#suggest-text').value].length} / 500`;
   openModal('modal-suggest');
   setTimeout(() => $('#suggest-text').focus(), 50);
@@ -2463,7 +2464,9 @@ async function sendSuggest() {
   suggestState.sending = true;
   $('#suggest-send').disabled = true;
   try {
-    await state.api.suggest(suggestState.kind, text);
+    const contact = $('#suggest-contact').value.trim();
+    await state.api.suggest(suggestState.kind, text, contact);
+    if (contact) save('suggestContact', contact);
     save('suggestDraft', '');
     $('#suggest-text').value = '';
     closeModal('modal-suggest');

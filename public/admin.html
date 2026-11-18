@@ -389,6 +389,7 @@
       $('#suggestions').innerHTML = list.length
         ? list.map((x) => `<li data-id="${x.id}" style="${x.doneAt ? 'opacity:.55' : ''}"><div style="flex:1;min-width:0">
             <div class="meta">${KIND[x.kind] || KIND.etc} · ${ago(x.at)}${x.nick ? ' · ' + esc(x.nick) : ''}${x.doneAt ? ' · 처리함' : ''}</div>
+            ${x.contact ? `<div class="meta">📮 답장: <b>${/^@?[a-z0-9._]{1,30}$/i.test(x.contact) ? `<a href="https://www.instagram.com/${esc(x.contact.replace(/^@/, ''))}/" target="_blank" rel="noopener" style="color:var(--pink)">${esc(x.contact)}</a>` : esc(x.contact)}</b></div>` : ''}
             <div style="white-space:pre-wrap;word-break:break-word;margin-top:4px">${esc(x.body)}</div></div>
             <div class="acts"><button type="button" class="ghost" data-do="${x.doneAt ? 'undo' : 'done'}">${x.doneAt ? '되돌리기' : '처리함'}</button>
             <button type="button" class="ghost" data-do="del" style="color:var(--bad)">삭제</button></div></li>`).join('')

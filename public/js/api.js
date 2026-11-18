@@ -53,7 +53,7 @@ function serverApi(boot = null) {
     submitScore: (payload) => http('POST', '/api/scores', payload),
     leaderboard: (level) => http('GET', `/api/leaderboard?level=${level}`),
     logout: () => http('POST', '/api/logout'),
-    suggest: (kind, text) => http('POST', '/api/suggestions', { kind, text }),
+    suggest: (kind, text, contact) => http('POST', '/api/suggestions', { kind, text, contact }),
     room: (body) => http('POST', '/api/rooms', body),
     transfer: (body) => http('POST', '/api/transfer', body),
     recoverRequest: (body) => http('POST', '/api/recover-request', body),

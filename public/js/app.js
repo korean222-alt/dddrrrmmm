@@ -7085,7 +7085,7 @@ function serverApi(boot = null) {
     submitScore: (payload) => http('POST', '/api/scores', payload),
     leaderboard: (level) => http('GET', `/api/leaderboard?level=${level}`),
     logout: () => http('POST', '/api/logout'),
-    suggest: (kind, text) => http('POST', '/api/suggestions', { kind, text }),
+    suggest: (kind, text, contact) => http('POST', '/api/suggestions', { kind, text, contact }),
     room: (body) => http('POST', '/api/rooms', body),
     transfer: (body) => http('POST', '/api/transfer', body),
     recoverRequest: (body) => http('POST', '/api/recover-request', body),
@@ -7363,6 +7363,12 @@ const __m_news = (() => {
 //   잠금·인증·운영 정책(누가 무엇을 쓸 수 있나) 같은 건 안 씀
 
 const NEWS = [
+  {
+    id: '2026-11-18m',
+    date: '11월 18일',
+    title: '건의하기에 답장 받을 곳',
+    items: ['💬 건의하기에 <b>답장 받을 곳</b>(인스타 아이디나 이메일) 칸이 생겼어요. 적어 주시면 운영자가 답장해 드릴게요 (선택)'],
+  },
   {
     id: '2026-11-18l',
     date: '11월 18일',
@@ -10900,6 +10906,7 @@ function openSuggest() {
     return;
   }
   $('#suggest-text').value = load('suggestDraft', '');
+  $('#suggest-contact').value = load('suggestContact', '');
   $('#suggest-count').textContent = `${[...$('#suggest-text').value].length} / 500`;
   openModal('modal-suggest');
   setTimeout(() => $('#suggest-text').focus(), 50);
@@ -10914,7 +10921,9 @@ async function sendSuggest() {
   suggestState.sending = true;
   $('#suggest-send').disabled = true;
   try {
-    await state.api.suggest(suggestState.kind, text);
+    const contact = $('#suggest-contact').value.trim();
+    await state.api.suggest(suggestState.kind, text, contact);
+    if (contact) save('suggestContact', contact);
     save('suggestDraft', '');
     $('#suggest-text').value = '';
     closeModal('modal-suggest');

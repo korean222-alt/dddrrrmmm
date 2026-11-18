@@ -264,9 +264,9 @@ export class JsonStore {
   }
 
   // ----- 건의함 -----
-  addSuggestion({ at, kind, body, nick, vid }) {
+  addSuggestion({ at, kind, body, nick, vid, contact }) {
     const id = (this.data.suggestions.reduce((m, r) => Math.max(m, r.id), 0) || 0) + 1;
-    this.data.suggestions.push({ id, at, kind, body, nick: nick ?? null, vid: vid ?? null, doneAt: null });
+    this.data.suggestions.push({ id, at, kind, body, nick: nick ?? null, vid: vid ?? null, contact: contact ?? null, doneAt: null });
     this._save();
     return id;
   }

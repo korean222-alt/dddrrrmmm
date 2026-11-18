@@ -38,6 +38,8 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS suggestions (
      id BIGSERIAL PRIMARY KEY, at BIGINT NOT NULL, kind TEXT, body TEXT NOT NULL, nick TEXT, vid TEXT, done_at BIGINT)`,
   `CREATE INDEX IF NOT EXISTS suggestions_at ON suggestions (at)`,
+  // 회신 받을 인스타 아이디·이메일 (선택)
+  `ALTER TABLE suggestions ADD COLUMN IF NOT EXISTS contact TEXT`,
   // 친구 대결 방: 방 하나 = 행 하나 (JSON). 2시간 동안 아무도 안 쓰면 지움
   `CREATE TABLE IF NOT EXISTS rooms (code TEXT PRIMARY KEY, data JSONB NOT NULL, updated_at BIGINT NOT NULL, expires_at BIGINT NOT NULL)`,
   // 기기 옮기기: 6자리 코드 하나 = 행 하나 (10분, 한 번 쓰면 지움)
@@ -438,14 +440,14 @@ END $$`);
   }
 
   // ----- 건의함 -----
-  async addSuggestion({ at, kind, body, nick, vid }) {
-    const r = await this.one('INSERT INTO suggestions (at, kind, body, nick, vid) VALUES ($1, $2, $3, $4, $5) RETURNING id', [at, kind, body, nick ?? null, vid ?? null]);
+  async addSuggestion({ at, kind, body, nick, vid, contact }) {
+    const r = await this.one('INSERT INTO suggestions (at, kind, body, nick, vid, contact) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id', [at, kind, body, nick ?? null, vid ?? null, contact ?? null]);
     return Number(r.id);
   }
   /** from(ms) 이후 건의사항, 최신 먼저 */
   async listSuggestions(from = 0, limit = 500) {
     const rows = await this.q('SELECT * FROM suggestions WHERE at >= $1 ORDER BY at DESC LIMIT $2', [from, limit]);
-    return rows.map((r) => ({ id: Number(r.id), at: Number(r.at), kind: r.kind, body: r.body, nick: r.nick, doneAt: num(r.done_at) ?? null }));
+    return rows.map((r) => ({ id: Number(r.id), at: Number(r.at), kind: r.kind, body: r.body, nick: r.nick, contact: r.contact || null, doneAt: num(r.done_at) ?? null }));
   }
   async setSuggestionDone(id, on, now = Date.now()) {
     const r = await this.q('UPDATE suggestions SET done_at = $2 WHERE id = $1 RETURNING id', [id, on ? now : null]);

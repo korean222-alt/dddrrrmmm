@@ -456,6 +456,7 @@ test('건의함: 남기기 → 관리자 보기·처리 → 봇 읽기(토큰)',
   assert.equal(r.status, 200);
   assert.ok(Number.isInteger(r.json.id));
   await c('POST', '/api/suggestions', { kind: 'weird', text: '버그 있어요\n두 줄' });
+  const rc = await c('POST', '/api/suggestions', { kind: 'bug', text: '답장 주세요', contact: '  @reply.me  ' });
   assert.equal((await c('GET', '/api/admin/suggestions')).status, 401);
   const admin = { 'x-admin-token': 'admin-pw' };
   const list = await c('GET', '/api/admin/suggestions?days=7', null, admin);
@@ -473,6 +474,8 @@ test('건의함: 남기기 → 관리자 보기·처리 → 봇 읽기(토큰)',
   assert.equal(b1.done, true);
   assert.match(b1.at, /KST$/);
   assert.equal(b1.vid, undefined);
+  assert.equal(bot.json.suggestions.find((x) => x.id === rc.json.id).contact, '@reply.me', '답장 받을 곳');
+  assert.equal(list.json.suggestions.find((x) => x.id === rc.json.id).contact, '@reply.me');
   assert.equal((await c('POST', '/api/admin/suggestions/delete', { id: r.json.id }, admin)).json.ok, true);
   const after = await c('GET', '/api/admin/suggestions', null, admin);
   assert.ok(!after.json.suggestions.some((x) => x.id === r.json.id));
