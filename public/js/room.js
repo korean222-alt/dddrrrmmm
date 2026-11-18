@@ -191,6 +191,16 @@ export class RoomClient {
     this._enter(await this._call({ action: 'join', code, name }));
   }
 
+  /** 빠른 대결에서 지금 기다리는 사람 수 { easy, hard } (실패하면 null) */
+  async waitingCounts() {
+    try {
+      const r = await this.api.room({ action: 'count' });
+      return (r && r.waiting) || null;
+    } catch {
+      return null;
+    }
+  }
+
   /** ⚡ 빠른 대결: 같은 묶음에서 기다리는 사람이 있으면 바로 붙음. 없으면 기다림 (true) */
   async quick(name, bracket) {
     const r = await this._call({ action: 'quick', name, bracket });

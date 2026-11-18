@@ -10,7 +10,7 @@ export const THEMES = {
   sunset: {
     key: 'sunset',
     name: '노을 피크닉',
-    emoji: '🌅',
+    icon: 'sunset',
     sky: ['#2B1650', '#9A3F86', '#FF9A6B'],
     ground: ['#3A1846', '#170A24'],
     glow: '255,190,140',
@@ -40,7 +40,7 @@ export const THEMES = {
   city: {
     key: 'city',
     name: '네온 시티',
-    emoji: '🌃',
+    icon: 'city',
     sky: ['#06041A', '#1E0B45', '#6A1B78'],
     ground: ['#150828', '#05020C'],
     glow: '255,80,200',
@@ -71,7 +71,7 @@ export const THEMES = {
   hall: {
     key: 'hall',
     name: '황금 콘서트홀',
-    emoji: '🎻',
+    icon: 'hall',
     sky: ['#140306', '#3E0B16', '#7A2A1C'],
     ground: ['#3A2012', '#160A05'],
     glow: '255,214,150',
@@ -100,7 +100,7 @@ export const THEMES = {
   void: {
     key: 'void',
     name: '블랙 스테이지',
-    emoji: '🖤',
+    icon: 'spot',
     sky: ['#000000', '#040406', '#0C0C12'],
     ground: ['#08080B', '#000000'],
     glow: '255,255,255',
@@ -129,7 +129,7 @@ export const THEMES = {
   lava: {
     key: 'lava',
     name: '용암 보스전',
-    emoji: '🌋',
+    icon: 'volcano',
     sky: ['#0A0204', '#3A0710', '#A3300C'],
     ground: ['#1E0406', '#060102'],
     glow: '255,120,40',
@@ -159,7 +159,7 @@ export const THEMES = {
   aurora: {
     key: 'aurora',
     name: '오로라 설원',
-    emoji: '🌌',
+    icon: 'moon',
     sky: ['#020A1A', '#0A2A3E', '#1C4A5E'],
     ground: ['#C7D9E8', '#5C7A94'],
     glow: '120,255,200',
@@ -189,7 +189,7 @@ export const THEMES = {
   space: {
     key: 'space',
     name: '우주 무대',
-    emoji: '🪐',
+    icon: 'planet',
     sky: ['#020310', '#0A1240', '#2E1A70'],
     ground: ['#0A0A26', '#02020A'],
     glow: '160,140,255',

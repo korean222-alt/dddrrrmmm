@@ -535,9 +535,11 @@ test('⚡ 빠른 대결: 같은 묶음에서 기다리는 사람과 바로 붙�
   const A = await verifiedClient('기다림', 'quick.a');
   const B = await verifiedClient('찾음', 'quick.b');
   const C = await verifiedClient('셋째', 'quick.c');
+  assert.deepEqual((await client()('POST', '/api/rooms', { action: 'count' })).json.waiting, { easy: 0, hard: 0 });
   const a = await A('POST', '/api/rooms', { action: 'quick', name: '기다림', bracket: 'easy' });
   assert.equal(a.status, 200);
   assert.equal(a.json.waiting, true);
+  assert.deepEqual((await client()('POST', '/api/rooms', { action: 'count' })).json.waiting, { easy: 1, hard: 0 }, '기다리는 사람 수');
   assert.equal(a.json.room.pub, 'easy');
   assert.match(a.json.room.players.a.pid, /^\w{6,}$/);
   const b = await B('POST', '/api/rooms', { action: 'quick', name: '찾음', bracket: 'easy' });

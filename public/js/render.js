@@ -47,6 +47,20 @@ function rr(ctx, x, y, w, h, r) {
   else ctx.rect(x, y, w, h);
 }
 
+/** 하트 모양 경로 (가운데 cx,cy · 폭 size). 캔버스엔 이모지 대신 이걸로 */
+function heartPath(ctx, cx, cy, size) {
+  const k = size / 24;
+  const X = (v) => cx + (v - 12) * k;
+  const Y = (v) => cy + (v - 13) * k;
+  ctx.beginPath();
+  ctx.moveTo(X(12), Y(20.5));
+  ctx.bezierCurveTo(X(12), Y(20.5), X(4), Y(15.6), X(4), Y(9.9));
+  ctx.bezierCurveTo(X(4), Y(5.5), X(9.6), Y(4), X(12), Y(7.2));
+  ctx.bezierCurveTo(X(14.4), Y(4), X(20), Y(5.5), X(20), Y(9.9));
+  ctx.bezierCurveTo(X(20), Y(15.6), X(12), Y(20.5), X(12), Y(20.5));
+  ctx.closePath();
+}
+
 export class Renderer {
   constructor(canvas) {
     this.canvas = canvas;
@@ -409,7 +423,7 @@ export class Renderer {
 
   /** ✨ 황금 콩을 침 */
   onGold(lane, healed, rt) {
-    this.fx.banners.push({ text: healed ? '✨ 황금 콩! ❤️+1' : '✨ 황금 콩!', t0: rt, color: '#FFD84A' });
+    this.fx.banners.push({ text: healed ? '황금 콩! 하트 +1' : '황금 콩!', t0: rt, color: '#FFD84A' });
     const L = this.L;
     if (this.lite && !this.studio) return;
     for (let i = 0; i < 16; i++) {
@@ -729,9 +743,18 @@ export class Renderer {
     if (f.hearts) {
       ctx.font = `${Math.round(fs * 0.45)}px ${FONT}`;
       ctx.lineWidth = fs * 0.1;
-      ctx.strokeText(`❤️+${f.hearts}`, x, y + fs * 0.75);
+      // 하트 모양(직접 그림) + '+3'
+      const hy = y + fs * 0.75;
+      const hs = fs * 0.42;
+      const tw = ctx.measureText(`+${f.hearts}`).width;
+      const hx = x - tw / 2 - hs * 0.15;
       ctx.fillStyle = '#FF8FB0';
-      ctx.fillText(`❤️+${f.hearts}`, x, y + fs * 0.75);
+      heartPath(ctx, hx - hs * 0.5, hy, hs);
+      ctx.stroke();
+      ctx.fill();
+      ctx.textAlign = 'left';
+      ctx.strokeText(`+${f.hearts}`, hx + hs * 0.15, hy);
+      ctx.fillText(`+${f.hearts}`, hx + hs * 0.15, hy);
     }
     ctx.restore();
   }
@@ -1155,8 +1178,19 @@ export class Renderer {
         ctx.fillText(`${this.keyLabels[i]} 키 · 클릭도 OK`, L.laneX[i], zy + zs * 1.5);
         continue;
       }
-      ctx.font = `${Math.round(zs * 1.5)}px ${FONT}`;
-      ctx.fillText('👆', L.laneX[i], zy + Math.sin(rt * 6) * zs * 0.2);
+      // 위를 가리키는 화살표 (통통 튐)
+      const ay = zy + Math.sin(rt * 6) * zs * 0.2;
+      const aw = zs * 0.75;
+      ctx.beginPath();
+      ctx.moveTo(L.laneX[i], ay - aw * 0.75);
+      ctx.lineTo(L.laneX[i] + aw * 0.7, ay + aw * 0.1);
+      ctx.lineTo(L.laneX[i] + aw * 0.25, ay + aw * 0.1);
+      ctx.lineTo(L.laneX[i] + aw * 0.25, ay + aw * 0.7);
+      ctx.lineTo(L.laneX[i] - aw * 0.25, ay + aw * 0.7);
+      ctx.lineTo(L.laneX[i] - aw * 0.25, ay + aw * 0.1);
+      ctx.lineTo(L.laneX[i] - aw * 0.7, ay + aw * 0.1);
+      ctx.closePath();
+      ctx.fill();
       ctx.font = `${zs}px ${FONT}`;
       ctx.fillText(zt, L.laneX[i], zy + zs * 1.5);
     }
@@ -1198,7 +1232,7 @@ export class Renderer {
     if (tf && rt - tf.t0 < 2) a = Math.max(a, 0.8 * Math.min(1, (2 - (rt - tf.t0)) / 0.5));
     if (a <= 0.01 || this.studio) return;
     const T = this.theme;
-    const text = `${T.emoji} ${T.name}`;
+    const text = T.name;
     const fs = Math.round(L.GW * 0.036);
     ctx.save();
     ctx.globalAlpha = a;

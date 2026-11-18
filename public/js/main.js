@@ -22,29 +22,13 @@ import { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, mi
 
 migrateLevelOrder(); // 8단계에 새 곡이 끼면서 밀린 번호를 이 브라우저 기록에도 반영 (아래 state 보다 먼저)
 import { makeShareCard, gradeColor } from './sharecard.js';
+import { icon, watchEmoji } from './icons.js';
 import { todayLevel, encodeChallenge, decodeChallenge, opponentScoreAt, versusOutcome, cleanName } from './versus.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const params = new URLSearchParams(location.search);
 
-const ICONS = {
-  play: '<path d="M7 4.5v15l13-7.5z" fill="currentColor"/>',
-  pause: '<path d="M7 4h4v16H7zM13 4h4v16h-4z" fill="currentColor"/>',
-  back: '<path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
-  close: '<path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>',
-  gear: '<path d="M12 8.5a3.5 3.5 0 100 7 3.5 3.5 0 000-7z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2.5v3M12 18.5v3M21.5 12h-3M5.5 12h-3M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1M18.7 18.7l-2.1-2.1M7.4 7.4L5.3 5.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
-  trophy: '<path d="M7 4h10v4a5 5 0 01-10 0zM7 6H4v1a3 3 0 003 3M17 6h3v1a3 3 0 01-3 3M12 13v4M8 20h8M9.5 17h5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
-  lock: '<rect x="5" y="10.5" width="14" height="10" rx="2.5" fill="currentColor"/><path d="M8 10.5V8a4 4 0 018 0v2.5" stroke="currentColor" stroke-width="2.4" fill="none"/>',
-  retry: '<path d="M4 12a8 8 0 108-8 8.2 8.2 0 00-5.7 2.3L4 8.5M4 4v4.5h4.5" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
-  share: '<path d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 002 2h10a2 2 0 002-2v-6" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
-  copy: '<rect x="8" y="8" width="12" height="12" rx="2.5" stroke="currentColor" stroke-width="2.2" fill="none"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" stroke="currentColor" stroke-width="2.2" fill="none"/>',
-  video: '<rect x="3" y="6" width="13" height="12" rx="3" stroke="currentColor" stroke-width="2.2" fill="none"/><path d="M16 10.5l5-3v9l-5-3z" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linejoin="round"/>',
-  send: '<path d="M21 3L10 14M21 3l-7 18-4-7-7-4z" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linejoin="round" stroke-linecap="round"/>',
-  swords: '<path d="M4 4l9.5 9.5M4 4v3.5M4 4h3.5M20 4l-9.5 9.5M20 4v3.5M20 4h-3.5M7 14l3 3M5.5 18.5l2-2M17 14l-3 3M18.5 18.5l-2-2" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/>',
-  heart: '<path d="M12 20.5s-8-4.9-8-10.6A4.4 4.4 0 0112 7.2a4.4 4.4 0 018 2.7c0 5.7-8 10.6-8 10.6z" fill="currentColor"/>',
-  insta: '<rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke="currentColor" stroke-width="2.2" fill="none"/><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2.2" fill="none"/><circle cx="17.2" cy="6.8" r="1.3" fill="currentColor"/>',
-};
 const STAR_PATH = 'M12 2.6l2.85 5.95 6.55.85-4.8 4.55 1.22 6.5L12 17.3l-5.82 3.15 1.22-6.5-4.8-4.55 6.55-.85z';
 const GEM_PATH = 'M7 3.5h10l4.5 5.6L12 21 2.5 9.1z M2.5 9.1h19 M7 3.5l2.4 5.6L12 21l2.6-11.9L17 3.5';
 /** 다이아몬드 3개 (무제한 모드). 별과 같은 연출 클래스를 씀 */
@@ -59,7 +43,6 @@ const starsHTML = (n, cls = '') =>
     .join('')}</span>`;
 const diffHTML = (d) =>
   `<span class="diff" aria-label="난이도 ${d}/5"><span class="pips">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= d ? 'on' : ''}"></i>`).join('')}</span>${DIFFICULTY_WORDS[d] || ''}</span>`;
-const icon = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`;
 
 const audio = new AudioEngine();
 const renderer = new Renderer($('#game-canvas'));
@@ -345,8 +328,8 @@ function refreshTitle() {
   refreshFollowChip();
   // 멀티·건의하기는 팔로워 인증한 사람만 → 안 했으면 🔒
   const lockMark = followGated() ? '🔒 ' : '';
-  $('.mode-multi small').textContent = `${lockMark}실시간 대결`;
-  $('[data-action="suggest-open"] span').textContent = `${lockMark}건의하기`;
+  $('.mode-multi b').innerHTML = `${icon('swords', true)} ${lockMark}멀티`;
+  $('[data-action="suggest-open"] span:not([data-icon])').textContent = `${lockMark}건의하기`;
   refreshToday();
   refreshQuick();
   const foot = $('#title-foot');
@@ -380,7 +363,7 @@ function grieggCardHTML(bests) {
 function groupHeadHTML(id) {
   const g = groupStarting(id);
   if (!g) return '';
-  return `<div class="level-group theme-${g.key}" role="presentation"><span>${g.theme.emoji}</span><b>${g.theme.name}</b><small>${g.from}~${g.to}단계 맵</small></div>`;
+  return `<div class="level-group theme-${g.key}" role="presentation">${icon(g.theme.icon, true)}<b>${g.theme.name}</b><small>${g.from}~${g.to}단계 맵</small></div>`;
 }
 
 function renderEndlessLevels(bests) {
@@ -1051,7 +1034,7 @@ async function shareChallenge(nick) {
   const lv = getLevel(r.levelId);
   const code = encodeChallenge({ name: nick, levelId: r.levelId, score: r.score, stars: r.stars, grade: r.grade, accuracy: r.accuracy, timeline: r.timeline });
   const url = `${siteUrl()}?vs=${code}`;
-  const text = `⚔️ ${nick}의 1:1 도전장! ${CONFIG.appName} ${lv.name}(${lv.composer}) ${fmt(r.score)}점. 이길 수 있어?`;
+  const text = `${nick}의 1:1 도전장! ${CONFIG.appName} ${lv.name}(${lv.composer}) ${fmt(r.score)}점. 이길 수 있어?`;
   try {
     if (navigator.share) {
       await navigator.share({ title: `${CONFIG.appName} 1:1 도전장`, text, url });
@@ -1173,8 +1156,8 @@ async function shareResult() {
   const url = siteUrl();
   const canvas = await makeShareCard(r, { siteUrl: url, handle: handle() });
   const text = r.challenge
-    ? `${CONFIG.appName} 무제한 모드 Lv.${r.roundsCleared} 클리어 (${r.bpmReached} BPM) ${fmt(r.score)}점! 너도 엄지로 쳐 봐 👉 ${url}`
-    : `${CONFIG.appName} ${r.levelId}단계 ${r.grade} ${fmt(r.score)}점! 너도 엄지로 쳐 봐 👉 ${url}`;
+    ? `${CONFIG.appName} 무제한 모드 Lv.${r.roundsCleared} 클리어 (${r.bpmReached} BPM) ${fmt(r.score)}점! 너도 엄지로 쳐 봐 ${url}`
+    : `${CONFIG.appName} ${r.levelId}단계 ${r.grade} ${fmt(r.score)}점! 너도 엄지로 쳐 봐 ${url}`;
   try {
     const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
     const file = new File([blob], `okaystra-${r.challenge ? 'endless' : 'lv' + r.levelId}.png`, { type: 'image/png' });
@@ -1271,14 +1254,13 @@ async function loadRank() {
 /** 총 등수: 1·2·3등 시상대 + 4등부터 목록 */
 function totalRankHtml(data) {
   const n = data.levels || LEVELS.length;
-  const MEDAL = ['🥇', '🥈', '🥉'];
   const top = data.entries.slice(0, 3);
   // 시상대는 2등-1등-3등 순서로 늘어놓기
   const order = [1, 0, 2].filter((i) => top[i]);
   const podium = order
     .map((i) => {
       const e = top[i];
-      return `<div class="pod pod${i + 1} ${e.me ? 'me' : ''}"><span class="medal">${MEDAL[i]}</span>
+      return `<div class="pod pod${i + 1} ${e.me ? 'me' : ''}"><span class="medal m${i + 1}">${icon('medal')}</span>
         <span class="pn">${escapeHtml(e.username)}</span><span class="ps">${fmt(e.score)}</span>
         <span class="pl">${e.levels}/${n}단계</span><span class="step">${i + 1}등</span></div>`;
     })
@@ -1769,8 +1751,24 @@ function openRoom(code) {
     $('#room-name').value = myRoomName();
     if (code) $('#room-code').value = code;
     $$('#room-mode-new [data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === roomUi.newMode)));
+    showQuickWaiting();
   } else renderRoom(c.room);
   openModal('modal-room');
+}
+/** 빠른 대결 버튼에 지금 기다리는 사람 수 (창 열 때 한 번만 물어봄 — 요청 아끼려고 폴링 안 함) */
+async function showQuickWaiting() {
+  const el = { easy: $('#q-wait-easy'), hard: $('#q-wait-hard') };
+  const n = await state.roomClient.waitingCounts();
+  if (!n) {
+    el.easy.hidden = el.hard.hidden = true;
+    $('#q-none').hidden = true;
+    return;
+  }
+  for (const k of ['easy', 'hard']) {
+    el[k].hidden = false;
+    el[k].textContent = `대기 ${n[k] >= 5 ? '5명+' : n[k] + '명'}`;
+  }
+  $('#q-none').hidden = n.easy + n.hard > 0;
 }
 function renderRoom(room) {
   const c = state.roomClient;
@@ -1811,7 +1809,7 @@ function renderRoom(room) {
   const sel = $('#room-level');
   const opts = LEVELS.map((lv) => {
     const ok = lv.id <= FREE_UPTO || isConfirmed();
-    return `<option value="${lv.id}"${ok ? '' : ' disabled'}>${lv.id}단계 · ${lv.name}${ok ? '' : ' 🔒'}</option>`;
+    return `<option value="${lv.id}"${ok ? '' : ' disabled'}>${lv.id}단계 · ${lv.name}${ok ? '' : ' (잠김)'}</option>`;
   }).join('');
   if (sel.dataset.sig !== opts) {
     sel.innerHTML = opts;
@@ -1886,7 +1884,7 @@ async function roomShare() {
   const c = state.roomClient;
   if (!c.active) return;
   const url = `${location.origin}/?room=${c.code}`;
-  const text = `🥁 오케이스트라 대결 방에 들어와! 코드 ${c.code}`;
+  const text = `오케이스트라 대결 방에 들어와! 코드 ${c.code}`;
   if (navigator.share) {
     try {
       await navigator.share({ title: '오케이스트라 대결', text, url });
@@ -1939,12 +1937,11 @@ async function roomQuick(bracket) {
       if (!c.active || !c.waiting) return stopWaitTimer();
       const sec = Math.floor((Date.now() - t0) / 1000);
       $('#room-wait-title').textContent = `${label} 상대 찾는 중… ${sec}초`;
-      $('#room-wait-sub').textContent = sec < 30 ? '같은 묶음에 들어오는 사람과 바로 붙어요' : '지금은 사람이 적은가 봐요. 조금만 더 기다려 볼게요…';
       if (Date.now() - t0 > QUICK_WAIT_MS) {
         stopWaitTimer();
         c.leave();
         roomPanel('entry');
-        toast('지금은 상대가 없어요 😢 친구를 부르거나 조금 뒤에 다시 해 보세요', 3600);
+        toast('지금은 사람이 없어요', 3000);
       }
     };
     stopWaitTimer();
@@ -2352,7 +2349,9 @@ function bindActions() {
 
 // ---------------- 시작 ----------------
 async function boot() {
-  $$('[data-icon]').forEach((el) => (el.innerHTML = icon(el.dataset.icon)));
+  $$('[data-icon]').forEach((el) => (el.innerHTML = icon(el.dataset.icon, el.hasAttribute('data-e'))));
+  // 화면 글의 이모지 → 직접 그린 아이콘 (토스트·업데이트 소식 등 나중에 붙는 글까지)
+  watchEmoji();
   Object.assign(state.studio, load('studio', {}), { active: false });
   buildTitle();
   bindActions();

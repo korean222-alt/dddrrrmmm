@@ -3294,7 +3294,7 @@ const THEMES = {
   sunset: {
     key: 'sunset',
     name: '노을 피크닉',
-    emoji: '🌅',
+    icon: 'sunset',
     sky: ['#2B1650', '#9A3F86', '#FF9A6B'],
     ground: ['#3A1846', '#170A24'],
     glow: '255,190,140',
@@ -3324,7 +3324,7 @@ const THEMES = {
   city: {
     key: 'city',
     name: '네온 시티',
-    emoji: '🌃',
+    icon: 'city',
     sky: ['#06041A', '#1E0B45', '#6A1B78'],
     ground: ['#150828', '#05020C'],
     glow: '255,80,200',
@@ -3355,7 +3355,7 @@ const THEMES = {
   hall: {
     key: 'hall',
     name: '황금 콘서트홀',
-    emoji: '🎻',
+    icon: 'hall',
     sky: ['#140306', '#3E0B16', '#7A2A1C'],
     ground: ['#3A2012', '#160A05'],
     glow: '255,214,150',
@@ -3384,7 +3384,7 @@ const THEMES = {
   void: {
     key: 'void',
     name: '블랙 스테이지',
-    emoji: '🖤',
+    icon: 'spot',
     sky: ['#000000', '#040406', '#0C0C12'],
     ground: ['#08080B', '#000000'],
     glow: '255,255,255',
@@ -3413,7 +3413,7 @@ const THEMES = {
   lava: {
     key: 'lava',
     name: '용암 보스전',
-    emoji: '🌋',
+    icon: 'volcano',
     sky: ['#0A0204', '#3A0710', '#A3300C'],
     ground: ['#1E0406', '#060102'],
     glow: '255,120,40',
@@ -3443,7 +3443,7 @@ const THEMES = {
   aurora: {
     key: 'aurora',
     name: '오로라 설원',
-    emoji: '🌌',
+    icon: 'moon',
     sky: ['#020A1A', '#0A2A3E', '#1C4A5E'],
     ground: ['#C7D9E8', '#5C7A94'],
     glow: '120,255,200',
@@ -3473,7 +3473,7 @@ const THEMES = {
   space: {
     key: 'space',
     name: '우주 무대',
-    emoji: '🪐',
+    icon: 'planet',
     sky: ['#020310', '#0A1240', '#2E1A70'],
     ground: ['#0A0A26', '#02020A'],
     glow: '160,140,255',
@@ -4578,6 +4578,20 @@ function rr(ctx, x, y, w, h, r) {
   else ctx.rect(x, y, w, h);
 }
 
+/** 하트 모양 경로 (가운데 cx,cy · 폭 size). 캔버스엔 이모지 대신 이걸로 */
+function heartPath(ctx, cx, cy, size) {
+  const k = size / 24;
+  const X = (v) => cx + (v - 12) * k;
+  const Y = (v) => cy + (v - 13) * k;
+  ctx.beginPath();
+  ctx.moveTo(X(12), Y(20.5));
+  ctx.bezierCurveTo(X(12), Y(20.5), X(4), Y(15.6), X(4), Y(9.9));
+  ctx.bezierCurveTo(X(4), Y(5.5), X(9.6), Y(4), X(12), Y(7.2));
+  ctx.bezierCurveTo(X(14.4), Y(4), X(20), Y(5.5), X(20), Y(9.9));
+  ctx.bezierCurveTo(X(20), Y(15.6), X(12), Y(20.5), X(12), Y(20.5));
+  ctx.closePath();
+}
+
 class Renderer {
   constructor(canvas) {
     this.canvas = canvas;
@@ -4940,7 +4954,7 @@ class Renderer {
 
   /** ✨ 황금 콩을 침 */
   onGold(lane, healed, rt) {
-    this.fx.banners.push({ text: healed ? '✨ 황금 콩! ❤️+1' : '✨ 황금 콩!', t0: rt, color: '#FFD84A' });
+    this.fx.banners.push({ text: healed ? '황금 콩! 하트 +1' : '황금 콩!', t0: rt, color: '#FFD84A' });
     const L = this.L;
     if (this.lite && !this.studio) return;
     for (let i = 0; i < 16; i++) {
@@ -5260,9 +5274,18 @@ class Renderer {
     if (f.hearts) {
       ctx.font = `${Math.round(fs * 0.45)}px ${FONT}`;
       ctx.lineWidth = fs * 0.1;
-      ctx.strokeText(`❤️+${f.hearts}`, x, y + fs * 0.75);
+      // 하트 모양(직접 그림) + '+3'
+      const hy = y + fs * 0.75;
+      const hs = fs * 0.42;
+      const tw = ctx.measureText(`+${f.hearts}`).width;
+      const hx = x - tw / 2 - hs * 0.15;
       ctx.fillStyle = '#FF8FB0';
-      ctx.fillText(`❤️+${f.hearts}`, x, y + fs * 0.75);
+      heartPath(ctx, hx - hs * 0.5, hy, hs);
+      ctx.stroke();
+      ctx.fill();
+      ctx.textAlign = 'left';
+      ctx.strokeText(`+${f.hearts}`, hx + hs * 0.15, hy);
+      ctx.fillText(`+${f.hearts}`, hx + hs * 0.15, hy);
     }
     ctx.restore();
   }
@@ -5686,8 +5709,19 @@ class Renderer {
         ctx.fillText(`${this.keyLabels[i]} 키 · 클릭도 OK`, L.laneX[i], zy + zs * 1.5);
         continue;
       }
-      ctx.font = `${Math.round(zs * 1.5)}px ${FONT}`;
-      ctx.fillText('👆', L.laneX[i], zy + Math.sin(rt * 6) * zs * 0.2);
+      // 위를 가리키는 화살표 (통통 튐)
+      const ay = zy + Math.sin(rt * 6) * zs * 0.2;
+      const aw = zs * 0.75;
+      ctx.beginPath();
+      ctx.moveTo(L.laneX[i], ay - aw * 0.75);
+      ctx.lineTo(L.laneX[i] + aw * 0.7, ay + aw * 0.1);
+      ctx.lineTo(L.laneX[i] + aw * 0.25, ay + aw * 0.1);
+      ctx.lineTo(L.laneX[i] + aw * 0.25, ay + aw * 0.7);
+      ctx.lineTo(L.laneX[i] - aw * 0.25, ay + aw * 0.7);
+      ctx.lineTo(L.laneX[i] - aw * 0.25, ay + aw * 0.1);
+      ctx.lineTo(L.laneX[i] - aw * 0.7, ay + aw * 0.1);
+      ctx.closePath();
+      ctx.fill();
       ctx.font = `${zs}px ${FONT}`;
       ctx.fillText(zt, L.laneX[i], zy + zs * 1.5);
     }
@@ -5729,7 +5763,7 @@ class Renderer {
     if (tf && rt - tf.t0 < 2) a = Math.max(a, 0.8 * Math.min(1, (2 - (rt - tf.t0)) / 0.5));
     if (a <= 0.01 || this.studio) return;
     const T = this.theme;
-    const text = `${T.emoji} ${T.name}`;
+    const text = T.name;
     const fs = Math.round(L.GW * 0.036);
     ctx.save();
     ctx.globalAlpha = a;
@@ -7094,6 +7128,15 @@ const __m_news = (() => {
 
 const NEWS = [
   {
+    id: '2026-11-18g',
+    date: '11월 18일',
+    title: '새 아이콘 · 빠른 대결 대기 인원',
+    items: [
+      '화면의 그림들을 전부 <b>새로 그린 아이콘</b>으로 바꿨어요',
+      '⚡ <b>빠른 대결</b> 버튼에 지금 <b>기다리는 사람 수</b>가 보여요',
+    ],
+  },
+  {
     id: '2026-11-18f',
     date: '11월 18일',
     title: '같은 난이도 한 번에 열기',
@@ -7109,7 +7152,6 @@ const NEWS = [
       '첫 화면이 <b>🥁 싱글</b>(혼자 단계 깨기) · <b>⚔️ 멀티</b>로 나뉘었어요',
       '⚡ <b>빠른 대결</b>: 모르는 사람과 바로 1:1! <b>🌱 쉬움·보통</b>(1~8단계) · <b>🔥 어려움·극악</b>(9~16단계) 두 방에서 같은 방 사람끼리 붙어요. 곡은 무작위',
       '⚡ <b>실시간</b>: 폰끼리 바로 이어져서 상대 점수가 바로바로 올라가요 (연결이 안 되는 망에선 조금 늦게 보여요)',
-      '사람이 적을 땐 상대를 못 찾을 수 있어요. 그땐 친구 방을 만들어 불러 보세요!',
       '✨ 황금 콩 주변에 네모가 보이던 것 고침 — 이제 금색으로 은은하게 빛나요',
     ],
   },
@@ -7361,6 +7403,16 @@ class RoomClient {
 
   async join(code, name) {
     this._enter(await this._call({ action: 'join', code, name }));
+  }
+
+  /** 빠른 대결에서 지금 기다리는 사람 수 { easy, hard } (실패하면 null) */
+  async waitingCounts() {
+    try {
+      const r = await this.api.room({ action: 'count' });
+      return (r && r.waiting) || null;
+    } catch {
+      return null;
+    }
   }
 
   /** ⚡ 빠른 대결: 같은 묶음에서 기다리는 사람이 있으면 바로 붙음. 없으면 기다림 (true) */
@@ -7837,6 +7889,159 @@ function drawStar(g, cx, cy, r, on) {
 return { makeShareCard, gradeColor };
 })();
 
+// ---- icons.js ----
+const __m_icons = (() => {
+// 직접 그린 아이콘 (SVG). 화면에 이모지를 안 쓰고 전부 이걸로 보여 줌.
+//   icon('heart') → <svg class="i"> 문자열 (innerHTML 에 넣어서 씀)
+//   글 속에 이모지를 적어도 됨: watchEmoji() 가 화면에 붙는 글의 이모지를 같은 모양 아이콘으로 바꿔 줌
+//   (EMOJI 표에 없는 이모지는 지움). 캔버스 글씨엔 이모지를 쓰지 말 것 (바꿀 수 없음).
+
+const S = 'stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round"';
+const F = 'fill="currentColor"';
+
+const ICONS = {
+  play: '<path d="M7 4.5v15l13-7.5z" fill="currentColor"/>',
+  pause: '<path d="M7 4h4v16H7zM13 4h4v16h-4z" fill="currentColor"/>',
+  back: '<path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+  close: '<path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>',
+  gear: '<path d="M12 8.5a3.5 3.5 0 100 7 3.5 3.5 0 000-7z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2.5v3M12 18.5v3M21.5 12h-3M5.5 12h-3M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1M18.7 18.7l-2.1-2.1M7.4 7.4L5.3 5.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  trophy: '<path d="M7 4h10v4a5 5 0 01-10 0zM7 6H4v1a3 3 0 003 3M17 6h3v1a3 3 0 01-3 3M12 13v4M8 20h8M9.5 17h5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+  lock: '<rect x="5" y="10.5" width="14" height="10" rx="2.5" fill="currentColor"/><path d="M8 10.5V8a4 4 0 018 0v2.5" stroke="currentColor" stroke-width="2.4" fill="none"/>',
+  retry: '<path d="M4 12a8 8 0 108-8 8.2 8.2 0 00-5.7 2.3L4 8.5M4 4v4.5h4.5" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+  share: '<path d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 002 2h10a2 2 0 002-2v-6" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
+  copy: '<rect x="8" y="8" width="12" height="12" rx="2.5" stroke="currentColor" stroke-width="2.2" fill="none"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" stroke="currentColor" stroke-width="2.2" fill="none"/>',
+  video: '<rect x="3" y="6" width="13" height="12" rx="3" stroke="currentColor" stroke-width="2.2" fill="none"/><path d="M16 10.5l5-3v9l-5-3z" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linejoin="round"/>',
+  send: '<path d="M21 3L10 14M21 3l-7 18-4-7-7-4z" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linejoin="round" stroke-linecap="round"/>',
+  swords: '<path d="M4 4l9.5 9.5M4 4v3.5M4 4h3.5M20 4l-9.5 9.5M20 4v3.5M20 4h-3.5M7 14l3 3M5.5 18.5l2-2M17 14l-3 3M18.5 18.5l-2-2" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/>',
+  heart: '<path d="M12 20.5s-8-4.9-8-10.6A4.4 4.4 0 0112 7.2a4.4 4.4 0 018 2.7c0 5.7-8 10.6-8 10.6z" fill="currentColor"/>',
+  insta: '<rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke="currentColor" stroke-width="2.2" fill="none"/><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2.2" fill="none"/><circle cx="17.2" cy="6.8" r="1.3" fill="currentColor"/>',
+
+  // ---- 이모지 대신 쓰는 것들 ----
+  gem: `<path d="M7 3.5h10l4.5 5.6L12 21 2.5 9.1z" ${F} fill-opacity=".22"/><path d="M7 3.5h10l4.5 5.6L12 21 2.5 9.1zM2.5 9.1h19M9.4 9.1L12 21l2.6-11.9M7 3.5l2.4 5.6L12 3.5l2.6 5.6L17 3.5" ${S} stroke-width="1.9"/>`,
+  sparkle: `<path d="M10 2c.6 4.3 2.7 6.4 7 7-4.3.6-6.4 2.7-7 7-.6-4.3-2.7-6.4-7-7 4.3-.6 6.4-2.7 7-7zM18.5 14c.3 2.1 1.4 3.2 3.5 3.5-2.1.3-3.2 1.4-3.5 3.5-.3-2.1-1.4-3.2-3.5-3.5 2.1-.3 3.2-1.4 3.5-3.5z" ${F}/>`,
+  bolt: `<path d="M13.5 2L4.5 13.5h6.5L10 22l9.5-12.5h-6.7z" ${F} stroke="currentColor" stroke-width="1" stroke-linejoin="round"/>`,
+  burst: `<path d="M12 2l2 5.2 5-2.6-1.9 5.3L22 12l-4.9 2.1 1.9 5.3-5-2.6L12 22l-2-5.2-5 2.6 1.9-5.3L2 12l4.9-2.1L5 4.6l5 2.6z" ${F}/>`,
+  drum: `<ellipse cx="12" cy="10" rx="8" ry="3" ${S} stroke-width="2"/><path d="M4 10v7c0 1.7 3.6 3 8 3s8-1.3 8-3v-7M8 12.7v7M16 12.7v7M6 2.5l4.5 5M18 2.5l-4.5 5" ${S} stroke-width="2"/>`,
+  chat: `<path d="M4 6a2.5 2.5 0 012.5-2.5h11A2.5 2.5 0 0120 6v7.5a2.5 2.5 0 01-2.5 2.5H11l-4.5 4v-4A2.5 2.5 0 014 13.5z" ${S} stroke-width="2"/><circle cx="8.3" cy="9.8" r="1.25" ${F}/><circle cx="12" cy="9.8" r="1.25" ${F}/><circle cx="15.7" cy="9.8" r="1.25" ${F}/>`,
+  image: `<rect x="3" y="4.5" width="18" height="15" rx="2.5" ${S} stroke-width="2"/><circle cx="8.5" cy="9.5" r="1.8" ${F}/><path d="M3.5 17.5l5-4.5 4 3.5 3-2.5 5 4" ${S} stroke-width="2"/>`,
+  party: `<path d="M3.5 20.5L8 8.5l7.5 7.5z" ${F}/><path d="M12.5 4.5c1.5 1 1.6 2.6.6 3.6M17 9.5c1.3-1.4 3-1.4 4-.4M16 3v1.6M20.5 13.5H22M19 5.5l1.2-1.2M9.5 3.5l.6 1.4" ${S} stroke-width="1.9"/>`,
+  note: `<path d="M9 18V5l11-2v13" ${S} stroke-width="2.2"/><circle cx="6.5" cy="18" r="2.6" ${F}/><circle cx="17.5" cy="16" r="2.6" ${F}/>`,
+  fire: `<path d="M12 22c4.4 0 7.5-3 7.5-7.2 0-4.3-3.3-6.6-4.5-10.8-1.6 1.3-2.7 3.4-2.6 5.6C11 8.3 9.7 6.8 9.3 5 6.6 7.6 4.5 11 4.5 14.8 4.5 19 7.6 22 12 22z" ${F}/><path d="M12 21c-1.9 0-3.2-1.3-3.2-3.1 0-1.9 1.5-3 2.3-4.7.9 1.2 1.4 1.6 2.4 1.8.3-.8.4-1.5.4-2.3 1.4 1.2 1.5 3 1.5 5.2 0 1.8-1.4 3.1-3.4 3.1z" fill="#fff" fill-opacity=".5"/>`,
+  check: `<path d="M5 12.5l4.5 4.5L19 7.5" ${S} stroke-width="3"/>`,
+  ok: `<circle cx="12" cy="12" r="10" ${F}/><path d="M7.2 12.4l3.2 3.2 6.4-6.6" stroke="#fff" fill="none" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>`,
+  team: `<circle cx="8.5" cy="8" r="3.3" ${S} stroke-width="2"/><circle cx="16.8" cy="9.2" r="2.7" ${S} stroke-width="2"/><path d="M2.5 20c0-3.4 2.7-6.2 6-6.2s6 2.8 6 6.2M14.6 14.3c.7-.4 1.4-.5 2.2-.5 2.7 0 4.7 2.3 4.7 5.2" ${S} stroke-width="2"/>`,
+  clapper: `<rect x="3" y="9" width="18" height="11.5" rx="2" ${S} stroke-width="2"/><path d="M3.2 8.6L4 4.7 20.3 2.6l.8 3.9zM8.6 4.1l2.3 3.8M14.4 3.4l2.3 3.8" ${S} stroke-width="2"/>`,
+  megaphone: `<path d="M3.5 10v4A1.5 1.5 0 005 15.5h2l9.5 4.5V4L7 8.5H5A1.5 1.5 0 003.5 10z" ${S} stroke-width="2"/><path d="M7.5 15.5l1.3 4.5M19.5 9.5a3.5 3.5 0 010 5" ${S} stroke-width="2"/>`,
+  unlock: `<rect x="5" y="10.5" width="14" height="10" rx="2.5" ${F}/><path d="M8 10.5V8a4 4 0 017.7-1.6" ${S} stroke-width="2.4"/>`,
+  sprout: `<path d="M12 21.5v-9.5" ${S} stroke-width="2.2"/><path d="M12 12.5C12 8 9 5.5 3.5 5.5c0 4.5 3 7 8.5 7zM12 10.5c0-4 2.8-6.5 8.5-6.5 0 4-2.8 6.5-8.5 6.5z" ${F}/>`,
+  warn: `<path d="M12 3.2L2 20.5h20z" ${F} stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><path d="M12 9.5v5M12 17.5v.1" stroke="#fff" stroke-width="2.4" stroke-linecap="round"/>`,
+  key: `<circle cx="7.5" cy="15.5" r="4.5" ${S} stroke-width="2.2"/><path d="M10.7 12.3L20 3M15.5 7.5l3 3M13.3 9.7l2 2" ${S} stroke-width="2.2"/>`,
+  sunset: `<path d="M5.5 17a6.5 6.5 0 0113 0z" ${F}/><path d="M2 17h20M6 20.5h12M12 3.5v3M4.2 8.7l2 2M19.8 8.7l-2 2" ${S} stroke-width="2"/>`,
+  city: `<path d="M3 21V10h5v11M8 21V4h8v17M16 21v-8h5v8M2 21h20M11 7.5h2M11 11h2M11 14.5h2" ${S} stroke-width="2"/>`,
+  hall: `<path d="M3 9.5L12 4l9 5.5zM5.5 11.5v6.5M9.8 11.5v6.5M14.2 11.5v6.5M18.5 11.5v6.5M3 21h18" ${S} stroke-width="2"/>`,
+  spot: `<path d="M8.5 2.5h7L14 7.5h-4z" ${F}/><path d="M10 8.5L5.5 18.5M14 8.5l4.5 10" ${S} stroke-width="2"/><ellipse cx="12" cy="19" rx="7.5" ry="2.3" ${S} stroke-width="2"/>`,
+  volcano: `<path d="M2 21.5l6-10h8l6 10z" ${F}/><path d="M9.5 8c.9-1.7 1.6-2.2 2.5-2.2s1.6.5 2.5 2.2M12 2v1.5M7.5 3.5l1 1.2M16.5 3.5l-1 1.2" ${S} stroke-width="2"/>`,
+  planet: `<circle cx="12" cy="12" r="5.5" ${F}/><ellipse cx="12" cy="12" rx="10.5" ry="3.6" transform="rotate(-20 12 12)" ${S} stroke-width="1.8"/>`,
+  moon: `<path d="M14 3a8.5 8.5 0 107 12.5A7 7 0 0114 3z" ${F}/><path d="M19 3.5v3M17.5 5h3" ${S} stroke-width="1.6"/>`,
+  mute: `<path d="M3.5 9.5H7L12 5v14l-5-4.5H3.5z" ${F} stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M16 9.5l5 5M21 9.5l-5 5" ${S} stroke-width="2.2"/>`,
+  camera: `<path d="M4 7.5h3l1.6-2.5h6.8L17 7.5h3A1.5 1.5 0 0121.5 9v9.5A1.5 1.5 0 0120 20H4a1.5 1.5 0 01-1.5-1.5V9A1.5 1.5 0 014 7.5z" ${S} stroke-width="2"/><circle cx="12" cy="13.5" r="3.6" ${S} stroke-width="2"/>`,
+  piano: `<rect x="3" y="4" width="18" height="16" rx="2" ${S} stroke-width="2"/><path d="M9 20v-6M15 20v-6" ${S} stroke-width="2"/><path d="M7.5 4h3v10h-3zM13.5 4h3v10h-3z" ${F}/>`,
+  bulb: `<path d="M9.5 18h5M10.5 21.5h3M8.5 15a6.5 6.5 0 117 0c-.8.6-1 1.5-1 3h-5c0-1.5-.2-2.4-1-3z" ${S} stroke-width="2"/>`,
+  bug: `<ellipse cx="12" cy="14" rx="5" ry="6.5" ${S} stroke-width="2"/><path d="M12 8v12.5M9.5 7L8 4.5M14.5 7L16 4.5M7 12H3M17 12h4M7 16.5l-3.5 2M17 16.5l3.5 2" ${S} stroke-width="2"/>`,
+  infinity: `<path d="M12 12c-2-2.7-3.7-4-5.5-4a4 4 0 000 8c1.8 0 3.5-1.3 5.5-4zm0 0c2 2.7 3.7 4 5.5 4a4 4 0 000-8c-1.8 0-3.5 1.3-5.5 4z" ${S} stroke-width="2.2"/>`,
+  medal: `<path d="M7.5 2.5L10.5 9M16.5 2.5L13.5 9" ${S} stroke-width="2.4"/><circle cx="12" cy="15" r="6.5" ${F}/><circle cx="12" cy="15" r="3.6" fill="#fff" fill-opacity=".35"/>`,
+  crown: `<path d="M3 8l4.5 4L12 5l4.5 7L21 8l-2 11H5z" ${F} stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>`,
+  mail: `<rect x="3" y="5.5" width="18" height="13" rx="2.5" ${S} stroke-width="2"/><path d="M3.5 7l8.5 6.5L20.5 7" ${S} stroke-width="2"/>`,
+  heartbreak: `<path d="M12 20.5s-8-4.9-8-10.6A4.4 4.4 0 0112 7.2a4.4 4.4 0 018 2.7c0 5.7-8 10.6-8 10.6z" ${F}/><path d="M12.3 7.6l-2 4 3 2.2-1.6 4.2" stroke="#fff" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>`,
+  home: `<path d="M3.5 11L12 4l8.5 7M6 9.5V20h12V9.5M10 20v-5h4v5" ${S} stroke-width="2"/>`,
+  phone: `<rect x="6.5" y="2.5" width="11" height="19" rx="2.5" ${S} stroke-width="2"/><path d="M10.5 18.5h3" ${S} stroke-width="2"/>`,
+};
+
+/** 이모지 → 아이콘 이름 (같은 뜻은 같은 아이콘) */
+const EMOJI = {
+  '💎': 'gem', '⚔': 'swords', '✨': 'sparkle', '⚡': 'bolt', '💥': 'burst', '🥁': 'drum', '💬': 'chat', '🖼': 'image',
+  '🎉': 'party', '🔒': 'lock', '❤': 'heart', '🎵': 'note', '🔥': 'fire', '🏆': 'trophy', '✅': 'ok', '✓': 'check',
+  '🤝': 'team', '👫': 'team', '🎬': 'clapper', '📢': 'megaphone', '🔓': 'unlock', '🌱': 'sprout', '⚠': 'warn', '🔑': 'key',
+  '🌅': 'sunset', '🌃': 'city', '🎻': 'hall', '🖤': 'spot', '🌋': 'volcano', '🪐': 'planet', '🌌': 'moon', '🔇': 'mute',
+  '📸': 'camera', '🎹': 'piano', '💡': 'bulb', '🐞': 'bug', '⚙': 'gear', '♾': 'infinity', '🥇': 'medal', '🥈': 'medal',
+  '🥉': 'medal', '🔄': 'retry', '👑': 'crown', '💌': 'mail', '💔': 'heartbreak', '✕': 'close', '🏠': 'home', '📲': 'phone',
+  '⬆': 'share', '▶': 'play',
+};
+
+/** svg 문자열. emo=true 면 이모지 자리용 색(하트 분홍·다이아 하늘색 등)을 입힘 */
+const icon = (n, emo = false) => `<svg class="i${emo ? ' e-' + n : ''}" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`;
+
+// 표에 있는 이모지 (+ 뒤에 붙는 변형 기호), 그리고 표에 없는 나머지 그림 이모지
+const esc = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const KNOWN = new RegExp(`(${Object.keys(EMOJI).map(esc).join('|')})\\uFE0F?`, 'gu');
+const OTHER = /(?:\p{Extended_Pictographic}|\p{Regional_Indicator})[️‍\p{Extended_Pictographic}\p{Emoji_Modifier}]*\s?/gu;
+const ANY = /[←-⯿\u{1F000}-\u{1FAFF}]/u;
+// 글만 들어가는 곳: 이모지만 지움 / 손대지 않는 곳
+const NO_SVG = new Set(['OPTION', 'TITLE']);
+const SKIP = new Set(['SCRIPT', 'STYLE', 'TEXTAREA', 'NOSCRIPT']);
+
+/** 이모지만 지운 글 (svg 를 못 넣는 곳: 선택 목록·공유 글·캔버스) */
+const stripEmoji = (s) => String(s).replace(KNOWN, '').replace(OTHER, '').replace(/\s{2,}/g, ' ').trim();
+
+const cache = new Map();
+function svgNode(name) {
+  if (!cache.has(name)) {
+    const t = document.createElement('template');
+    t.innerHTML = icon(name, true);
+    cache.set(name, t.content.firstChild);
+  }
+  return cache.get(name).cloneNode(true);
+}
+
+function fixText(node) {
+  const s = node.nodeValue;
+  if (!s || !ANY.test(s)) return;
+  const p = node.parentNode;
+  if (!p || SKIP.has(p.nodeName)) return;
+  if (NO_SVG.has(p.nodeName)) {
+    const t = stripEmoji(s);
+    if (t !== s) node.nodeValue = t;
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  let last = 0;
+  let changed = false;
+  for (const m of s.matchAll(KNOWN)) {
+    if (m.index > last) frag.append(s.slice(last, m.index).replace(OTHER, ''));
+    frag.append(svgNode(EMOJI[m[1]]));
+    last = m.index + m[0].length;
+    changed = true;
+  }
+  const tail = s.slice(last);
+  const tailClean = tail.replace(OTHER, '');
+  if (!changed && tailClean === s) return;
+  frag.append(tailClean);
+  p.replaceChild(frag, node);
+}
+
+function walk(root) {
+  if (root.nodeType === 3) return fixText(root);
+  if (root.nodeType !== 1 || root.nodeName === 'svg' || SKIP.has(root.nodeName)) return;
+  const tw = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const list = [];
+  while (tw.nextNode()) if (ANY.test(tw.currentNode.nodeValue) && !SKIP.has(tw.currentNode.parentNode.nodeName)) list.push(tw.currentNode);
+  list.forEach(fixText);
+}
+
+/** 지금 화면 + 앞으로 붙는 글의 이모지를 아이콘으로 */
+function watchEmoji(root = document.body) {
+  walk(root);
+  new MutationObserver((recs) => {
+    for (const r of recs) {
+      if (r.type === 'characterData') fixText(r.target);
+      else r.addedNodes.forEach(walk);
+    }
+  }).observe(root, { childList: true, subtree: true, characterData: true });
+}
+
+return { ICONS, EMOJI, icon, stripEmoji, watchEmoji };
+})();
+
 // ---- versus.js ----
 const __m_versus = (() => {
 // 오늘의 노래 + 1:1 대결 (도전장 링크)
@@ -7959,29 +8164,13 @@ const { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, mig
 
 migrateLevelOrder(); // 8단계에 새 곡이 끼면서 밀린 번호를 이 브라우저 기록에도 반영 (아래 state 보다 먼저)
 const { makeShareCard, gradeColor } = __m_sharecard;
+const { icon, watchEmoji } = __m_icons;
 const { todayLevel, encodeChallenge, decodeChallenge, opponentScoreAt, versusOutcome, cleanName } = __m_versus;
 
 const $ = (s, r = document) => r.querySelector(s);
 const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const params = new URLSearchParams(location.search);
 
-const ICONS = {
-  play: '<path d="M7 4.5v15l13-7.5z" fill="currentColor"/>',
-  pause: '<path d="M7 4h4v16H7zM13 4h4v16h-4z" fill="currentColor"/>',
-  back: '<path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
-  close: '<path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>',
-  gear: '<path d="M12 8.5a3.5 3.5 0 100 7 3.5 3.5 0 000-7z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2.5v3M12 18.5v3M21.5 12h-3M5.5 12h-3M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1M18.7 18.7l-2.1-2.1M7.4 7.4L5.3 5.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
-  trophy: '<path d="M7 4h10v4a5 5 0 01-10 0zM7 6H4v1a3 3 0 003 3M17 6h3v1a3 3 0 01-3 3M12 13v4M8 20h8M9.5 17h5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
-  lock: '<rect x="5" y="10.5" width="14" height="10" rx="2.5" fill="currentColor"/><path d="M8 10.5V8a4 4 0 018 0v2.5" stroke="currentColor" stroke-width="2.4" fill="none"/>',
-  retry: '<path d="M4 12a8 8 0 108-8 8.2 8.2 0 00-5.7 2.3L4 8.5M4 4v4.5h4.5" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
-  share: '<path d="M12 3v12M7 8l5-5 5 5M5 13v6a2 2 0 002 2h10a2 2 0 002-2v-6" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
-  copy: '<rect x="8" y="8" width="12" height="12" rx="2.5" stroke="currentColor" stroke-width="2.2" fill="none"/><path d="M16 8V6a2 2 0 00-2-2H6a2 2 0 00-2 2v8a2 2 0 002 2h2" stroke="currentColor" stroke-width="2.2" fill="none"/>',
-  video: '<rect x="3" y="6" width="13" height="12" rx="3" stroke="currentColor" stroke-width="2.2" fill="none"/><path d="M16 10.5l5-3v9l-5-3z" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linejoin="round"/>',
-  send: '<path d="M21 3L10 14M21 3l-7 18-4-7-7-4z" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linejoin="round" stroke-linecap="round"/>',
-  swords: '<path d="M4 4l9.5 9.5M4 4v3.5M4 4h3.5M20 4l-9.5 9.5M20 4v3.5M20 4h-3.5M7 14l3 3M5.5 18.5l2-2M17 14l-3 3M18.5 18.5l-2-2" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round"/>',
-  heart: '<path d="M12 20.5s-8-4.9-8-10.6A4.4 4.4 0 0112 7.2a4.4 4.4 0 018 2.7c0 5.7-8 10.6-8 10.6z" fill="currentColor"/>',
-  insta: '<rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke="currentColor" stroke-width="2.2" fill="none"/><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2.2" fill="none"/><circle cx="17.2" cy="6.8" r="1.3" fill="currentColor"/>',
-};
 const STAR_PATH = 'M12 2.6l2.85 5.95 6.55.85-4.8 4.55 1.22 6.5L12 17.3l-5.82 3.15 1.22-6.5-4.8-4.55 6.55-.85z';
 const GEM_PATH = 'M7 3.5h10l4.5 5.6L12 21 2.5 9.1z M2.5 9.1h19 M7 3.5l2.4 5.6L12 21l2.6-11.9L17 3.5';
 /** 다이아몬드 3개 (무제한 모드). 별과 같은 연출 클래스를 씀 */
@@ -7996,7 +8185,6 @@ const starsHTML = (n, cls = '') =>
     .join('')}</span>`;
 const diffHTML = (d) =>
   `<span class="diff" aria-label="난이도 ${d}/5"><span class="pips">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= d ? 'on' : ''}"></i>`).join('')}</span>${DIFFICULTY_WORDS[d] || ''}</span>`;
-const icon = (n) => `<svg class="i" viewBox="0 0 24 24" aria-hidden="true">${ICONS[n] || ''}</svg>`;
 
 const audio = new AudioEngine();
 const renderer = new Renderer($('#game-canvas'));
@@ -8282,8 +8470,8 @@ function refreshTitle() {
   refreshFollowChip();
   // 멀티·건의하기는 팔로워 인증한 사람만 → 안 했으면 🔒
   const lockMark = followGated() ? '🔒 ' : '';
-  $('.mode-multi small').textContent = `${lockMark}실시간 대결`;
-  $('[data-action="suggest-open"] span').textContent = `${lockMark}건의하기`;
+  $('.mode-multi b').innerHTML = `${icon('swords', true)} ${lockMark}멀티`;
+  $('[data-action="suggest-open"] span:not([data-icon])').textContent = `${lockMark}건의하기`;
   refreshToday();
   refreshQuick();
   const foot = $('#title-foot');
@@ -8317,7 +8505,7 @@ function grieggCardHTML(bests) {
 function groupHeadHTML(id) {
   const g = groupStarting(id);
   if (!g) return '';
-  return `<div class="level-group theme-${g.key}" role="presentation"><span>${g.theme.emoji}</span><b>${g.theme.name}</b><small>${g.from}~${g.to}단계 맵</small></div>`;
+  return `<div class="level-group theme-${g.key}" role="presentation">${icon(g.theme.icon, true)}<b>${g.theme.name}</b><small>${g.from}~${g.to}단계 맵</small></div>`;
 }
 
 function renderEndlessLevels(bests) {
@@ -8988,7 +9176,7 @@ async function shareChallenge(nick) {
   const lv = getLevel(r.levelId);
   const code = encodeChallenge({ name: nick, levelId: r.levelId, score: r.score, stars: r.stars, grade: r.grade, accuracy: r.accuracy, timeline: r.timeline });
   const url = `${siteUrl()}?vs=${code}`;
-  const text = `⚔️ ${nick}의 1:1 도전장! ${CONFIG.appName} ${lv.name}(${lv.composer}) ${fmt(r.score)}점. 이길 수 있어?`;
+  const text = `${nick}의 1:1 도전장! ${CONFIG.appName} ${lv.name}(${lv.composer}) ${fmt(r.score)}점. 이길 수 있어?`;
   try {
     if (navigator.share) {
       await navigator.share({ title: `${CONFIG.appName} 1:1 도전장`, text, url });
@@ -9110,8 +9298,8 @@ async function shareResult() {
   const url = siteUrl();
   const canvas = await makeShareCard(r, { siteUrl: url, handle: handle() });
   const text = r.challenge
-    ? `${CONFIG.appName} 무제한 모드 Lv.${r.roundsCleared} 클리어 (${r.bpmReached} BPM) ${fmt(r.score)}점! 너도 엄지로 쳐 봐 👉 ${url}`
-    : `${CONFIG.appName} ${r.levelId}단계 ${r.grade} ${fmt(r.score)}점! 너도 엄지로 쳐 봐 👉 ${url}`;
+    ? `${CONFIG.appName} 무제한 모드 Lv.${r.roundsCleared} 클리어 (${r.bpmReached} BPM) ${fmt(r.score)}점! 너도 엄지로 쳐 봐 ${url}`
+    : `${CONFIG.appName} ${r.levelId}단계 ${r.grade} ${fmt(r.score)}점! 너도 엄지로 쳐 봐 ${url}`;
   try {
     const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
     const file = new File([blob], `okaystra-${r.challenge ? 'endless' : 'lv' + r.levelId}.png`, { type: 'image/png' });
@@ -9208,14 +9396,13 @@ async function loadRank() {
 /** 총 등수: 1·2·3등 시상대 + 4등부터 목록 */
 function totalRankHtml(data) {
   const n = data.levels || LEVELS.length;
-  const MEDAL = ['🥇', '🥈', '🥉'];
   const top = data.entries.slice(0, 3);
   // 시상대는 2등-1등-3등 순서로 늘어놓기
   const order = [1, 0, 2].filter((i) => top[i]);
   const podium = order
     .map((i) => {
       const e = top[i];
-      return `<div class="pod pod${i + 1} ${e.me ? 'me' : ''}"><span class="medal">${MEDAL[i]}</span>
+      return `<div class="pod pod${i + 1} ${e.me ? 'me' : ''}"><span class="medal m${i + 1}">${icon('medal')}</span>
         <span class="pn">${escapeHtml(e.username)}</span><span class="ps">${fmt(e.score)}</span>
         <span class="pl">${e.levels}/${n}단계</span><span class="step">${i + 1}등</span></div>`;
     })
@@ -9706,8 +9893,24 @@ function openRoom(code) {
     $('#room-name').value = myRoomName();
     if (code) $('#room-code').value = code;
     $$('#room-mode-new [data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === roomUi.newMode)));
+    showQuickWaiting();
   } else renderRoom(c.room);
   openModal('modal-room');
+}
+/** 빠른 대결 버튼에 지금 기다리는 사람 수 (창 열 때 한 번만 물어봄 — 요청 아끼려고 폴링 안 함) */
+async function showQuickWaiting() {
+  const el = { easy: $('#q-wait-easy'), hard: $('#q-wait-hard') };
+  const n = await state.roomClient.waitingCounts();
+  if (!n) {
+    el.easy.hidden = el.hard.hidden = true;
+    $('#q-none').hidden = true;
+    return;
+  }
+  for (const k of ['easy', 'hard']) {
+    el[k].hidden = false;
+    el[k].textContent = `대기 ${n[k] >= 5 ? '5명+' : n[k] + '명'}`;
+  }
+  $('#q-none').hidden = n.easy + n.hard > 0;
 }
 function renderRoom(room) {
   const c = state.roomClient;
@@ -9748,7 +9951,7 @@ function renderRoom(room) {
   const sel = $('#room-level');
   const opts = LEVELS.map((lv) => {
     const ok = lv.id <= FREE_UPTO || isConfirmed();
-    return `<option value="${lv.id}"${ok ? '' : ' disabled'}>${lv.id}단계 · ${lv.name}${ok ? '' : ' 🔒'}</option>`;
+    return `<option value="${lv.id}"${ok ? '' : ' disabled'}>${lv.id}단계 · ${lv.name}${ok ? '' : ' (잠김)'}</option>`;
   }).join('');
   if (sel.dataset.sig !== opts) {
     sel.innerHTML = opts;
@@ -9823,7 +10026,7 @@ async function roomShare() {
   const c = state.roomClient;
   if (!c.active) return;
   const url = `${location.origin}/?room=${c.code}`;
-  const text = `🥁 오케이스트라 대결 방에 들어와! 코드 ${c.code}`;
+  const text = `오케이스트라 대결 방에 들어와! 코드 ${c.code}`;
   if (navigator.share) {
     try {
       await navigator.share({ title: '오케이스트라 대결', text, url });
@@ -9876,12 +10079,11 @@ async function roomQuick(bracket) {
       if (!c.active || !c.waiting) return stopWaitTimer();
       const sec = Math.floor((Date.now() - t0) / 1000);
       $('#room-wait-title').textContent = `${label} 상대 찾는 중… ${sec}초`;
-      $('#room-wait-sub').textContent = sec < 30 ? '같은 묶음에 들어오는 사람과 바로 붙어요' : '지금은 사람이 적은가 봐요. 조금만 더 기다려 볼게요…';
       if (Date.now() - t0 > QUICK_WAIT_MS) {
         stopWaitTimer();
         c.leave();
         roomPanel('entry');
-        toast('지금은 상대가 없어요 😢 친구를 부르거나 조금 뒤에 다시 해 보세요', 3600);
+        toast('지금은 사람이 없어요', 3000);
       }
     };
     stopWaitTimer();
@@ -10289,7 +10491,9 @@ function bindActions() {
 
 // ---------------- 시작 ----------------
 async function boot() {
-  $$('[data-icon]').forEach((el) => (el.innerHTML = icon(el.dataset.icon)));
+  $$('[data-icon]').forEach((el) => (el.innerHTML = icon(el.dataset.icon, el.hasAttribute('data-e'))));
+  // 화면 글의 이모지 → 직접 그린 아이콘 (토스트·업데이트 소식 등 나중에 붙는 글까지)
+  watchEmoji();
   Object.assign(state.studio, load('studio', {}), { active: false });
   buildTitle();
   bindActions();
