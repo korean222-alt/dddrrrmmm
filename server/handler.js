@@ -285,6 +285,11 @@ export function createHandler(cfg, { store }) {
     // 건의함: 누구나 (닉네임이 있으면 같이 저장). 같은 브라우저는 1시간에 5개까지
     if (p === '/api/suggestions' && m === 'POST') {
       if (!limitSuggest(ip)) return json(429, { error: 'rate_limited' });
+      // 건의하기는 팔로워 인증(인증 완료)한 사람만
+      if (cfg.gateMode !== 'open') {
+        const who = await getPlayer(request);
+        if (!isConfirmed(who)) return json(403, { error: isVerified(who) ? 'confirm_pending' : 'confirm_required' });
+      }
       const b = await readJson(request);
       const body = String(b.text ?? '').replace(/\r\n?/g, '\n').trim().slice(0, 500);
       if ([...body].length < 2) return json(400, { error: 'too_short' });
@@ -324,6 +329,11 @@ export function createHandler(cfg, { store }) {
       const b = await readJson(request);
       if (!limitRoom(ip)) return json(429, { error: 'rate_limited' });
       if ((b.action === 'create' || b.action === 'quick') && !limitRoomCreate(ip)) return json(429, { error: 'rate_limited' });
+      // 멀티(방 만들기·들어가기·빠른 대결)는 팔로워 인증한 사람만. 이미 들어온 방의 주고받기·나가기는 방 열쇠로
+      if (cfg.gateMode !== 'open' && ['create', 'join', 'quick'].includes(b.action)) {
+        const who = await getPlayer(request);
+        if (!isConfirmed(who)) return json(403, { error: isVerified(who) ? 'confirm_pending' : 'confirm_required' });
+      }
       const [status, data] = await handleRoom(request, b);
       return json(status, data);
     }

@@ -7076,6 +7076,14 @@ const __m_news = (() => {
 
 const NEWS = [
   {
+    id: '2026-11-18e',
+    date: '11월 18일',
+    title: '멀티 · 건의하기는 팔로워 전용',
+    items: [
+      '⚔️ <b>멀티</b>(빠른 대결·친구 방)와 💬 <b>건의하기</b>는 팔로워 인증을 받으면 쓸 수 있어요. 버튼을 누르면 인증 방법이 나와요',
+    ],
+  },
+  {
     id: '2026-11-18d',
     date: '11월 18일',
     title: '싱글 · 멀티 · 실시간 빠른 대결',
@@ -8055,7 +8063,7 @@ function isVerified() {
   return !!(state.me && state.me.guest && state.me.checked);
 }
 const verifyLocked = (id) => state.cfg.gateMode !== 'open' && needsVerify(id) && !isVerified();
-const VERIFY_WHAT = () => `${FREE_UPTO + 1}단계부터와 💎 무제한 모드`;
+const VERIFY_WHAT = () => `${FREE_UPTO + 1}단계부터·💎 무제한·⚔️ 멀티·💬 건의하기`;
 /** 운영자가 팔로우를 확인함 = 인증 완료 (서버 없는 모드에선 확인할 방법이 없어서 잠가 둠) */
 function isConfirmed() {
   return !!(state.api && state.api.mode === 'server' && isVerified() && state.me.confirmed);
@@ -8066,9 +8074,11 @@ const closedLocked = (id) => state.cfg.gateMode !== 'open' && isClosed(id) && !i
 /** 인스타 댓글에 쓸 키워드 (키티챗 자동 DM 키워드와 같아야 함) */
 const VERIFY_KEYWORD = '쿵';
 
-function openVerify(id, { pass = '' } = {}) {
+function openVerify(id, { pass = '', label = '', then = null } = {}) {
   state.verifyFor = id ?? state.verifyFor ?? null;
-  const lv = id == null ? null : id === ENDLESS_ID ? { label: '💎 무제한 모드 · 그리그' } : levelEndlessBase(id) ? { label: `💎 ${levelEndlessBase(id).id}단계 무제한 · ${levelEndlessBase(id).name}` } : getLevel(id) ? { label: `${id}단계 · ${getLevel(id).composer} ${getLevel(id).name}` } : null;
+  // 인증하면 이어서 할 일 (멀티 창 열기·건의하기 등)
+  state.verifyThen = then;
+  const lv = label ? { label } : id == null ? null : id === ENDLESS_ID ? { label: '💎 무제한 모드 · 그리그' } : levelEndlessBase(id) ? { label: `💎 ${levelEndlessBase(id).id}단계 무제한 · ${levelEndlessBase(id).name}` } : getLevel(id) ? { label: `${id}단계 · ${getLevel(id).composer} ${getLevel(id).name}` } : null;
   $('#verify-level').hidden = !lv;
   if (lv) $('#verify-level').textContent = lv.label;
   const done = isConfirmed();
@@ -8135,9 +8145,12 @@ async function submitVerify() {
     refreshTitle();
     refreshFollowChip();
     renderLevels();
-    toast(`🎉 팔로워 인증 완료! 잠긴 단계와 💎 무제한 모드가 전부 열렸어요`, 3600);
+    toast(`🎉 팔로워 인증 완료! 잠긴 단계·💎 무제한·멀티·건의하기가 전부 열렸어요`, 3600);
     submitRank();
     state.verifyFor = null;
+    const then = state.verifyThen;
+    state.verifyThen = null;
+    if (then) setTimeout(then, 400);
   } catch (e) {
     const c = e.data && e.data.error;
     err(
@@ -8243,6 +8256,10 @@ function refreshFollowChip() {
 
 function refreshTitle() {
   refreshFollowChip();
+  // 멀티·건의하기는 팔로워 인증한 사람만 → 안 했으면 🔒
+  const lockMark = followGated() ? '🔒 ' : '';
+  $('.mode-multi small').textContent = `${lockMark}실시간 대결`;
+  $('[data-action="suggest-open"] span').textContent = `${lockMark}건의하기`;
   refreshToday();
   refreshQuick();
   const foot = $('#title-foot');
@@ -9611,7 +9628,15 @@ function roomPanel(which) {
   $('#room-wait').hidden = which !== 'wait';
   $('#room-lobby').hidden = which !== 'lobby';
 }
+/** 멀티·건의하기 잠금: 팔로워 인증 안 했으면 true (개발용 ?gate=open 이면 풀림) */
+function followGated() {
+  return state.cfg.gateMode !== 'open' && !isConfirmed();
+}
 function openRoom(code) {
+  if (followGated()) {
+    openVerify(null, { label: '⚔️ 멀티 플레이 (빠른 대결 · 친구 방)는 팔로워만', then: () => openRoom(code) });
+    return;
+  }
   const c = state.roomClient;
   roomPanel(!c.active ? 'entry' : c.waiting ? 'wait' : 'lobby');
   if (!c.active) {
@@ -9764,10 +9789,7 @@ async function roomQuick(bracket) {
     openModal('modal-room');
     return toast('이름을 적어 주세요');
   }
-  if (bracket === 'hard' && !isConfirmed()) {
-    toast(`🔥 어려움·극악은 팔로워 인증을 받으면 열려요 (쉬움·보통은 누구나)`, 3000);
-    return;
-  }
+  if (followGated()) return openRoom();
   if (needsCalibration()) {
     closeModal('modal-room');
     openCalibration({ required: true, after: () => roomQuick(bracket) });
@@ -9884,6 +9906,10 @@ function openNews() {
 }
 const suggestState = { kind: 'song', sending: false };
 function openSuggest() {
+  if (followGated()) {
+    openVerify(null, { label: '💬 건의하기는 팔로워만', then: openSuggest });
+    return;
+  }
   $('#suggest-text').value = load('suggestDraft', '');
   $('#suggest-count').textContent = `${[...$('#suggest-text').value].length} / 500`;
   openModal('modal-suggest');
@@ -10283,7 +10309,7 @@ async function boot() {
       state.me = me;
       refreshTitle();
       renderLevels();
-      if (nowConfirmed) toast(`✅ 팔로워 인증 완료! ${CONFIRM_WHAT()}이 열렸어요`, 3400);
+      if (nowConfirmed) toast(`✅ 팔로워 인증 완료! ${CONFIRM_WHAT()}가 열렸어요`, 3400);
     } catch {}
   });
   if (params.get('screen') === 'levels') show('screen-levels');

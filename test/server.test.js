@@ -439,8 +439,18 @@ test('이용 통계: 접속·판 기록 → 관리자만 집계 조회', async (
   assert.equal(st2.totals.sessions, 3);
 });
 
-test('건의함: 남기기 → 관리자 보기·처리 → 봇 읽기(토큰)', async () => {
+/** 팔로워 암호로 인증한 사람 (멀티·건의하기는 인증한 사람만) */
+async function verifiedClient(name, ig) {
   const c = client();
+  const r = await c('POST', '/api/verify/password', { name, ig, password: '시험1234' });
+  assert.equal(r.status, 200, `인증 ${name}`);
+  return c;
+}
+
+test('건의함: 남기기 → 관리자 보기·처리 → 봇 읽기(토큰)', async () => {
+  // 인증 안 한 사람은 못 남김
+  assert.equal((await client()('POST', '/api/suggestions', { kind: 'song', text: '안녕하세요' })).json.error, 'confirm_required');
+  const c = await verifiedClient('건의왕', 'sug.gest');
   assert.equal((await c('POST', '/api/suggestions', { kind: 'song', text: 'x' })).status, 400);
   const r = await c('POST', '/api/suggestions', { kind: 'song', text: '  캐논 무제한도 만들어 주세요  ' });
   assert.equal(r.status, 200);
@@ -469,9 +479,11 @@ test('건의함: 남기기 → 관리자 보기·처리 → 봇 읽기(토큰)',
 });
 
 test('대결 방: 만들기 → 들어가기 → 둘 다 준비하면 시작 → 점수 주고받기 → 한 판 더', async () => {
-  const A = client();
-  const B = client();
   const C = client();
+  // 인증 안 한 사람은 방을 못 만들고 못 들어감
+  assert.equal((await C('POST', '/api/rooms', { action: 'create', name: '셋째', mode: 'versus', level: 1 })).json.error, 'confirm_required');
+  const A = await verifiedClient('쿵짝왕', 'room.a');
+  const B = await verifiedClient('친구', 'room.b');
   const made = await A('POST', '/api/rooms', { action: 'create', name: '쿵짝왕', mode: 'versus', level: 1 });
   assert.equal(made.status, 200);
   const code = made.json.code;
@@ -483,12 +495,11 @@ test('대결 방: 만들기 → 들어가기 → 둘 다 준비하면 시작 →
   assert.equal(joined.status, 200);
   const b = { code, slot: joined.json.slot, key: joined.json.key };
   assert.equal(b.slot, 'b');
-  assert.equal((await C('POST', '/api/rooms', { action: 'join', code, name: '셋째' })).status, 409);
+  assert.equal((await C('POST', '/api/rooms', { action: 'join', code, name: '셋째' })).json.error, 'confirm_required');
+  const D = await verifiedClient('넷째', 'room.d');
+  assert.equal((await D('POST', '/api/rooms', { action: 'join', code, name: '넷째' })).status, 409, '꽉 참');
   // 남의 키로는 못 바꿈
   assert.equal((await C('POST', '/api/rooms', { action: 'sync', ...b, key: 'x' })).status, 403);
-  // 4단계는 인증 안 한 사람이 준비 못 함
-  await A('POST', '/api/rooms', { action: 'sync', ...a, level: 4 });
-  assert.equal((await B('POST', '/api/rooms', { action: 'sync', ...b, ready: true })).status, 403);
   // 방장이 1단계로 + 팀전, 둘 다 준비 → 시작
   let r = await A('POST', '/api/rooms', { action: 'sync', ...a, level: 1, mode: 'team', ready: true });
   assert.equal(r.json.room.status, 'lobby');
@@ -519,11 +530,11 @@ test('대결 방: 만들기 → 들어가기 → 둘 다 준비하면 시작 →
 });
 
 test('⚡ 빠른 대결: 같은 묶음에서 기다리는 사람과 바로 붙고 곡은 둘 다 칠 수 있는 것, 실시간 연결 신호 전달', async () => {
-  const A = client();
-  const B = client();
-  const C = client();
-  // 어려움·극악은 인증한 사람만
-  assert.equal((await C('POST', '/api/rooms', { action: 'quick', name: '셋째', bracket: 'hard' })).status, 403);
+  // 빠른 대결도 인증한 사람만 (쉬움·보통도)
+  for (const bracket of ['easy', 'hard']) assert.equal((await client()('POST', '/api/rooms', { action: 'quick', name: '셋째', bracket })).json.error, 'confirm_required');
+  const A = await verifiedClient('기다림', 'quick.a');
+  const B = await verifiedClient('찾음', 'quick.b');
+  const C = await verifiedClient('셋째', 'quick.c');
   const a = await A('POST', '/api/rooms', { action: 'quick', name: '기다림', bracket: 'easy' });
   assert.equal(a.status, 200);
   assert.equal(a.json.waiting, true);
@@ -533,7 +544,7 @@ test('⚡ 빠른 대결: 같은 묶음에서 기다리는 사람과 바로 붙�
   assert.equal(b.status, 200);
   assert.equal(b.json.code, a.json.code, '기다리던 방에 붙음');
   assert.equal(b.json.room.status, 'playing');
-  assert.ok(b.json.room.level >= 1 && b.json.room.level <= 3, '인증 안 한 사람끼리는 1~3단계');
+  assert.ok(b.json.room.level >= 1 && b.json.room.level <= 8, '쉬움·보통 = 1~8단계');
   assert.ok(b.json.room.startAt > b.json.now);
   // 방장도 곡·모드를 못 바꿈 (빠른 대결)
   const ka = { code: a.json.code, slot: 'a', key: a.json.key };
