@@ -51,6 +51,8 @@ const SCHEMA = [
      id BIGSERIAL PRIMARY KEY, token TEXT UNIQUE NOT NULL, at BIGINT NOT NULL, nick TEXT, old_ig TEXT, now_ig TEXT, memo TEXT,
      status TEXT NOT NULL DEFAULT 'wait', igsid TEXT, done_at BIGINT)`,
   `CREATE INDEX IF NOT EXISTS recover_requests_at ON recover_requests (at)`,
+  // 요청을 보낸 폰이 그때 쓰던 계정 (후보에서 '지금 이 폰 계정'으로 따로 보여 줌)
+  `ALTER TABLE recover_requests ADD COLUMN IF NOT EXISTS from_igsid TEXT`,
 ];
 
 /** init 에서 도는 옛 기록 옮기기 목록 — 새로 추가하면 여기에도 이름을 붙임 (SCHEMA_FLAG 가 바뀌어 다시 돎) */
@@ -261,19 +263,22 @@ END $$`);
     return this.getPlayer(igsid);
   }
   /** 관리자용 참여자 목록 (확인 안 한 사람 먼저, 최근 가입 순) */
-  async listPlayers() {
+  /** limit: admin 참여자 탭은 1000명, 되찾기 후보 찾기는 전부(예전 계정은 목록 맨 뒤라 잘리면 못 찾음) */
+  async listPlayers(limit = 1000) {
     const rows = await this.q(
       `SELECT p.igsid, p.username, p.ig, p.created_at, p.checked_at, p.hidden_at,
          COALESCE(SUM(s.score) FILTER (WHERE s.level > 0), 0) AS total, COUNT(s.level) FILTER (WHERE s.level > 0) AS levels,
+         MAX(s.level) FILTER (WHERE s.level > 0 AND s.level <= $2) AS top,
          MAX(s.score) FILTER (WHERE s.level = 0) AS endless
        FROM players p LEFT JOIN scores s ON s.igsid = p.igsid WHERE p.username IS NOT NULL
        GROUP BY p.igsid, p.username, p.ig, p.created_at, p.checked_at, p.hidden_at
-       ORDER BY (p.hidden_at IS NOT NULL), (p.ig IS NULL), (p.checked_at IS NULL) DESC, p.created_at DESC NULLS LAST LIMIT 1000`
+       ORDER BY (p.hidden_at IS NOT NULL), (p.ig IS NULL), (p.checked_at IS NULL) DESC, p.created_at DESC NULLS LAST LIMIT $1`,
+      [limit, LAST_LEVEL_ID]
     );
     return rows.map((r) => ({
       igsid: r.igsid, username: r.username, ig: r.ig || null, createdAt: num(r.created_at) ?? null, checkedAt: num(r.checked_at) ?? null,
       hiddenAt: num(r.hidden_at) ?? null,
-      total: Number(r.total), levels: Number(r.levels), endless: r.endless == null ? null : Number(r.endless),
+      total: Number(r.total), levels: Number(r.levels), top: r.top == null ? 0 : Number(r.top), endless: r.endless == null ? null : Number(r.endless),
     }));
   }
   async deletePlayer(igsid) {
@@ -514,15 +519,15 @@ END $$`);
   }
 
   // ----- 기록 되찾기 요청 -----
-  async addRecoverRequest({ token, at, nick, oldIg, nowIg, memo }) {
+  async addRecoverRequest({ token, at, nick, oldIg, nowIg, memo, fromIgsid }) {
     const r = await this.one(
-      'INSERT INTO recover_requests (token, at, nick, old_ig, now_ig, memo) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
-      [token, at, nick ?? null, oldIg ?? null, nowIg ?? null, memo ?? null]
+      'INSERT INTO recover_requests (token, at, nick, old_ig, now_ig, memo, from_igsid) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id',
+      [token, at, nick ?? null, oldIg ?? null, nowIg ?? null, memo ?? null, fromIgsid ?? null]
     );
     return Number(r.id);
   }
   _recoverRow(r) {
-    return r && { id: Number(r.id), at: Number(r.at), nick: r.nick, oldIg: r.old_ig, nowIg: r.now_ig, memo: r.memo, status: r.status, igsid: r.igsid || null, doneAt: num(r.done_at) ?? null };
+    return r && { id: Number(r.id), at: Number(r.at), nick: r.nick, oldIg: r.old_ig, nowIg: r.now_ig, memo: r.memo, status: r.status, igsid: r.igsid || null, fromIgsid: r.from_igsid || null, doneAt: num(r.done_at) ?? null };
   }
   async listRecoverRequests(limit = 300) {
     const rows = await this.q('SELECT * FROM recover_requests ORDER BY at DESC LIMIT $1', [limit]);

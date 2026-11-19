@@ -449,7 +449,9 @@ export function createHandler(cfg, { store }) {
       }
       if (!limitRecoverReq(ip)) return json(429, { error: 'rate_limited' });
       const token = newId() + newId();
-      const id = await store.addRecoverRequest({ token, at: Date.now(), nick: nick || null, oldIg: oldIg || null, nowIg, memo: memo || null });
+      // 이 폰이 지금 쓰는 계정 (새 주소에서 새로 만든 계정일 때가 많음) → admin 후보에서 '지금 이 폰 계정'으로 따로 표시
+      const cur = await getPlayer(request);
+      const id = await store.addRecoverRequest({ token, at: Date.now(), nick: nick || null, oldIg: oldIg || null, nowIg, memo: memo || null, fromIgsid: cur ? cur.igsid : null });
       return json(200, { ok: true, id, token });
     }
     if (p === '/api/recover-request/status' && m === 'POST') {
@@ -568,26 +570,38 @@ export function createHandler(cfg, { store }) {
       // 📮 되찾기 요청 목록 + 요청마다 맞을 만한 계정 후보 (닉네임 같음 · 예전/지금 아이디 비슷)
       if (p === '/api/admin/recover-requests' && m === 'GET') {
         const reqs = await store.listRecoverRequests(300);
-        const players = await store.listPlayers();
+        // 전부 봄: 예전 계정(인스타 아이디 없음)은 참여자 목록 맨 뒤라 1000명에서 자르면 못 찾음
+        const players = await store.listPlayers(1_000_000);
         const byId = new Map(players.map((x) => [x.igsid, x]));
         const norm = (s) => String(s || '').trim().toLowerCase();
+        const squash = (s) => norm(s).replace(/[\s._\-·~!?]+/g, '');
         const out = reqs.map((r) => {
+          const { fromIgsid, ...rest } = r;
+          const from = fromIgsid ? byId.get(fromIgsid) : null;
           if (r.status === 'done') {
             const t = byId.get(r.igsid);
-            return { ...r, target: t ? { igsid: t.igsid, username: t.username, ig: t.ig } : null, candidates: [] };
+            return { ...rest, target: t ? { igsid: t.igsid, username: t.username, ig: t.ig } : null, candidates: [] };
           }
+          const nick = squash(r.nick);
           const candidates = players
+            .filter((x) => x.igsid !== fromIgsid)
             .map((x) => {
               const why = [];
-              if (r.nick && norm(x.username) === norm(r.nick)) why.push('닉네임 같음');
+              const name = squash(x.username);
+              if (nick && name === nick) why.push('닉네임 같음');
+              else if (nick && name && Math.min(nick.length, name.length) >= 2 && (name.includes(nick) || nick.includes(name))) why.push('닉네임 비슷');
               if (r.oldIg && igSimilar(x.ig, r.oldIg)) why.push(norm(x.ig) === norm(r.oldIg) ? '예전 아이디 같음' : '예전 아이디 비슷');
               if (r.nowIg && igSimilar(x.ig, r.nowIg)) why.push(norm(x.ig) === norm(r.nowIg) ? '지금 아이디 같음' : '지금 아이디 비슷');
-              return { igsid: x.igsid, username: x.username, ig: x.ig, total: x.total, levels: x.levels, checked: !!x.checkedAt, why };
+              // 아이디 칸에 닉네임을 적었거나 그 반대
+              if (!why.length && r.oldIg && squash(x.username) === squash(r.oldIg)) why.push('닉네임이 예전 아이디와 같음');
+              return { igsid: x.igsid, username: x.username, ig: x.ig, total: x.total, levels: x.levels, top: x.top || 0, endless: x.endless ? endlessParts(x.endless).rounds : 0, checked: !!x.checkedAt, why };
             })
             .filter((x) => x.why.length)
-            .sort((a, b) => b.why.length - a.why.length || b.levels - a.levels)
+            // 점수가 있는 계정 먼저 (점수 0 = 새로 만든 계정일 가능성이 큼)
+            .sort((a, b) => (b.total > 0) - (a.total > 0) || b.why.length - a.why.length || b.top - a.top || b.total - a.total)
             .slice(0, 6);
-          return { ...r, candidates };
+          const fromAcc = from ? { igsid: from.igsid, username: from.username, ig: from.ig, total: from.total, levels: from.levels, top: from.top || 0, endless: from.endless ? endlessParts(from.endless).rounds : 0 } : null;
+          return { ...rest, from: fromAcc, candidates };
         });
         return json(200, { requests: out });
       }
