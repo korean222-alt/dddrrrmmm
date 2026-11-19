@@ -5,8 +5,10 @@ import { LEVELS, levelLanes, HAT, CRASH, buildNotes, noteCount, maxScore, gradeF
 import { sign, unsign } from '../server/session.js';
 
 test('채보: 모든 마디가 16칸, 허용 문자만', () => {
-  LEVELS.forEach((lv, i) => {
-    assert.equal(lv.id, i + 1);
+  // 본편은 1번부터 빈틈없이. 🎄 이벤트 곡은 본편 뒤 번호 (18·20 은 뺀 찬송가 자리라 안 씀)
+  LEVELS.filter((l) => !l.xmas).forEach((lv, i) => assert.equal(lv.id, i + 1));
+  for (const ev of LEVELS.filter((l) => l.xmas)) assert.ok(ev.id > LEVELS.filter((l) => !l.xmas).length && ![18, 20].includes(ev.id), `이벤트 곡 번호 ${ev.id}`);
+  LEVELS.forEach((lv) => {
     for (const bar of lv.bars) assert.match(bar, /^[KSHCTBJXY.]{16}$/, `Lv.${lv.id} ${bar}`);
     for (const k of ['hat', 'bass', 'chord']) assert.equal(lv.song[k].length, 16, `Lv.${lv.id} song.${k}`);
     assert.ok(lv.name && lv.composer && lv.difficulty >= 1 && lv.difficulty <= 5, `Lv.${lv.id} 정보`);

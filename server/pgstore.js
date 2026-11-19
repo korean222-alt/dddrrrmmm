@@ -2,6 +2,8 @@
 //   q(text, params) → 행 배열. Vercel 에선 Neon HTTP 드라이버, 테스트에선 PGlite(메모리 Postgres)
 //   시각(ms)은 BIGINT 라서 드라이버가 문자열/BigInt 로 줄 수 있어 Number() 로 바꿔 씀
 
+import { LAST_LEVEL_ID } from '../public/js/charts.js';
+
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS players (igsid TEXT PRIMARY KEY, username TEXT, follow_verified_at BIGINT)`,
   // ig = 인스타 아이디(랭킹 참여 때 받음), checked_at = 운영자가 팔로우를 확인한 시각
@@ -324,7 +326,7 @@ END $$`);
   async totalLeaderboard(limit = 50) {
     const rows = await this.q(
       `SELECT s.igsid, p.username, SUM(s.score) AS score, COUNT(*) AS levels, MAX(s.at) AS at
-       FROM scores s JOIN players p ON p.igsid = s.igsid WHERE p.username IS NOT NULL AND p.hidden_at IS NULL AND p.checked_at IS NOT NULL AND s.level > 0
+       FROM scores s JOIN players p ON p.igsid = s.igsid WHERE p.username IS NOT NULL AND p.hidden_at IS NULL AND p.checked_at IS NOT NULL AND s.level > 0 AND s.level <= ${LAST_LEVEL_ID}
        GROUP BY s.igsid, p.username ORDER BY score DESC, at ASC LIMIT $1`,
       [limit]
     );
@@ -333,13 +335,13 @@ END $$`);
   async totalRankOf(igsid) {
     const mine = await this.one(
       `SELECT SUM(s.score) AS score, COUNT(*) AS levels, MAX(s.at) AS at FROM scores s JOIN players p ON p.igsid = s.igsid
-       WHERE s.igsid = $1 AND p.username IS NOT NULL AND p.hidden_at IS NULL AND p.checked_at IS NOT NULL AND s.level > 0`,
+       WHERE s.igsid = $1 AND p.username IS NOT NULL AND p.hidden_at IS NULL AND p.checked_at IS NOT NULL AND s.level > 0 AND s.level <= ${LAST_LEVEL_ID}`,
       [igsid]
     );
     if (!mine || mine.score == null) return null;
     const ahead = await this.one(
       `SELECT COUNT(*) AS n FROM (SELECT SUM(s.score) AS t, MAX(s.at) AS a FROM scores s JOIN players p ON p.igsid = s.igsid
-         WHERE p.username IS NOT NULL AND p.hidden_at IS NULL AND p.checked_at IS NOT NULL AND s.level > 0 GROUP BY s.igsid) x WHERE x.t > $1 OR (x.t = $1 AND x.a < $2)`,
+         WHERE p.username IS NOT NULL AND p.hidden_at IS NULL AND p.checked_at IS NOT NULL AND s.level > 0 AND s.level <= ${LAST_LEVEL_ID} GROUP BY s.igsid) x WHERE x.t > $1 OR (x.t = $1 AND x.a < $2)`,
       [Number(mine.score), Number(mine.at)]
     );
     return { rank: Number(ahead ? ahead.n : 0) + 1, score: Number(mine.score), levels: Number(mine.levels) };

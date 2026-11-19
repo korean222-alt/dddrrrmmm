@@ -2,7 +2,7 @@
 
 import {
   LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES,
-  ENDLESS_ID, LAST_LEVEL_ID, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo,
+  ENDLESS_ID, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo,
   ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId,
   STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase,
   BEAT_ID, makeBeatReel, beatOpts, beatSeconds, BEAT_MAX_ROUNDS,
@@ -181,7 +181,7 @@ function openVerify(id, { pass = '', label = '', then = null, restore = false } 
   state.verifyFor = id ?? state.verifyFor ?? null;
   // 인증하면 이어서 할 일 (멀티 창 열기·건의하기 등)
   state.verifyThen = then;
-  const lv = label ? { label } : id == null ? null : id === ENDLESS_ID ? { label: '💎 무제한 모드 · 그리그' } : levelEndlessBase(id) ? { label: `💎 ${levelEndlessBase(id).id}단계 무제한 · ${levelEndlessBase(id).name}` } : getLevel(id) ? { label: `${id}단계 · ${getLevel(id).composer} ${getLevel(id).name}` } : null;
+  const lv = label ? { label } : id == null ? null : id === ENDLESS_ID ? { label: '💎 무제한 모드 · 그리그' } : levelEndlessBase(id) ? { label: `💎 ${levelEndlessBase(id).id}단계 무제한 · ${levelEndlessBase(id).name}` } : getLevel(id) ? { label: `${levelLabel(id)} · ${getLevel(id).composer} ${getLevel(id).name}` } : null;
   $('#verify-level').hidden = !lv;
   if (lv) $('#verify-level').textContent = lv.label;
   const done = isConfirmed() && !restore;
@@ -349,14 +349,14 @@ function refreshQuick() {
   const id = q && !progressLocked(q.id) && !closedLocked(q.id) ? q.id : nextChallenge(loadBests());
   state.quickId = id;
   $('[data-action="quickstart"]').innerHTML =
-    id === ENDLESS_ID ? `${icon('play')} 바로 시작 <small>무제한 모드</small>` : `${icon('play')} 바로 시작 <small>${id}단계</small>`;
+    id === ENDLESS_ID ? `${icon('play')} 바로 시작 <small>무제한 모드</small>` : `${icon('play')} 바로 시작 <small>${levelLabel(id)}</small>`;
 }
 
 function refreshToday() {
   const lv = todayLevel();
   const best = loadBests()[lv.id];
   $('#today-name').textContent = `${lv.name} · ${lv.composer}`;
-  $('#today-sub').textContent = best ? `내 최고 ${fmt(best.score)}점 · 친구에게 1:1 도전장 ⚔️` : `${lv.id}단계 · 점수 내고 친구에게 1:1 도전장 ⚔️`;
+  $('#today-sub').textContent = best ? `내 최고 ${fmt(best.score)}점 · 친구에게 1:1 도전장 ⚔️` : `${levelLabel(lv)} · 점수 내고 친구에게 1:1 도전장 ⚔️`;
 }
 
 /** 시작 화면·단계 고르기의 작은 '팔로우·랭킹 참여' 버튼 */
@@ -417,12 +417,12 @@ function grieggCardHTML(bests) {
 function groupHeadHTML(id) {
   const g = groupStarting(id);
   if (!g) return '';
-  return `<div class="level-group theme-${g.key}" role="presentation">${icon(g.theme.icon, true)}<b>${g.theme.name}</b><small>${g.from}~${g.to}단계 맵</small></div>`;
+  return `<div class="level-group theme-${g.key}" role="presentation">${icon(g.theme.icon, true)}<b>${g.key === 'xmas' ? '크리스마스 이벤트' : g.theme.name}</b><small>${g.key === 'xmas' ? '기간 한정 특별 곡' : `${g.from}~${g.to}단계 맵`}</small></div>`;
 }
 
 function renderEndlessLevels(bests) {
   const list = [grieggCardHTML(bests)];
-  for (const lv of LEVELS) {
+  for (const lv of MAIN_LEVELS) {
     const id = levelEndlessId(lv.id);
     const closed = closedLocked(id);
     const prevLock = !isUnlocked(id, bests);
@@ -456,7 +456,7 @@ function renderLevels() {
     renderEndlessLevels(bests);
     return;
   }
-  // 🎄 캐롤 묶음은 맨 위에
+  // 🎄 크리스마스 이벤트 곡은 맨 위에
   const list = [...LEVELS.filter((l) => l.xmas), ...LEVELS.filter((l) => !l.xmas)].map((lv) => {
     const prevLock = !isUnlocked(lv.id, bests);
     const closed = closedLocked(lv.id);
@@ -472,8 +472,8 @@ function renderLevels() {
       : b
         ? `${starsHTML(b.stars || 0, 'sm')}<span>${fmt(b.score)}</span>`
         : `${starsHTML(0, 'sm')}<span>NEW</span>`;
-    return `${groupHeadHTML(lv.id)}<button class="level-card ${locked ? 'locked' : ''} ${lv.boss ? 'boss' : ''}" data-level="${lv.id}">
-      <div class="lv"><span>${lv.id}<small>단계</small></span></div>
+    return `${groupHeadHTML(lv.id)}<button class="level-card ${locked ? 'locked' : ''} ${lv.boss ? 'boss' : ''} ${lv.xmas ? 'xmas' : ''}" data-level="${lv.id}">
+      <div class="lv">${lv.xmas ? `<span class="ev">${icon('tree', true)}<small>이벤트</small></span>` : `<span>${lv.id}<small>단계</small></span>`}</div>
       <div class="info"><h4>${lv.name} <small>${lv.composer}</small></h4><p>${lv.tagline}</p>${diffHTML(lv.difficulty)}</div>
       <div class="meta">${meta}</div>
     </button>`;
@@ -544,7 +544,7 @@ async function startLevel(id, opts = {}) {
   if (state.game) state.game.stop();
   closeModal('modal-pause');
   show('screen-game');
-  $('#hud-lv').textContent = lv.survival ? '⚔️ 서바이벌' : lv.challenge ? (lv.endless ? '무제한' : '챌린지') : lv.studioOnly ? '🎬 릴스용' : `${lv.id}단계`;
+  $('#hud-lv').textContent = lv.survival ? '⚔️ 서바이벌' : lv.challenge ? (lv.endless ? '무제한' : '챌린지') : lv.studioOnly ? '🎬 릴스용' : levelLabel(lv);
   $('#hud-name').textContent = lv.challenge ? `${lv.songName} · ${lv.composer}` : `${lv.name} · ${lv.composer}`;
   $('#hud-score').textContent = '0';
   $('#hud-progress').style.width = '0%';
@@ -852,7 +852,7 @@ function onDeath(info) {
     $('#cont-progress').style.width = `${Math.min(100, (r.round / 10) * 100)}%`;
     $('#cont-progress-text').textContent = `Lv.${r.round} · ${r.bpm} BPM 까지 왔어요`;
   } else {
-    $('#cont-level').textContent = `${lv.id}단계 · ${lv.name}`;
+    $('#cont-level').textContent = `${levelLabel(lv)} · ${lv.name}`;
     $('#cont-progress').style.width = `${Math.round(info.progress * 100)}%`;
     $('#cont-progress-text').textContent = `곡 ${Math.round(info.progress * 100)}% 까지 왔어요`;
   }
@@ -928,7 +928,7 @@ function showResult(res) {
       else if (opened.length === 1) setTimeout(() => toast(`🔓 ${opened[0]}단계가 열렸어요!`, 2600), 2600);
     }
   }
-  $('#res-level').textContent = `${lv.id}단계 · ${lv.composer} ${lv.name}`;
+  $('#res-level').textContent = `${levelLabel(lv)} · ${lv.composer} ${lv.name}`;
   $('#screen-result').classList.toggle('failed', !!res.failed);
   const g = $('#res-grade');
   g.textContent = res.grade;
@@ -1144,7 +1144,7 @@ function openIncomingVs(ch) {
   const lv = getLevel(ch.levelId);
   state.vsIncoming = ch;
   $('#vs-in-name').textContent = ch.name;
-  $('#vs-in-level').textContent = `${lv.id}단계 · ${lv.composer} ${lv.name}`;
+  $('#vs-in-level').textContent = `${levelLabel(lv)} · ${lv.composer} ${lv.name}`;
   $('#vs-in-score').textContent = `${fmt(ch.score)}점`;
   $('#vs-in-stars').innerHTML = starsHTML(ch.stars);
   openModal('modal-vs');
@@ -1250,7 +1250,7 @@ async function shareResult() {
   const canvas = await makeShareCard(r, { siteUrl: url, handle: handle() });
   const text = r.challenge
     ? `${CONFIG.appName} 무제한 모드 Lv.${r.roundsCleared} 클리어 (${r.bpmReached} BPM) ${fmt(r.score)}점! 너도 엄지로 쳐 봐 ${url}`
-    : `${CONFIG.appName} ${r.levelId}단계 ${r.grade} ${fmt(r.score)}점! 너도 엄지로 쳐 봐 ${url}`;
+    : `${CONFIG.appName} ${levelLabel(r.levelId)} ${r.grade} ${fmt(r.score)}점! 너도 엄지로 쳐 봐 ${url}`;
   try {
     const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
     const file = new File([blob], `okaystra-${r.challenge ? 'endless' : 'lv' + r.levelId}.png`, { type: 'image/png' });
@@ -1290,8 +1290,8 @@ function renderRankTabs() {
   $$('#rank-mode button').forEach((b) => b.setAttribute('aria-selected', String((b.dataset.rankMode === 'endless') === endless)));
   const tab = (id, label) => `<button role="tab" data-rank="${id}" aria-selected="${id === cur}">${label}</button>`;
   $('#rank-tabs').innerHTML = endless
-    ? tab(ENDLESS_ID, '♾️ 그리그') + LEVELS.filter((l) => !closedLocked(levelEndlessId(l.id))).map((l) => tab(levelEndlessId(l.id), `${l.id}단계 ∞`)).join('')
-    : tab('total', '🏆 총 등수') + LEVELS.map((l) => tab(l.id, `${l.id}단계`)).join('');
+    ? tab(ENDLESS_ID, '♾️ 그리그') + MAIN_LEVELS.filter((l) => !closedLocked(levelEndlessId(l.id))).map((l) => tab(levelEndlessId(l.id), `${l.id}단계 ∞`)).join('')
+    : tab('total', '🏆 총 등수') + LEVELS.map((l) => tab(l.id, l.xmas ? '🎄 이벤트' : `${l.id}단계`)).join('');
   const sel = $('#rank-tabs [aria-selected="true"]');
   if (sel) sel.scrollIntoView({ block: 'nearest', inline: 'center' });
 }
@@ -1729,7 +1729,7 @@ function studioOverlay(lv) {
     top: st.top,
     bottom: st.bottom,
     challenge: !!lv.challenge,
-    label: lv.beat ? `${lv.songName} · 레벨업 챌린지` : lv.challenge ? '레벨업 챌린지' : lv.studioOnly ? `${lv.composer} ${lv.name}` : `${lv.id}단계 · ${lv.composer} ${lv.name}`,
+    label: lv.beat ? `${lv.songName} · 레벨업 챌린지` : lv.challenge ? '레벨업 챌린지' : lv.studioOnly ? `${lv.composer} ${lv.name}` : `${levelLabel(lv)} · ${lv.composer} ${lv.name}`,
   };
 }
 
@@ -2157,7 +2157,7 @@ function renderRoom(room) {
   const sel = $('#room-level');
   const opts = LEVELS.map((lv) => {
     const ok = lv.id <= FREE_UPTO || isConfirmed();
-    return `<option value="${lv.id}"${ok ? '' : ' disabled'}>${lv.id}단계 · ${lv.name}${ok ? '' : ' (잠김)'}</option>`;
+    return `<option value="${lv.id}"${ok ? '' : ' disabled'}>${levelLabel(lv)} · ${lv.name}${ok ? '' : ' (잠김)'}</option>`;
   }).join('');
   if (sel.dataset.sig !== opts) {
     sel.innerHTML = opts;

@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 import { sign, unsign, parseCookies, cookie, newId } from './session.js';
 import { buildStats } from './stats.js';
 import { createRoomHandler } from './rooms.js';
-import { LEVELS, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur, ENDLESS_ID, ROUND_BARS, roundBpm, pointsFor, levelEndlessBase, LEVEL_ENDLESS_STEP, needsVerify, isClosed, diamondsFor } from '../public/js/charts.js';
+import { LEVELS, LAST_LEVEL_ID, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur, ENDLESS_ID, ROUND_BARS, roundBpm, pointsFor, levelEndlessBase, LEVEL_ENDLESS_STEP, needsVerify, isClosed, diamondsFor } from '../public/js/charts.js';
 
 // 무제한 모드 랭킹은 저장소의 level 칸에 '깬 단계 × 1,000,000,000 + 점수' 한 숫자로 저장 (단계가 먼저, 같으면 점수)
 //   (예전엔 × 1,000,000 이라 점수가 999,999 에서 잘렸음 → 저장소 init 때 새 방식으로 옮김)
@@ -707,7 +707,7 @@ export function createHandler(cfg, { store }) {
       const lb = await store.totalLeaderboard(50);
       const entries = lb.rows.map((r) => ({ rank: r.rank, username: r.username, score: r.score, levels: r.levels, me: pl ? r.igsid === pl.igsid : false }));
       const mine = pl ? await store.totalRankOf(pl.igsid) : null;
-      return json(200, { level: 'total', levels: LEVELS.length, entries, me: mine });
+      return json(200, { level: 'total', levels: LAST_LEVEL_ID, entries, me: mine });
     }
 
     const lbEndless = p === '/api/leaderboard' && m === 'GET' ? endlessMode(url.searchParams.get('level')) : null;

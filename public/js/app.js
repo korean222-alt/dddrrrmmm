@@ -785,57 +785,17 @@ const LEVELS = [
     ],
   },
   // ---------------------------------------------------------------
-  // 🎄 크리스마스 캐롤 (18~20단계, 크리스마스 마을 맵). 퍼블릭 도메인 곡만.
-  //   xmas: 앞 단계를 안 깼어도 바로 칠 수 있음 (잠금은 4단계부터와 같음: 팔로워 인증)
+  // 🎄 크리스마스 이벤트 곡 (번호 단계가 아님. 화면엔 '크리스마스 이벤트'로, 크리스마스 마을 맵).
+  //   id 19 는 내부 번호 (랭킹·점수 저장용, 18·20 은 빼 버린 찬송가 자리라 비워 둠 — 다시 쓰지 말 것)
+  //   xmas: 앞 단계를 안 깼어도 바로 칠 수 있음 (잠금은 4단계부터와 같음: 팔로워 인증). 본편 순서·총 등수·무제한엔 안 들어감
   //   song.bells = 썰매 방울 박자, song.glock = 멜로디 위에 글로켄슈필
   // ---------------------------------------------------------------
-  {
-    id: 18,
-    xmas: true,
-    name: '기쁘다 구주 오셨네',
-    composer: '헨델·메이슨',
-    tagline: '크리스마스 캐롤 · 쿵짝 따라 치기',
-    difficulty: 2,
-    bpm: 96,
-    song: {
-      prog: ['D', 'A7 D', 'G A', 'D', 'D', 'D', 'D A7', 'A7 G', 'D A7', 'D'],
-      hat: '................',
-      bells: 'x...x...x...x...',
-      glock: true,
-      bass: 'x.......5.......',
-      chord: '....x.......x...',
-      melody: [
-        'D5:4 C#5:3 B4:1 A4:6 G4:2', 'F#4:4 E4:4 D4:6 A4:2', 'B4:6 B4:2 C#5:6 C#5:2', 'D5:6 D5:2 D5:2 C#5:2 B4:2 A4:2',
-        'A4:3 G4:1 F#4:2 D5:2 D5:2 C#5:2 B4:2 A4:2', 'A4:3 G4:1 F#4:4 F#4:2 F#4:2 F#4:2 F#4:1 G4:1',
-        'A4:6 G4:1 F#4:1 E4:2 E4:2 E4:2 E4:1 F#4:1', 'G4:6 F#4:1 E4:1 D4:2 D5:4 B4:2',
-        'A4:3 G4:1 F#4:2 G4:2 F#4:4 E4:4', 'D4:16',
-      ],
-    },
-    bars: [
-      'K...S...K...S...',
-      'K...S...K.K.S...',
-      'K...S...K...S...',
-      'K...S...K.K.S.S.',
-      'K...S...K...S...',
-      'K.K.S...K.K.S...',
-      'K.K.S...K.K.S...',
-      'K...S...K.K.S...',
-      'K...S...K...S...',
-      'B.......S.S.S...',
-      'K...S...K...S...',
-      'K...S...K.K.S...',
-      'K...S...K...S...',
-      'K.K.S...K.K.S.S.',
-      'K...S...K.K.S...',
-      'B.......B.......',
-    ],
-  },
   {
     id: 19,
     xmas: true,
     name: '데크 더 홀즈',
     composer: '웨일스 민요',
-    tagline: '크리스마스 캐롤 · 팔라라라라 신나게',
+    tagline: '크리스마스 이벤트 · 팔라라라라 신나게',
     difficulty: 3,
     bpm: 112,
     song: {
@@ -868,47 +828,6 @@ const LEVELS = [
       'K..KS...K..KS...',
       'K.K.S.K.K.K.S...',
       'S.S.S.S.K...S...',
-      'K...S...B.......',
-    ],
-  },
-  {
-    id: 20,
-    xmas: true,
-    name: '천사 찬송하기를',
-    composer: '멘델스존',
-    tagline: '크리스마스 캐롤 · 웅장한 합창',
-    difficulty: 3,
-    bpm: 104,
-    song: {
-      prog: ['G', 'G D', 'G D7', 'D7 G', 'G', 'G D', 'D', 'A7 D', 'G', 'C D7', 'G', 'C D7', 'C G', 'Am', 'D7 G', 'D7 G'],
-      hat: '................',
-      bells: 'x...x...x...x...',
-      glock: true,
-      bass: 'x...5...x...5...',
-      chord: '..x...x...x...x.',
-      melody: [
-        'D4 G4 G4:6 F#4:2', 'G4 B4 B4 A4', 'D5 D5 D5:6 C5:2', 'B4 A4 B4:8',
-        'D4 G4 G4:6 F#4:2', 'G4 B4 B4 A4', 'D5 A4 A4:6 F#4:2', 'F#4 E4 D4:8',
-        'D5 D5 D5 G4', 'C5 B4 B4 A4', 'D5 D5 D5 G4', 'C5 B4 B4 A4',
-        'E5 E5 E5 D5', 'C5 B4 C5:8', 'A4 B4:2 C5:2 D5:6 G4:2', 'G4 A4 B4:8',
-      ],
-    },
-    bars: [
-      'K...S...K...S...',
-      'K...S...K...S.S.',
-      'K...S...K.K.S...',
-      'K...S...B.......',
-      'K...S...K...S...',
-      'K...S...K.K.S...',
-      'K.K.S...K.K.S...',
-      'K...S...B.......',
-      'K.K.S...K.K.S...',
-      'K.K.S...K.K.S.S.',
-      'K.K.S...K.K.S...',
-      'K.K.S...K.K.S.S.',
-      'K.K.S.K.K.K.S...',
-      'K..KS...B.......',
-      'K.K.S...K.K.S.S.',
       'K...S...B.......',
     ],
   },
@@ -1252,8 +1171,16 @@ function scoreBounds(counts) {
 function isClearBest(best) {
   return !!best && (best.stars || 0) >= 1;
 }
-/** 본편 마지막 단계 (🎄 캐롤 단계는 본편 순서 밖) */
+/** 본편 마지막 단계 (🎄 이벤트 곡은 본편 순서 밖). 총 등수는 1~이 단계까지만 합침 */
 const LAST_LEVEL_ID = LEVELS.filter((l) => !l.xmas).at(-1).id;
+/** 본편 단계 (총 등수·무제한·빠른 대결) */
+const MAIN_LEVELS = LEVELS.filter((l) => !l.xmas);
+/** 화면에 보일 단계 이름: '5단계' / 이벤트 곡은 '🎄 크리스마스 이벤트' */
+function levelLabel(lv) {
+  const l = typeof lv === 'object' && lv ? lv : getLevel(lv);
+  if (l && l.xmas) return '🎄 크리스마스 이벤트';
+  return `${l ? l.id : lv}단계`;
+}
 
 /** 2026-11-17: 8단계에 '운명 교향곡'을 끼워 넣어서, 예전 8~14단계는 번호가 하나씩 밀림(9~15).
  *  저장된 기록 키('8', 'e8', 서버 칸 '-8')를 새 번호로 바꿔 줌. 예전 번호가 아니면 그대로. */
@@ -1575,7 +1502,7 @@ function makeLevelEndless(base, { intro = false } = {}) {
   return run;
 }
 
-return { STEPS_PER_BAR, KICK, SNARE, HAT, CRASH, TOM, INSTRUMENTS, CHAR_LANES, isLeftThumb, COUNT_IN_BARS, OUTRO_BARS, JUDGE, POINTS, ACC_WEIGHT, STAR_RULES, DIFFICULTY_WORDS, LEVELS, STUDIO_LEVELS, getStudioLevel, FREE_UPTO, VERIFY_LEVELS, needsVerify, CLOSED_LEVELS, SKIP_LEVELS, isClosed, prevOpenId, nextOpenId, noteToMidi, parseChord, chordAt, parseMelody, getLevel, beatDur, stepDur, barDur, levelDuration, TempoMap, tempoOf, levelLanes, buildNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, GOLD_SPOTS, buildRolls, markGoldNotes, noteCount, comboMultiplier, pointsFor, maxScore, accuracy, gradeFor, starsFor, scoreBounds, isClearBest, LAST_LEVEL_ID, shiftOldLevelKey, ENDLESS_FROM, FREE_LEVELS, isUnlocked, tierOf, unlockHint, nextChallenge, ENDLESS_ID, ROUND_BARS, ENDLESS_BASE_BPM, ENDLESS_BPM_STEP, DIAMOND_RULES, diamondsFor, roundBpm, roundInfo, roundBars, makeEndless, BEAT_ID, BEAT_MIN_BPM, BEAT_MAX_BPM, BEAT_MAX_ROUNDS, beatOpts, makeBeatReel, beatSeconds, LEVEL_ENDLESS_STEP, levelEndlessId, levelEndlessBase, levelSurvivalId, levelSurvivalBase, makeLevelEndless };
+return { STEPS_PER_BAR, KICK, SNARE, HAT, CRASH, TOM, INSTRUMENTS, CHAR_LANES, isLeftThumb, COUNT_IN_BARS, OUTRO_BARS, JUDGE, POINTS, ACC_WEIGHT, STAR_RULES, DIFFICULTY_WORDS, LEVELS, STUDIO_LEVELS, getStudioLevel, FREE_UPTO, VERIFY_LEVELS, needsVerify, CLOSED_LEVELS, SKIP_LEVELS, isClosed, prevOpenId, nextOpenId, noteToMidi, parseChord, chordAt, parseMelody, getLevel, beatDur, stepDur, barDur, levelDuration, TempoMap, tempoOf, levelLanes, buildNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, GOLD_SPOTS, buildRolls, markGoldNotes, noteCount, comboMultiplier, pointsFor, maxScore, accuracy, gradeFor, starsFor, scoreBounds, isClearBest, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, shiftOldLevelKey, ENDLESS_FROM, FREE_LEVELS, isUnlocked, tierOf, unlockHint, nextChallenge, ENDLESS_ID, ROUND_BARS, ENDLESS_BASE_BPM, ENDLESS_BPM_STEP, DIAMOND_RULES, diamondsFor, roundBpm, roundInfo, roundBars, makeEndless, BEAT_ID, BEAT_MIN_BPM, BEAT_MAX_BPM, BEAT_MAX_ROUNDS, beatOpts, makeBeatReel, beatSeconds, LEVEL_ENDLESS_STEP, levelEndlessId, levelEndlessBase, levelSurvivalId, levelSurvivalBase, makeLevelEndless };
 })();
 
 // ---- audio.js ----
@@ -3595,7 +3522,7 @@ return { SNARE_RY, lighten, darken, buildKit };
 const __m_themes = (() => {
 // 맵 분위기(테마): 단계를 묶어서 묶음마다 무대가 바뀜. 곡이 달아오르면(heat) 조명·입자가 같이 커짐.
 //   1~3 노을 피크닉 · 4~6 네온 시티 · 7~9 황금 콘서트홀 · 10~12 블랙 스테이지 · 13~15 용암 보스전 · 16~17 오로라 설원
-//   18~20 크리스마스 마을 (캐롤)
+//   크리스마스 마을 = 🎄 크리스마스 이벤트 곡(내부 번호 19)
 //   그리그 무제한·레벨업 챌린지는 우주 무대에서 시작해 Lv 이 오를 때마다 맵이 바뀜(THEME_CYCLE).
 //   단계별 무제한(e5 등)은 그 단계 맵 그대로.
 //
@@ -3853,7 +3780,7 @@ const THEME_GROUPS = [
   { from: 10, to: 12, key: 'void' },
   { from: 13, to: 15, key: 'lava' },
   { from: 16, to: 17, key: 'aurora' },
-  { from: 18, to: 20, key: 'xmas' },
+  { from: 19, to: 19, key: 'xmas' }, // 🎄 크리스마스 이벤트 곡
 ];
 
 /** 그리그 무제한·레벨업 챌린지: Lv 이 오를 때마다 이 순서로 맵이 바뀜 */
@@ -7763,13 +7690,13 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-18o',
-    date: '11월 18일',
-    title: '🎄 크리스마스 캐롤 3곡 + 크리스마스 마을',
+    id: '2026-11-19a',
+    date: '11월 19일',
+    title: '🎄 크리스마스 이벤트: 데크 더 홀즈',
     items: [
-      '🎄 <b>캐롤 3곡</b> 추가! <b>기쁘다 구주 오셨네 · 데크 더 홀즈 · 천사 찬송하기를</b> (18~20단계, 단계 목록 맨 위)',
-      '앞 단계를 다 안 깼어도 바로 칠 수 있어요. 눈 내리는 <b>크리스마스 마을</b> 맵에서 트리 전구가 박자에 맞춰 반짝여요',
-      '캐롤엔 썰매 방울 소리와 반짝이는 종소리가 같이 나와요. 3단계 <b>징글벨</b>에도 썰매 방울을 달았어요',
+      '🎄 단계 목록 맨 위에 <b>크리스마스 이벤트</b> 곡 <b>데크 더 홀즈</b>가 생겼어요. 앞 단계를 다 안 깼어도 바로 칠 수 있어요',
+      '눈 내리는 <b>크리스마스 마을</b>에서 트리 전구가 박자에 맞춰 반짝이고, 썰매 방울 소리가 같이 나와요',
+      '3단계 <b>징글벨</b>에도 썰매 방울을 달았어요',
     ],
   },
   {
@@ -8520,7 +8447,7 @@ async function makeShareCard(result, { siteUrl, handle }) {
   g.fillStyle = '#FFFFFF';
   g.fillText('OKAYSTRA', W / 2, 200);
 
-  const pill = `${level.id}단계 · ${level.composer} ${level.name}`;
+  const pill = `${level.xmas ? '크리스마스 이벤트' : `${level.id}단계`} · ${level.composer} ${level.name}`;
   g.font = `56px ${FONT}`;
   const pw = g.measureText(pill).width + 90;
   g.fillStyle = '#FF8A4C';
@@ -8880,7 +8807,7 @@ return { NAME_MAX, kstDateKey, todayLevel, cleanName, encodeChallenge, decodeCha
 const __m_main = (() => {
 // 오케이스트라 — 화면 전환, 잠금(팔로우 인증), 랭킹, 설정을 묶는 앱 본체
 
-const { LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES, ENDLESS_ID, LAST_LEVEL_ID, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo, ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId, STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase, BEAT_ID, makeBeatReel, beatOpts, beatSeconds, BEAT_MAX_ROUNDS } = __m_charts;
+const { LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES, ENDLESS_ID, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo, ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId, STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase, BEAT_ID, makeBeatReel, beatOpts, beatSeconds, BEAT_MAX_ROUNDS } = __m_charts;
 const { AudioEngine, playMetronome } = __m_audio;
 const { Renderer } = __m_render;
 const { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } = __m_game;
@@ -9055,7 +8982,7 @@ function openVerify(id, { pass = '', label = '', then = null, restore = false } 
   state.verifyFor = id ?? state.verifyFor ?? null;
   // 인증하면 이어서 할 일 (멀티 창 열기·건의하기 등)
   state.verifyThen = then;
-  const lv = label ? { label } : id == null ? null : id === ENDLESS_ID ? { label: '💎 무제한 모드 · 그리그' } : levelEndlessBase(id) ? { label: `💎 ${levelEndlessBase(id).id}단계 무제한 · ${levelEndlessBase(id).name}` } : getLevel(id) ? { label: `${id}단계 · ${getLevel(id).composer} ${getLevel(id).name}` } : null;
+  const lv = label ? { label } : id == null ? null : id === ENDLESS_ID ? { label: '💎 무제한 모드 · 그리그' } : levelEndlessBase(id) ? { label: `💎 ${levelEndlessBase(id).id}단계 무제한 · ${levelEndlessBase(id).name}` } : getLevel(id) ? { label: `${levelLabel(id)} · ${getLevel(id).composer} ${getLevel(id).name}` } : null;
   $('#verify-level').hidden = !lv;
   if (lv) $('#verify-level').textContent = lv.label;
   const done = isConfirmed() && !restore;
@@ -9223,14 +9150,14 @@ function refreshQuick() {
   const id = q && !progressLocked(q.id) && !closedLocked(q.id) ? q.id : nextChallenge(loadBests());
   state.quickId = id;
   $('[data-action="quickstart"]').innerHTML =
-    id === ENDLESS_ID ? `${icon('play')} 바로 시작 <small>무제한 모드</small>` : `${icon('play')} 바로 시작 <small>${id}단계</small>`;
+    id === ENDLESS_ID ? `${icon('play')} 바로 시작 <small>무제한 모드</small>` : `${icon('play')} 바로 시작 <small>${levelLabel(id)}</small>`;
 }
 
 function refreshToday() {
   const lv = todayLevel();
   const best = loadBests()[lv.id];
   $('#today-name').textContent = `${lv.name} · ${lv.composer}`;
-  $('#today-sub').textContent = best ? `내 최고 ${fmt(best.score)}점 · 친구에게 1:1 도전장 ⚔️` : `${lv.id}단계 · 점수 내고 친구에게 1:1 도전장 ⚔️`;
+  $('#today-sub').textContent = best ? `내 최고 ${fmt(best.score)}점 · 친구에게 1:1 도전장 ⚔️` : `${levelLabel(lv)} · 점수 내고 친구에게 1:1 도전장 ⚔️`;
 }
 
 /** 시작 화면·단계 고르기의 작은 '팔로우·랭킹 참여' 버튼 */
@@ -9291,12 +9218,12 @@ function grieggCardHTML(bests) {
 function groupHeadHTML(id) {
   const g = groupStarting(id);
   if (!g) return '';
-  return `<div class="level-group theme-${g.key}" role="presentation">${icon(g.theme.icon, true)}<b>${g.theme.name}</b><small>${g.from}~${g.to}단계 맵</small></div>`;
+  return `<div class="level-group theme-${g.key}" role="presentation">${icon(g.theme.icon, true)}<b>${g.key === 'xmas' ? '크리스마스 이벤트' : g.theme.name}</b><small>${g.key === 'xmas' ? '기간 한정 특별 곡' : `${g.from}~${g.to}단계 맵`}</small></div>`;
 }
 
 function renderEndlessLevels(bests) {
   const list = [grieggCardHTML(bests)];
-  for (const lv of LEVELS) {
+  for (const lv of MAIN_LEVELS) {
     const id = levelEndlessId(lv.id);
     const closed = closedLocked(id);
     const prevLock = !isUnlocked(id, bests);
@@ -9330,7 +9257,7 @@ function renderLevels() {
     renderEndlessLevels(bests);
     return;
   }
-  // 🎄 캐롤 묶음은 맨 위에
+  // 🎄 크리스마스 이벤트 곡은 맨 위에
   const list = [...LEVELS.filter((l) => l.xmas), ...LEVELS.filter((l) => !l.xmas)].map((lv) => {
     const prevLock = !isUnlocked(lv.id, bests);
     const closed = closedLocked(lv.id);
@@ -9346,8 +9273,8 @@ function renderLevels() {
       : b
         ? `${starsHTML(b.stars || 0, 'sm')}<span>${fmt(b.score)}</span>`
         : `${starsHTML(0, 'sm')}<span>NEW</span>`;
-    return `${groupHeadHTML(lv.id)}<button class="level-card ${locked ? 'locked' : ''} ${lv.boss ? 'boss' : ''}" data-level="${lv.id}">
-      <div class="lv"><span>${lv.id}<small>단계</small></span></div>
+    return `${groupHeadHTML(lv.id)}<button class="level-card ${locked ? 'locked' : ''} ${lv.boss ? 'boss' : ''} ${lv.xmas ? 'xmas' : ''}" data-level="${lv.id}">
+      <div class="lv">${lv.xmas ? `<span class="ev">${icon('tree', true)}<small>이벤트</small></span>` : `<span>${lv.id}<small>단계</small></span>`}</div>
       <div class="info"><h4>${lv.name} <small>${lv.composer}</small></h4><p>${lv.tagline}</p>${diffHTML(lv.difficulty)}</div>
       <div class="meta">${meta}</div>
     </button>`;
@@ -9418,7 +9345,7 @@ async function startLevel(id, opts = {}) {
   if (state.game) state.game.stop();
   closeModal('modal-pause');
   show('screen-game');
-  $('#hud-lv').textContent = lv.survival ? '⚔️ 서바이벌' : lv.challenge ? (lv.endless ? '무제한' : '챌린지') : lv.studioOnly ? '🎬 릴스용' : `${lv.id}단계`;
+  $('#hud-lv').textContent = lv.survival ? '⚔️ 서바이벌' : lv.challenge ? (lv.endless ? '무제한' : '챌린지') : lv.studioOnly ? '🎬 릴스용' : levelLabel(lv);
   $('#hud-name').textContent = lv.challenge ? `${lv.songName} · ${lv.composer}` : `${lv.name} · ${lv.composer}`;
   $('#hud-score').textContent = '0';
   $('#hud-progress').style.width = '0%';
@@ -9726,7 +9653,7 @@ function onDeath(info) {
     $('#cont-progress').style.width = `${Math.min(100, (r.round / 10) * 100)}%`;
     $('#cont-progress-text').textContent = `Lv.${r.round} · ${r.bpm} BPM 까지 왔어요`;
   } else {
-    $('#cont-level').textContent = `${lv.id}단계 · ${lv.name}`;
+    $('#cont-level').textContent = `${levelLabel(lv)} · ${lv.name}`;
     $('#cont-progress').style.width = `${Math.round(info.progress * 100)}%`;
     $('#cont-progress-text').textContent = `곡 ${Math.round(info.progress * 100)}% 까지 왔어요`;
   }
@@ -9802,7 +9729,7 @@ function showResult(res) {
       else if (opened.length === 1) setTimeout(() => toast(`🔓 ${opened[0]}단계가 열렸어요!`, 2600), 2600);
     }
   }
-  $('#res-level').textContent = `${lv.id}단계 · ${lv.composer} ${lv.name}`;
+  $('#res-level').textContent = `${levelLabel(lv)} · ${lv.composer} ${lv.name}`;
   $('#screen-result').classList.toggle('failed', !!res.failed);
   const g = $('#res-grade');
   g.textContent = res.grade;
@@ -10018,7 +9945,7 @@ function openIncomingVs(ch) {
   const lv = getLevel(ch.levelId);
   state.vsIncoming = ch;
   $('#vs-in-name').textContent = ch.name;
-  $('#vs-in-level').textContent = `${lv.id}단계 · ${lv.composer} ${lv.name}`;
+  $('#vs-in-level').textContent = `${levelLabel(lv)} · ${lv.composer} ${lv.name}`;
   $('#vs-in-score').textContent = `${fmt(ch.score)}점`;
   $('#vs-in-stars').innerHTML = starsHTML(ch.stars);
   openModal('modal-vs');
@@ -10124,7 +10051,7 @@ async function shareResult() {
   const canvas = await makeShareCard(r, { siteUrl: url, handle: handle() });
   const text = r.challenge
     ? `${CONFIG.appName} 무제한 모드 Lv.${r.roundsCleared} 클리어 (${r.bpmReached} BPM) ${fmt(r.score)}점! 너도 엄지로 쳐 봐 ${url}`
-    : `${CONFIG.appName} ${r.levelId}단계 ${r.grade} ${fmt(r.score)}점! 너도 엄지로 쳐 봐 ${url}`;
+    : `${CONFIG.appName} ${levelLabel(r.levelId)} ${r.grade} ${fmt(r.score)}점! 너도 엄지로 쳐 봐 ${url}`;
   try {
     const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
     const file = new File([blob], `okaystra-${r.challenge ? 'endless' : 'lv' + r.levelId}.png`, { type: 'image/png' });
@@ -10164,8 +10091,8 @@ function renderRankTabs() {
   $$('#rank-mode button').forEach((b) => b.setAttribute('aria-selected', String((b.dataset.rankMode === 'endless') === endless)));
   const tab = (id, label) => `<button role="tab" data-rank="${id}" aria-selected="${id === cur}">${label}</button>`;
   $('#rank-tabs').innerHTML = endless
-    ? tab(ENDLESS_ID, '♾️ 그리그') + LEVELS.filter((l) => !closedLocked(levelEndlessId(l.id))).map((l) => tab(levelEndlessId(l.id), `${l.id}단계 ∞`)).join('')
-    : tab('total', '🏆 총 등수') + LEVELS.map((l) => tab(l.id, `${l.id}단계`)).join('');
+    ? tab(ENDLESS_ID, '♾️ 그리그') + MAIN_LEVELS.filter((l) => !closedLocked(levelEndlessId(l.id))).map((l) => tab(levelEndlessId(l.id), `${l.id}단계 ∞`)).join('')
+    : tab('total', '🏆 총 등수') + LEVELS.map((l) => tab(l.id, l.xmas ? '🎄 이벤트' : `${l.id}단계`)).join('');
   const sel = $('#rank-tabs [aria-selected="true"]');
   if (sel) sel.scrollIntoView({ block: 'nearest', inline: 'center' });
 }
@@ -10603,7 +10530,7 @@ function studioOverlay(lv) {
     top: st.top,
     bottom: st.bottom,
     challenge: !!lv.challenge,
-    label: lv.beat ? `${lv.songName} · 레벨업 챌린지` : lv.challenge ? '레벨업 챌린지' : lv.studioOnly ? `${lv.composer} ${lv.name}` : `${lv.id}단계 · ${lv.composer} ${lv.name}`,
+    label: lv.beat ? `${lv.songName} · 레벨업 챌린지` : lv.challenge ? '레벨업 챌린지' : lv.studioOnly ? `${lv.composer} ${lv.name}` : `${levelLabel(lv)} · ${lv.composer} ${lv.name}`,
   };
 }
 
@@ -11031,7 +10958,7 @@ function renderRoom(room) {
   const sel = $('#room-level');
   const opts = LEVELS.map((lv) => {
     const ok = lv.id <= FREE_UPTO || isConfirmed();
-    return `<option value="${lv.id}"${ok ? '' : ' disabled'}>${lv.id}단계 · ${lv.name}${ok ? '' : ' (잠김)'}</option>`;
+    return `<option value="${lv.id}"${ok ? '' : ' disabled'}>${levelLabel(lv)} · ${lv.name}${ok ? '' : ' (잠김)'}</option>`;
   }).join('');
   if (sel.dataset.sig !== opts) {
     sel.innerHTML = opts;

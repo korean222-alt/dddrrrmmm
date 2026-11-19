@@ -10,7 +10,7 @@
 
 import fs from 'node:fs';
 import path from 'node:path';
-import { shiftOldLevelKey } from '../public/js/charts.js';
+import { shiftOldLevelKey, LAST_LEVEL_ID } from '../public/js/charts.js';
 
 // 이용 통계는 1년 보관
 export const STATS_KEEP_MS = 400 * 24 * 3600 * 1000;
@@ -172,7 +172,7 @@ export class JsonStore {
   totalLeaderboard(limit = 50) {
     const rows = [];
     for (const p of Object.values(this.data.players)) {
-      const bs = Object.entries(p.bests || {}).filter(([lv]) => Number(lv) > 0).map(([, b]) => b); // 0 이하 = 무제한 (따로 랭킹)
+      const bs = Object.entries(p.bests || {}).filter(([lv]) => Number(lv) > 0 && Number(lv) <= LAST_LEVEL_ID).map(([, b]) => b); // 0 이하 = 무제한 (따로 랭킹), 🎄 이벤트 곡·빼 버린 곡은 총 등수에 안 셈
       if (!bs.length || !p.username || p.hiddenAt || !p.checkedAt) continue;
       rows.push({
         igsid: p.igsid, username: p.username, score: bs.reduce((a, b) => a + b.score, 0),

@@ -142,6 +142,10 @@ svg.e-warn { color: #f0a020; }
 .level-card:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
 .level-card .lv { width: 62px; height: 62px; border-radius: 50%; display: grid; place-items: center; font-size: 28px; background: var(--grass-light); color: #fff; -webkit-text-stroke: 1.5px var(--ink); paint-order: stroke fill; line-height: 1; border: 3px solid var(--ink); }
 .level-card .lv small { display: block; font-size: 11px; -webkit-text-stroke: 0; color: var(--ink); }
+.level-card .lv .ev { display: grid; justify-items: center; gap: 1px; }
+.level-card .lv .ev svg { width: 28px; height: 28px; -webkit-text-stroke: 0; }
+.level-card.xmas .lv { background: linear-gradient(135deg, #D7263D, #F25C54); }
+.level-card.xmas .lv small { color: #fff; }
 .level-card h4 { margin: 0 0 4px; font-weight: 400; font-size: 20px; }
 .level-card p { margin: 0; color: var(--muted); font-size: 14px; }
 .level-card .meta { text-align: right; font-size: 13px; color: var(--muted); display: grid; gap: 4px; justify-items: end; }

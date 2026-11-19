@@ -53,7 +53,7 @@ export async function makeShareCard(result, { siteUrl, handle }) {
   g.fillStyle = '#FFFFFF';
   g.fillText('OKAYSTRA', W / 2, 200);
 
-  const pill = `${level.id}단계 · ${level.composer} ${level.name}`;
+  const pill = `${level.xmas ? '크리스마스 이벤트' : `${level.id}단계`} · ${level.composer} ${level.name}`;
   g.font = `56px ${FONT}`;
   const pw = g.measureText(pill).width + 90;
   g.fillStyle = '#FF8A4C';
