@@ -11,6 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { shiftOldLevelKey, LAST_LEVEL_ID } from '../public/js/charts.js';
+import { DECK_RESET_BEFORE } from './pgstore.js';
 
 // 이용 통계는 1년 보관
 export const STATS_KEEP_MS = 400 * 24 * 3600 * 1000;
@@ -47,10 +48,16 @@ export class JsonStore {
         for (const pl of Object.values(this.data.plays)) if (pl && pl.level != null) pl.level = typeof pl.level === 'number' ? Number(shiftOldLevelKey(pl.level)) : shiftOldLevelKey(pl.level);
         this.data.settings['migration:insert-level-8-v1'] = String(Date.now());
       }
+      // 🎄 데크 더 홀즈(19)가 새 곡·채보로 바뀌어서 그 전 점수만 한 번 지움
+      if (!this.data.settings['migration:reset-level-19-v1']) {
+        for (const p of Object.values(this.data.players)) if (p.bests && p.bests[19] && !(p.bests[19].at >= DECK_RESET_BEFORE)) delete p.bests[19];
+        this.data.settings['migration:reset-level-19-v1'] = String(Date.now());
+      }
     } catch (e) {
       if (e.code !== 'ENOENT') console.error('[store] 읽기 실패, 새로 시작:', e.message);
       // 새로 시작하는 저장소는 처음부터 새 번호 → 나중에 파일이 생겨도 옮기지 않게 표시
       this.data.settings['migration:insert-level-8-v1'] ??= String(Date.now());
+      this.data.settings['migration:reset-level-19-v1'] ??= String(Date.now());
     }
     return this;
   }

@@ -56,7 +56,9 @@ const SCHEMA = [
 ];
 
 /** init 에서 도는 옛 기록 옮기기 목록 — 새로 추가하면 여기에도 이름을 붙임 (SCHEMA_FLAG 가 바뀌어 다시 돎) */
-const MIGRATIONS = ['remove-instagram-v1', 'insert-level-8-v1', 'repair-shifted-levels'];
+const MIGRATIONS = ['remove-instagram-v1', 'insert-level-8-v1', 'repair-shifted-levels', 'reset-level-19-v1'];
+/** 🎄 데크 더 홀즈(19)를 합창 녹음 곡으로 바꾼 배포 시각: 그 전 점수(옛 채보)만 랭킹에서 지움 */
+export const DECK_RESET_BEFORE = Date.parse('2026-11-19T07:13:00Z');
 /** 표·옮기기 내용이 바뀌면 달라지는 표시 이름 (짧은 해시) */
 const SCHEMA_FLAG = (() => {
   let h = 2166136261;
@@ -88,6 +90,7 @@ export class PgStore {
     await this.removeInstagramData();
     await this.shiftLevelsV2();
     await this.repairShiftedLevels();
+    await this.resetDeckRanking();
     await this.q('INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING', [SCHEMA_FLAG, String(Date.now())]);
     return this;
   }
@@ -107,6 +110,15 @@ export class PgStore {
     await this.q('DROP TABLE IF EXISTS codes');
     await this.q('INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING', [FLAG, String(Date.now())]);
     console.log(`[store] 인스타 등록 기록 삭제: 플레이어 ${gone.length}명 + 점수 + 인증 코드`);
+  }
+
+  /** 🎄 데크 더 홀즈가 합창 녹음 곡·새 채보로 바뀌어서 그 전 점수만 한 번 지움 (새 채보 점수는 그대로) */
+  async resetDeckRanking() {
+    const FLAG = 'migration:reset-level-19-v1';
+    const got = await this.q('INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING RETURNING key', [FLAG, String(Date.now())]);
+    if (!got.length) return;
+    await this.q('DELETE FROM scores WHERE level = 19 AND at < $1', [DECK_RESET_BEFORE]);
+    console.log('[store] 데크 더 홀즈 랭킹 초기화 (옛 채보 점수)');
   }
 
   /**

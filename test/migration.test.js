@@ -202,3 +202,35 @@ test('Postgres: 표 만들기·옮기기는 한 번 끝나면 다음 시작 땐 
   await store.putTransfer('123456', { a: 1 }, 0, Date.now() + 1000);
   assert.deepEqual(await store.takeTransfer('123456'), { a: 1 }, '표는 그대로 씀');
 });
+
+test('🎄 데크 더 홀즈(19) 랭킹 초기화: 새 곡으로 바뀌기 전 점수만 한 번 지움 (Postgres + JSON)', async () => {
+  const { DECK_RESET_BEFORE } = await import('../server/pgstore.js');
+  const old = DECK_RESET_BEFORE - 1000;
+  const fresh = DECK_RESET_BEFORE + 1000;
+  // Postgres
+  const db = new PGlite();
+  const q = async (text, params) => (await db.query(text, params)).rows;
+  await q(`CREATE TABLE players (igsid TEXT PRIMARY KEY, username TEXT, follow_verified_at BIGINT)`);
+  await q(`CREATE TABLE scores (igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, grade TEXT, max_combo INTEGER, at BIGINT NOT NULL, PRIMARY KEY (igsid, level))`);
+  await q(`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+  await q(`INSERT INTO players VALUES ('g_a', 'a', NULL), ('g_b', 'b', NULL)`);
+  await q(`INSERT INTO scores VALUES ('g_a', 19, 900, 'A', 10, ${old}), ('g_b', 19, 800, 'B', 9, ${fresh}), ('g_a', 2, 700, 'C', 8, ${old}), ('g_a', 21, 600, 'C', 8, ${old})`);
+  await new PgStore(q).init();
+  const left = (await q('SELECT igsid, level FROM scores ORDER BY igsid, level')).map((r) => `${r.igsid}:${r.level}`).join();
+  assert.equal(left, 'g_a:2,g_a:21,g_b:19');
+  // 한 번만: 다시 시작해도 그 뒤 점수는 그대로
+  await q(`INSERT INTO scores VALUES ('g_a', 19, 500, 'C', 1, ${old})`);
+  await new PgStore(q).init();
+  assert.equal((await q(`SELECT 1 FROM scores WHERE igsid = 'g_a' AND level = 19`)).length, 1);
+  // JSON
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kk-mig-'));
+  const file = path.join(dir, 'db.json');
+  fs.writeFileSync(file, JSON.stringify({ settings: { 'migration:insert-level-8-v1': '1' }, players: {
+    g_a: { igsid: 'g_a', username: 'a', bests: { 19: { score: 900, at: old }, 2: { score: 700, at: old } } },
+    g_b: { igsid: 'g_b', username: 'b', bests: { 19: { score: 800, at: fresh } } },
+  } }));
+  const store = new JsonStore(file).init();
+  assert.deepEqual(Object.keys(store.data.players.g_a.bests), ['2']);
+  assert.equal(store.data.players.g_b.bests[19].score, 800);
+  fs.rmSync(dir, { recursive: true, force: true });
+});
