@@ -315,19 +315,23 @@ END $$`);
     const r = await this.q('UPDATE players SET checked_at = $2, hidden_at = CASE WHEN $2::BIGINT IS NULL THEN hidden_at ELSE NULL END WHERE igsid = $1 RETURNING igsid', [igsid, on ? Date.now() : null]);
     return r.length === 1;
   }
+  /** 최고점이면 바꿈. DB 왕복 1번 (참여자 확인 + 예전 점수 + 저장을 한 문장으로) */
   async recordScore(igsid, level, entry) {
-    if (!(await this.getPlayer(igsid))) return null;
-    const prev = await this.one('SELECT score FROM scores WHERE igsid = $1 AND level = $2', [igsid, level]);
-    const improved = !prev || entry.score > Number(prev.score);
-    if (improved) {
-      await this.q(
-        `INSERT INTO scores (igsid, level, score, grade, max_combo, at) VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (igsid, level) DO UPDATE SET score = EXCLUDED.score, grade = EXCLUDED.grade,
-           max_combo = EXCLUDED.max_combo, at = EXCLUDED.at`,
-        [igsid, level, entry.score, entry.grade ?? null, entry.maxCombo ?? 0, Date.now()]
-      );
-    }
-    return { improved, best: improved ? entry.score : Number(prev.score) };
+    const r = await this.one(
+      `WITH pl AS (SELECT 1 FROM players WHERE igsid = $1),
+         prev AS (SELECT score FROM scores WHERE igsid = $1 AND level = $2),
+         up AS (
+           INSERT INTO scores (igsid, level, score, grade, max_combo, at)
+           SELECT $1, $2, $3, $4, $5, $6 WHERE EXISTS (SELECT 1 FROM pl)
+           ON CONFLICT (igsid, level) DO UPDATE SET score = EXCLUDED.score, grade = EXCLUDED.grade,
+             max_combo = EXCLUDED.max_combo, at = EXCLUDED.at WHERE EXCLUDED.score > scores.score
+           RETURNING score)
+       SELECT EXISTS (SELECT 1 FROM pl) AS ok, (SELECT score FROM prev) AS prev, (SELECT score FROM up) AS up`,
+      [igsid, level, entry.score, entry.grade ?? null, entry.maxCombo ?? 0, Date.now()]
+    );
+    if (!r || !r.ok) return null;
+    const improved = r.up != null;
+    return { improved, best: improved ? entry.score : Number(r.prev) };
   }
   async leaderboard(level, limit = 50) {
     const rows = await this.q(
@@ -363,18 +367,20 @@ END $$`);
     );
     return { rank: Number(ahead ? ahead.n : 0) + 1, score: Number(mine.score), levels: Number(mine.levels) };
   }
+  /** 내 등수 (DB 왕복 1번) */
   async rankOf(level, igsid) {
-    const mine = await this.one(
-      'SELECT s.score, s.at FROM scores s JOIN players p ON p.igsid = s.igsid WHERE s.igsid = $1 AND s.level = $2 AND p.hidden_at IS NULL AND p.checked_at IS NOT NULL',
+    const r = await this.one(
+      `WITH mine AS (
+         SELECT s.score, s.at FROM scores s JOIN players p ON p.igsid = s.igsid
+         WHERE s.igsid = $1 AND s.level = $2 AND p.hidden_at IS NULL AND p.checked_at IS NOT NULL)
+       SELECT mine.score, (SELECT COUNT(*) FROM scores s JOIN players p ON p.igsid = s.igsid
+           WHERE s.level = $2 AND p.username IS NOT NULL AND p.hidden_at IS NULL AND p.checked_at IS NOT NULL
+             AND (s.score > mine.score OR (s.score = mine.score AND s.at < mine.at))) AS n
+       FROM mine`,
       [igsid, level]
     );
-    if (!mine) return null;
-    const ahead = await this.one(
-      `SELECT COUNT(*) AS n FROM scores s JOIN players p ON p.igsid = s.igsid
-       WHERE s.level = $1 AND p.username IS NOT NULL AND p.hidden_at IS NULL AND p.checked_at IS NOT NULL AND (s.score > $2 OR (s.score = $2 AND s.at < $3))`,
-      [level, mine.score, mine.at]
-    );
-    return { rank: Number(ahead ? ahead.n : 0) + 1, score: Number(mine.score) };
+    if (!r) return null;
+    return { rank: Number(r.n) + 1, score: Number(r.score) };
   }
 
   /** 이 인스타 아이디로 된 참여자들 (기록 되찾기용): 점수 많은 순 → 오래된 순 */
@@ -429,12 +435,31 @@ END $$`);
     );
   }
   async trackPlay(p) {
+    await this.trackPlays([p]);
+  }
+  /** 여러 판을 한 번에 (DB 왕복 1번). 같은 id(시작+끝)는 먼저 합침 — 한 문장에서 같은 줄을 두 번 못 고침 */
+  async trackPlays(list) {
+    const byId = new Map();
+    for (const p of list) {
+      const r = byId.get(p.id);
+      if (!r) byId.set(p.id, { ...p });
+      else for (const k of ['endedAt', 'result', 'score', 'stars', 'sec']) if (p[k] != null) r[k] = p[k];
+    }
+    if (!byId.size) return;
+    const casts = ['', '', '', '', '', '::bigint', '::bigint', '', '::int', '::int', '::int'];
+    const vals = [];
+    const params = [];
+    for (const p of byId.values()) {
+      const row = [p.id, p.sid, p.vid, p.level, p.mode ?? null, p.startedAt, p.endedAt ?? null, p.result ?? null, p.score ?? null, p.stars ?? null, p.sec ?? null];
+      vals.push('(' + row.map((_, i) => `$${params.length + i + 1}${casts[i]}`).join(', ') + ')');
+      params.push(...row);
+    }
     await this.q(
       `INSERT INTO plays (id, sid, vid, level, mode, started_at, ended_at, result, score, stars, sec)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+       VALUES ${vals.join(', ')}
        ON CONFLICT (id) DO UPDATE SET ended_at = COALESCE(EXCLUDED.ended_at, plays.ended_at), result = COALESCE(EXCLUDED.result, plays.result),
          score = COALESCE(EXCLUDED.score, plays.score), stars = COALESCE(EXCLUDED.stars, plays.stars), sec = COALESCE(EXCLUDED.sec, plays.sec)`,
-      [p.id, p.sid, p.vid, p.level, p.mode ?? null, p.startedAt, p.endedAt ?? null, p.result ?? null, p.score ?? null, p.stars ?? null, p.sec ?? null]
+      params
     );
   }
   /** [from, to) 에 시작한 접속·판 원본 (최대 10만 줄) + 이 기간에 처음 온 방문자 */

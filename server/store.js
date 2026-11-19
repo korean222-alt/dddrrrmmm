@@ -258,6 +258,9 @@ export class JsonStore {
     else for (const k of ['endedAt', 'result', 'score', 'stars', 'sec']) if (p[k] != null) r[k] = p[k];
     this._save();
   }
+  trackPlays(list) {
+    for (const p of list) this.trackPlay(p);
+  }
   /** [from, to) 에 시작한 접속·판 원본 + 이 기간에 처음 온 방문자 */
   statsRaw(from, to) {
     const inRange = (r) => r.startedAt >= from && r.startedAt < to;

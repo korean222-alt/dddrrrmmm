@@ -9631,7 +9631,9 @@ async function startLevel(id, opts = {}) {
   if (state.game) state.game.stop();
   state.runToken = null;
   // 영상 찍기는 팔로우 잠금 없이 (계정 주인이 촬영용으로 씀) → 서버 판 토큰도 안 받음
-  if ((!lv.challenge || lv.endless) && !st.active && !room) state.api
+  // 인증 안 한 사람이 1~3단계를 칠 땐 랭킹에 못 올리니 판 토큰도 안 받음 (서버 요청 아끼기, 통계는 5분마다 따로 감)
+  const canRank = isConfirmed() || state.cfg.gateMode === 'open' || isClosed(id);
+  if ((!lv.challenge || lv.endless) && !st.active && !room && canRank) state.api
     .startRun(id)
     .then((r) => (state.runToken = r.runToken))
     .catch((e) => {

@@ -192,7 +192,8 @@ export function createHandler(cfg, { store }) {
   let lastPurge = 0;
   async function purgeMaybe() {
     const now = Date.now();
-    if (now - lastPurge < 10 * 60 * 1000) return;
+    // Cloudflare 는 인스턴스가 자주 새로 떠서 거의 매번 돌게 됨 → 접속 20번 중 1번꼴로만 (급하지 않음, admin 에서도 지움)
+    if (now - lastPurge < 10 * 60 * 1000 || Math.random() > 0.05) return;
     lastPurge = now;
     try {
       await store.purgeHidden(now);
@@ -271,14 +272,16 @@ export function createHandler(cfg, { store }) {
       setCookies.push(cookie(VID_COOKIE, vid, { maxAge: VID_MAX_AGE, secure: cfg.cookieSecure }));
     }
     const now = Date.now();
-    await store.trackSession({ sid: t.sid, vid, now, activeSec: t.activeSec, ref: t.ref, device: t.device });
-    for (const e of t.plays) {
-      await store.trackPlay(
-        e.ev === 'start'
-          ? { id: e.id, sid: t.sid, vid, level: e.level, mode: e.mode, startedAt: now }
-          : { id: e.id, sid: t.sid, vid, level: e.level, mode: e.mode, startedAt: now - e.sec * 1000, endedAt: now, result: e.result, score: e.score, stars: e.stars, sec: e.sec }
-      );
-    }
+    // 접속 + 판들을 동시에 (판은 한 문장으로 묶음)
+    const plays = t.plays.map((e) =>
+      e.ev === 'start'
+        ? { id: e.id, sid: t.sid, vid, level: e.level, mode: e.mode, startedAt: now }
+        : { id: e.id, sid: t.sid, vid, level: e.level, mode: e.mode, startedAt: now - e.sec * 1000, endedAt: now, result: e.result, score: e.score, stars: e.stars, sec: e.sec }
+    );
+    await Promise.all([
+      store.trackSession({ sid: t.sid, vid, now, activeSec: t.activeSec, ref: t.ref, device: t.device }),
+      plays.length ? store.trackPlays(plays) : null,
+    ]);
     return true;
   }
 
