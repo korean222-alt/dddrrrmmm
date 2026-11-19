@@ -563,6 +563,17 @@ async function startLevel(id, opts = {}) {
   const orchLoad = audio.orchOn ? audio.loadOrch() : Promise.resolve();
   await Promise.race([Promise.all([audio.loadPiano(), orchLoad]), new Promise((r) => setTimeout(r, 3000))]);
   if (stale()) return;
+  // 🎤 녹음된 곡(노래 파일)은 다 받아야 시작 (못 받으면 단계 고르기로)
+  if (lv.song && lv.song.audio && !audio.trackBuffer(lv.song.audio.src)) {
+    toast('🎤 노래 받는 중…', 2500);
+    const buf = await audio.loadTrack(lv.song.audio.src);
+    if (stale()) return;
+    if (!buf) {
+      show('screen-levels');
+      toast('노래를 받지 못했어요. 인터넷 연결을 확인하고 다시 해 보세요', 3000);
+      return;
+    }
+  }
   $('#screen-game').classList.toggle('studio-mode', st.active);
   renderer.studio = st.active ? studioOverlay(lv) : null;
   setKit(lv);

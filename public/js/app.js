@@ -788,7 +788,8 @@ const LEVELS = [
   // 🎄 크리스마스 이벤트 곡 (번호 단계가 아님. 화면엔 '크리스마스 이벤트'로, 크리스마스 마을 맵).
   //   id 19·21·22 는 내부 번호 (랭킹·점수 저장용, 18·20 은 빼 버린 찬송가 자리라 비워 둠 — 다시 쓰지 말 것)
   //   xmas: 앞 단계를 안 깼어도 바로 칠 수 있음 (잠금은 4단계부터와 같음: 팔로워 인증). 본편 순서·총 등수·무제한엔 안 들어감
-  //   song.bells = 썰매 방울 박자, song.glock = 멜로디 위에 글로켄슈필, song.choir = 합창 목소리
+  //   song.bells = 썰매 방울 박자, song.glock = 멜로디 위에 글로켄슈필, song.choir = 합창 목소리(합성)
+  //   song.audio = { src, offset } 녹음된 노래 파일을 틂 (offset = 채보 첫 마디가 시작하는 파일 시각, 초)
   //   난이도(difficulty)는 표시용: 이벤트 곡을 깨도 같은 난이도 본편 단계가 열리진 않음
   // ---------------------------------------------------------------
   {
@@ -833,117 +834,126 @@ const LEVELS = [
     ],
   },
   {
-    // 원곡은 3박자 → 한 마디(4박)에 원곡 한 마디: 1·2박 그대로, 2박을 길게, 4박 = 다음 마디로 넘어가는 가사('we', 'mer-ry')
+    // 🎤 일레븐랩스로 만든 합창 녹음 (가사·멜로디는 퍼블릭 도메인 전통 캐럴). 132 BPM, 파일 0.025초가 첫 마디 첫 박
+    //   채보는 노래 박자(스네어 2·4박)와 가사 음절에 맞춤. 받지 못하면 시작 안 함 (main)
     id: 21,
     xmas: true,
     name: '위 위시 유 어 메리 크리스마스',
     composer: '영국 민요',
-    tagline: '크리스마스 이벤트 · 하이햇·크래시 총출동',
+    tagline: '크리스마스 이벤트 · 합창 노래와 함께 · 하이햇·크래시 총출동',
     difficulty: 4,
     bpm: 132,
     song: {
-      prog: [
-        'C', 'F', 'D7', 'G', 'E7', 'Am', 'Dm G7', 'C',
-        'C', 'G', 'Am', 'G', 'C', 'G', 'Dm G7', 'C',
-      ],
+      audio: { src: '/audio/xmas/wewish-v1.mp3', offset: 0.025 },
+      // 아래는 형식용 (녹음 곡은 반주를 만들지 않음)
+      prog: ['C'],
       hat: '................',
-      bells: 'x...x...x...x...',
-      glock: true,
-      bass: 'x...5...x...5...',
-      chord: '..x...x...x...x.',
-      melody: [
-        'C5:4 C5:2 D5:6 C5:2 B4:2', 'A4:4 A4:8 A4:4', 'D5:4 D5:2 E5:6 D5:2 C5:2', 'B4:4 G4:8 G4:4',
-        'E5:4 E5:2 F5:6 E5:2 D5:2', 'C5:4 A4:8 G4:2 G4:2', 'A4:4 D5:8 B4:4', 'C5:12 G4:4',
-        'C5:4 C5:8 C5:4', 'B4:12 B4:4', 'C5:4 B4:8 A4:4', 'G4:12 D5:4',
-        'E5:4 D5:2 D5:6 C5:2 C5:2', 'G5:4 G4:8 G4:2 G4:2', 'A4:4 D5:8 B4:4', 'C5:12 G4:4',
-      ],
+      bass: '................',
+      chord: '................',
+      melody: ['C5:16'],
     },
     bars: [
-      'X...H.S.K.H.KSK.',
-      'J.H.S.H.K...S.K.',
-      'X...H.S.K.H.KSK.',
-      'J.H.S.H.K...S.S.',
-      'X...KSK.S.H.KSK.',
-      'J.H.S.H.K.K.S.S.',
+      'C.......K.......',
+      'K...S...K...S...',
+      'K...S...K...S...',
+      'K...S...K.S.S.S.',
+      // We wish you a / merry Christmas ×3
+      'X.H.S.H.K.H.S.S.',
+      'B.H.S.H.K.HKS.H.',
+      'X.H.S.H.K.H.S.S.',
+      'B.H.S.H.K.HKS.H.',
+      'X.HKS.H.K.H.S.S.',
+      'B.H.S.HKS.HKS.H.',
+      'X..KS.H.K.HKS.H.',
+      'B...X...KSKSKSKS',
+      // 간주
+      'C.H.S.H.K.HKS.H.',
       'K.HKS.H.K.HKS.H.',
-      'X.......B...S.S.',
-      'X...X.H.K.H.X.H.',
-      'B.H.S.HKS.H.X...',
-      'X...KSK.S.H.X...',
-      'B.H.S.H.KSKSK.S.',
-      'X.H.KSK.S.HKS.H.',
-      'C.H.S.HKS.H.KSKS',
+      'C.H.S.H.K.HKS.H.',
+      'K.HKS.HKS.HKS.S.',
+      // Good tidings we bring …
+      'X...S.H.K.H.S.H.',
       'K.HKS.H.K.HKS.H.',
-      'X...B...X...S.S.',
-      'X.HKS.H.KSK.KSK.',
-      'J.HKS.H.X.H.KSK.',
-      'X.HKS.H.KSK.KSK.',
-      'J.HKS.H.X.HKS.S.',
-      'C.HKS.HKS.HKS.H.',
-      'J.HKS.HKS.H.X.H.',
-      'KSKSK.HKS.HKSKS.',
+      'X.H.S.H.K.HKS.H.',
+      'K.HKS.H.KSKSKSK.',
+      'X...S.H.K.H.S.H.',
+      'K.HKS.H.K.HKS.H.',
+      'X..KS.H.K.HKS.H.',
+      'B...X...KSKSKSKS',
+      'C.H.S.H.K.HKS.H.',
+      // 마지막 We wish … (가장 빽빽하게)
+      'X.HKS.H.KSK.S.S.',
+      'B.HKS.HKS.HKS.H.',
+      'X.HKS.H.KSK.S.S.',
+      'B.HKS.HKS.HKS.H.',
+      'X.HKS.H.KSK.S.S.',
+      'B.HKS.HKS.HKSKS.',
+      'X..KS.HKS.HKS.H.',
+      'B...X...KSKSKSK.',
+      'X.......B...S...',
       'X...B...X.......',
     ],
   },
   {
-    // 1일째 → 2일째 → 5일째(다섯 개의 금반지!) → 12일째 로 줄인 편곡. song.choir = 합창 목소리('아~')가 멜로디를 같이 부름
+    // 🎤 일레븐랩스로 만든 합창 녹음 (1일째 → 2일째 → 5일째 → 12일째로 줄인 편곡). 126 BPM, 파일 0.035초가 첫 마디 첫 박
+    //   채보는 가사 음절('On the first day …', 'FIVE GOL-DEN RINGS')에 맞춤
     id: 22,
     xmas: true,
     name: '크리스마스의 12일',
     composer: '영국 민요',
-    tagline: '크리스마스 이벤트 · 합창과 함께 · 탐탐까지 전부',
+    tagline: '크리스마스 이벤트 · 합창 노래와 함께 · 탐탐까지 전부',
     difficulty: 5,
     bpm: 126,
     song: {
-      prog: [
-        'C', 'G7 C', 'F G7', 'C',
-        'C', 'G7 C', 'C G7', 'F G7', 'C',
-        'C', 'G7 C', 'C D7', 'G G7', 'C G7', 'F G7', 'C',
-        'C', 'G7 C', 'C D7', 'G G7', 'C G7', 'C F', 'C G7', 'C',
-      ],
+      audio: { src: '/audio/xmas/12days-v1.mp3', offset: 0.035 },
+      prog: ['C'],
       hat: '................',
-      bells: 'x.x.x.x.x.x.x.x.',
-      glock: true,
-      choir: true,
-      bass: 'x...5...x...5...',
-      chord: '..x...x...x...x.',
-      melody: [
-        // 첫째 날
-        'G4:2 G4:2 G4:4 C5:4 C5:2 C5:2', 'B4:2 C5:2 D5:2 E5:2 F5:2 D5:2 E5:4', 'G5:4 A5:2 F5:2 E5:2 C5:2 D5:4', 'C5:12 _:4',
-        // 둘째 날: 두 마리 멧비둘기
-        'G4:2 G4:2 G4:4 C5:4 C5:2 C5:2', 'B4:2 C5:2 D5:2 E5:2 F5:2 D5:2 E5:4', 'G5:4 D5:2 E5:2 F5:8', 'G5:2 G5:2 A5:2 F5:2 E5:2 C5:2 D5:4', 'C5:12 _:4',
-        // 다섯째 날: 다섯 개의 금반지
-        'G4:2 G4:2 G4:4 C5:4 C5:2 C5:2', 'B4:2 C5:2 D5:2 E5:2 F5:2 D5:2 E5:4', 'G5:8 A5:4 F#5:4', 'G5:8 G5:2 D5:2 E5:2 F5:2',
-        'G5:2 D5:2 E5:2 F5:2 G5:2 D5:2 E5:2 F5:2', 'G5:2 G5:2 A5:2 F5:2 E5:2 C5:2 D5:4', 'C5:12 _:4',
-        // 열두째 날 (크게 끝)
-        'G4:2 G4:2 G4:4 C5:4 C5:2 C5:2', 'B4:2 C5:2 D5:2 E5:2 F5:2 D5:2 E5:4', 'G5:8 A5:4 F#5:4', 'G5:8 G5:2 D5:2 E5:2 F5:2',
-        'G5:2 D5:2 E5:2 F5:2 G5:2 D5:2 E5:2 F5:2', 'G5:4 G5:4 A5:4 F5:4', 'E5:4 C5:4 D5:8', 'C5:16',
-      ],
+      bass: '................',
+      chord: '................',
+      melody: ['C5:16'],
     },
     bars: [
-      'X.K.S.H.K.H.KSKS',
-      'KSKSKSKSKSK.T.Y.',
-      'X.HKS.H.T.TST.H.',
-      'B...Y...X.......',
-      'X.K.S.H.K.H.KSKS',
-      'KSKSKSKSKSK.T.Y.',
-      'X...KSK.TSTST.S.',
-      'J.H.KSK.TSTSK.S.',
-      'X...Y...X...S.S.',
-      'X.K.S.H.K.H.KSKS',
-      'KSKSKSKSKSK.T.Y.',
-      'X.T.T.T.X...Y...',
-      'X.......KSKSKSK.',
-      'J.HKS.H.J.HKS.H.',
-      'Y.TST.K.KSKSK.S.',
-      'B...Y...X.......',
-      'X.K.S.H.K.H.KSKS',
-      'KSKSKSKSKSK.T.Y.',
-      'X.T.T.T.X.T.Y.T.',
-      'X.......KSKSKSK.',
-      'J.HKS.H.J.HKS.H.',
-      'X.H.X.H.X.H.X.H.',
-      'Y.T.Y.T.B.K.B...',
+      'X.......K...S...',
+      'K...S...K...S...',
+      'K...S...K.K.S...',
+      'K...S...K.H.T.T.',
+      // 첫째 날: first day of Christmas my true love sent to me / a partridge in a pear tree
+      'X...K.S.K.H.K.SK',
+      'S.K.S.K.B...K.S.',
+      'X..KS.HKS.K.Y..T',
+      // 간주
+      'S.HKS.HKS.HKS.HK',
+      'S.HKS.H.T.TST.T.',
+      'X.H.KSK.X.H.KSK.',
+      'X.HKS.HKS.HKS.HK',
+      'S.H.K.H.S.H.T.T.',
+      // 둘째 날: two turtle doves
+      'X...K.SKS.H.K.SK',
+      'S.K.S.K.B...K.S.',
+      'X...Y...X...K..T',
+      'S..KS.HKS.K.Y.T.',
+      'X...S.H.KSKSKSK.',
+      'J.H.S.H.K.H.T.T.',
+      // 다섯째 날: FIVE GOL-DEN RINGS
+      'X...K.S.K.H.K.S.',
+      'K.S.K.S.B...T.T.',
+      'X.T.T.T.X.T.T.T.',
+      'X...S.HKS.H.K.S.',
+      'K.S.K.S.K.S.KSK.',
+      'Y.T.Y.T.Y...K.S.',
+      'X..KS.HKS.K.Y.T.',
+      // 열두째 날
+      'X...S.H.KSKSK..T',
+      'S...K.S.K.H.K.S.',
+      'K.S.K.S.B...T.T.',
+      'X.T.T.T.X.T.T.T.',
+      'X...S.HKS.H.K.S.',
+      'K.S.K.S.K.S.KSK.',
+      'Y.T.Y.T.Y...K..T',
+      'S..KS.HKS.K.Y..T',
+      // 마무리
+      'S...X...B...X...',
+      'X.H.S.H.X.H.S.H.',
       'X.......B.......',
     ],
   },
@@ -1830,6 +1840,41 @@ class AudioEngine {
     return this._pianoLoading;
   }
 
+  /** 🎤 녹음된 곡(노래 파일) 받아서 풀어 둠. 실패하면 null. 한 번 받으면 다시 안 받음 (새 소리 엔진에서도 그대로 씀) */
+  loadTrack(src) {
+    this._tracks ??= new Map();
+    this._trackBufs ??= new Map();
+    if (this._tracks.has(src)) return this._tracks.get(src);
+    const ctx = this.ensure();
+    const p = fetch(src)
+      .then((r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        return r.arrayBuffer();
+      })
+      .then(
+        (ab) =>
+          new Promise((res, rej) => {
+            const q = ctx.decodeAudioData(ab, res, rej);
+            if (q && q.then) q.then(res, rej);
+          })
+      )
+      .then((buf) => {
+        this._trackBufs.set(src, buf);
+        return buf;
+      })
+      .catch(() => {
+        this._tracks.delete(src);
+        return null;
+      });
+    this._tracks.set(src, p);
+    return p;
+  }
+
+  /** 받아 둔 곡 (없으면 null) */
+  trackBuffer(src) {
+    return (this._trackBufs && this._trackBufs.get(src)) || null;
+  }
+
   /** 피아노 한 음. vel 0~1, dur 초 뒤에 건반을 뗌(댐퍼) */
   pianoNote(t, midi, dur, vel = 0.8, dest = this.musicBus) {
     const ctx = this.ctx;
@@ -2493,6 +2538,8 @@ class SongPlayer {
     this.bus.connect(audio.musicBus);
     this.drumBus = ctx.createGain();
     this.drumBus.connect(audio.sfxBus);
+    // 🎤 녹음된 곡: 반주를 만들지 않고 파일을 박자에 맞춰 틂 (song.audio.offset = 채보 첫 마디가 시작하는 파일 시각)
+    this.track = level.song.audio ? audio.trackBuffer(level.song.audio.src) : null;
   }
 
   get totalSteps() {
@@ -2501,8 +2548,26 @@ class SongPlayer {
   }
 
   start() {
+    if (this.track) this._startTrack();
     this.timer = setInterval(() => this.tick(), 25);
     this.tick();
+  }
+
+  /** 녹음된 곡 틀기. 이미 지난 시각이면(이어 가기·소리 엔진 새로 만듦) 그 자리부터 */
+  _startTrack() {
+    const ctx = this.audio.ctx;
+    const info = this.level.song.audio;
+    const t0 = this.startTime + this.tempo.barStart(COUNT_IN_BARS) - (info.offset || 0);
+    const now = ctx.currentTime + 0.03;
+    const src = ctx.createBufferSource();
+    src.buffer = this.track;
+    const g = ctx.createGain();
+    g.gain.value = info.gain ?? 1;
+    src.connect(g).connect(this.bus);
+    if (t0 >= now) src.start(t0);
+    else if (now - t0 < this.track.duration) src.start(now, now - t0);
+    else return;
+    this.trackSrc = src;
   }
 
   tick() {
@@ -2545,6 +2610,11 @@ class SongPlayer {
       if (mb >= chartBars) return;
       if (this.level.click && s % 4 === 0) a.click(t, s === 0, this.bus);
       if (this.autoChart) for (const lane of CHAR_LANES[this.level.bars[mb][s]] || []) a.playLane(lane, t, this.drumBus);
+      return;
+    }
+    if (this.track) {
+      // 🎤 녹음된 곡: 반주는 파일이 함 (자동 연주 드럼만)
+      if (this.autoChart && mb < chartBars) for (const lane of CHAR_LANES[this.level.bars[mb][s]] || []) a.playLane(lane, t, this.drumBus);
       return;
     }
     const ch = chordAt(song, mb, s);
@@ -2668,6 +2738,11 @@ class SongPlayer {
         b.gain.cancelScheduledValues(now);
         b.gain.setValueAtTime(b.gain.value, now);
         b.gain.linearRampToValueAtTime(0, now + fade);
+      } catch {}
+    }
+    if (this.trackSrc) {
+      try {
+        this.trackSrc.stop(now + fade + 0.02);
       } catch {}
     }
     setTimeout(() => {
@@ -7939,6 +8014,16 @@ const __m_news = (() => {
 
 const NEWS = [
   {
+    id: '2026-11-19e',
+    date: '11월 19일',
+    title: '🎤 크리스마스 곡에 진짜 합창 노래!',
+    items: [
+      '🎄 <b>위 위시 유 어 메리 크리스마스</b>와 <b>크리스마스의 12일</b>이 이제 <b>합창단이 부르는 노래</b>에 맞춰 쳐요',
+      '노래 박자와 가사에 맞춰 채보를 새로 만들었어요. "Five golden rings~" 에서 탐탐을 마구 두드려 보세요',
+      '처음 칠 때 노래를 받느라 1~2초 걸릴 수 있어요',
+    ],
+  },
+  {
     id: '2026-11-19d',
     date: '11월 19일',
     title: '이어하기 하자마자 죽던 것 고침',
@@ -9635,6 +9720,17 @@ async function startLevel(id, opts = {}) {
   const orchLoad = audio.orchOn ? audio.loadOrch() : Promise.resolve();
   await Promise.race([Promise.all([audio.loadPiano(), orchLoad]), new Promise((r) => setTimeout(r, 3000))]);
   if (stale()) return;
+  // 🎤 녹음된 곡(노래 파일)은 다 받아야 시작 (못 받으면 단계 고르기로)
+  if (lv.song && lv.song.audio && !audio.trackBuffer(lv.song.audio.src)) {
+    toast('🎤 노래 받는 중…', 2500);
+    const buf = await audio.loadTrack(lv.song.audio.src);
+    if (stale()) return;
+    if (!buf) {
+      show('screen-levels');
+      toast('노래를 받지 못했어요. 인터넷 연결을 확인하고 다시 해 보세요', 3000);
+      return;
+    }
+  }
   $('#screen-game').classList.toggle('studio-mode', st.active);
   renderer.studio = st.active ? studioOverlay(lv) : null;
   setKit(lv);

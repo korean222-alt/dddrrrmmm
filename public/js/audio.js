@@ -205,6 +205,41 @@ export class AudioEngine {
     return this._pianoLoading;
   }
 
+  /** 🎤 녹음된 곡(노래 파일) 받아서 풀어 둠. 실패하면 null. 한 번 받으면 다시 안 받음 (새 소리 엔진에서도 그대로 씀) */
+  loadTrack(src) {
+    this._tracks ??= new Map();
+    this._trackBufs ??= new Map();
+    if (this._tracks.has(src)) return this._tracks.get(src);
+    const ctx = this.ensure();
+    const p = fetch(src)
+      .then((r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        return r.arrayBuffer();
+      })
+      .then(
+        (ab) =>
+          new Promise((res, rej) => {
+            const q = ctx.decodeAudioData(ab, res, rej);
+            if (q && q.then) q.then(res, rej);
+          })
+      )
+      .then((buf) => {
+        this._trackBufs.set(src, buf);
+        return buf;
+      })
+      .catch(() => {
+        this._tracks.delete(src);
+        return null;
+      });
+    this._tracks.set(src, p);
+    return p;
+  }
+
+  /** 받아 둔 곡 (없으면 null) */
+  trackBuffer(src) {
+    return (this._trackBufs && this._trackBufs.get(src)) || null;
+  }
+
   /** 피아노 한 음. vel 0~1, dur 초 뒤에 건반을 뗌(댐퍼) */
   pianoNote(t, midi, dur, vel = 0.8, dest = this.musicBus) {
     const ctx = this.ctx;
@@ -868,6 +903,8 @@ export class SongPlayer {
     this.bus.connect(audio.musicBus);
     this.drumBus = ctx.createGain();
     this.drumBus.connect(audio.sfxBus);
+    // 🎤 녹음된 곡: 반주를 만들지 않고 파일을 박자에 맞춰 틂 (song.audio.offset = 채보 첫 마디가 시작하는 파일 시각)
+    this.track = level.song.audio ? audio.trackBuffer(level.song.audio.src) : null;
   }
 
   get totalSteps() {
@@ -876,8 +913,26 @@ export class SongPlayer {
   }
 
   start() {
+    if (this.track) this._startTrack();
     this.timer = setInterval(() => this.tick(), 25);
     this.tick();
+  }
+
+  /** 녹음된 곡 틀기. 이미 지난 시각이면(이어 가기·소리 엔진 새로 만듦) 그 자리부터 */
+  _startTrack() {
+    const ctx = this.audio.ctx;
+    const info = this.level.song.audio;
+    const t0 = this.startTime + this.tempo.barStart(COUNT_IN_BARS) - (info.offset || 0);
+    const now = ctx.currentTime + 0.03;
+    const src = ctx.createBufferSource();
+    src.buffer = this.track;
+    const g = ctx.createGain();
+    g.gain.value = info.gain ?? 1;
+    src.connect(g).connect(this.bus);
+    if (t0 >= now) src.start(t0);
+    else if (now - t0 < this.track.duration) src.start(now, now - t0);
+    else return;
+    this.trackSrc = src;
   }
 
   tick() {
@@ -920,6 +975,11 @@ export class SongPlayer {
       if (mb >= chartBars) return;
       if (this.level.click && s % 4 === 0) a.click(t, s === 0, this.bus);
       if (this.autoChart) for (const lane of CHAR_LANES[this.level.bars[mb][s]] || []) a.playLane(lane, t, this.drumBus);
+      return;
+    }
+    if (this.track) {
+      // 🎤 녹음된 곡: 반주는 파일이 함 (자동 연주 드럼만)
+      if (this.autoChart && mb < chartBars) for (const lane of CHAR_LANES[this.level.bars[mb][s]] || []) a.playLane(lane, t, this.drumBus);
       return;
     }
     const ch = chordAt(song, mb, s);
@@ -1043,6 +1103,11 @@ export class SongPlayer {
         b.gain.cancelScheduledValues(now);
         b.gain.setValueAtTime(b.gain.value, now);
         b.gain.linearRampToValueAtTime(0, now + fade);
+      } catch {}
+    }
+    if (this.trackSrc) {
+      try {
+        this.trackSrc.stop(now + fade + 0.02);
       } catch {}
     }
     setTimeout(() => {
