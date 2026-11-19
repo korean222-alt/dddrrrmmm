@@ -350,3 +350,43 @@ test('📦 인스타 아이디 거의 같음: 점·밑줄·대소문자·오타 
   for (const [a, b] of [['jiminnn_12', 'jimin_12'], ['My.Insta', 'my_insta'], ['drummer_kim', 'drumer_kim'], ['kongkong', 'kongkong.drum'], ['abc', 'abc']]) assert.ok(igSimilar(a, b), `${a} ~ ${b}`);
   for (const [a, b] of [['jiminnn_12', 'totally.other'], ['abc', 'abd1x'], ['', 'abc'], ['ab', 'ac']]) assert.ok(!igSimilar(a, b), `${a} ≠ ${b}`);
 });
+
+test('🔇 소리 시계가 멈추면(아이폰 다른 앱 소리) 멈춤으로 보고, 엔진을 새로 만든 뒤 멈췄던 자리부터 이어 감', async () => {
+  const { Game } = await import('../public/js/game.js');
+  const noop = () => {};
+  globalThis.requestAnimationFrame ??= () => 0;
+  globalThis.cancelAnimationFrame ??= noop;
+  const node = () => ({ connect: (x) => x || node(), disconnect: noop, gain: { value: 1, cancelScheduledValues: noop, setValueAtTime: noop, linearRampToValueAtTime: noop } });
+  const mkCtx = (t) => ({ currentTime: t, state: 'running', createGain: node, resume: async () => {}, suspend: async () => {} });
+  const fake = { ctx: mkCtx(100), resetClock: noop, heardTime() { return this.ctx.currentTime; } };
+  const audio = new Proxy(fake, { get: (o, k) => (k in o ? o[k] : noop), set: (o, k, v) => ((o[k] = v), true) });
+  const renderer = new Proxy({}, { get: () => noop });
+  const g = new Game({ audio, renderer, level: LEVELS[0], settings: {}, onEnd: noop });
+  let now = 1000;
+  const realNow = performance.now;
+  performance.now = () => now;
+  try {
+    g.start();
+    // 시계가 흐르다가 (곡 시각 2초쯤)
+    for (let i = 0; i < 20; i++) { fake.ctx.currentTime += 0.12; now += 120; g._loop(); }
+    const at = g._goodNow;
+    assert.ok(at > 1.5 && at < 2.5, `곡 시각 ${at}`);
+    assert.equal(audio.frozen, false);
+    // 'running' 인데 시계가 멈춤 → 0.5초 넘으면 멈춤
+    for (let i = 0; i < 8; i++) { now += 120; g._loop(); }
+    assert.equal(audio.frozen, true);
+    assert.equal(g._goodNow, at, '멈춘 동안 곡 시각이 안 움직임');
+    // 터치 → 새 엔진(시계가 0부터) → 그 자리부터 이어 감
+    fake.ctx = mkCtx(0);
+    g.reanchor();
+    fake.ctx.currentTime = 0.3;
+    assert.ok(Math.abs(g.songTime() - at) < 0.01, `이어 가는 곡 시각 ${g.songTime()} vs ${at}`);
+    now += 120;
+    fake.ctx.currentTime += 0.12;
+    g._loop();
+    assert.equal(audio.frozen, false);
+  } finally {
+    performance.now = realNow;
+    g.stop();
+  }
+});

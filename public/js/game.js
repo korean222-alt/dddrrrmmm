@@ -176,7 +176,33 @@ export class Game {
     this.player = new SongPlayer(this.audio, this.level, this.startTime, { autoChart: this.auto });
     this.player.start();
     this.state = 'playing';
+    this._clockWatch = null;
     this._raf = requestAnimationFrame(this._loop);
+  }
+
+  /**
+   * 소리 엔진을 새로 만든 뒤(audio.rebuild): 멈췄던 자리부터 새 시계로 곡을 이어서.
+   *   아이폰에서 다른 앱이 소리를 가져가면 옛 엔진이 다시 안 켜지는 일이 있어 엔진째 바꿈 (main 의 터치 처리)
+   *   일시정지·목숨 끝 상태면 다시 시작할 때(resume) 맞춤
+   */
+  reanchor() {
+    if (this.state === 'paused' || this.state === 'dead') {
+      this._needAnchor = true;
+      return;
+    }
+    if (this.state !== 'playing') return;
+    this._needAnchor = false;
+    const at = this._goodNow ?? -0.35; // 마지막으로 시계가 흐르던 곡 시각 (못 흘렀으면 처음부터)
+    const ctx = this.audio.ctx;
+    this.audio.resetClock();
+    if (this.player) this.player.stop(0.01);
+    // 0.3초 뒤에 그 자리부터 다시 (heardTime ≈ currentTime 이라 곡 시각이 at 에서 이어짐)
+    this.startTime = ctx.currentTime + 0.3 - at;
+    this.player = new SongPlayer(this.audio, this.level, this.startTime, { autoChart: this.auto });
+    this.player.step = Math.max(0, Math.floor(this.tempo.barAt(Math.max(0, at)) * STEPS_PER_BAR) - 1);
+    this.player.start();
+    this._clockWatch = null;
+    this._stallSince = null;
   }
 
   pause() {
@@ -188,14 +214,18 @@ export class Game {
 
   async resume() {
     if (this.state !== 'paused') return;
-    await this.audio.ctx.resume().catch(() => {});
+    // 아이폰에서 소리가 막혀 있으면 resume() 이 끝나지 않을 수 있음 → 0.4초만 기다림 (안 켜지면 루프가 '멈춤'으로 보고 터치로 살림)
+    await Promise.race([this.audio.ctx.resume().catch(() => {}), new Promise((r) => setTimeout(r, 400))]);
     this.audio.resetClock();
     this.state = 'playing';
+    this._clockWatch = null;
+    if (this._needAnchor) this.reanchor();
     this._raf = requestAnimationFrame(this._loop);
   }
 
   stop() {
     this.state = 'stopped';
+    this.audio.frozen = false;
     cancelAnimationFrame(this._raf);
     if (this.player) this.player.stop();
     if (this.audio.ctx && this.audio.ctx.state === 'suspended') this.audio.ctx.resume().catch(() => {});
@@ -432,7 +462,15 @@ export class Game {
     // 소리 시계가 멈춤(폰이 소리를 잠깐 끊음: 알림·전화·다른 앱 소리 등) → 곡도 멈춰 보임.
     //   바로 다시 켜 보고, 그래도 안 되면 '화면을 눌러 주세요' 안내 (iOS 는 터치해야 다시 켜짐)
     const actx = this.audio.ctx;
-    if (actx && actx.state !== 'running') {
+    // 'running' 이라면서 시계가 안 가는 경우도 멈춤으로 봄 (아이폰: 다른 앱 소리를 틀고 돌아왔을 때)
+    let frozen = !actx || actx.state !== 'running';
+    if (!frozen) {
+      const w = this._clockWatch;
+      if (!w || w.ct !== actx.currentTime) this._clockWatch = { ct: actx.currentTime, rt };
+      else if (rt - w.rt > 0.5) frozen = true;
+    }
+    this.audio.frozen = frozen;
+    if (frozen) {
       if (rt - (this._resumeTry || 0) > 0.7) {
         this._resumeTry = rt;
         actx.resume().catch(() => {});
@@ -442,6 +480,7 @@ export class Game {
       this._stallSince ??= rt;
     } else this._stallSince = null;
     const now = this.songTime();
+    if (!frozen) this._goodNow = now;
     this._extend(now);
     this._checkRound(now, rt);
 

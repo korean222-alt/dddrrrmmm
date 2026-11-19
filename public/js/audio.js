@@ -320,6 +320,39 @@ export class AudioEngine {
     return ctx.state === 'running';
   }
 
+  /**
+   * 소리 엔진을 통째로 새로 만듦. 반드시 터치 이벤트 안에서.
+   *   아이폰에서 다른 앱(음악·영상·화면 녹화 등)이 소리를 가져갔다 돌려주면 옛 AudioContext 가
+   *   resume() 해도 다시 안 켜지거나 'running' 인데 시계가 멈춘 채로 남는 일이 있음 → 새 엔진이면 바로 켜짐.
+   *   받아 둔 피아노·오케스트라 소리(AudioBuffer)는 새 엔진에서도 그대로 씀
+   */
+  rebuild() {
+    const old = this.ctx;
+    this.ctx = null;
+    this._streamDest = null;
+    this._clock = null;
+    this.frozen = false;
+    try {
+      if (old) old.close().catch(() => {});
+    } catch {}
+    const ctx = this.ensure();
+    try {
+      if (navigator.audioSession) navigator.audioSession.type = 'playback';
+    } catch {}
+    try {
+      const b = ctx.createBuffer(1, 1, 22050);
+      const s = ctx.createBufferSource();
+      s.buffer = b;
+      s.connect(ctx.destination);
+      s.start(0);
+    } catch {}
+    this._unlocked = true;
+    ctx.resume().catch(() => {});
+    if (this._silentEl) this._silentEl.play().catch(() => {});
+    this.rebuiltAt = performance.now();
+    return ctx;
+  }
+
   get running() {
     return !!this.ctx && this.ctx.state === 'running';
   }

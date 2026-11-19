@@ -2691,17 +2691,6 @@ function bindActions() {
     e.preventDefault();
     submitJoin();
   });
-  // 소리가 멈춰 있으면(iOS 는 터치가 있어야 다시 켜짐) 아무 데나 눌러도 다시 켬
-  document.addEventListener(
-    'pointerdown',
-    () => {
-      if (audio.ctx && audio.ctx.state !== 'running' && state.game && state.game.state === 'playing') {
-        audio.ctx.resume().catch(() => {});
-        audio.resetClock();
-      }
-    },
-    { capture: true, passive: true }
-  );
   document.addEventListener('click', (e) => {
     const qb = e.target.closest('[data-action="room-quick"]');
     if (qb) {
@@ -2808,16 +2797,45 @@ function bindActions() {
   const wake = () => audio.unlock().then(() => audio.loadPiano()).then(() => audio.orchOn && audio.loadOrch());
   window.addEventListener('pointerdown', wake, { once: true, capture: true });
   window.addEventListener('keydown', wake, { once: true, capture: true });
-  // 폰이 소리를 멈췄으면(아이폰: 화면 녹화 켜기·제어 센터·전화·알림 등) 다음 터치에서 다시 켬.
-  //   iOS 는 터치 이벤트 안에서 resume() 해야만 켜짐 → 게임 루프(rAF)에서 부르는 resume() 만으론 영영 멈춰 있었음
-  //   (곡이 '1' 에서 멈춘 채 안 넘어가던 것). 화면 어디를 눌러도 되게 window 에서 받음
+  // 폰이 소리를 멈췄으면(아이폰: 다른 앱 소리·화면 녹화·제어 센터·전화·알림 등) 다음 터치에서 다시 켬.
+  //   iOS 는 터치 이벤트 안에서만 소리를 켤 수 있고, 다른 앱이 소리를 가져갔다 돌려주면 옛 엔진은 resume() 해도
+  //   안 켜지거나 'running' 인데 시계가 멈춘 채로 남음 (곡이 '1' 에서 멈추던 것) → 그럴 땐 엔진을 새로 만들고
+  //   게임은 멈췄던 자리부터 이어 감 (game.reanchor). 한 번 누를 때 여러 이벤트가 오니 1초에 한 번만
   const revive = () => {
     const ctx = audio.ctx;
-    if (!ctx || ctx.state === 'running' || ctx.state === 'closed') return;
-    ctx.resume().catch(() => {});
+    if (!ctx || ctx.state === 'closed') return;
+    const g = state.game;
+    const live = g && (g.state === 'playing' || g.state === 'paused' || g.state === 'dead');
+    let stuck = ctx.state !== 'running' || (live && g.state === 'playing' && audio.frozen);
+    // 다른 앱에 갔다 돌아온 뒤 첫 터치: 'running' 이라는데 돌아온 뒤로 시계가 한 번도 안 갔으면 멈춘 것
+    const vc = audio._visCheck;
+    if (vc && performance.now() - vc.t > 150) {
+      audio._visCheck = null;
+      if (!stuck && ctx.currentTime === vc.ct) {
+        stuck = true;
+        audio._resumeFailed = true;
+      }
+    }
+    if (!stuck) return;
+    if (performance.now() - (audio.rebuiltAt || 0) < 1000) return;
+    // 판 진행 중이거나 iOS 가 '끊김(interrupted)' 으로 잡고 있으면 엔진을 새로. 그 밖엔 그냥 다시 켜 봄
+    if ((g && g.state === 'playing') || ctx.state === 'interrupted' || audio._resumeFailed) {
+      audio.rebuild();
+      audio._resumeFailed = false;
+      if (live) g.reanchor();
+      return;
+    }
     audio.resetClock();
+    const p = ctx.resume();
+    if (p && p.then) {
+      const t = setTimeout(() => (audio._resumeFailed = ctx.state !== 'running'), 500);
+      p.then(() => clearTimeout(t), () => (audio._resumeFailed = true));
+    }
   };
   for (const ev of ['touchstart', 'touchend', 'pointerdown', 'pointerup', 'keydown']) window.addEventListener(ev, revive, { capture: true, passive: true });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && audio.ctx && audio.ctx.state === 'running') audio._visCheck = { ct: audio.ctx.currentTime, t: performance.now() };
+  });
 
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {

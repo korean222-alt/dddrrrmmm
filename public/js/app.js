@@ -1829,6 +1829,39 @@ class AudioEngine {
     return ctx.state === 'running';
   }
 
+  /**
+   * 소리 엔진을 통째로 새로 만듦. 반드시 터치 이벤트 안에서.
+   *   아이폰에서 다른 앱(음악·영상·화면 녹화 등)이 소리를 가져갔다 돌려주면 옛 AudioContext 가
+   *   resume() 해도 다시 안 켜지거나 'running' 인데 시계가 멈춘 채로 남는 일이 있음 → 새 엔진이면 바로 켜짐.
+   *   받아 둔 피아노·오케스트라 소리(AudioBuffer)는 새 엔진에서도 그대로 씀
+   */
+  rebuild() {
+    const old = this.ctx;
+    this.ctx = null;
+    this._streamDest = null;
+    this._clock = null;
+    this.frozen = false;
+    try {
+      if (old) old.close().catch(() => {});
+    } catch {}
+    const ctx = this.ensure();
+    try {
+      if (navigator.audioSession) navigator.audioSession.type = 'playback';
+    } catch {}
+    try {
+      const b = ctx.createBuffer(1, 1, 22050);
+      const s = ctx.createBufferSource();
+      s.buffer = b;
+      s.connect(ctx.destination);
+      s.start(0);
+    } catch {}
+    this._unlocked = true;
+    ctx.resume().catch(() => {});
+    if (this._silentEl) this._silentEl.play().catch(() => {});
+    this.rebuiltAt = performance.now();
+    return ctx;
+  }
+
   get running() {
     return !!this.ctx && this.ctx.state === 'running';
   }
@@ -6560,7 +6593,33 @@ class Game {
     this.player = new SongPlayer(this.audio, this.level, this.startTime, { autoChart: this.auto });
     this.player.start();
     this.state = 'playing';
+    this._clockWatch = null;
     this._raf = requestAnimationFrame(this._loop);
+  }
+
+  /**
+   * 소리 엔진을 새로 만든 뒤(audio.rebuild): 멈췄던 자리부터 새 시계로 곡을 이어서.
+   *   아이폰에서 다른 앱이 소리를 가져가면 옛 엔진이 다시 안 켜지는 일이 있어 엔진째 바꿈 (main 의 터치 처리)
+   *   일시정지·목숨 끝 상태면 다시 시작할 때(resume) 맞춤
+   */
+  reanchor() {
+    if (this.state === 'paused' || this.state === 'dead') {
+      this._needAnchor = true;
+      return;
+    }
+    if (this.state !== 'playing') return;
+    this._needAnchor = false;
+    const at = this._goodNow ?? -0.35; // 마지막으로 시계가 흐르던 곡 시각 (못 흘렀으면 처음부터)
+    const ctx = this.audio.ctx;
+    this.audio.resetClock();
+    if (this.player) this.player.stop(0.01);
+    // 0.3초 뒤에 그 자리부터 다시 (heardTime ≈ currentTime 이라 곡 시각이 at 에서 이어짐)
+    this.startTime = ctx.currentTime + 0.3 - at;
+    this.player = new SongPlayer(this.audio, this.level, this.startTime, { autoChart: this.auto });
+    this.player.step = Math.max(0, Math.floor(this.tempo.barAt(Math.max(0, at)) * STEPS_PER_BAR) - 1);
+    this.player.start();
+    this._clockWatch = null;
+    this._stallSince = null;
   }
 
   pause() {
@@ -6572,14 +6631,18 @@ class Game {
 
   async resume() {
     if (this.state !== 'paused') return;
-    await this.audio.ctx.resume().catch(() => {});
+    // 아이폰에서 소리가 막혀 있으면 resume() 이 끝나지 않을 수 있음 → 0.4초만 기다림 (안 켜지면 루프가 '멈춤'으로 보고 터치로 살림)
+    await Promise.race([this.audio.ctx.resume().catch(() => {}), new Promise((r) => setTimeout(r, 400))]);
     this.audio.resetClock();
     this.state = 'playing';
+    this._clockWatch = null;
+    if (this._needAnchor) this.reanchor();
     this._raf = requestAnimationFrame(this._loop);
   }
 
   stop() {
     this.state = 'stopped';
+    this.audio.frozen = false;
     cancelAnimationFrame(this._raf);
     if (this.player) this.player.stop();
     if (this.audio.ctx && this.audio.ctx.state === 'suspended') this.audio.ctx.resume().catch(() => {});
@@ -6816,7 +6879,15 @@ class Game {
     // 소리 시계가 멈춤(폰이 소리를 잠깐 끊음: 알림·전화·다른 앱 소리 등) → 곡도 멈춰 보임.
     //   바로 다시 켜 보고, 그래도 안 되면 '화면을 눌러 주세요' 안내 (iOS 는 터치해야 다시 켜짐)
     const actx = this.audio.ctx;
-    if (actx && actx.state !== 'running') {
+    // 'running' 이라면서 시계가 안 가는 경우도 멈춤으로 봄 (아이폰: 다른 앱 소리를 틀고 돌아왔을 때)
+    let frozen = !actx || actx.state !== 'running';
+    if (!frozen) {
+      const w = this._clockWatch;
+      if (!w || w.ct !== actx.currentTime) this._clockWatch = { ct: actx.currentTime, rt };
+      else if (rt - w.rt > 0.5) frozen = true;
+    }
+    this.audio.frozen = frozen;
+    if (frozen) {
       if (rt - (this._resumeTry || 0) > 0.7) {
         this._resumeTry = rt;
         actx.resume().catch(() => {});
@@ -6826,6 +6897,7 @@ class Game {
       this._stallSince ??= rt;
     } else this._stallSince = null;
     const now = this.songTime();
+    if (!frozen) this._goodNow = now;
     this._extend(now);
     this._checkRound(now, rt);
 
@@ -7692,8 +7764,8 @@ const NEWS = [
   {
     id: '2026-11-19b',
     date: '11월 19일',
-    title: '곡이 시작 숫자에서 멈추던 것 고침',
-    items: ['🔇 아이폰에서 화면 녹화를 켜거나 제어 센터를 열면 곡이 \'1\' 에서 멈춰 안 넘어가던 것 고쳤어요. 이제 화면을 한 번 톡 누르면 바로 이어져요'],
+    title: '곡이 \'1\' 에서 멈추던 것 고침',
+    items: ['🔇 아이폰에서 <b>다른 앱 음악·영상을 틀고 오거나</b> 화면 녹화·제어 센터를 열면 곡이 \'1\' 에서 멈춰 안 넘어가던 것 고쳤어요', '그래도 멈추면 화면을 한 번 톡! 소리를 새로 켜고 멈췄던 자리부터 바로 이어져요'],
   },
   {
     id: '2026-11-19a',
@@ -11498,17 +11570,6 @@ function bindActions() {
     e.preventDefault();
     submitJoin();
   });
-  // 소리가 멈춰 있으면(iOS 는 터치가 있어야 다시 켜짐) 아무 데나 눌러도 다시 켬
-  document.addEventListener(
-    'pointerdown',
-    () => {
-      if (audio.ctx && audio.ctx.state !== 'running' && state.game && state.game.state === 'playing') {
-        audio.ctx.resume().catch(() => {});
-        audio.resetClock();
-      }
-    },
-    { capture: true, passive: true }
-  );
   document.addEventListener('click', (e) => {
     const qb = e.target.closest('[data-action="room-quick"]');
     if (qb) {
@@ -11615,16 +11676,45 @@ function bindActions() {
   const wake = () => audio.unlock().then(() => audio.loadPiano()).then(() => audio.orchOn && audio.loadOrch());
   window.addEventListener('pointerdown', wake, { once: true, capture: true });
   window.addEventListener('keydown', wake, { once: true, capture: true });
-  // 폰이 소리를 멈췄으면(아이폰: 화면 녹화 켜기·제어 센터·전화·알림 등) 다음 터치에서 다시 켬.
-  //   iOS 는 터치 이벤트 안에서 resume() 해야만 켜짐 → 게임 루프(rAF)에서 부르는 resume() 만으론 영영 멈춰 있었음
-  //   (곡이 '1' 에서 멈춘 채 안 넘어가던 것). 화면 어디를 눌러도 되게 window 에서 받음
+  // 폰이 소리를 멈췄으면(아이폰: 다른 앱 소리·화면 녹화·제어 센터·전화·알림 등) 다음 터치에서 다시 켬.
+  //   iOS 는 터치 이벤트 안에서만 소리를 켤 수 있고, 다른 앱이 소리를 가져갔다 돌려주면 옛 엔진은 resume() 해도
+  //   안 켜지거나 'running' 인데 시계가 멈춘 채로 남음 (곡이 '1' 에서 멈추던 것) → 그럴 땐 엔진을 새로 만들고
+  //   게임은 멈췄던 자리부터 이어 감 (game.reanchor). 한 번 누를 때 여러 이벤트가 오니 1초에 한 번만
   const revive = () => {
     const ctx = audio.ctx;
-    if (!ctx || ctx.state === 'running' || ctx.state === 'closed') return;
-    ctx.resume().catch(() => {});
+    if (!ctx || ctx.state === 'closed') return;
+    const g = state.game;
+    const live = g && (g.state === 'playing' || g.state === 'paused' || g.state === 'dead');
+    let stuck = ctx.state !== 'running' || (live && g.state === 'playing' && audio.frozen);
+    // 다른 앱에 갔다 돌아온 뒤 첫 터치: 'running' 이라는데 돌아온 뒤로 시계가 한 번도 안 갔으면 멈춘 것
+    const vc = audio._visCheck;
+    if (vc && performance.now() - vc.t > 150) {
+      audio._visCheck = null;
+      if (!stuck && ctx.currentTime === vc.ct) {
+        stuck = true;
+        audio._resumeFailed = true;
+      }
+    }
+    if (!stuck) return;
+    if (performance.now() - (audio.rebuiltAt || 0) < 1000) return;
+    // 판 진행 중이거나 iOS 가 '끊김(interrupted)' 으로 잡고 있으면 엔진을 새로. 그 밖엔 그냥 다시 켜 봄
+    if ((g && g.state === 'playing') || ctx.state === 'interrupted' || audio._resumeFailed) {
+      audio.rebuild();
+      audio._resumeFailed = false;
+      if (live) g.reanchor();
+      return;
+    }
     audio.resetClock();
+    const p = ctx.resume();
+    if (p && p.then) {
+      const t = setTimeout(() => (audio._resumeFailed = ctx.state !== 'running'), 500);
+      p.then(() => clearTimeout(t), () => (audio._resumeFailed = true));
+    }
   };
   for (const ev of ['touchstart', 'touchend', 'pointerdown', 'pointerup', 'keydown']) window.addEventListener(ev, revive, { capture: true, passive: true });
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden && audio.ctx && audio.ctx.state === 'running') audio._visCheck = { ct: audio.ctx.currentTime, t: performance.now() };
+  });
 
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
