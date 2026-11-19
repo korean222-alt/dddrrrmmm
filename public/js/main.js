@@ -195,21 +195,21 @@ function openVerify(id, { pass = '', label = '', then = null, restore = false } 
   // 임시 인증 기간이 끝나 다시 잠긴 사람
   const tempOver = !done && !restore && !freePass() && !!load('wasTemp', false);
   $('#verify-mascots').innerHTML = mascotSVG('kong', 'cheer') + mascotSVG('jjak', done ? 'cheer' : 'idle');
-  $('#verify-title').textContent = restore ? '예전 기록 되찾기' : done ? '팔로워 인증 완료!' : '팔로워 인증';
+  $('#verify-title').textContent = restore ? '예전 기록 되찾기' : done ? (state.me.temp && freePass() ? '이용 가능해요!' : '팔로워 인증 완료!') : freePass() ? '이용 등록' : '팔로워 인증';
   $('#verify-desc').innerHTML = restore
     ? `예전 주소(kongkong-drum.vercel.app)에서 <b>팔로워 인증</b>을 받았던 분은, 그때 쓴 <b>인스타 아이디</b>와 <b>팔로워 암호</b>를 넣으면 랭킹 닉네임·점수·깬 단계를 되찾아요.`
     : done
     ? state.me.temp && freePass()
-      ? `임시 인증 중이에요 🎉 <b>${freePassDay()}</b>까지 전부 열려 있어요. 그 뒤엔 팔로워 암호로 다시 인증해 주세요.`
+      ? `🎉 <b>${freePassDay()}</b>까지 전부 이용할 수 있어요. 그 뒤엔 팔로우 인증을 다시 받아야 해요.`
       : `이미 인증됐어요 🎉 잠긴 단계와 💎 무제한 모드가 전부 열려 있어요.`
     : free
-    ? `📢 인스타 DM 이 잠시 막혀서 팔로워 암호를 보낼 수 없어요. <b>${freePassDay()}까지는 암호 없이</b> 팔로우하고 닉네임·인스타 아이디만 적으면 인증돼요!<br>그 뒤에는 <b>팔로워 암호로 다시 인증</b>해야 해요.`
+    ? `📢 인스타 DM 이 잠시 막혀서, <b>${freePassDay()}까지는</b> 닉네임·인스타 아이디만 적으면 전부 이용할 수 있어요!<br>그 뒤에는 <b>팔로우 인증을 다시 받아야</b> 해요.`
     : tempOver
-    ? `임시 인증 기간이 끝났어요. 「${VERIFY_KEYWORD}」 댓글을 달고 DM 으로 받은 <b>팔로워 암호</b>로 다시 인증하면 계속 쓸 수 있어요 (기록은 그대로).`
+    ? `이용 기간이 끝났어요. 「${VERIFY_KEYWORD}」 댓글을 달고 DM 으로 받은 <b>팔로워 암호</b>로 팔로우 인증을 다시 받으면 계속 쓸 수 있어요 (기록은 그대로).`
     : `1~${FREE_UPTO}단계는 맛보기! <b>${VERIFY_WHAT()}</b>는 ${igWho()} 팔로워 인증을 받으면 전부 열려요.<br>랭킹에도 인증한 사람만 올라가요.`;
   const step = (n, text) => `<li class="${done ? 'done' : ''}"><b>${done ? '✓' : n}</b><span>${text}</span></li>`;
   $('#verify-steps').innerHTML = free
-    ? [step(1, `${atHandle()} <b>팔로우</b>하기`), step(2, '아래에 닉네임·인스타 아이디를 적고 <b>인증하기</b>')].join('')
+    ? [step(1, '아래에 닉네임·인스타 아이디 적기'), step(2, `<b>시작하기</b> → ${freePassDay()}까지 전부 이용 가능`)].join('')
     : [
     step(1, `${atHandle()} <b>팔로우</b>하기`),
     step(2, `아무 게시물·릴스에 <b>「${VERIFY_KEYWORD}」</b> 댓글 달기`),
@@ -217,6 +217,7 @@ function openVerify(id, { pass = '', label = '', then = null, restore = false } 
     step(4, '아래에 암호를 적고 <b>인증하기</b>'),
   ].join('');
   $('#verify-pass-row').hidden = free;
+  $('#verify-submit').textContent = free ? '시작하기' : '인증하기';
   const url = handle() ? `https://www.instagram.com/${handle()}/` : 'https://www.instagram.com/';
   $('#verify-acts').innerHTML = done ? '' : `<a class="btn btn-insta" href="${url}" target="_blank" rel="noopener">${icon('insta')} ${free ? '팔로우하러 가기' : '팔로우 · 댓글 달러 가기'}</a>`;
   const me = state.me || {};
@@ -278,7 +279,7 @@ async function submitVerify() {
     refreshFollowChip();
     renderLevels();
     save('wasTemp', !!me.temp);
-    if (me.temp) toast(`🎉 임시 인증 완료! ${freePassDay()}까지 전부 열려요. 그 뒤엔 팔로워 암호로 다시 인증해 주세요`, 4600);
+    if (me.temp) toast(`🎉 ${freePassDay()}까지 전부 이용할 수 있어요! 그 뒤엔 팔로우 인증을 다시 받아야 해요`, 4600);
     else if (restored) toast(`📦 예전 기록을 되찾았어요! 「${restored.username}」 계정${restored.levels ? ` · ${restored.levels}개 단계` : ''} 그대로예요`, 4200);
     else if (state.verifyRestore) toast('이 인스타 아이디로 된 예전 랭킹 기록은 없었어요. 인증은 완료!', 3600);
     else toast(`🎉 팔로워 인증 완료! 잠긴 단계·💎 무제한·멀티·건의하기가 전부 열렸어요`, 3600);
@@ -393,10 +394,12 @@ function refreshFollowChip() {
     el.classList.toggle('ok', !me.hidden && !!me.confirmed);
     el.textContent = me.hidden
       ? '⚠️ 팔로우 확인 안 됨'
-      : !me.guest || me.needsIg
+      : (!me.guest || me.needsIg || !me.confirmed) && freePass()
+        ? `📝 이용 등록 · 랭킹 참여`
+        : !me.guest || me.needsIg
         ? `📸 팔로워 인증 받기 · 랭킹 참여`
         : me.confirmed && me.temp && freePass()
-          ? `✅ 임시 인증 · ${freePassDay()}까지`
+          ? `✅ ${freePassDay()}까지 이용 가능`
           : me.confirmed
           ? `✅ @${me.player?.ig || ''} 팔로워 인증 완료`
           : `📸 팔로워 인증 받기 · 랭킹 참여`;
@@ -408,7 +411,7 @@ function refreshTitle() {
   // 🆓 임시 인증 기간 안내 (인스타 DM 막힘)
   const fp = $('#free-pass-note');
   fp.hidden = !(state.api && state.api.mode === 'server' && freePass());
-  if (!fp.hidden) fp.querySelector('span').innerHTML = `인스타 DM 이 잠시 막혀서 <b>${freePassDay()}까지는 팔로워 암호 없이</b> 인증돼요! 그 뒤엔 암호로 다시 인증해 주세요.`;
+  if (!fp.hidden) fp.querySelector('span').innerHTML = `인스타 DM 이 잠시 막혀서 <b>${freePassDay()}까지는</b> 4단계부터·무제한·멀티 전부 이용할 수 있어요! 그 뒤엔 팔로우 인증을 다시 받아야 해요.`;
   // 멀티·건의하기는 팔로워 인증한 사람만 → 안 했으면 🔒
   const lockMark = followGated() ? '🔒 ' : '';
   $('.mode-multi b').innerHTML = `${icon('swords', true)} ${lockMark}멀티`;
