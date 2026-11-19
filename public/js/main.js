@@ -711,7 +711,16 @@ async function startLevel(id, opts = {}) {
     if (stale() || state.game !== g) return;
   }
   let stallToastAt = 0;
-  state.game.onStall = () => {
+  const sg = state.game;
+  sg.onStall = (stuckSec) => {
+    // 4초 넘게 계속 멈춰 있으면(콩이 안 내려옴) 일시정지하고 해결 방법 안내
+    if (stuckSec > 4 && state.game === sg && sg.state === 'playing') {
+      sg.pause();
+      $('#pause-stuck').hidden = false;
+      $('#pause-title').textContent = '곡이 멈췄어요';
+      openModal('modal-pause');
+      return;
+    }
     if (Date.now() - stallToastAt < 4000) return;
     stallToastAt = Date.now();
     toast('🔇 폰이 소리를 잠깐 멈췄어요. 화면을 한 번 톡 눌러 주세요 (화면 녹화는 시작 버튼 누르기 전에 켜 두세요)', 3600);
@@ -809,6 +818,8 @@ function togglePause() {
   if (!g) return;
   if (g.state === 'playing') {
     g.pause();
+    $('#pause-stuck').hidden = true;
+    $('#pause-title').textContent = '잠깐 쉬어요';
     openModal('modal-pause');
   } else if (g.state === 'paused') resumeGame();
 }
@@ -2860,6 +2871,8 @@ function bindActions() {
     if (document.hidden) {
       if (state.game && state.game.state === 'playing') {
         state.game.pause();
+        $('#pause-stuck').hidden = true;
+    $('#pause-title').textContent = '잠깐 쉬어요';
         openModal('modal-pause');
       }
     } else {

@@ -6867,6 +6867,7 @@ class Game {
     this.player.start();
     this.state = 'playing';
     this._clockWatch = null;
+    this._tickAt = performance.now() / 1000;
     this._raf = requestAnimationFrame(this._loop);
   }
 
@@ -6910,6 +6911,7 @@ class Game {
     this.audio.resetClock();
     this.state = 'playing';
     this._clockWatch = null;
+    this._tickAt = performance.now() / 1000;
     // 멈춰 둔 동안 소리 시계가 흘러 버렸으면(광고·일시정지 화면 터치 등으로 소리가 다시 켜짐) 멈췄던 자리로 되돌림.
     //   안 그러면 그동안 지나간 노트가 한꺼번에 MISS → 이어하자마자 죽음
     const held = this._heldAt;
@@ -7165,7 +7167,10 @@ class Game {
     let frozen = !actx || actx.state !== 'running';
     if (!frozen) {
       const w = this._clockWatch;
-      if (!w || w.ct !== actx.currentTime) this._clockWatch = { ct: actx.currentTime, rt };
+      if (!w || w.ct !== actx.currentTime) {
+        if (w) this._tickAt = rt; // 시계가 실제로 흐름 (터치로 엔진을 새로 만들어도 안 흐르면 그대로 → 얼마나 오래 멈췄나)
+        this._clockWatch = { ct: actx.currentTime, rt };
+      }
       else if (rt - w.rt > 0.5) frozen = true;
     }
     this.audio.frozen = frozen;
@@ -7174,7 +7179,7 @@ class Game {
         this._resumeTry = rt;
         actx.resume().catch(() => {});
         this.audio.resetClock();
-        if (this.onStall && rt - (this._stallSince ?? rt) > 1.2) this.onStall();
+        if (this.onStall && rt - (this._stallSince ?? rt) > 1.2) this.onStall(rt - (this._tickAt ?? rt));
       }
       this._stallSince ??= rt;
     } else this._stallSince = null;
@@ -8045,13 +8050,14 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-19h',
+    id: '2026-11-19i',
     date: '11월 19일',
     title: '🎄 크리스마스 이벤트 곡 3개',
     items: [
       '합창 노래에 맞춰 치는 <b>데크 더 홀즈</b>(보통) · <b>위 위시 유 어 메리 크리스마스</b>(어려움) · <b>크리스마스의 12일</b>(지옥). 앞 단계를 안 깼어도 바로 칠 수 있어요',
       '데크 더 홀즈는 곡이 바뀌어서 랭킹을 새로 시작해요',
       '이어하자마자 죽거나 곡이 멈추던 문제를 고쳤어요',
+      '판을 시작했는데 콩이 안 내려오면 해결 방법을 알려 줘요',
       '악기가 3개 이상일 때 왼쪽 엄지 줄(킥·크래시)이 화면 아래쪽에서 좁아져 가끔 안 눌리던 것 고침',
     ],
   },
@@ -9757,7 +9763,16 @@ async function startLevel(id, opts = {}) {
     if (stale() || state.game !== g) return;
   }
   let stallToastAt = 0;
-  state.game.onStall = () => {
+  const sg = state.game;
+  sg.onStall = (stuckSec) => {
+    // 4초 넘게 계속 멈춰 있으면(콩이 안 내려옴) 일시정지하고 해결 방법 안내
+    if (stuckSec > 4 && state.game === sg && sg.state === 'playing') {
+      sg.pause();
+      $('#pause-stuck').hidden = false;
+      $('#pause-title').textContent = '곡이 멈췄어요';
+      openModal('modal-pause');
+      return;
+    }
     if (Date.now() - stallToastAt < 4000) return;
     stallToastAt = Date.now();
     toast('🔇 폰이 소리를 잠깐 멈췄어요. 화면을 한 번 톡 눌러 주세요 (화면 녹화는 시작 버튼 누르기 전에 켜 두세요)', 3600);
@@ -9855,6 +9870,8 @@ function togglePause() {
   if (!g) return;
   if (g.state === 'playing') {
     g.pause();
+    $('#pause-stuck').hidden = true;
+    $('#pause-title').textContent = '잠깐 쉬어요';
     openModal('modal-pause');
   } else if (g.state === 'paused') resumeGame();
 }
@@ -11906,6 +11923,8 @@ function bindActions() {
     if (document.hidden) {
       if (state.game && state.game.state === 'playing') {
         state.game.pause();
+        $('#pause-stuck').hidden = true;
+    $('#pause-title').textContent = '잠깐 쉬어요';
         openModal('modal-pause');
       }
     } else {

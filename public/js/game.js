@@ -177,6 +177,7 @@ export class Game {
     this.player.start();
     this.state = 'playing';
     this._clockWatch = null;
+    this._tickAt = performance.now() / 1000;
     this._raf = requestAnimationFrame(this._loop);
   }
 
@@ -220,6 +221,7 @@ export class Game {
     this.audio.resetClock();
     this.state = 'playing';
     this._clockWatch = null;
+    this._tickAt = performance.now() / 1000;
     // 멈춰 둔 동안 소리 시계가 흘러 버렸으면(광고·일시정지 화면 터치 등으로 소리가 다시 켜짐) 멈췄던 자리로 되돌림.
     //   안 그러면 그동안 지나간 노트가 한꺼번에 MISS → 이어하자마자 죽음
     const held = this._heldAt;
@@ -475,7 +477,10 @@ export class Game {
     let frozen = !actx || actx.state !== 'running';
     if (!frozen) {
       const w = this._clockWatch;
-      if (!w || w.ct !== actx.currentTime) this._clockWatch = { ct: actx.currentTime, rt };
+      if (!w || w.ct !== actx.currentTime) {
+        if (w) this._tickAt = rt; // 시계가 실제로 흐름 (터치로 엔진을 새로 만들어도 안 흐르면 그대로 → 얼마나 오래 멈췄나)
+        this._clockWatch = { ct: actx.currentTime, rt };
+      }
       else if (rt - w.rt > 0.5) frozen = true;
     }
     this.audio.frozen = frozen;
@@ -484,7 +489,7 @@ export class Game {
         this._resumeTry = rt;
         actx.resume().catch(() => {});
         this.audio.resetClock();
-        if (this.onStall && rt - (this._stallSince ?? rt) > 1.2) this.onStall();
+        if (this.onStall && rt - (this._stallSince ?? rt) > 1.2) this.onStall(rt - (this._tickAt ?? rt));
       }
       this._stallSince ??= rt;
     } else this._stallSince = null;
