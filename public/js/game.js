@@ -207,6 +207,7 @@ export class Game {
 
   pause() {
     if (this.state !== 'playing') return;
+    this._heldAt = this.songTime();
     this.state = 'paused';
     cancelAnimationFrame(this._raf);
     this.audio.ctx.suspend().catch(() => {});
@@ -219,6 +220,13 @@ export class Game {
     this.audio.resetClock();
     this.state = 'playing';
     this._clockWatch = null;
+    // 멈춰 둔 동안 소리 시계가 흘러 버렸으면(광고·일시정지 화면 터치 등으로 소리가 다시 켜짐) 멈췄던 자리로 되돌림.
+    //   안 그러면 그동안 지나간 노트가 한꺼번에 MISS → 이어하자마자 죽음
+    const held = this._heldAt;
+    if (held != null && Math.abs(this.songTime() - held) > 0.15) {
+      this._goodNow = held;
+      this._needAnchor = true;
+    }
     if (this._needAnchor) this.reanchor();
     this._raf = requestAnimationFrame(this._loop);
   }
@@ -412,6 +420,7 @@ export class Game {
   _die() {
     this.state = 'dead';
     this.diedAt = this.songTime();
+    this._heldAt = this.diedAt;
     cancelAnimationFrame(this._raf);
     this.audio.ctx.suspend().catch(() => {});
     // 멈춘 화면에 '목숨 끝' 표시 한 번 그리기

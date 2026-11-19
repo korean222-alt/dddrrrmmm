@@ -2805,7 +2805,13 @@ function bindActions() {
     const ctx = audio.ctx;
     if (!ctx || ctx.state === 'closed') return;
     const g = state.game;
-    const live = g && (g.state === 'playing' || g.state === 'paused' || g.state === 'dead');
+    // 일시정지·목숨 끝(이어하기 창·광고)은 일부러 소리를 멈춰 둔 것 → 여기서 켜면 곡이 혼자 흘러감 (광고 보는 동안 곡이 이어져서
+    //   이어하자마자 죽던 것). 다시 켜는 건 게임의 resume() 이 함
+    if (g && (g.state === 'paused' || g.state === 'dead')) {
+      audio._visCheck = null;
+      return;
+    }
+    const live = g && g.state === 'playing';
     let stuck = ctx.state !== 'running' || (live && g.state === 'playing' && audio.frozen);
     // 다른 앱에 갔다 돌아온 뒤 첫 터치: 'running' 이라는데 돌아온 뒤로 시계가 한 번도 안 갔으면 멈춘 것
     const vc = audio._visCheck;

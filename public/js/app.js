@@ -6792,6 +6792,7 @@ class Game {
 
   pause() {
     if (this.state !== 'playing') return;
+    this._heldAt = this.songTime();
     this.state = 'paused';
     cancelAnimationFrame(this._raf);
     this.audio.ctx.suspend().catch(() => {});
@@ -6804,6 +6805,13 @@ class Game {
     this.audio.resetClock();
     this.state = 'playing';
     this._clockWatch = null;
+    // 멈춰 둔 동안 소리 시계가 흘러 버렸으면(광고·일시정지 화면 터치 등으로 소리가 다시 켜짐) 멈췄던 자리로 되돌림.
+    //   안 그러면 그동안 지나간 노트가 한꺼번에 MISS → 이어하자마자 죽음
+    const held = this._heldAt;
+    if (held != null && Math.abs(this.songTime() - held) > 0.15) {
+      this._goodNow = held;
+      this._needAnchor = true;
+    }
     if (this._needAnchor) this.reanchor();
     this._raf = requestAnimationFrame(this._loop);
   }
@@ -6997,6 +7005,7 @@ class Game {
   _die() {
     this.state = 'dead';
     this.diedAt = this.songTime();
+    this._heldAt = this.diedAt;
     cancelAnimationFrame(this._raf);
     this.audio.ctx.suspend().catch(() => {});
     // 멈춘 화면에 '목숨 끝' 표시 한 번 그리기
@@ -7929,6 +7938,12 @@ const __m_news = (() => {
 //   잠금·인증·운영 정책(누가 무엇을 쓸 수 있나) 같은 건 안 씀
 
 const NEWS = [
+  {
+    id: '2026-11-19d',
+    date: '11월 19일',
+    title: '이어하기 하자마자 죽던 것 고침',
+    items: ['❤️ 이어하기 광고를 보는 동안 화면을 누르면 곡이 혼자 흘러가서, 이어하자마자 노트가 한꺼번에 지나가 죽던 것 고쳤어요. 이제 멈췄던 자리부터 정확히 이어져요'],
+  },
   {
     id: '2026-11-19c',
     date: '11월 19일',
@@ -11862,7 +11877,13 @@ function bindActions() {
     const ctx = audio.ctx;
     if (!ctx || ctx.state === 'closed') return;
     const g = state.game;
-    const live = g && (g.state === 'playing' || g.state === 'paused' || g.state === 'dead');
+    // 일시정지·목숨 끝(이어하기 창·광고)은 일부러 소리를 멈춰 둔 것 → 여기서 켜면 곡이 혼자 흘러감 (광고 보는 동안 곡이 이어져서
+    //   이어하자마자 죽던 것). 다시 켜는 건 게임의 resume() 이 함
+    if (g && (g.state === 'paused' || g.state === 'dead')) {
+      audio._visCheck = null;
+      return;
+    }
+    const live = g && g.state === 'playing';
     let stuck = ctx.state !== 'running' || (live && g.state === 'playing' && audio.frozen);
     // 다른 앱에 갔다 돌아온 뒤 첫 터치: 'running' 이라는데 돌아온 뒤로 시계가 한 번도 안 갔으면 멈춘 것
     const vc = audio._visCheck;

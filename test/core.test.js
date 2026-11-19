@@ -405,3 +405,40 @@ test('🔇 소리 시계가 멈추면(아이폰 다른 앱 소리) 멈춤으로 
     g.stop();
   }
 });
+
+test('광고·일시정지 중에 소리 시계가 흘러 버려도 이어하면 멈췄던 자리부터 (이어하자마자 죽지 않음)', async () => {
+  const { Game } = await import('../public/js/game.js');
+  const noop = () => {};
+  globalThis.requestAnimationFrame ??= () => 0;
+  globalThis.cancelAnimationFrame ??= noop;
+  const node = () => ({ connect: (x) => x || node(), disconnect: noop, gain: { value: 1, cancelScheduledValues: noop, setValueAtTime: noop, linearRampToValueAtTime: noop } });
+  const ctx = { currentTime: 50, state: 'running', createGain: node, resume: async () => {}, suspend: async () => {} };
+  const fake = { ctx, resetClock: noop, heardTime() { return this.ctx.currentTime; } };
+  const audio = new Proxy(fake, { get: (o, k) => (k in o ? o[k] : noop), set: (o, k, v) => ((o[k] = v), true) });
+  const renderer = new Proxy({}, { get: () => noop });
+  let deaths = 0;
+  const g = new Game({ audio, renderer, level: LEVELS[21] || LEVELS[0], settings: {}, onEnd: noop, onDeath: () => deaths++ });
+  try {
+    g.start();
+    ctx.currentTime += 6;
+    g._loop();
+    g._die();
+    const at = g.diedAt;
+    // 광고 보는 동안 소리가 다시 켜져서 시계가 20초 흘러감
+    ctx.currentTime += 20;
+    assert.ok(g.revive());
+    await g.resume();
+    ctx.currentTime += 0.3;
+    assert.ok(Math.abs(g.songTime() - at) < 0.05, `이어 가는 곡 시각 ${g.songTime()} vs ${at}`);
+    // 일시정지도 같음
+    g.pause();
+    const p = g._heldAt;
+    ctx.currentTime += 10;
+    await g.resume();
+    ctx.currentTime += 0.3;
+    assert.ok(Math.abs(g.songTime() - p) < 0.05, `일시정지 뒤 곡 시각 ${g.songTime()} vs ${p}`);
+    assert.equal(deaths, 1);
+  } finally {
+    g.stop();
+  }
+});
