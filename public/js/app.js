@@ -5412,7 +5412,6 @@ class Renderer {
     L.far = 2.8;
     L.sFar = L.cam / (L.cam + L.far);
     L.horizonY = (L.topY - L.strikeY * L.sFar) / (1 - L.sFar);
-    L.sBottom = (H - L.horizonY) / (L.strikeY - L.horizonY);
     // 줄 맨 아래 악기 크기 (판정선 위치에 악기 중심)
     L.instR = Math.min(laneW * 0.36, H * 0.07, GW * 0.17);
     L.barW = Math.min(laneW * 0.8, GW * 0.34);
@@ -5438,7 +5437,7 @@ class Renderer {
     const L = this.L;
     const order = this.laneOrder;
     if (!L) return order[0];
-    const s = y === undefined ? 1 : clamp(this._sAtY(y), L.sFar, L.sBottom);
+    const s = y === undefined ? 1 : this._sRoad(y);
     const xw = L.cx + (x - L.cx) / s;
     const i = Math.floor((xw - L.x0) / L.laneW);
     return order[clamp(i, 0, order.length - 1)];
@@ -5452,7 +5451,7 @@ class Renderer {
     const L = this.L;
     const order = this.laneOrder;
     if (!L) return { lane: order[0], near: [], u: null };
-    const s = y === undefined ? 1 : clamp(this._sAtY(y), L.sFar, L.sBottom);
+    const s = y === undefined ? 1 : this._sRoad(y);
     const u = (L.cx + (x - L.cx) / s - L.x0) / L.laneW;
     const i = clamp(Math.floor(u), 0, order.length - 1);
     const f = clamp(u - i, 0, 1);
@@ -5482,14 +5481,27 @@ class Renderer {
     return (y - L.horizonY) / (L.strikeY - L.horizonY);
   }
   /** 길 위 사다리꼴 (월드 x 범위 xa~xb, 화면 y 범위 ya~yb) */
+  /**
+   * 줄 모양의 크기 배율. 판정선 위는 원근(멀수록 좁음), 판정선 아래(엄지 누르는 자리)는 곧게 내려감.
+   *   예전엔 아래로도 계속 벌어져서, 엄지가 실제로 누르는 화면 아래쪽에선 가장자리 줄(3줄일 때 킥, 4·5줄일 때 크래시)이
+   *   화면 밖으로 밀려 아주 좁아짐 → 왼쪽 엄지가 조금만 안쪽을 눌러도 옆 줄로 들어가 '안 눌리는' 것처럼 됨
+   */
+  _sRoad(y) {
+    return clamp(this._sAtY(y), this.L.sFar, 1);
+  }
+  /** 길 위 사다리꼴 (월드 x 범위 xa~xb, 화면 y 범위 ya~yb). 판정선을 지나면 거기서 꺾여 곧게 내려감 */
   _trap(g, xa, xb, ya, yb) {
-    const sa = this._sAtY(ya);
-    const sb = this._sAtY(yb);
+    const sa = this._sRoad(ya);
+    const sb = this._sRoad(yb);
+    const yk = this.L.strikeY;
+    const bend = ya < yk && yb > yk;
     g.beginPath();
     g.moveTo(this._px(xa, sa), ya);
     g.lineTo(this._px(xb, sa), ya);
+    if (bend) g.lineTo(xb, yk);
     g.lineTo(this._px(xb, sb), yb);
     g.lineTo(this._px(xa, sb), yb);
+    if (bend) g.lineTo(xa, yk);
     g.closePath();
   }
 
@@ -5563,7 +5575,8 @@ class Renderer {
       g.lineWidth = edge ? 5 : 3;
       g.beginPath();
       g.moveTo(this._px(x, L.sFar) + 1, y0 + 1);
-      g.lineTo(this._px(x, L.sBottom) + 2, L.H + 2);
+      g.lineTo(x + 1, L.strikeY + 1);
+      g.lineTo(x + 1, L.H + 2);
       g.stroke();
       g.strokeStyle = lg;
       g.lineWidth = edge ? 3.5 : 2;
@@ -5573,7 +5586,8 @@ class Renderer {
       }
       g.beginPath();
       g.moveTo(this._px(x, L.sFar), y0);
-      g.lineTo(this._px(x, L.sBottom), L.H);
+      g.lineTo(x, L.strikeY);
+      g.lineTo(x, L.H);
       g.stroke();
       g.shadowBlur = 0;
     }
@@ -8031,13 +8045,14 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-19g',
+    id: '2026-11-19h',
     date: '11월 19일',
     title: '🎄 크리스마스 이벤트 곡 3개',
     items: [
       '합창 노래에 맞춰 치는 <b>데크 더 홀즈</b>(보통) · <b>위 위시 유 어 메리 크리스마스</b>(어려움) · <b>크리스마스의 12일</b>(지옥). 앞 단계를 안 깼어도 바로 칠 수 있어요',
       '데크 더 홀즈는 곡이 바뀌어서 랭킹을 새로 시작해요',
       '이어하자마자 죽거나 곡이 멈추던 문제를 고쳤어요',
+      '악기가 3개 이상일 때 왼쪽 엄지 줄(킥·크래시)이 화면 아래쪽에서 좁아져 가끔 안 눌리던 것 고침',
     ],
   },
   {
