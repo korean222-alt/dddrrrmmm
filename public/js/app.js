@@ -786,9 +786,10 @@ const LEVELS = [
   },
   // ---------------------------------------------------------------
   // 🎄 크리스마스 이벤트 곡 (번호 단계가 아님. 화면엔 '크리스마스 이벤트'로, 크리스마스 마을 맵).
-  //   id 19 는 내부 번호 (랭킹·점수 저장용, 18·20 은 빼 버린 찬송가 자리라 비워 둠 — 다시 쓰지 말 것)
+  //   id 19·21·22 는 내부 번호 (랭킹·점수 저장용, 18·20 은 빼 버린 찬송가 자리라 비워 둠 — 다시 쓰지 말 것)
   //   xmas: 앞 단계를 안 깼어도 바로 칠 수 있음 (잠금은 4단계부터와 같음: 팔로워 인증). 본편 순서·총 등수·무제한엔 안 들어감
-  //   song.bells = 썰매 방울 박자, song.glock = 멜로디 위에 글로켄슈필
+  //   song.bells = 썰매 방울 박자, song.glock = 멜로디 위에 글로켄슈필, song.choir = 합창 목소리
+  //   난이도(difficulty)는 표시용: 이벤트 곡을 깨도 같은 난이도 본편 단계가 열리진 않음
   // ---------------------------------------------------------------
   {
     id: 19,
@@ -829,6 +830,121 @@ const LEVELS = [
       'K.K.S.K.K.K.S...',
       'S.S.S.S.K...S...',
       'K...S...B.......',
+    ],
+  },
+  {
+    // 원곡은 3박자 → 한 마디(4박)에 원곡 한 마디: 1·2박 그대로, 2박을 길게, 4박 = 다음 마디로 넘어가는 가사('we', 'mer-ry')
+    id: 21,
+    xmas: true,
+    name: '위 위시 유 어 메리 크리스마스',
+    composer: '영국 민요',
+    tagline: '크리스마스 이벤트 · 하이햇·크래시 총출동',
+    difficulty: 4,
+    bpm: 132,
+    song: {
+      prog: [
+        'C', 'F', 'D7', 'G', 'E7', 'Am', 'Dm G7', 'C',
+        'C', 'G', 'Am', 'G', 'C', 'G', 'Dm G7', 'C',
+      ],
+      hat: '................',
+      bells: 'x...x...x...x...',
+      glock: true,
+      bass: 'x...5...x...5...',
+      chord: '..x...x...x...x.',
+      melody: [
+        'C5:4 C5:2 D5:6 C5:2 B4:2', 'A4:4 A4:8 A4:4', 'D5:4 D5:2 E5:6 D5:2 C5:2', 'B4:4 G4:8 G4:4',
+        'E5:4 E5:2 F5:6 E5:2 D5:2', 'C5:4 A4:8 G4:2 G4:2', 'A4:4 D5:8 B4:4', 'C5:12 G4:4',
+        'C5:4 C5:8 C5:4', 'B4:12 B4:4', 'C5:4 B4:8 A4:4', 'G4:12 D5:4',
+        'E5:4 D5:2 D5:6 C5:2 C5:2', 'G5:4 G4:8 G4:2 G4:2', 'A4:4 D5:8 B4:4', 'C5:12 G4:4',
+      ],
+    },
+    bars: [
+      'X...H.S.K.H.KSK.',
+      'J.H.S.H.K...S.K.',
+      'X...H.S.K.H.KSK.',
+      'J.H.S.H.K...S.S.',
+      'X...KSK.S.H.KSK.',
+      'J.H.S.H.K.K.S.S.',
+      'K.HKS.H.K.HKS.H.',
+      'X.......B...S.S.',
+      'X...X.H.K.H.X.H.',
+      'B.H.S.HKS.H.X...',
+      'X...KSK.S.H.X...',
+      'B.H.S.H.KSKSK.S.',
+      'X.H.KSK.S.HKS.H.',
+      'C.H.S.HKS.H.KSKS',
+      'K.HKS.H.K.HKS.H.',
+      'X...B...X...S.S.',
+      'X.HKS.H.KSK.KSK.',
+      'J.HKS.H.X.H.KSK.',
+      'X.HKS.H.KSK.KSK.',
+      'J.HKS.H.X.HKS.S.',
+      'C.HKS.HKS.HKS.H.',
+      'J.HKS.HKS.H.X.H.',
+      'KSKSK.HKS.HKSKS.',
+      'X...B...X.......',
+    ],
+  },
+  {
+    // 1일째 → 2일째 → 5일째(다섯 개의 금반지!) → 12일째 로 줄인 편곡. song.choir = 합창 목소리('아~')가 멜로디를 같이 부름
+    id: 22,
+    xmas: true,
+    name: '크리스마스의 12일',
+    composer: '영국 민요',
+    tagline: '크리스마스 이벤트 · 합창과 함께 · 탐탐까지 전부',
+    difficulty: 5,
+    bpm: 126,
+    song: {
+      prog: [
+        'C', 'G7 C', 'F G7', 'C',
+        'C', 'G7 C', 'C G7', 'F G7', 'C',
+        'C', 'G7 C', 'C D7', 'G G7', 'C G7', 'F G7', 'C',
+        'C', 'G7 C', 'C D7', 'G G7', 'C G7', 'C F', 'C G7', 'C',
+      ],
+      hat: '................',
+      bells: 'x.x.x.x.x.x.x.x.',
+      glock: true,
+      choir: true,
+      bass: 'x...5...x...5...',
+      chord: '..x...x...x...x.',
+      melody: [
+        // 첫째 날
+        'G4:2 G4:2 G4:4 C5:4 C5:2 C5:2', 'B4:2 C5:2 D5:2 E5:2 F5:2 D5:2 E5:4', 'G5:4 A5:2 F5:2 E5:2 C5:2 D5:4', 'C5:12 _:4',
+        // 둘째 날: 두 마리 멧비둘기
+        'G4:2 G4:2 G4:4 C5:4 C5:2 C5:2', 'B4:2 C5:2 D5:2 E5:2 F5:2 D5:2 E5:4', 'G5:4 D5:2 E5:2 F5:8', 'G5:2 G5:2 A5:2 F5:2 E5:2 C5:2 D5:4', 'C5:12 _:4',
+        // 다섯째 날: 다섯 개의 금반지
+        'G4:2 G4:2 G4:4 C5:4 C5:2 C5:2', 'B4:2 C5:2 D5:2 E5:2 F5:2 D5:2 E5:4', 'G5:8 A5:4 F#5:4', 'G5:8 G5:2 D5:2 E5:2 F5:2',
+        'G5:2 D5:2 E5:2 F5:2 G5:2 D5:2 E5:2 F5:2', 'G5:2 G5:2 A5:2 F5:2 E5:2 C5:2 D5:4', 'C5:12 _:4',
+        // 열두째 날 (크게 끝)
+        'G4:2 G4:2 G4:4 C5:4 C5:2 C5:2', 'B4:2 C5:2 D5:2 E5:2 F5:2 D5:2 E5:4', 'G5:8 A5:4 F#5:4', 'G5:8 G5:2 D5:2 E5:2 F5:2',
+        'G5:2 D5:2 E5:2 F5:2 G5:2 D5:2 E5:2 F5:2', 'G5:4 G5:4 A5:4 F5:4', 'E5:4 C5:4 D5:8', 'C5:16',
+      ],
+    },
+    bars: [
+      'X.K.S.H.K.H.KSKS',
+      'KSKSKSKSKSK.T.Y.',
+      'X.HKS.H.T.TST.H.',
+      'B...Y...X.......',
+      'X.K.S.H.K.H.KSKS',
+      'KSKSKSKSKSK.T.Y.',
+      'X...KSK.TSTST.S.',
+      'J.H.KSK.TSTSK.S.',
+      'X...Y...X...S.S.',
+      'X.K.S.H.K.H.KSKS',
+      'KSKSKSKSKSK.T.Y.',
+      'X.T.T.T.X...Y...',
+      'X.......KSKSKSK.',
+      'J.HKS.H.J.HKS.H.',
+      'Y.TST.K.KSKSK.S.',
+      'B...Y...X.......',
+      'X.K.S.H.K.H.KSKS',
+      'KSKSKSKSKSK.T.Y.',
+      'X.T.T.T.X.T.Y.T.',
+      'X.......KSKSKSK.',
+      'J.HKS.H.J.HKS.H.',
+      'X.H.X.H.X.H.X.H.',
+      'Y.T.Y.T.B.K.B...',
+      'X.......B.......',
     ],
   },
 ];
@@ -1208,12 +1324,12 @@ function isUnlocked(levelId, bests) {
   const prev = prevOpenId(levelId);
   if (prev === null || isClearBest(bests[prev])) return true;
   const lv = getLevel(levelId);
-  return !!lv && LEVELS.some((l) => l.difficulty === lv.difficulty && isClearBest(bests[l.id]));
+  return !!lv && MAIN_LEVELS.some((l) => l.difficulty === lv.difficulty && isClearBest(bests[l.id]));
 }
 /** 같은 난이도 단계들 */
 const tierOf = (levelId) => {
   const lv = getLevel(levelId);
-  return lv ? LEVELS.filter((l) => l.difficulty === lv.difficulty).map((l) => l.id) : [];
+  return lv ? MAIN_LEVELS.filter((l) => l.difficulty === lv.difficulty).map((l) => l.id) : [];
 };
 /** 잠긴 단계 안내: 같은 난이도에 이미 열린 단계가 있으면 '그 난이도 하나만 깨면', 아니면 '앞 단계 깨면' */
 function unlockHint(levelId, bests) {
@@ -2070,6 +2186,56 @@ class AudioEngine {
     }
   }
 
+  /** 🎤 합창 '아~' (캐롤을 같이 부르는 목소리): 톱니파 세 겹(살짝 어긋나게) → 목소리 공명(포먼트) → 비브라토.
+   *  아래 한 옥타브는 남자 목소리 '오~' 로 작게 받쳐 줌 */
+  choir(t, midi, dur, dest = this.musicBus, vel = 1) {
+    const ctx = this.ctx;
+    const end = t + Math.max(0.14, dur);
+    const g = ctx.createGain();
+    const peak = 0.4 * vel;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(peak, t + 0.045);
+    g.gain.setValueAtTime(peak, Math.max(t + 0.05, end - 0.05));
+    g.gain.linearRampToValueAtTime(0.0001, end + 0.12);
+    g.connect(dest);
+    // 비브라토: 처음엔 곧게, 0.25초쯤부터 살짝 떨림
+    const lfo = ctx.createOscillator();
+    const lg = ctx.createGain();
+    lfo.frequency.value = 5.4;
+    lg.gain.setValueAtTime(0, t);
+    lg.gain.linearRampToValueAtTime(14, t + 0.3);
+    lfo.connect(lg);
+    lfo.start(t);
+    lfo.stop(end + 0.15);
+    const voice = (m, formants, amp, detunes) => {
+      const vg = ctx.createGain();
+      vg.gain.value = amp;
+      vg.connect(g);
+      const bps = formants.map(([f, q, a]) => {
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = f;
+        bp.Q.value = q;
+        const ag = ctx.createGain();
+        ag.gain.value = a;
+        bp.connect(ag).connect(vg);
+        return bp;
+      });
+      for (const d of detunes) {
+        const o = ctx.createOscillator();
+        o.type = 'sawtooth';
+        o.frequency.value = mtof(m);
+        o.detune.value = d;
+        lg.connect(o.detune);
+        for (const bp of bps) o.connect(bp);
+        o.start(t);
+        o.stop(end + 0.15);
+      }
+    };
+    voice(midi, [[800, 5, 1], [1150, 7, 0.55], [2900, 9, 0.22]], 1, [-9, 0, 8]); // 여자 '아'
+    voice(midi - 12, [[450, 5, 1], [800, 7, 0.4], [2830, 9, 0.12]], 0.45, [-6, 5]); // 남자 '오'
+  }
+
   /** 크래시 심벌 */
   crash(t = this.ctx.currentTime, dest = this.musicBus, vol = 0.5) {
     const ctx = this.ctx;
@@ -2429,6 +2595,8 @@ class SongPlayer {
         const dur = n.len * sd * 0.92;
         // 🎄 캐롤: 글로켄슈필이 한 옥타브 위에서 같이 (긴 음만, 너무 시끄럽지 않게)
         if (song.glock && n.len >= 2) a.glock(t, n.midi + 12, this.bus, 0.6 + 0.4 * heat);
+        // 🎤 합창이 멜로디를 같이 부름 (짧은 음은 조금 작게)
+        if (song.choir) a.choir(t, n.midi, n.len * sd * 0.95, this.bus, (n.len >= 2 ? 1 : 0.7) * (0.75 + 0.25 * heat));
         if (!orch) {
           a.lead(t, n.midi, dur, this.bus);
           continue;
@@ -3555,7 +3723,7 @@ return { SNARE_RY, lighten, darken, buildKit };
 const __m_themes = (() => {
 // 맵 분위기(테마): 단계를 묶어서 묶음마다 무대가 바뀜. 곡이 달아오르면(heat) 조명·입자가 같이 커짐.
 //   1~3 노을 피크닉 · 4~6 네온 시티 · 7~9 황금 콘서트홀 · 10~12 블랙 스테이지 · 13~15 용암 보스전 · 16~17 오로라 설원
-//   크리스마스 마을 = 🎄 크리스마스 이벤트 곡(내부 번호 19)
+//   크리스마스 마을 = 🎄 크리스마스 이벤트 곡(내부 번호 19·21·22)
 //   그리그 무제한·레벨업 챌린지는 우주 무대에서 시작해 Lv 이 오를 때마다 맵이 바뀜(THEME_CYCLE).
 //   단계별 무제한(e5 등)은 그 단계 맵 그대로.
 //
@@ -3813,7 +3981,7 @@ const THEME_GROUPS = [
   { from: 10, to: 12, key: 'void' },
   { from: 13, to: 15, key: 'lava' },
   { from: 16, to: 17, key: 'aurora' },
-  { from: 19, to: 19, key: 'xmas' }, // 🎄 크리스마스 이벤트 곡
+  { from: 19, to: 22, key: 'xmas' }, // 🎄 크리스마스 이벤트 곡 (19·21·22)
 ];
 
 /** 그리그 무제한·레벨업 챌린지: Lv 이 오를 때마다 이 순서로 맵이 바뀜 */
@@ -7761,6 +7929,16 @@ const __m_news = (() => {
 //   잠금·인증·운영 정책(누가 무엇을 쓸 수 있나) 같은 건 안 씀
 
 const NEWS = [
+  {
+    id: '2026-11-19c',
+    date: '11월 19일',
+    title: '🎄 크리스마스 이벤트 곡 2개 추가',
+    items: [
+      '🎄 <b>위 위시 유 어 메리 크리스마스</b>: 하이햇·크래시가 쉴 새 없이 나오는 <b>어려움</b> 곡이에요',
+      '🎤 <b>크리스마스의 12일</b>: <b>합창 목소리</b>가 같이 불러요! "다섯 개의 금반지~" 에서 탐탐이 쏟아지는 <b>지옥</b> 곡이에요',
+      '크리스마스 이벤트 곡은 앞 단계를 다 안 깼어도 바로 칠 수 있어요',
+    ],
+  },
   {
     id: '2026-11-19b',
     date: '11월 19일',

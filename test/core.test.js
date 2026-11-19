@@ -51,6 +51,21 @@ test('악기: 1~9단계 킥·스네어, 10단계 +하이햇, 13단계 +크래시
   }
 });
 
+test('🎄 이벤트 곡: 깨도 같은 난이도 본편 단계가 열리지 않음', async () => {
+  const { isUnlocked, tierOf } = await import('../public/js/charts.js');
+  const ev = LEVELS.filter((l) => l.xmas);
+  assert.ok(ev.length >= 3);
+  for (const lv of ev) {
+    assert.ok(isUnlocked(lv.id, {}), `이벤트 ${lv.id} 바로 열림`);
+    const bests = { [lv.id]: { stars: 3 } };
+    for (const m of LEVELS.filter((l) => !l.xmas && l.id > 3 && l.difficulty === lv.difficulty)) assert.ok(!isUnlocked(m.id, bests), `이벤트 ${lv.id} → ${m.id}단계`);
+    assert.ok(!tierOf(lv.id).some((id) => getLevelXmas(id)), '난이도 묶음에 이벤트 곡 없음');
+  }
+  function getLevelXmas(id) {
+    return LEVELS.find((l) => l.id === id)?.xmas;
+  }
+});
+
 test('1~3단계는 누구나, 4단계부터와 무제한 모드는 전부 팔로워 인증', () => {
   assert.equal(FREE_UPTO, 3);
   assert.deepEqual(VERIFY_LEVELS, []);

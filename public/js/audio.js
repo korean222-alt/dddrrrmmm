@@ -561,6 +561,56 @@ export class AudioEngine {
     }
   }
 
+  /** 🎤 합창 '아~' (캐롤을 같이 부르는 목소리): 톱니파 세 겹(살짝 어긋나게) → 목소리 공명(포먼트) → 비브라토.
+   *  아래 한 옥타브는 남자 목소리 '오~' 로 작게 받쳐 줌 */
+  choir(t, midi, dur, dest = this.musicBus, vel = 1) {
+    const ctx = this.ctx;
+    const end = t + Math.max(0.14, dur);
+    const g = ctx.createGain();
+    const peak = 0.4 * vel;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(peak, t + 0.045);
+    g.gain.setValueAtTime(peak, Math.max(t + 0.05, end - 0.05));
+    g.gain.linearRampToValueAtTime(0.0001, end + 0.12);
+    g.connect(dest);
+    // 비브라토: 처음엔 곧게, 0.25초쯤부터 살짝 떨림
+    const lfo = ctx.createOscillator();
+    const lg = ctx.createGain();
+    lfo.frequency.value = 5.4;
+    lg.gain.setValueAtTime(0, t);
+    lg.gain.linearRampToValueAtTime(14, t + 0.3);
+    lfo.connect(lg);
+    lfo.start(t);
+    lfo.stop(end + 0.15);
+    const voice = (m, formants, amp, detunes) => {
+      const vg = ctx.createGain();
+      vg.gain.value = amp;
+      vg.connect(g);
+      const bps = formants.map(([f, q, a]) => {
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = f;
+        bp.Q.value = q;
+        const ag = ctx.createGain();
+        ag.gain.value = a;
+        bp.connect(ag).connect(vg);
+        return bp;
+      });
+      for (const d of detunes) {
+        const o = ctx.createOscillator();
+        o.type = 'sawtooth';
+        o.frequency.value = mtof(m);
+        o.detune.value = d;
+        lg.connect(o.detune);
+        for (const bp of bps) o.connect(bp);
+        o.start(t);
+        o.stop(end + 0.15);
+      }
+    };
+    voice(midi, [[800, 5, 1], [1150, 7, 0.55], [2900, 9, 0.22]], 1, [-9, 0, 8]); // 여자 '아'
+    voice(midi - 12, [[450, 5, 1], [800, 7, 0.4], [2830, 9, 0.12]], 0.45, [-6, 5]); // 남자 '오'
+  }
+
   /** 크래시 심벌 */
   crash(t = this.ctx.currentTime, dest = this.musicBus, vol = 0.5) {
     const ctx = this.ctx;
@@ -920,6 +970,8 @@ export class SongPlayer {
         const dur = n.len * sd * 0.92;
         // 🎄 캐롤: 글로켄슈필이 한 옥타브 위에서 같이 (긴 음만, 너무 시끄럽지 않게)
         if (song.glock && n.len >= 2) a.glock(t, n.midi + 12, this.bus, 0.6 + 0.4 * heat);
+        // 🎤 합창이 멜로디를 같이 부름 (짧은 음은 조금 작게)
+        if (song.choir) a.choir(t, n.midi, n.len * sd * 0.95, this.bus, (n.len >= 2 ? 1 : 0.7) * (0.75 + 0.25 * heat));
         if (!orch) {
           a.lead(t, n.midi, dur, this.bus);
           continue;
