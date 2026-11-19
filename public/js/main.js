@@ -555,15 +555,25 @@ async function fontsReady(extra = '') {
 // 곡 시작은 비동기(악기 소리 불러오기 등)라서, 같은 단계를 빠르게 두 번 누르면 게임이 둘 생겨
 // 먼저 만든 쪽이 카운트인 중에 이미 진행되던 버그가 있었음 → 마지막 호출만 살리고 앞선 호출은 중단
 let startSeq = 0;
+/** 🐢 느리게 연습: 같은 채보를 rate 배 빠르기로 (목숨·기록·랭킹 없음) */
+function practiceLevel(lv, rate) {
+  return { ...lv, bpm: Math.round(lv.bpm * rate * 10) / 10, practice: rate };
+}
+/** 연습으로 칠 수 있는 판인가 (일반 단계만. 무제한·멀티·영상 찍기 X) */
+const canPractice = (lv) => !!lv && !lv.challenge && !lv.studioOnly && !state.studio.active && !document.body.classList.contains('room-game') && !state.auto;
+
 async function startLevel(id, opts = {}) {
-  const lv = playable(id);
-  if (!lv) return;
+  const base = playable(id);
+  if (!base) return;
+  const practice = !opts.room && opts.practice && canPractice(base) ? opts.practice : 0;
+  state.practice = practice;
+  const lv = practice ? practiceLevel(base, practice) : base;
   // 친구 대결 방 판: { startAt(내 시계 ms), mode } — 같은 시각에 시작, 랭킹엔 안 올림
   const room = opts.room || null;
   document.body.classList.toggle('room-game', !!room);
   // 처음 한 번은 박자 보정을 꼭 하고 시작 (영상 찍기·자동 연주는 제외. 대결 방은 '준비' 전에 미리 함)
   if (!room && needsCalibration()) {
-    openCalibration({ required: true, after: () => startLevel(id) });
+    openCalibration({ required: true, after: () => startLevel(id, opts) });
     return;
   }
   const seq = ++startSeq;
@@ -576,14 +586,14 @@ async function startLevel(id, opts = {}) {
   if (state.game) state.game.stop();
   closeModal('modal-pause');
   show('screen-game');
-  $('#hud-lv').textContent = lv.survival ? '⚔️ 서바이벌' : lv.challenge ? (lv.endless ? '무제한' : '챌린지') : lv.studioOnly ? '🎬 릴스용' : levelLabel(lv);
+  $('#hud-lv').textContent = practice ? `🐢 연습 ${Math.round(practice * 100)}%` : lv.survival ? '⚔️ 서바이벌' : lv.challenge ? (lv.endless ? '무제한' : '챌린지') : lv.studioOnly ? '🎬 릴스용' : levelLabel(lv);
   $('#hud-name').textContent = lv.challenge ? `${lv.songName} · ${lv.composer}` : `${lv.name} · ${lv.composer}`;
   $('#hud-score').textContent = '0';
   $('#hud-progress').style.width = '0%';
   closeModal('modal-continue');
   const st = state.studio;
-  renderLives(st.active || state.auto ? null : MAX_LIVES);
-  const vs = !room && !st.active && !lv.challenge && state.vs && state.vs.levelId === id ? state.vs : null;
+  renderLives(st.active || state.auto || practice ? null : MAX_LIVES);
+  const vs = !room && !st.active && !practice && !lv.challenge && state.vs && state.vs.levelId === id ? state.vs : null;
   $('#hud-vs').hidden = !vs && !room;
   if (vs || room) {
     $('#vs-name').textContent = vs ? vs.name : (state.roomClient.realtime ? '⚡' : '') + roomOtherName();
@@ -619,7 +629,7 @@ async function startLevel(id, opts = {}) {
   // 영상 찍기는 팔로우 잠금 없이 (계정 주인이 촬영용으로 씀) → 서버 판 토큰도 안 받음
   // 인증 안 한 사람이 1~3단계를 칠 땐 랭킹에 못 올리니 판 토큰도 안 받음 (서버 요청 아끼기, 통계는 5분마다 따로 감)
   const canRank = isConfirmed() || state.cfg.gateMode === 'open' || isClosed(id);
-  if ((!lv.challenge || lv.endless) && !st.active && !room && canRank) state.api
+  if ((!lv.challenge || lv.endless) && !st.active && !room && !practice && canRank) state.api
     .startRun(id)
     .then((r) => (state.runToken = r.runToken))
     .catch((e) => {
@@ -708,7 +718,7 @@ async function startLevel(id, opts = {}) {
       last.p = p;
     },
     onEnd: (res) => {
-      if (!state.studio.active && !res.auto) trackPlayEnd({ result: res.failed || res.died ? 'fail' : 'clear', score: res.score, stars: res.stars });
+      if (!state.studio.active && !res.auto && !res.practice) trackPlayEnd({ result: res.failed || res.died ? 'fail' : 'clear', score: res.score, stars: res.stars });
       if (room && state.roomClient.active) {
         res.room = { mode: room.mode, round: room.round };
         state.roomClient.send(
@@ -719,7 +729,8 @@ async function startLevel(id, opts = {}) {
       return state.studio.active ? studioFinish(res) : showResult(res);
     },
     // 영상 찍기 땐 목숨 없음 (녹화 중에 멈추면 안 되니까). 멀티는 광고 이어하기 없이 그 자리에서 끝
-    onDeath: st.active ? null : room ? onRoomDeath : onDeath,
+    // 🐢 연습은 목숨 없이 끝까지
+    onDeath: st.active || practice ? null : room ? onRoomDeath : onDeath,
   });
   if (room) {
     // 친구와 같은 시각에 시작: 남은 시간 카운트다운 (Game.start 가 0.35초 뒤에 첫 박을 놓음)
@@ -759,7 +770,7 @@ async function startLevel(id, opts = {}) {
   };
   state.game.start();
   // 영상 찍기·자동 연주는 통계에 안 셈
-  if (!st.active && !state.auto) trackPlayStart(lv.survival ? lv.baseId : id, vs || room ? 'vs' : 'normal');
+  if (!st.active && !state.auto && !practice) trackPlayStart(lv.survival ? lv.baseId : id, vs || room ? 'vs' : 'normal');
 }
 
 /** 단계에 맞게 화면 레인(악기) 세팅 */
@@ -973,9 +984,10 @@ function showResult(res) {
   const wasOpen = { next: nextId == null || !progressLocked(nextId), endless: !progressLocked(ENDLESS_ID), levels: LEVELS.filter((l) => !progressLocked(l.id)).map((l) => l.id) };
   // 목숨 다 써서 끝난 판은 최고 기록에 안 들어감
   // 멀티에서 상대가 먼저 쓰러져 중간에 끝난 판(stopped)도 기록엔 안 남김
-  const best = state.auto || res.failed || res.stopped ? { isNew: false } : saveBest(res);
+  const quiet = state.auto || !!res.practice; // 자동 연주·연습은 기록 안 남김
+  const best = quiet || res.failed || res.stopped ? { isNew: false } : saveBest(res);
   // 이번 판으로 새로 열린 단계 알림
-  if (!state.auto && !res.failed && !res.stopped) {
+  if (!quiet && !res.failed && !res.stopped) {
     if (res.levelId === ENDLESS_FROM && !wasOpen.endless && !progressLocked(ENDLESS_ID)) setTimeout(() => toast('💎 무제한 모드가 열렸어요! 깰수록 빨라져요', 3200), 2600);
     else {
       // 같은 난이도를 하나 깨면 그 난이도가 전부 열림 → 여러 단계가 한 번에 열렸으면 그렇게 알림
@@ -984,7 +996,7 @@ function showResult(res) {
       else if (opened.length === 1) setTimeout(() => toast(`🔓 ${opened[0]}단계가 열렸어요!`, 2600), 2600);
     }
   }
-  $('#res-level').textContent = `${levelLabel(lv)} · ${lv.composer} ${lv.name}`;
+  $('#res-level').textContent = `${res.practice ? `🐢 연습 ${Math.round(res.practice * 100)}% · ` : ''}${levelLabel(lv)} · ${lv.composer} ${lv.name}`;
   $('#screen-result').classList.toggle('failed', !!res.failed);
   const g = $('#res-grade');
   g.textContent = res.grade;
@@ -1007,16 +1019,18 @@ function showResult(res) {
   const timing =
     Math.abs(res.avgOffsetMs) < 15 ? '타이밍 딱 좋아요' : res.avgOffsetMs < 0 ? `평균 ${-res.avgOffsetMs}ms 빨라요` : `평균 ${res.avgOffsetMs}ms 늦어요`;
   const extras = [res.goldTotal ? `✨ 황금 콩 ${res.goldHits}/${res.goldTotal}` : '', res.rollHits ? `💥 연타 ${res.rollHits}번` : ''].filter(Boolean).join(' · ');
-  $('#res-meta').innerHTML = `정확도 ${(res.accuracy * 100).toFixed(1)}% · 최대 콤보 ${res.maxCombo} · ${timing}${extras ? '<br>' + extras : ''}${state.auto ? '<br>(자동 연주 — 기록 저장 안 됨)' : ''}`;
+  $('#res-meta').innerHTML = `정확도 ${(res.accuracy * 100).toFixed(1)}% · 최대 콤보 ${res.maxCombo} · ${timing}${extras ? '<br>' + extras : ''}${state.auto ? '<br>(자동 연주 — 기록 저장 안 됨)' : res.practice ? '<br>(🐢 연습 — 기록·랭킹엔 안 남아요)' : ''}`;
   const next = getLevel(nextOpenId(lv.id));
   const nb = $('#btn-next');
   nb.hidden = false;
   if (next) nb.innerHTML = `다음 ${next.id}단계 ${progressLocked(next.id) ? icon('lock') : ''}`;
   else nb.innerHTML = `💎 무제한 모드 ${progressLocked(ENDLESS_ID) ? icon('lock') : ''}`;
-  $('#btn-rank').hidden = state.auto || res.failed;
+  $('#btn-rank').hidden = quiet || res.failed;
   // 끝까지 친 판은 알아서 랭킹에 올림 (점수 올라가는 연출이 끝날 즈음)
-  if (!state.auto && !res.failed && !res.room) setTimeout(() => submitRank(res), 1800);
-  $('#btn-vs').hidden = state.auto || res.failed;
+  if (!quiet && !res.failed && !res.room) setTimeout(() => submitRank(res), 1800);
+  $('#btn-vs').hidden = quiet || res.failed;
+  $('#btn-practice').hidden = !!res.room || state.auto;
+  $('#btn-practice').textContent = res.practice ? '🐢 연습 빠르기 바꾸기' : '🐢 느리게 연습';
   // 박자가 계속 한쪽으로 밀리면 (블루투스 이어폰 등) 한 번에 맞추기
   const hits = (res.counts.perfect || 0) + (res.counts.great || 0) + (res.counts.good || 0);
   if (!state.auto && hits >= 8 && Math.abs(res.avgOffsetMs) >= 40) {
@@ -1025,7 +1039,7 @@ function showResult(res) {
       $('#res-meta').innerHTML += `<br><button class="btn btn-sm btn-ghost res-tune" data-action="tune-sync" data-offset="${nextOffset}">박자가 안 맞나요? 내 손에 맞게 자동 보정</button>`;
   }
   // 1:1 대결 결과
-  const vs = !state.auto && state.vs && state.vs.levelId === res.levelId ? state.vs : null;
+  const vs = !quiet && state.vs && state.vs.levelId === res.levelId ? state.vs : null;
   const box = $('#res-vs');
   let outcome = null;
   if (vs) {
@@ -1045,6 +1059,7 @@ function showChallengeResult(res) {
   const sv = levelSurvivalBase(res.levelId); // ⚔️ 멀티 서바이벌: 기록·랭킹·다이아 안 남김
   const base = levelEndlessBase(res.levelId) || sv;
   const lv = base || getLevel(8);
+  $('#btn-practice').hidden = true;
   const best = state.auto || sv ? { isNew: false } : saveBest(res);
   $('#res-level').textContent = sv ? `⚔️ 서바이벌 · ${sv.composer} ${sv.name}` : base ? `${base.id}단계 무제한 · ${base.composer} ${base.name}` : `무제한 모드 · ${lv.composer} ${lv.name}`;
   $('#screen-result').classList.remove('failed');
@@ -1167,7 +1182,7 @@ function siteUrl() {
 
 function sendChallenge() {
   const r = state.lastResult;
-  if (!r || r.auto) return;
+  if (!r || r.auto || r.practice) return;
   const nick = load('nick', '');
   if (!nick) {
     $('#nick-input').value = '';
@@ -1211,7 +1226,7 @@ async function submitRank(r = state.lastResult) {
   // 무제한 모드는 목숨이 다해 끝나도 올림 (최소 Lv.1 은 깨야). 영상용 챌린지(ch4 등)는 안 올림
   // 무제한(그리그·단계별)은 곡마다 따로 랭킹
   const endless = !!r && (r.levelId === ENDLESS_ID || !!levelEndlessBase(r.levelId));
-  if (!r || r.auto || (r.challenge && !endless) || (r.failed && !endless) || r.submitted || r.submitting) return;
+  if (!r || r.auto || r.practice || (r.challenge && !endless) || (r.failed && !endless) || r.submitted || r.submitting) return;
   if (endless && !(r.roundsCleared >= 1)) return;
   if (demoOnly() || state.api.mode !== 'server') return;
   // 랭킹은 팔로워 인증(암호)을 받은 사람만 → 안 받았으면 인증 창을 한 번 띄움
@@ -2647,7 +2662,22 @@ const ACTIONS = {
   retry: () => {
     closeModal('modal-pause');
     closeModal('modal-continue');
-    startLevel(state.levelId);
+    startLevel(state.levelId, { practice: state.practice });
+  },
+  'practice-open': () => {
+    if (!canPractice(playable(state.levelId))) {
+      toast('이 판은 연습 모드가 없어요. 일반 단계에서 해 보세요', 2600);
+      return;
+    }
+    openModal('modal-practice');
+  },
+  'practice-close': () => closeModal('modal-practice'),
+  'practice-go': (el) => {
+    const rate = Number(el.dataset.rate) || 0.7;
+    closeModal('modal-practice');
+    closeModal('modal-pause');
+    closeModal('modal-continue');
+    startLevel(state.levelId, { practice: rate });
   },
   quit: () => {
     closeModal('modal-pause');
@@ -2823,7 +2853,7 @@ function bindActions() {
       e.preventDefault();
       // 이어하기 창이 막 뜬 직후에는 버튼 입력 무시 (이미 누르고 있던 손가락이 버튼을 치는 것 방지)
       if (a.closest('#modal-continue') && performance.now() - contOpenedAt < CONT_GUARD_MS) return;
-      ACTIONS[a.dataset.action]();
+      ACTIONS[a.dataset.action](a);
     }
   });
   // 모달 바깥 탭 → 닫기 (일시정지 모달 제외)

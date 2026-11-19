@@ -536,7 +536,7 @@ html.lite .hud-lives i, html.lite .icon-btn.gear-btn img { filter: none; }
 .res-room .room-row b { display: block; font-size: 20px; font-weight: 400; }
 .res-room .room-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 8px; }
 #screen-result.in-room .res-actions, #screen-result.in-room > .result-wrap > .link { display: none; }
-body.room-game #modal-pause [data-action='retry'], body.room-game #modal-continue [data-action='retry'] { display: none; }
+body.room-game #modal-pause [data-action='retry'], body.room-game #modal-continue [data-action='retry'], body.room-game .practice-btn { display: none; }
 
 /* ---------- 싱글 / 멀티 ---------- */
 .mode-row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }

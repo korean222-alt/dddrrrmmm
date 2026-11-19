@@ -704,6 +704,7 @@ export class Game {
       progress: failed || stopped ? Math.max(0, Math.min(1, (failed ? this.diedAt ?? 0 : this.songTime()) / this.endTime)) : 1,
       avgOffsetMs,
       auto: this.auto,
+      practice: this.level.practice || 0,
       timeline: this.timeline.slice(),
       rollHits: this.rollHits,
       goldHits: this.goldHits,
@@ -746,6 +747,7 @@ export class Game {
       progress: 1,
       avgOffsetMs,
       auto: this.auto,
+      practice: this.level.practice || 0,
       timeline: [],
     });
   }

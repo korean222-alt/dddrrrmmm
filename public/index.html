@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=4628e67026" />
+  <link rel="stylesheet" href="css/style.css?v=cc27783238" />
 </head>
 <body>
   <div id="app">
@@ -199,6 +199,7 @@
         <div class="res-actions">
           <button class="btn btn-primary" data-action="retry"><span data-icon="retry"></span> 다시 하기</button>
           <button class="btn btn-hot" data-action="next" id="btn-next">다음 단계</button>
+          <button class="btn btn-ghost practice-btn" data-action="practice-open" id="btn-practice">🐢 느리게 연습</button>
           <button class="btn btn-ghost" data-action="submit-rank" id="btn-rank"><span data-icon="trophy"></span> 랭킹 보기</button>
           <button class="btn btn-ghost" data-action="share"><span data-icon="share"></span> 결과 공유</button>
           <button class="btn btn-vs" data-action="send-vs" id="btn-vs"><span data-icon="swords"></span> 친구에게 1:1 도전장</button>
@@ -224,7 +225,22 @@
       <div class="stack">
         <button class="btn btn-primary" data-action="resume"><span data-icon="play"></span> 계속하기</button>
         <button class="btn btn-ghost" data-action="retry">처음부터</button>
+        <button class="btn btn-ghost practice-btn" data-action="practice-open">🐢 느리게 연습</button>
         <button class="btn btn-ghost" data-action="quit">단계 목록</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal" id="modal-practice" hidden>
+    <div class="sheet small">
+      <h3>🐢 느리게 연습</h3>
+      <p class="muted small">곡을 느리게 해서 연습해요. 목숨이 줄지 않고 끝까지 쳐요 (기록·랭킹엔 안 남아요)</p>
+      <div class="stack">
+        <button class="btn btn-primary" data-action="practice-go" data-rate="0.5">아주 느리게 (50%)</button>
+        <button class="btn btn-primary" data-action="practice-go" data-rate="0.7">느리게 (70%)</button>
+        <button class="btn btn-primary" data-action="practice-go" data-rate="0.85">조금 느리게 (85%)</button>
+        <button class="btn btn-ghost" data-action="practice-go" data-rate="1">원래 빠르기로 연습 (100%)</button>
+        <button class="btn btn-ghost" data-action="practice-close">닫기</button>
       </div>
     </div>
   </div>
@@ -240,6 +256,7 @@
       <div class="stack">
         <button class="btn btn-primary btn-big" data-action="continue-ad" id="btn-continue"><span class="ad-tag">AD</span> 광고 보고 이어하기 <span data-icon="heart" data-e></span>×2</button>
         <button class="btn btn-ghost" data-action="retry"><span data-icon="retry"></span> 처음부터 다시</button>
+        <button class="btn btn-ghost practice-btn" data-action="practice-open">🐢 느리게 연습</button>
         <button class="btn btn-ghost" data-action="give-up">그만하고 결과 보기</button>
       </div>
       <p class="muted small" id="cont-note"></p>
@@ -593,6 +610,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=23f4bbf3fb" defer></script>
+  <script src="js/app.js?v=4006577794" defer></script>
 </body>
 </html>

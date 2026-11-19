@@ -922,15 +922,18 @@ export class SongPlayer {
   _startTrack() {
     const ctx = this.audio.ctx;
     const info = this.level.song.audio;
-    const t0 = this.startTime + this.tempo.barStart(COUNT_IN_BARS) - (info.offset || 0);
+    // 🐢 느리게 연습: 파일도 같은 비율로 느리게 틂 (소리도 조금 낮아짐)
+    const rate = this.level.practice || 1;
+    const t0 = this.startTime + this.tempo.barStart(COUNT_IN_BARS) - (info.offset || 0) / rate;
     const now = ctx.currentTime + 0.03;
     const src = ctx.createBufferSource();
     src.buffer = this.track;
+    src.playbackRate.value = rate;
     const g = ctx.createGain();
     g.gain.value = info.gain ?? 1;
     src.connect(g).connect(this.bus);
     if (t0 >= now) src.start(t0);
-    else if (now - t0 < this.track.duration) src.start(now, now - t0);
+    else if ((now - t0) * rate < this.track.duration) src.start(now, (now - t0) * rate);
     else return;
     this.trackSrc = src;
   }
