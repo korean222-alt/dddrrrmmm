@@ -7690,6 +7690,12 @@ const __m_news = (() => {
 
 const NEWS = [
   {
+    id: '2026-11-19b',
+    date: '11월 19일',
+    title: '곡이 시작 숫자에서 멈추던 것 고침',
+    items: ['🔇 아이폰에서 화면 녹화를 켜거나 제어 센터를 열면 곡이 \'1\' 에서 멈춰 안 넘어가던 것 고쳤어요. 이제 화면을 한 번 톡 누르면 바로 이어져요'],
+  },
+  {
     id: '2026-11-19a',
     date: '11월 19일',
     title: '🎄 크리스마스 이벤트: 데크 더 홀즈',
@@ -9502,7 +9508,7 @@ async function startLevel(id, opts = {}) {
   state.game.onStall = () => {
     if (Date.now() - stallToastAt < 4000) return;
     stallToastAt = Date.now();
-    toast('🔇 폰이 소리를 잠깐 멈췄어요. 화면을 한 번 톡 눌러 주세요', 3000);
+    toast('🔇 폰이 소리를 잠깐 멈췄어요. 화면을 한 번 톡 눌러 주세요 (화면 녹화는 시작 버튼 누르기 전에 켜 두세요)', 3600);
   };
   state.game.start();
   // 영상 찍기·자동 연주는 통계에 안 셈
@@ -10704,7 +10710,7 @@ async function studioStart() {
   renderer.draw({ now: -1, notes: [], approach: 1.5, beatDur: 60 / lv.bpm, combo: 0, score: 0, playing: false }, performance.now() / 1000);
   const box = $('#studio-count');
   box.hidden = false;
-  $('#studio-count-msg').textContent = st.file ? '녹화 준비 중… 화면 그대로 영상으로 저장돼요' : '폰 화면 녹화 켜셨나요? 곧 시작해요';
+  $('#studio-count-msg').textContent = st.file ? '녹화 준비 중… 화면 그대로 영상으로 저장돼요' : '폰 화면 녹화 켜셨나요? 곧 시작해요 (곡이 멈추면 화면을 톡)';
   for (const n of ['3', '2', '1']) {
     $('#studio-count-num').textContent = n;
     await new Promise((r) => setTimeout(r, 800));
@@ -11609,6 +11615,16 @@ function bindActions() {
   const wake = () => audio.unlock().then(() => audio.loadPiano()).then(() => audio.orchOn && audio.loadOrch());
   window.addEventListener('pointerdown', wake, { once: true, capture: true });
   window.addEventListener('keydown', wake, { once: true, capture: true });
+  // 폰이 소리를 멈췄으면(아이폰: 화면 녹화 켜기·제어 센터·전화·알림 등) 다음 터치에서 다시 켬.
+  //   iOS 는 터치 이벤트 안에서 resume() 해야만 켜짐 → 게임 루프(rAF)에서 부르는 resume() 만으론 영영 멈춰 있었음
+  //   (곡이 '1' 에서 멈춘 채 안 넘어가던 것). 화면 어디를 눌러도 되게 window 에서 받음
+  const revive = () => {
+    const ctx = audio.ctx;
+    if (!ctx || ctx.state === 'running' || ctx.state === 'closed') return;
+    ctx.resume().catch(() => {});
+    audio.resetClock();
+  };
+  for (const ev of ['touchstart', 'touchend', 'pointerdown', 'pointerup', 'keydown']) window.addEventListener(ev, revive, { capture: true, passive: true });
 
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
