@@ -333,6 +333,11 @@ test('같은 난이도 하나를 깨면 그 난이도 단계가 전부 열림 (�
   const d = { 16: { stars: 3 } };
   assert.ok(isUnlocked(13, d) && !isUnlocked(12, d));
   assert.equal(unlockHint(10, {}).short, '9단계 깨면 열림');
+  // 같은 난이도는 첫 단계(9) 하나만 깨면 전부 열리므로 11·12도 '9단계'로 안내 (10·11단계가 아니라)
+  assert.equal(unlockHint(11, {}).short, '9단계 깨면 열림');
+  assert.equal(unlockHint(12, {}).short, '9단계 깨면 열림');
+  assert.equal(unlockHint(14, {}).short, '13단계 깨면 열림');
+  assert.equal(unlockHint(9, {}).short, '8단계 깨면 열림');
 });
 
 test('⚔️ 멀티 서바이벌: 곡 전체를 원래 빠르기로 한 번 → 그 뒤 4마디마다 빨라지며 끝없이, 상대가 지면 내 판도 바로 끝', async () => {

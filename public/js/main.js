@@ -329,7 +329,7 @@ function progressLockText(id) {
   const h = unlockHint(id, loadBests());
   return h && h.tier
     ? `${h.word} 단계를 아무거나 하나 별 1개 이상으로 깨면 ${h.word} 단계가 전부 열려요`
-    : `${prevOpenId(id)}단계를 별 1개 이상으로 깨면 ${id}단계가 열려요`;
+    : `${h && h.prev ? h.prev : prevOpenId(id)}단계를 별 1개 이상으로 깨면 ${id}단계가 열려요`;
 }
 const LOCK_FROM_PREV = (id) => (id === ENDLESS_ID ? `${ENDLESS_FROM}단계 깨면 열림` : (unlockHint(id, loadBests()) || { short: `${prevOpenId(id)}단계 깨면 열림` }).short);
 const CLOSED_META = () => `<span class="lockline">${icon('lock')} 팔로워 암호</span>`;

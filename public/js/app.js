@@ -1363,7 +1363,11 @@ function unlockHint(levelId, bests) {
   if (!lv) return null;
   const word = DIFFICULTY_WORDS[lv.difficulty];
   const near = tierOf(levelId).some((id) => id !== lv.id && isUnlocked(id, bests));
-  return near ? { tier: true, word, short: `${word} 단계 하나만 깨면 열림` } : { tier: false, word, prev: prevOpenId(levelId), short: `${prevOpenId(levelId)}단계 깨면 열림` };
+  if (near) return { tier: true, word, short: `${word} 단계 하나만 깨면 열림` };
+  // 같은 난이도는 하나만 깨면 전부 열리므로, 난이도 첫 단계가 아닌 카드는 '그 난이도 첫 단계'를 깨라고 안내 (10·11·12 → 9단계)
+  const first = tierOf(levelId)[0];
+  const prev = first !== undefined && first !== lv.id ? first : prevOpenId(levelId);
+  return { tier: false, word, prev, short: `${prev}단계 깨면 열림` };
 }
 /** 아직 안 깬 첫 단계 (잠긴 단계는 건너뜀. 다 깼으면 무제한 모드) */
 function nextChallenge(bests) {
@@ -9381,7 +9385,7 @@ function progressLockText(id) {
   const h = unlockHint(id, loadBests());
   return h && h.tier
     ? `${h.word} 단계를 아무거나 하나 별 1개 이상으로 깨면 ${h.word} 단계가 전부 열려요`
-    : `${prevOpenId(id)}단계를 별 1개 이상으로 깨면 ${id}단계가 열려요`;
+    : `${h && h.prev ? h.prev : prevOpenId(id)}단계를 별 1개 이상으로 깨면 ${id}단계가 열려요`;
 }
 const LOCK_FROM_PREV = (id) => (id === ENDLESS_ID ? `${ENDLESS_FROM}단계 깨면 열림` : (unlockHint(id, loadBests()) || { short: `${prevOpenId(id)}단계 깨면 열림` }).short);
 const CLOSED_META = () => `<span class="lockline">${icon('lock')} 팔로워 암호</span>`;
