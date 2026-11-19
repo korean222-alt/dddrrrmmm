@@ -105,10 +105,11 @@ export class JsonStore {
     for (const p of Object.values(this.data.players)) {
       if (!p.username) continue;
       const bs = Object.entries(p.bests || {}).filter(([lv]) => Number(lv) > 0);
+      const top = bs.map(([lv]) => Number(lv)).filter((lv) => lv <= LAST_LEVEL_ID).reduce((a, b) => Math.max(a, b), 0);
       rows.push({
         igsid: p.igsid, username: p.username, ig: p.ig || null, createdAt: p.createdAt || null, checkedAt: p.checkedAt || null,
         hiddenAt: p.hiddenAt || null,
-        total: bs.reduce((a, [, b]) => a + b.score, 0), levels: bs.length, endless: p.bests && p.bests[0] ? p.bests[0].score : null,
+        total: bs.reduce((a, [, b]) => a + b.score, 0), levels: bs.length, top, endless: p.bests && p.bests[0] ? p.bests[0].score : null,
       });
     }
     return sortPlayers(rows);
@@ -336,9 +337,9 @@ export class JsonStore {
   }
 
   // ----- 기록 되찾기 요청 -----
-  addRecoverRequest({ token, at, nick, oldIg, nowIg, memo }) {
+  addRecoverRequest({ token, at, nick, oldIg, nowIg, memo, fromIgsid }) {
     const id = this.data.recoverRequests.reduce((m, r) => Math.max(m, r.id), 0) + 1;
-    this.data.recoverRequests.push({ id, token, at, nick: nick ?? null, oldIg: oldIg ?? null, nowIg: nowIg ?? null, memo: memo ?? null, status: 'wait', igsid: null, doneAt: null });
+    this.data.recoverRequests.push({ id, token, at, nick: nick ?? null, oldIg: oldIg ?? null, nowIg: nowIg ?? null, memo: memo ?? null, fromIgsid: fromIgsid ?? null, status: 'wait', igsid: null, doneAt: null });
     this._save();
     return id;
   }

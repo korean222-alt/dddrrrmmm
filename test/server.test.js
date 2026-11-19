@@ -776,6 +776,22 @@ test('📮 되찾기 요청: 암호 필요 → admin 에 후보와 함께 → �
   // 토큰 모르면 못 가져감
   assert.equal((await client()('POST', '/api/recover-request/status', { token: 'x'.repeat(30) })).status, 404);
 
+  assert.equal(cand.top, 2, '깬 가장 높은 단계');
+
+  // 새 주소에서 같은 닉네임으로 새 계정을 만든 폰이 보내면: 그 새 계정은 후보에서 빠지고 'from' 으로 따로
+  const p3 = client();
+  await p3('POST', '/api/verify/password', { name: '새로온', ig: 'new.one', password: '시험1234' });
+  const oldAcc = client();
+  await oldAcc('POST', '/api/verify/password', { name: '새로온', ig: 'old_one_77', password: '시험1234' });
+  const run3 = (await oldAcc('POST', '/api/runs', { level: 1 })).json.runToken;
+  await oldAcc('POST', '/api/scores', { runToken: run3, level: 1, ...perfectRun(1) });
+  await p3('POST', '/api/recover-request', { nick: '새로온', nowIg: 'new.one', password: '시험1234' });
+  const r3 = (await p3('GET', '/api/admin/recover-requests', null, adm)).json.requests.find((x) => x.nowIg === 'new.one');
+  assert.equal(r3.from.ig, 'new.one');
+  assert.equal(r3.fromIgsid, undefined);
+  assert.equal(r3.candidates.length, 1);
+  assert.equal(r3.candidates[0].ig, 'old_one_77');
+
   // 못 찾음 처리
   const p2 = client();
   const s2 = await p2('POST', '/api/recover-request', { nick: '없는사람', nowIg: 'nobody.here', password: '시험1234' });
