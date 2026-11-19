@@ -462,14 +462,14 @@ END $$`);
       params
     );
   }
-  /** [from, to) 에 시작한 접속·판 원본 (최대 10만 줄) + 이 기간에 처음 온 방문자 */
+  /** [from, to) 에 시작한 접속·판 원본 (한도 없음) + 이 기간에 처음 온 방문자 */
   async statsRaw(from, to) {
     const sessions = await this.q(
-      `SELECT sid, vid, started_at, active_sec, ref, device FROM sessions WHERE started_at >= $1 AND started_at < $2 LIMIT 100000`,
+      `SELECT sid, vid, started_at, active_sec, ref, device FROM sessions WHERE started_at >= $1 AND started_at < $2`,
       [from, to]
     );
     const plays = await this.q(
-      `SELECT id, vid, level, started_at, result, score, stars, sec FROM plays WHERE started_at >= $1 AND started_at < $2 LIMIT 100000`,
+      `SELECT id, vid, level, started_at, result, score, stars, sec FROM plays WHERE started_at >= $1 AND started_at < $2`,
       [from, to]
     );
     const fresh = await this.q('SELECT vid FROM sessions GROUP BY vid HAVING MIN(started_at) >= $1 AND MIN(started_at) < $2', [from, to]);
