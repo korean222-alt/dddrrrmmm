@@ -594,13 +594,13 @@ export function createHandler(cfg, { store }) {
               if (r.nowIg && igSimilar(x.ig, r.nowIg)) why.push(norm(x.ig) === norm(r.nowIg) ? '지금 아이디 같음' : '지금 아이디 비슷');
               // 아이디 칸에 닉네임을 적었거나 그 반대
               if (!why.length && r.oldIg && squash(x.username) === squash(r.oldIg)) why.push('닉네임이 예전 아이디와 같음');
-              return { igsid: x.igsid, username: x.username, ig: x.ig, total: x.total, levels: x.levels, top: x.top || 0, checked: !!x.checkedAt, why };
+              return { igsid: x.igsid, username: x.username, ig: x.ig, total: x.total, levels: x.levels, top: x.top || 0, endless: x.endless ? endlessParts(x.endless).rounds : 0, checked: !!x.checkedAt, why };
             })
             .filter((x) => x.why.length)
             // 점수가 있는 계정 먼저 (점수 0 = 새로 만든 계정일 가능성이 큼)
             .sort((a, b) => (b.total > 0) - (a.total > 0) || b.why.length - a.why.length || b.top - a.top || b.total - a.total)
             .slice(0, 6);
-          const fromAcc = from ? { igsid: from.igsid, username: from.username, ig: from.ig, total: from.total, levels: from.levels, top: from.top || 0 } : null;
+          const fromAcc = from ? { igsid: from.igsid, username: from.username, ig: from.ig, total: from.total, levels: from.levels, top: from.top || 0, endless: from.endless ? endlessParts(from.endless).rounds : 0 } : null;
           return { ...rest, from: fromAcc, candidates };
         });
         return json(200, { requests: out });

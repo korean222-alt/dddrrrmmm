@@ -327,7 +327,7 @@
             const cands = x.status === 'wait'
               ? (x.candidates.length
                   ? x.candidates.map((c) => `<div style="display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:6px;padding:8px;border-radius:10px;background:rgba(0,0,0,.04)">
-                      <div style="min-width:0"><b>${esc(c.username)}</b> ${igLink(c.ig)}<div class="meta">${esc(c.why.join(' · '))} · ${c.top ? `${c.top}단계까지 (${c.levels}곡)` : `${c.levels}곡`} · 총 ${fmtN(c.total)}점${c.checked ? '' : ' · 미인증'}${c.total ? '' : ' · <b style="color:var(--bad)">점수 없음 — 새로 만든 계정일 수 있어요</b>'}</div></div>
+                      <div style="min-width:0"><b>${esc(c.username)}</b> ${igLink(c.ig)}<div class="meta">${esc(c.why.join(' · '))} · ${c.top ? `${c.top}단계까지 (${c.levels}곡)` : `${c.levels}곡`} · 총 ${fmtN(c.total)}점${c.endless ? ` · 💎 무제한 ${c.endless}단계` : ''}${c.checked ? '' : ' · 미인증'}${c.total ? '' : ' · <b style="color:var(--bad)">점수 없음 — 새로 만든 계정일 수 있어요</b>'}</div></div>
                       <button type="button" data-do="approve" data-igsid="${esc(c.igsid)}" data-name="${esc(c.username)}" style="white-space:nowrap;flex:none">승인</button></div>`).join('')
                   : '<div class="meta" style="margin-top:6px">맞는 계정을 못 찾았어요. 랭킹 참여자 탭에서 직접 찾아보세요.</div>')
               : x.status === 'done'
@@ -338,7 +338,7 @@
               <div style="margin-top:4px">예전 닉네임 <b>${esc(x.nick || '-')}</b> · 예전 아이디 <b>${esc(x.oldIg || '-')}</b></div>
               <div>지금 인스타 ${igLink(x.nowIg)}</div>
               ${x.memo ? `<div style="white-space:pre-wrap;word-break:break-word;margin-top:4px">💬 ${esc(x.memo)}</div>` : ''}
-              ${x.status === 'wait' && x.from ? `<div class="meta" style="margin-top:4px">📱 이 폰이 지금 쓰는 계정: <b>${esc(x.from.username)}</b> ${x.from.ig ? '@' + esc(x.from.ig) : ''} · ${x.from.top ? x.from.top + '단계까지' : '깬 단계 없음'} · 총 ${fmtN(x.from.total)}점 (후보에서 뺌)</div>` : ''}
+              ${x.status === 'wait' && x.from ? `<div class="meta" style="margin-top:4px">📱 이 폰이 지금 쓰는 계정: <b>${esc(x.from.username)}</b> ${x.from.ig ? '@' + esc(x.from.ig) : ''} · ${x.from.top ? x.from.top + '단계까지' : '깬 단계 없음'} · 총 ${fmtN(x.from.total)}점${x.from.endless ? ` · 💎 무제한 ${x.from.endless}단계` : ''} (후보에서 뺌)</div>` : ''}
               ${cands}</div>
               <div class="acts">${x.status === 'wait' ? '<button type="button" class="ghost" data-do="reject">못 찾음</button>' : '<button type="button" class="ghost" data-do="undo">되돌리기</button>'}
               <button type="button" class="ghost" data-do="del" style="color:var(--bad)">삭제</button></div></li>`;

@@ -777,6 +777,7 @@ test('📮 되찾기 요청: 암호 필요 → admin 에 후보와 함께 → �
   assert.equal((await client()('POST', '/api/recover-request/status', { token: 'x'.repeat(30) })).status, 404);
 
   assert.equal(cand.top, 2, '깬 가장 높은 단계');
+  assert.equal(cand.endless, 0, '무제한 기록 없음');
 
   // 새 주소에서 같은 닉네임으로 새 계정을 만든 폰이 보내면: 그 새 계정은 후보에서 빠지고 'from' 으로 따로
   const p3 = client();
