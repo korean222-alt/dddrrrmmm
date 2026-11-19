@@ -14,6 +14,9 @@ export function makeConfig(env = {}) {
     statsTzMin: env.STATS_TZ_MIN && Number.isFinite(Number(env.STATS_TZ_MIN)) ? Number(env.STATS_TZ_MIN) : 540,
     // 팔로워 암호 (키티챗이 팔로워에게만 DM 으로 주는 암호). 관리자 화면에서 바꾸면 DB 값이 우선
     followPassword: env.FOLLOW_PASSWORD || '',
+    // 🆓 암호 없이 '임시 인증' 받는 기간의 끝 (ms). 관리자 화면에서 바꾸면 DB 값이 우선. 0 이면 꺼짐
+    //   2026-11-19 인스타 DM 7일 금지 → 11/26 23:59(한국)까지. 테스트는 FREE_PASS_UNTIL=0
+    freePassUntil: env.FREE_PASS_UNTIL !== undefined && env.FREE_PASS_UNTIL !== '' ? Number(env.FREE_PASS_UNTIL) || 0 : Date.UTC(2026, 10, 26, 14, 59, 59),
     // 건의함을 매일 읽는 봇용 읽기 전용 토큰 (GET /api/bot/suggestions?token=…). 비어 있으면 봇 주소 꺼짐
     botToken: env.SUGGEST_BOT_TOKEN || '',
     instagramHandle: (env.INSTAGRAM_HANDLE || '').replace(/^@/, ''),

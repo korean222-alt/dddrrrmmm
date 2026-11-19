@@ -146,13 +146,26 @@ export class JsonStore {
     if (n) this._save();
     return n;
   }
+  /** on: true(인증 완료) / 'temp'(암호 없이 임시 인증 = 음수 시각) / false(풀기) */
   setChecked(igsid, on) {
     const p = this.data.players[igsid];
     if (!p) return false;
-    p.checkedAt = on ? Date.now() : null;
+    p.checkedAt = on === 'temp' ? -Date.now() : on ? Date.now() : null;
     if (on) p.hiddenAt = null;
     this._save();
     return true;
+  }
+  /** 임시 인증 기간이 끝남 → 임시 인증(음수)만 풀기 */
+  expireTempChecks() {
+    let n = 0;
+    for (const p of Object.values(this.data.players)) {
+      if (p.checkedAt < 0) {
+        p.checkedAt = null;
+        n++;
+      }
+    }
+    if (n) this._save();
+    return n;
   }
   recordScore(igsid, level, entry) {
     const p = this.data.players[igsid];

@@ -26,6 +26,7 @@ before(async () => {
     MIN_RUN_RATIO: '0',
     ADMIN_TOKEN: 'admin-pw',
     FOLLOW_PASSWORD: '시험1234',
+    FREE_PASS_UNTIL: '0',
     SUGGEST_BOT_TOKEN: 'bot-token-123',
   });
   // TEST_PG=1: Vercel 과 같은 Postgres 저장소(PgStore)를 메모리 Postgres(PGlite)로 시험
@@ -134,6 +135,40 @@ test('팔로워 암호: 틀리면 아무것도 안 생김 / 맞으면 바로 인
   // 빈 값이면 환경변수 암호로 돌아감
   await c('POST', '/api/admin/follow-password', { password: '' }, adm);
   assert.deepEqual((await c('GET', '/api/admin/follow-password', null, adm)).json, { password: '시험1234', source: 'env' });
+});
+
+test('🆓 암호 없이 임시 인증 기간: 닉네임·아이디만으로 열림 / 되찾기는 암호 필요 / 기간이 끝나면 임시 인증만 풀림', async () => {
+  const c = client();
+  assert.equal((await c('POST', '/api/admin/free-pass', { until: Date.now() + 3600e3 })).status, 401);
+  assert.equal((await c('POST', '/api/admin/free-pass', { until: Date.now() + 3600e3 }, adm)).json.on, true);
+  assert.ok((await c('GET', '/api/health?boot=1')).json.config.freePassUntil > Date.now());
+  // 암호 없이 → 임시 인증 (전부 열림)
+  const t = await c('POST', '/api/verify/password', { name: '임시왕', ig: 'temp.me' });
+  assert.equal(t.status, 200);
+  assert.equal(t.json.confirmed, true);
+  assert.equal(t.json.temp, true);
+  assert.equal((await c('POST', '/api/runs', { level: 4 })).status, 200);
+  // 예전 기록 되찾기는 진짜 암호가 있어야 함
+  assert.equal((await client()('POST', '/api/verify/password', { ig: 'temp.me', restore: true })).json.error, 'need_password');
+  // 암호를 아는 사람은 그대로 인증 완료 (임시 아님) → 다시 암호 없이 해도 임시로 안 내려감
+  const c2 = client();
+  const k = await c2('POST', '/api/verify/password', { name: '암호있음', ig: 'real.me', password: '시험1234' });
+  assert.equal(k.json.temp, false);
+  assert.equal((await c2('POST', '/api/verify/password', {})).json.temp, false);
+  // 기간 끝 (관리자가 끔) → 임시 인증만 풀림
+  assert.equal((await c('POST', '/api/admin/free-pass', { until: 0 }, adm)).json.on, false);
+  assert.equal((await c('GET', '/api/me')).json.confirmed, false);
+  assert.equal((await c('POST', '/api/runs', { level: 4 })).status, 403);
+  assert.equal((await c2('GET', '/api/me')).json.confirmed, true);
+  assert.equal((await c('POST', '/api/verify/password', {})).json.error, 'wrong_password');
+  assert.equal((await c('GET', '/api/health?boot=1')).json.config.freePassUntil, 0);
+  // 기간이 저절로 지나도: 다음 접속 때 임시 인증만 풀림
+  await c('POST', '/api/admin/free-pass', { until: Date.now() + 300 }, adm);
+  assert.equal((await c('POST', '/api/verify/password', {})).json.temp, true);
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal((await c('GET', '/api/health?boot=1')).json.me.confirmed, false);
+  assert.equal((await c2('GET', '/api/me')).json.confirmed, true);
+  assert.equal((await c('GET', '/api/admin/free-pass', null, adm)).json.until, 0);
 });
 
 test('정적 파일과 헬스체크', async () => {
@@ -269,7 +304,7 @@ test('단계별 무제한: 인증 신청만으론 잠김, 운영자 확인(인�
 test('단계별 무제한: 곡마다 따로 랭킹 (그리그 무제한·다른 단계·총 등수와 안 섞임) — 잠금을 푼(GATE_MODE=open) 서버로', async (t) => {
   if (process.env.TEST_BASE) return t.skip('이미 떠 있는 서버엔 잠금 해제 설정을 못 줌');
   const tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), 'kk2-'));
-  const { server: s2 } = createApp(loadConfig({ SESSION_SECRET: 'test-secret-2', DATA_FILE: path.join(tmp2, 'db.json'), GATE_MODE: 'open', INSTAGRAM_HANDLE: 'ok_aystra', MIN_RUN_RATIO: '0', ADMIN_TOKEN: 'admin-pw' }));
+  const { server: s2 } = createApp(loadConfig({ SESSION_SECRET: 'test-secret-2', DATA_FILE: path.join(tmp2, 'db.json'), GATE_MODE: 'open', INSTAGRAM_HANDLE: 'ok_aystra', MIN_RUN_RATIO: '0', ADMIN_TOKEN: 'admin-pw', FREE_PASS_UNTIL: '0' }));
   await new Promise((r) => s2.listen(0, r));
   const saved = base;
   base = `http://127.0.0.1:${s2.address().port}`;
@@ -675,7 +710,7 @@ test('📦 옛 주소 다리: 같은 폰이면 싱크 보정까지 넘김', asyn
 
 test('📦 되찾기: 새 주소에서 아이디만 적어 생긴 중복 계정은 예전 계정으로 합쳐짐 (따로 띄운 서버: 닉네임 요청 제한 안 걸리게)', async (t) => {
   const tmp3 = fs.mkdtempSync(path.join(os.tmpdir(), 'kk-dup-'));
-  const { server: s3 } = createApp(loadConfig({ SESSION_SECRET: 's3', DATA_FILE: path.join(tmp3, 'db.json'), GATE_MODE: 'soft', MIN_RUN_RATIO: '0', ADMIN_TOKEN: 'admin-pw', FOLLOW_PASSWORD: '시험1234' }));
+  const { server: s3 } = createApp(loadConfig({ SESSION_SECRET: 's3', DATA_FILE: path.join(tmp3, 'db.json'), GATE_MODE: 'soft', MIN_RUN_RATIO: '0', ADMIN_TOKEN: 'admin-pw', FOLLOW_PASSWORD: '시험1234', FREE_PASS_UNTIL: '0' }));
   await new Promise((r) => s3.listen(0, r));
   t.after(() => {
     s3.close();

@@ -311,9 +311,15 @@ END $$`);
     return r.length;
   }
   async setChecked(igsid, on) {
-    // 확인함 = 숨김도 풀림
-    const r = await this.q('UPDATE players SET checked_at = $2, hidden_at = CASE WHEN $2::BIGINT IS NULL THEN hidden_at ELSE NULL END WHERE igsid = $1 RETURNING igsid', [igsid, on ? Date.now() : null]);
+    // 확인함 = 숨김도 풀림. on === 'temp' 는 암호 없이 받은 임시 인증 → 음수 시각으로 표시
+    const v = on === 'temp' ? -Date.now() : on ? Date.now() : null;
+    const r = await this.q('UPDATE players SET checked_at = $2, hidden_at = CASE WHEN $2::BIGINT IS NULL THEN hidden_at ELSE NULL END WHERE igsid = $1 RETURNING igsid', [igsid, v]);
     return r.length === 1;
+  }
+  /** 임시 인증 기간이 끝남 → 임시 인증(음수)만 풀기 */
+  async expireTempChecks() {
+    const r = await this.q('UPDATE players SET checked_at = NULL WHERE checked_at < 0 RETURNING igsid', []);
+    return r.length;
   }
   /** 최고점이면 바꿈. DB 왕복 1번 (참여자 확인 + 예전 점수 + 저장을 한 문장으로) */
   async recordScore(igsid, level, entry) {

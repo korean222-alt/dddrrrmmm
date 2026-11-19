@@ -101,6 +101,12 @@
           <div style="display:flex;gap:8px"><input id="fp-input" maxlength="40" autocomplete="off" style="flex:1" /><button type="button" id="fp-save">저장</button></div>
           <div class="msg" id="fp-msg"></div>
         </div>
+        <div class="card" id="free-card">
+          <div class="head"><b>🆓 암호 없이 임시 인증</b><span class="muted" id="free-state"></span></div>
+          <p class="muted" style="margin:6px 0">인스타 DM 이 막혔을 때용. 이 날짜까지는 닉네임·인스타 아이디만으로 <b>임시 인증</b>돼요. 날짜가 지나거나 '끄기'를 누르면 <b>임시 인증한 사람만 풀려서</b> 팔로워 암호로 다시 인증해야 해요.</p>
+          <div style="display:flex;gap:8px;flex-wrap:wrap"><input type="datetime-local" id="free-until" style="flex:1;min-width:180px" /><button type="button" id="free-save">저장</button><button type="button" class="ghost" id="free-off" style="color:var(--bad)">끄기</button></div>
+          <div class="msg" id="free-msg"></div>
+        </div>
         <div class="card"><div class="head"><b id="players-count"></b><span><button type="button" class="ghost" id="players-purge" hidden style="color:var(--bad)">미인증 전부 삭제</button> <button type="button" class="ghost" id="players-reload">새로고침</button></span></div><input type="search" id="players-q" placeholder="닉네임·인스타 아이디로 찾기" style="width:100%;box-sizing:border-box;margin:8px 0;padding:10px 12px;font-size:16px;border-radius:10px;border:1px solid #ccc" /><ul id="players"></ul></div>
       </section>
       <section id="tab-stats">
@@ -233,7 +239,7 @@
               ? `<a href="https://www.instagram.com/${esc(p.ig)}/" target="_blank" rel="noopener" style="color:var(--pink)">@${esc(p.ig)}</a>`
               : '<span class="meta">인스타 아이디 없음</span>';
             return `<li data-igsid="${esc(p.igsid)}"><div><div><b>${esc(p.username)}</b> ${id}</div>
-              <div class="meta">${old ? '미인증' : '인증'} · ${ago(p.createdAt)} · 총 ${fmtN(p.total)}점 (${p.levels}단계)${p.endless != null ? ' · 무제한 Lv.' + Math.floor(p.endless / 1000000000) : ''}</div></div>
+              <div class="meta">${old ? '미인증' : p.checkedAt < 0 ? '🆓 임시 인증' : '인증'} · ${ago(p.createdAt)} · 총 ${fmtN(p.total)}점 (${p.levels}단계)${p.endless != null ? ' · 무제한 Lv.' + Math.floor(p.endless / 1000000000) : ''}</div></div>
               <div class="acts"><button type="button" class="ghost" data-do="recover">되찾기 코드</button> <button type="button" class="ghost" data-do="delete" style="color:var(--bad)">삭제</button></div></li>`;
           }).join('')
         : `<li class="empty">${old ? '미인증 참가자가 없어요.' : '아직 인증한 사람이 없어요.'}</li>`;
@@ -281,6 +287,31 @@
       $('#fp-input').value = r.data.password || '';
       $('#fp-src').textContent = r.data.source === 'admin' ? '여기서 정한 값' : r.data.source === 'env' ? '환경변수 값' : '없음 (암호 인증 꺼짐)';
     }
+    const localDT = (ms) => {
+      const d = new Date(ms - new Date().getTimezoneOffset() * 60000);
+      return d.toISOString().slice(0, 16);
+    };
+    async function loadFreePass() {
+      const r = await call('GET', '/api/admin/free-pass');
+      if (r.status !== 200) return;
+      $('#free-state').textContent = r.data.on ? `켜짐 · ${new Date(r.data.until).toLocaleString('ko-KR')}까지` : '꺼짐';
+      $('#free-until').value = r.data.on ? localDT(r.data.until) : localDT(Date.now() + 7 * 86400000);
+    }
+    async function saveFreePass(until) {
+      const r = await call('POST', '/api/admin/free-pass', { until });
+      $('#free-msg').textContent = r.status === 200 ? (r.data.on ? '저장했어요.' : `껐어요. 임시 인증 ${r.data.expired || 0}명이 풀렸어요.`) : '날짜를 확인해 주세요 (60일 안).';
+      $('#free-msg').className = 'msg ' + (r.status === 200 ? 'ok' : 'bad');
+      loadFreePass();
+      loadPlayers();
+    }
+    $('#free-save').addEventListener('click', () => {
+      const t = new Date($('#free-until').value).getTime();
+      if (!t) return;
+      saveFreePass(t);
+    });
+    $('#free-off').addEventListener('click', () => {
+      if (confirm('임시 인증을 끌까요?\n암호 없이 임시 인증한 사람들이 전부 풀려서 팔로워 암호로 다시 인증해야 해요.')) saveFreePass(0);
+    });
     $('#fp-save').addEventListener('click', async () => {
       const v = $('#fp-input').value.trim();
       const r = await call('POST', '/api/admin/follow-password', { password: v });
@@ -301,8 +332,10 @@
       else if (b.dataset.tab !== 'stats') {
         playersView = b.dataset.tab === 'old' ? 'old' : 'ig';
         $('#fp-card').hidden = playersView === 'old';
+        $('#free-card').hidden = playersView === 'old';
         loadPlayers();
         loadFollowPass();
+        loadFreePass();
       }
     });
 

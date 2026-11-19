@@ -177,6 +177,33 @@ export function createHandler(cfg, { store }) {
     return s || cfg.followPassword || '';
   }
 
+  // 🆓 암호 없이 '임시 인증' (2026-11-19 인스타 DM 7일 금지 → 팔로워 암호를 못 보냄)
+  //   기간(freePassUntil) 안에는 닉네임 + 인스타 아이디만으로 인증. 임시 인증은 checked_at 을 음수(-시각)로 저장
+  //   기간이 끝나면 접속 때 음수인 사람만 인증이 풀림 → 팔로워 암호로 다시 인증. 관리자 화면에서 끝을 바꿀 수 있음
+  //   설정은 인스턴스마다 1분 캐시 (DB 왕복 줄이기)
+  let fpCache = { at: 0, until: 0 };
+  async function freePassUntil(fresh = false) {
+    const now = Date.now();
+    if (fresh || now - fpCache.at > 60 * 1000) {
+      const s = await store.getSetting('freePassUntil');
+      fpCache = { at: now, until: s === null ? cfg.freePassUntil : Number(s) || 0 };
+    }
+    return fpCache.until;
+  }
+  const freePassOn = async () => Date.now() < (await freePassUntil());
+  /** 기간이 끝났으면 임시 인증 풀기 (한 번 풀고 나면 설정을 0 으로 → 다음부턴 안 돎) */
+  async function expireTempMaybe() {
+    const until = await freePassUntil();
+    if (!until || Date.now() < until) return;
+    try {
+      await store.expireTempChecks();
+      await store.setSetting('freePassUntil', '0');
+      fpCache = { at: Date.now(), until: 0 };
+    } catch (e) {
+      console.error('[free-pass]', e);
+    }
+  }
+
   /** 관리자 비밀번호 확인 (길이 같을 때만 한 글자씩 비교) */
   function isAdmin(request) {
     return sameToken(request.headers.get('x-admin-token') || '', cfg.adminToken);
@@ -208,7 +235,7 @@ export function createHandler(cfg, { store }) {
   const isConfirmed = (pl) => isVerified(pl) && !!pl.checkedAt;
   /** /api/me · /api/guest 응답 */
   const meOf = (pl) => ({
-    verified: false, guest: true, needsIg: !pl.ig, checked: isVerified(pl), confirmed: isConfirmed(pl),
+    verified: false, guest: true, needsIg: !pl.ig, checked: isVerified(pl), confirmed: isConfirmed(pl), temp: isConfirmed(pl) && pl.checkedAt < 0,
     hidden: pl.hiddenAt ? { deleteAt: pl.hiddenAt + HIDE_KEEP_MS } : null,
     player: { username: pl.username, ig: pl.ig },
   });
@@ -292,12 +319,13 @@ export function createHandler(cfg, { store }) {
     // ?boot=1: 첫 화면에 필요한 것(설정 + 내 정보)을 한 번에 → 접속 한 번에 요청 3개 → 1개 (Vercel 요청 수 아끼기)
     if (p === '/api/health') {
       if (url.searchParams.get('boot') !== '1') return json(200, { ok: true, app: 'okaystra' });
+      await expireTempMaybe();
       const pl = await getPlayer(request);
       if (pl) await purgeMaybe();
       return json(200, {
         ok: true,
         app: 'okaystra',
-        config: { gateMode: cfg.gateMode, instagramHandle: cfg.instagramHandle, siteUrl: cfg.siteUrl },
+        config: { gateMode: cfg.gateMode, instagramHandle: cfg.instagramHandle, siteUrl: cfg.siteUrl, freePassUntil: (await freePassOn()) ? await freePassUntil() : 0 },
         me: pl ? meOf(pl) : { verified: false },
       });
     }
@@ -307,11 +335,13 @@ export function createHandler(cfg, { store }) {
         gateMode: cfg.gateMode,
         instagramHandle: cfg.instagramHandle,
         siteUrl: cfg.siteUrl,
+        freePassUntil: (await freePassOn()) ? await freePassUntil() : 0,
       });
     }
 
     // 랭킹 닉네임이 있으면 guest:true (인스타 아이디 인증은 없어짐)
     if (p === '/api/me' && m === 'GET') {
+      await expireTempMaybe();
       const pl = await getPlayer(request);
       if (!pl) return json(200, { verified: false });
       await purgeMaybe();
@@ -349,7 +379,8 @@ export function createHandler(cfg, { store }) {
       if (passBlocked(ip)) return json(429, { error: 'rate_limited' });
       const body = await readJson(request);
       const pw = await followPassword();
-      if (!pw) return json(503, { error: 'password_off' });
+      const free = await freePassOn();
+      if (!pw && !free) return json(503, { error: 'password_off' });
       const pl = await getPlayer(request);
       const name = body.name === undefined || body.name === '' ? null : cleanNickname(body.name);
       if (body.name && !name) return json(400, { error: 'bad_name' });
@@ -358,17 +389,19 @@ export function createHandler(cfg, { store }) {
       const ig = body.ig ? cleanInstagram(body.ig) : null;
       if (body.ig && !ig) return json(400, { error: 'bad_ig' });
       if (!ig && !(pl && pl.ig)) return json(400, { error: 'bad_ig' });
-      if (!samePassword(body.password, pw)) {
-        passFail(ip);
-        return json(403, { error: 'wrong_password' });
+      const okPw = !!pw && samePassword(body.password, pw);
+      // 🆓 임시 인증 기간: 암호가 없거나 틀려도 통과(임시). 단 예전 계정 되찾기는 남의 계정을 가져갈 수 있어서 진짜 암호가 있어야 함
+      if (!okPw && (!free || restoreOnly)) {
+        if (body.password) passFail(ip);
+        return json(403, { error: free ? 'need_password' : 'wrong_password' });
       }
       // 기록 되찾기: 이 인스타 아이디로 된 예전 계정(랭킹 기록이 가장 많은 것)이 있으면 그 계정으로 다시 붙음.
       //   새 주소로 옮기며 쿠키가 끊겨 새로 인증한 사람 → 새 계정 점수는 예전 계정으로 합치고 새 계정은 지움
       const wantIg = ig || pl.ig;
-      const olds = (await store.playersByIg(wantIg)).filter((o) => !pl || o.igsid !== pl.igsid);
+      const olds = okPw ? (await store.playersByIg(wantIg)).filter((o) => !pl || o.igsid !== pl.igsid) : [];
       let old = olds[0] && (!pl || olds[0].scores > 0) ? olds[0] : null;
       // 아이디로 못 찾으면: 닉네임이 같고 예전 아이디가 '거의 같은' 계정 (예전에 아이디를 대충 적은 사람). 랭킹 기록이 있는 것만
-      if (!old && name) {
+      if (!old && name && okPw) {
         const near = (await store.playersByName(name)).filter((o) => o.scores > 0 && (!pl || o.igsid !== pl.igsid) && igSimilar(o.ig, wantIg));
         if (near.length) old = near[0];
       }
@@ -391,7 +424,9 @@ export function createHandler(cfg, { store }) {
         await store.upsertPlayer(igsid, { username: name || pl.username, ig });
         if (!pl) setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
       }
-      await store.setChecked(igsid, true);
+      // 암호로 인증 = 완료. 임시 인증이면 이미 완료된 사람은 그대로 둠 (임시로 내려가지 않게)
+      if (okPw) await store.setChecked(igsid, true);
+      else if (!(pl && pl.igsid === igsid && pl.checkedAt > 0)) await store.setChecked(igsid, 'temp');
       const rec = await store.getPlayer(igsid);
       // 랭킹에 올렸던 기록으로 깬 단계·별·다이아를 다시 채워 줌 (화면이 자기 기록과 합침)
       const bests = bestsFromScores(await store.scoresOf(igsid));
@@ -439,14 +474,16 @@ export function createHandler(cfg, { store }) {
       if (passBlocked(ip)) return json(429, { error: 'rate_limited' });
       const b = await readJson(request);
       const pw = await followPassword();
-      if (!pw) return json(503, { error: 'password_off' });
+      const free = await freePassOn();
+      if (!pw && !free) return json(503, { error: 'password_off' });
       const nick = String(b.nick ?? '').replace(/\s+/g, ' ').trim().slice(0, 20);
       const oldIg = String(b.oldIg ?? '').trim().replace(/^@+/, '').slice(0, 40);
       const nowIg = cleanInstagram(b.nowIg);
       const memo = String(b.memo ?? '').replace(/\r\n?/g, '\n').trim().slice(0, 300);
       if (!nick && !oldIg) return json(400, { error: 'need_nick' });
       if (!nowIg) return json(400, { error: 'bad_ig' });
-      if (!samePassword(b.password, pw)) {
+      // 🆓 임시 인증 기간엔 암호 없이도 보냄 (운영자가 admin 에서 보고 승인)
+      if (!free && !samePassword(b.password, pw)) {
         passFail(ip);
         return json(403, { error: 'wrong_password' });
       }
@@ -670,6 +707,25 @@ export function createHandler(cfg, { store }) {
         if (v && ([...v].length < 2 || [...v].length > 40)) return json(400, { error: 'bad_password' });
         await store.setSetting('followPassword', v);
         return json(200, { ok: true, password: v || cfg.followPassword || '' });
+      }
+      // 🆓 암호 없이 임시 인증 기간: until(ms) 보기 / 바꾸기. 0 이면 끔 → 바로 임시 인증한 사람들 풀림
+      if (p === '/api/admin/free-pass' && m === 'GET') {
+        const until = await freePassUntil(true);
+        return json(200, { until, on: Date.now() < until });
+      }
+      if (p === '/api/admin/free-pass' && m === 'POST') {
+        const b = await readJson(request);
+        const until = Number(b.until) || 0;
+        if (until < 0 || until > Date.now() + 60 * 86400000) return json(400, { error: 'bad_until' });
+        await store.setSetting('freePassUntil', String(until));
+        fpCache = { at: Date.now(), until };
+        let expired = 0;
+        if (Date.now() >= until) {
+          expired = await store.expireTempChecks();
+          await store.setSetting('freePassUntil', '0');
+          fpCache = { at: Date.now(), until: 0 };
+        }
+        return json(200, { ok: true, until: fpCache.until, on: Date.now() < fpCache.until, expired });
       }
       return json(404, { error: 'not_found' });
     }

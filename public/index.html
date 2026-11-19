@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=44d04ce6d4" />
+  <link rel="stylesheet" href="css/style.css?v=4628e67026" />
 </head>
 <body>
   <div id="app">
@@ -30,6 +30,8 @@
       </div>
       <!-- 긴급 공지 (2026-11-18 새 주소 이사). '확인했어요' 누르면 이 기기에선 숨김 -->
       <button class="urgent-btn" data-action="move-open" id="btn-move" hidden><b>긴급 공지</b><span>주소가 바뀌었어요! 기록 되찾는 법</span><i>›</i></button>
+      <!-- 🆓 임시 인증 기간 안내 (인스타 DM 막힘, 서버 설정 freePassUntil 동안만 JS 가 보여 줌) -->
+      <button class="ig-pause" id="free-pass-note" data-action="rank-join" hidden><b>📢 인증 안내</b><span></span></button>
       <!-- 운영진 다른 인스타 계정 홍보 (2026-11-19) -->
       <div class="ig-pause" role="note"><b>🐱 놀러오세요</b><span>운영진의 다른 인스타 계정도 많이 봐주세요! <a href="https://www.instagram.com/goyangi.seom/" target="_blank" rel="noopener">@goyangi.seom</a> (검색: 고양이섬)</span></div>
       <div class="title-main">
@@ -284,7 +286,7 @@
       <form id="verify-form" class="stack verify-form">
         <label class="field" id="verify-name-row"><span>닉네임 <small class="muted" id="verify-name-hint">2~12자 · 랭킹에 보여요</small></span><input type="text" id="verify-name" maxlength="12" autocomplete="nickname" placeholder="예: 쿵짝왕" /></label>
         <label class="field" id="verify-ig-row"><span>내 인스타 아이디 <small class="muted">댓글 단 계정 · 다른 사람에겐 안 보여요</small></span><input type="text" id="verify-ig" maxlength="40" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="예: my_insta_id" /></label>
-        <label class="field"><span><span data-icon="key" data-e></span> 팔로워 암호 <small class="muted">DM 으로 받은 암호</small></span><input type="text" id="verify-pass" maxlength="40" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="DM 속 암호를 적어 주세요" /></label>
+        <label class="field" id="verify-pass-row"><span><span data-icon="key" data-e></span> 팔로워 암호 <small class="muted">DM 으로 받은 암호</small></span><input type="text" id="verify-pass" maxlength="40" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="DM 속 암호를 적어 주세요" /></label>
         <p class="join-err small" id="verify-err" hidden></p>
         <button class="btn btn-ghost btn-sm" data-action="req-open" id="verify-req" hidden>되찾기 요청 보내기 (운영자가 찾아 드려요)</button>
         <button class="btn btn-primary" type="submit" id="verify-submit">인증하기</button>
@@ -591,6 +593,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=c772d587d4" defer></script>
+  <script src="js/app.js?v=ba9bb1d9f7" defer></script>
 </body>
 </html>
