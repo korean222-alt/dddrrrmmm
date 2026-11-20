@@ -53,6 +53,13 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS recover_requests_at ON recover_requests (at)`,
   // 요청을 보낸 폰이 그때 쓰던 계정 (후보에서 '지금 이 폰 계정'으로 따로 보여 줌)
   `ALTER TABLE recover_requests ADD COLUMN IF NOT EXISTS from_igsid TEXT`,
+  // 🌍 유저 맵: 음표 데이터(JSON)만. hidden_at = 신고가 쌓여 숨김
+  `CREATE TABLE IF NOT EXISTS maps (
+     id TEXT PRIMARY KEY, igsid TEXT NOT NULL, nick TEXT, name TEXT NOT NULL, bpm REAL NOT NULL, bars INTEGER NOT NULL, diff INTEGER NOT NULL,
+     data JSONB NOT NULL, at BIGINT NOT NULL, plays INTEGER NOT NULL DEFAULT 0, likes INTEGER NOT NULL DEFAULT 0, reports INTEGER NOT NULL DEFAULT 0, hidden_at BIGINT)`,
+  `CREATE INDEX IF NOT EXISTS maps_at ON maps (at)`,
+  `CREATE INDEX IF NOT EXISTS maps_igsid ON maps (igsid, at)`,
+  `CREATE TABLE IF NOT EXISTS map_votes (map_id TEXT NOT NULL, who TEXT NOT NULL, kind TEXT NOT NULL, PRIMARY KEY (map_id, who, kind))`,
 ];
 
 /** init 에서 도는 옛 기록 옮기기 목록 — 새로 추가하면 여기에도 이름을 붙임 (SCHEMA_FLAG 가 바뀌어 다시 돎) */
@@ -511,6 +518,50 @@ END $$`);
   async countSuggestions(vid, since) {
     const r = await this.one('SELECT COUNT(*) AS n FROM suggestions WHERE vid = $1 AND at >= $2', [vid, since]);
     return Number(r.n);
+  }
+
+  // ----- 🌍 유저 맵 -----
+  async addMap({ id, igsid, nick, name, bpm, bars, diff, data, at }) {
+    const r = await this.q(
+      `INSERT INTO maps (id, igsid, nick, name, bpm, bars, diff, data, at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9) ON CONFLICT (id) DO NOTHING RETURNING id`,
+      [id, igsid, nick ?? null, name, bpm, bars, diff, JSON.stringify(data), at]
+    );
+    return r.length === 1;
+  }
+  async countMapsBy(igsid, since) {
+    const r = await this.one('SELECT COUNT(*) AS n FROM maps WHERE igsid = $1 AND at >= $2', [igsid, since]);
+    return Number(r.n);
+  }
+  _mapRow(r) {
+    return { id: r.id, igsid: r.igsid, nick: r.nick, name: r.name, bpm: Number(r.bpm), bars: Number(r.bars), diff: Number(r.diff), at: Number(r.at), plays: Number(r.plays), likes: Number(r.likes) };
+  }
+  async listMaps(sort = 'new', limit = 60) {
+    const order = sort === 'top' ? 'likes DESC, plays DESC, at DESC' : 'at DESC';
+    const rows = await this.q(`SELECT id, igsid, nick, name, bpm, bars, diff, at, plays, likes FROM maps WHERE hidden_at IS NULL ORDER BY ${order} LIMIT $1`, [limit]);
+    return rows.map((r) => this._mapRow(r));
+  }
+  async getMap(id, { play = false } = {}) {
+    const r = play
+      ? await this.one('UPDATE maps SET plays = plays + 1 WHERE id = $1 AND hidden_at IS NULL RETURNING *', [id])
+      : await this.one('SELECT * FROM maps WHERE id = $1 AND hidden_at IS NULL', [id]);
+    if (!r) return null;
+    return { ...this._mapRow(r), data: typeof r.data === 'string' ? JSON.parse(r.data) : r.data };
+  }
+  async voteMap(id, who, kind, on, now = Date.now(), hideAt = 3) {
+    if (!(await this.one('SELECT id FROM maps WHERE id = $1 AND hidden_at IS NULL', [id]))) return null;
+    if (on) await this.q('INSERT INTO map_votes (map_id, who, kind) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING', [id, who, kind]);
+    else await this.q('DELETE FROM map_votes WHERE map_id = $1 AND who = $2 AND kind = $3', [id, who, kind]);
+    const col = kind === 'like' ? 'likes' : 'reports';
+    const r = await this.one(
+      `UPDATE maps SET ${col} = (SELECT COUNT(*) FROM map_votes WHERE map_id = $1 AND kind = $2)${kind === 'report' ? ', hidden_at = CASE WHEN (SELECT COUNT(*) FROM map_votes WHERE map_id = $1 AND kind = $2) >= $3 THEN $4::bigint ELSE hidden_at END' : ''} WHERE id = $1 RETURNING likes, hidden_at`,
+      kind === 'report' ? [id, kind, hideAt, now] : [id, kind]
+    );
+    return { likes: Number(r.likes), hidden: r.hidden_at != null };
+  }
+  async deleteMap(id, igsid) {
+    const r = await this.q('DELETE FROM maps WHERE id = $1 AND igsid = $2 RETURNING id', [id, igsid]);
+    if (r.length) await this.q('DELETE FROM map_votes WHERE map_id = $1', [id]);
+    return r.length === 1;
   }
 
   // ----- 친구 대결 방 -----

@@ -837,3 +837,55 @@ test('📮 되찾기 요청: 암호 필요 → admin 에 후보와 함께 → �
   assert.equal((await p2('POST', '/api/recover-request/status', { token: s2.json.token })).json.status, 'rejected');
   assert.equal((await p2('POST', '/api/admin/recover-requests/delete', { id: r2.id }, adm)).json.ok, true);
 });
+
+test('🌍 유저 맵: 올리기 → 목록 → 받기(플레이 수) → 좋아요 → 신고 3개면 숨김 → 내 맵 지우기', async () => {
+  const map = {
+    name: '  내가 만든 곡 ',
+    bpm: 100,
+    bars: ['K...S...K...S...', 'K...S...K.K.S...'],
+    melody: ['C5 E5 G5 E5', 'F5:8 _:8'],
+    prog: ['C', 'F G'],
+  };
+  // 인증 안 한 사람은 못 올림, 목록은 누구나
+  assert.equal((await client()('POST', '/api/maps', { map })).json.error, 'confirm_required');
+  assert.equal((await client()('GET', '/api/maps')).status, 200);
+  const a = await verifiedClient('맵장인', 'map.maker');
+  assert.equal((await a('POST', '/api/maps', { map: { ...map, bars: ['K...'] } })).json.error, 'bad_map');
+  assert.equal((await a('POST', '/api/maps', { map: { ...map, melody: ['C5 E5', 'F5:8 _:8'] } })).json.error, 'bad_map');
+  const up = await a('POST', '/api/maps', { map });
+  assert.equal(up.status, 200);
+  const id = up.json.id;
+  assert.match(id, /^[A-Za-z0-9]{7}$/);
+  const list = (await a('GET', '/api/maps')).json.maps;
+  const mine = list.find((x) => x.id === id);
+  assert.equal(mine.name, '내가 만든 곡');
+  assert.equal(mine.nick, '맵장인');
+  assert.equal(mine.mine, true);
+  assert.equal(mine.bars, 2);
+  assert.equal(mine.igsid, undefined);
+  const b = await verifiedClient('맵팬', 'map.fan');
+  const got = (await b('GET', `/api/maps/${id}?play=1`)).json.map;
+  assert.equal(got.mine, false);
+  assert.deepEqual(got.data.bars, map.bars);
+  assert.equal(got.plays, 1);
+  assert.equal((await b('POST', `/api/maps/${id}/like`, { on: true })).json.likes, 1);
+  assert.equal((await b('POST', `/api/maps/${id}/like`, { on: true })).json.likes, 1);
+  assert.equal((await a('POST', `/api/maps/${id}/like`, {})).json.likes, 2);
+  assert.equal((await b('POST', `/api/maps/${id}/like`, { on: false })).json.likes, 1);
+  const top = (await b('GET', '/api/maps?sort=top')).json.maps;
+  assert.ok(top.some((x) => x.id === id && x.likes === 1 && x.plays === 1));
+  // 남의 맵은 못 지움
+  assert.equal((await b('POST', `/api/maps/${id}/delete`)).json.ok, false);
+  // 신고 3개 → 숨김
+  const c = await verifiedClient('신고1', 'rep.one');
+  await b('POST', `/api/maps/${id}/report`);
+  await b('POST', `/api/maps/${id}/report`); // 같은 사람은 한 번만
+  assert.equal((await c('POST', `/api/maps/${id}/report`)).json.hidden, false);
+  assert.equal((await a('POST', `/api/maps/${id}/report`)).json.hidden, true);
+  assert.equal((await b('GET', `/api/maps/${id}`)).status, 404);
+  assert.ok(!(await b('GET', '/api/maps')).json.maps.some((x) => x.id === id));
+  // 내 맵 지우기
+  const id2 = (await a('POST', '/api/maps', { map: { ...map, name: '두 번째' } })).json.id;
+  assert.equal((await a('POST', `/api/maps/${id2}/delete`)).json.ok, true);
+  assert.equal((await a('GET', `/api/maps/${id2}`)).status, 404);
+});
