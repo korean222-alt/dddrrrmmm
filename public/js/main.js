@@ -2023,7 +2023,7 @@ async function mapAct(id, act, btn) {
       return;
     }
     if (act === 'report') {
-      if (!confirm('이 맵을 신고할까요? 신고가 3개 모이면 내려가요')) return;
+      if (!confirm('이 맵을 신고할까요?')) return;
       await state.api.mapVote(id, 'report', true);
       toast('신고했어요. 고마워요', 1800);
       if (btn) btn.disabled = true;
