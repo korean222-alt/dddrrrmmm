@@ -599,6 +599,9 @@ body.room-game #modal-pause [data-action='retry'], body.room-game #modal-continu
 .beat-sync .sync-name { margin: 0 0 8px; font-size: 14px; word-break: break-all; }
 .beat-sync .btn { width: 100%; margin: 8px 0 4px; }
 .beat-sync input[type='text'] { font-family: inherit; }
+.beat-sync .sync-calib-row { align-items: center; margin-top: 8px; }
+.beat-sync .sync-calib-row span { flex: 1; }
+.beat-sync .sync-calib-row b { min-width: 64px; text-align: center; font-weight: 400; }
 #beat-style { margin-bottom: 8px; }
 #beat-style button { text-align: center; }
 .seg[hidden] { display: none; }

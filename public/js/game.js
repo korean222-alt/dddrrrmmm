@@ -172,7 +172,16 @@ export class Game {
     this.audio.resetClock();
     this.r.reset();
     this.r.laneOrder = this.laneOrder;
-    this.startTime = ctx.currentTime + 0.35;
+    let at = ctx.currentTime + 0.35;
+    // 🎧 박자 맞추기(화면 녹화로 맞춤): 첫 쿵이 정해진 소리 시각(syncAnchor)에 오게. 늦었으면 한 마디씩 뒤로 (박은 그대로 맞음)
+    const anchor = this.level.syncAnchor;
+    if (anchor != null) {
+      let s = anchor - this.tempo.barStart(COUNT_IN_BARS);
+      const bar = this.tempo.barLen(0);
+      while (s < at) s += bar;
+      at = s;
+    }
+    this.startTime = at;
     this.player = new SongPlayer(this.audio, this.level, this.startTime, { autoChart: this.auto });
     this.player.start();
     this.state = 'playing';

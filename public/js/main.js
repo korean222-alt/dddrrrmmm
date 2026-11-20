@@ -318,7 +318,7 @@ function playable(id) {
   const eb = levelEndlessBase(id);
   if (eb) return makeLevelEndless(eb);
   if (typeof id === 'string' && /^ch\d+$/.test(id)) return makeEndless({ rounds: Number(id.slice(2)) });
-  if (id === BEAT_ID) return withSyncSong(makeBeatReel(load('beatReel', null) || {}));
+  if (id === BEAT_ID) return withSync(makeBeatReel(load('beatReel', null) || {}));
   if (isQuizId(id)) return makeQuizLevel(id);
   return getStudioLevel(id) || getLevel(id);
 }
@@ -1885,27 +1885,77 @@ function openStudio() {
 //   노래 BPM 에 맞춘 레벨업 챌린지(빠르기 고정). 노래는 게임에 안 넣고 인스타 편집기에서 입힘 (저작권)
 const beatSaved = () => beatOpts(load('beatReel', null) || {});
 
-// ---------------- 🎧 노래 파일로 박자 자동 맞추기 (운영자 전용) ----------------
-//   폰에 있는 노래 파일 → 하이라이트 부분의 BPM·첫 박(쿵)을 찾아 드럼을 노래에 붙이고, 노래까지 든 영상으로 녹화.
-//   파일은 이 폰 메모리에만 (서버·저장소 어디에도 안 올림). 새로고침하면 다시 골라야 함
-const sync = { url: null, name: '', firstBeat: null, bpm: null };
-const syncOn = () => !!(sync.url && sync.firstBeat != null && $('#sync-include') && $('#sync-include').checked);
-/** 박자 맞추기 판에 노래 파일을 얹음 (채보 첫 마디 = 노래의 첫 박) */
-function withSyncSong(lv) {
-  if (!syncOn()) return lv;
-  lv.song = { ...lv.song, audio: { src: sync.url, offset: sync.firstBeat, gain: 1 } };
+// ---------------- 🎧 화면 녹화로 박자 자동 맞추기 (운영자 전용) ----------------
+//   인스타에서 쓸 노래 구간을 고르고, 그 구간이 처음부터 재생되는 걸 화면 녹화 → 그 영상을 여기서 고름.
+//   소리가 시작되는 순간 = 인스타 구간 시작 = 우리 영상 0초. 거기서 BPM·첫 박(쿵)을 찾아,
+//   드럼 영상의 첫 쿵이 '영상 0초 + (구간 시작 → 첫 박) + 한 마디 단위'에 오게 녹화함.
+//   노래는 영상에 안 넣음 (인스타에서 같은 구간을 넣으면 맞음). 파일은 이 폰 메모리에만 (어디에도 안 올림)
+const sync = { url: null, name: '', firstBeat: null, t0: 0, bpm: null };
+const syncCalib = () => Number(load('syncCalib', 0)) || 0;
+/** 박자 맞추기 판: 녹화 중이면 첫 쿵이 노래 박에 오게 시작 시각을 정해 줌 */
+function withSync(lv) {
+  const st = state.studio;
+  if (sync.firstBeat == null || !st.active || !st.recorder || st.recCtx == null) return lv;
+  lv.syncCalibMs = syncCalib();
+  lv.syncAnchor = st.recCtx + (sync.firstBeat - sync.t0) + lv.syncCalibMs / 1000;
   lv.synced = true;
   return lv;
 }
-/** '1:02.5' · '62.5' → 초 */
+/** '1:02.5' · '62.5' → 초 (비우면 null) */
 function parseTime(v) {
   const t = String(v || '').trim().replace(/[^\d:.]/g, '');
-  if (!t) return 0;
+  if (!t) return null;
   const parts = t.split(':').map(Number);
   const sec = parts.length > 1 ? parts[0] * 60 + parts[1] : parts[0];
-  return Number.isFinite(sec) && sec > 0 ? sec : 0;
+  return Number.isFinite(sec) && sec >= 0 ? sec : null;
 }
 const fmtTime = (x) => `${Math.floor(x / 60)}:${(x % 60).toFixed(2).padStart(5, '0')}`;
+/** 녹화에서 소리가 처음 나는 시각 (10ms 단위, 가장 큰 소리의 5%를 넘는 첫 순간) */
+function soundStart(mono, sr) {
+  const hop = Math.round(sr * 0.01);
+  const n = Math.floor(Math.min(mono.length, sr * 90) / hop);
+  const rms = new Float32Array(n);
+  let mx = 0;
+  for (let f = 0; f < n; f++) {
+    let e = 0;
+    for (let i = f * hop; i < (f + 1) * hop; i++) e += mono[i] * mono[i];
+    rms[f] = Math.sqrt(e / hop);
+    if (rms[f] > mx) mx = rms[f];
+  }
+  for (let f = 0; f < n; f++) if (rms[f] > mx * 0.05) return f * 0.01;
+  return 0;
+}
+/**
+ * 찍힌 영상에서 첫 쿵이 실제로 몇 초에 나왔나 재서, 폰마다 다른 녹화 지연을 「싱크 보정」에 자동 반영.
+ *   (카운트인 똑딱을 껐으니 영상의 첫 소리 = 첫 쿵) 어긋났으면 한 번 더 찍으면 맞음
+ */
+async function syncSelfCheck(blob, target, usedMs) {
+  try {
+    const ab = await blob.arrayBuffer();
+    const buf = await new Promise((res, rej) => {
+      const q = audio.ctx.decodeAudioData(ab, res, rej);
+      if (q && q.then) q.then(res, rej);
+    });
+    const m = monoOf(buf);
+    let mx = 0;
+    for (let i = 0; i < m.length; i++) if (Math.abs(m[i]) > mx) mx = Math.abs(m[i]);
+    let at = -1;
+    for (let i = 0; i < m.length; i++)
+      if (Math.abs(m[i]) > mx * 0.3) {
+        at = i / buf.sampleRate;
+        break;
+      }
+    if (at < 0) return;
+    const err = at - target; // 이번 영상에서 드럼이 노래 박보다 이만큼 늦음 (− 면 빠름)
+    if (Math.abs(err) > 0.4) return;
+    // 실제 위치 = 목표 + 보정 + 이 폰의 녹화 지연 → 맞는 보정 = 이번 보정 − 어긋난 만큼
+    const v = Math.max(-500, Math.min(500, Math.round((usedMs - err * 1000) / 5) * 5));
+    if (Math.abs(v - usedMs) < 15) return; // 이번 영상은 이미 맞음
+    save('syncCalib', v);
+    $('#sync-calib').textContent = `${v > 0 ? '+' : ''}${v}ms`;
+    $('#studio-done-msg').textContent += ` · 이번 영상은 드럼이 ${Math.abs(v - usedMs)}ms ${v > usedMs ? '빨라요' : '늦어요'}. 싱크 보정을 자동으로 맞췄으니 「다시 찍기」 한 번 하면 딱 맞아요.`;
+  } catch {}
+}
 let syncPreview = null;
 function stopSyncPreview() {
   if (syncPreview) {
@@ -1921,32 +1971,33 @@ async function syncPick(file) {
   sync.firstBeat = null;
   $('#sync-panel').hidden = false;
   $('#sync-name').textContent = file.name;
-  $('#sync-result').textContent = '하이라이트 시작을 적고 「박자 찾기」를 누르세요';
+  $('#sync-result').textContent = '여는 중…';
   await audio.unlock();
-  toast('노래 여는 중…', 1500);
   const buf = await audio.loadTrack(sync.url);
   if (!buf) {
-    $('#sync-result').textContent = '이 파일은 열 수 없어요. mp3·m4a·화면 녹화 영상으로 해 보세요';
+    $('#sync-result').textContent = '이 파일은 열 수 없어요. 화면 녹화 영상(소리 포함)으로 해 보세요';
     return;
   }
-  $('#sync-result').textContent = `${fmtTime(buf.duration)} 길이 · 하이라이트 시작을 적고 「박자 찾기」를 누르세요`;
+  syncDetect();
 }
 function syncListen() {
   if (!sync.url) return;
   if (syncPreview) return stopSyncPreview();
   const a = new Audio(sync.url);
-  a.currentTime = sync.firstBeat != null ? sync.firstBeat : parseTime($('#sync-start').value);
+  a.currentTime = sync.firstBeat != null ? sync.firstBeat : parseTime($('#sync-start').value) ?? 0;
   a.play().catch(() => {});
   syncPreview = a;
   setTimeout(() => syncPreview === a && stopSyncPreview(), 8000);
 }
 function syncDetect() {
   const buf = sync.url && audio.trackBuffer(sync.url);
-  if (!buf) return toast('노래 파일을 먼저 골라 주세요');
+  if (!buf) return toast('화면 녹화 영상을 먼저 골라 주세요');
   stopSyncPreview();
-  const start = parseTime($('#sync-start').value);
-  if (start >= buf.duration - 8) return toast('하이라이트 시작이 노래 끝에 너무 가까워요');
   const mono = monoOf(buf);
+  // 구간 시작: 비우면 녹화에서 소리가 처음 나는 순간 (인스타 구간이 재생되기 시작한 때)
+  const manual = parseTime($('#sync-start').value);
+  const start = manual ?? soundStart(mono, buf.sampleRate);
+  if (start >= buf.duration - 6) return toast('녹화가 너무 짧아요. 노래가 10초 넘게 나오게 녹화해 주세요');
   const free = detectBeat(mono, buf.sampleRate, { start });
   // 탭/직접 쓴 BPM 이 감지값(또는 그 두 배·절반)과 가까우면 그 근처에서 다시 정밀하게 → 사람이 세는 쪽(쿵짝 빠르기)을 따름
   const want = Number($('#beat-bpm').value) || 0;
@@ -1961,13 +2012,15 @@ function syncDetect() {
   }
   if (!r) return toast('박자를 못 찾았어요. 다른 구간으로 해 보세요');
   sync.firstBeat = r.firstBeat;
+  sync.t0 = start;
   sync.bpm = r.bpm;
   $('#beat-bpm').value = Math.round(r.bpm * 10) / 10;
   saveBeatForm();
   pickBeat();
   $('#sync-result').innerHTML =
-    `<b>${Math.round(r.bpm * 10) / 10} BPM</b> · 첫 박 ${fmtTime(r.firstBeat)}${r.confidence < 0.3 ? ' · <b>잘 안 들려요</b>(드럼 소리가 큰 구간으로 해 보세요)' : ''}<br>` +
-    '「▶ 듣기」로 첫 박부터 들어보고, 드럼이 2배로 바쁘면 ÷2 누르고 다시 「박자 찾기」';
+    `<b>${Math.round(r.bpm * 10) / 10} BPM</b> · 노래 시작(${fmtTime(start)}) 뒤 ${(r.firstBeat - start).toFixed(2)}초에 첫 박` +
+    `${r.confidence < 0.3 ? ' · <b>박이 잘 안 들려요</b>(소리 크게 다시 녹화)' : ''}<br>` +
+    '이대로 녹화하면 드럼이 이 박에 맞춰 나와요. 드럼이 2배로 바쁘면 ÷2 누르고 다시 「박자 찾기」';
 }
 function beatChipText() {
   const o = beatSaved();
@@ -1980,6 +2033,7 @@ function fillBeatForm() {
   $('#beat-bpm').value = o.bpm;
   $('#beat-title').value = o.title;
   $('#beat-click').checked = o.click;
+  $('#sync-calib').textContent = `${syncCalib() > 0 ? '+' : ''}${syncCalib()}ms`;
   // 버튼은 한 번만 만듦 (BPM 칸을 고치다 바로 형식을 누르면, 다시 그리는 사이 누른 게 사라짐)
   if (!$('#beat-style').children.length)
     $('#beat-style').innerHTML = BEAT_STYLES.map((x) => `<button type="button" data-beat-style="${x.id}"><b>${x.name}</b><small>${x.desc}</small></button>`).join('');
@@ -2134,6 +2188,7 @@ async function studioStart() {
     }
   }
   box.hidden = true;
+  if (playId === BEAT_ID && sync.firstBeat != null && !st.file) toast('「영상 파일로 바로 저장」을 켜야 화면 녹화한 노래 박에 맞춰져요', 3000);
   if (st.file) startRecorder();
   await startLevel(playId);
 }
@@ -2217,10 +2272,12 @@ async function studioFinish(res) {
     $('#btn-studio-save').hidden = false;
     $('#studio-done-msg').textContent =
       g && g.level.synced
-        ? '노래까지 박자에 맞춰 들어간 영상이에요. 인스타에 올릴 때 음악을 따로 넣지 말고 이 영상 소리 그대로 쓰세요.'
+        ? '화면 녹화한 그 노래 구간에 박자를 맞춘 영상이에요. 인스타에서 같은 노래·같은 구간(시작 위치 그대로)을 넣으면 맞아요. 드럼이 노래보다 빠르면 「싱크 보정」을 +, 늦으면 −로 바꿔 다시 찍기'
         : firstHit != null && firstHit > 0
         ? `영상이 만들어졌어요. 첫 쿵은 영상 약 ${firstHit.toFixed(1)}초예요. 인스타에서 영상 앞을 그만큼 잘라내고, 노래는 하이라이트 첫 박(첫 강세)부터 시작하게 고르면 박자가 맞아요.`
         : '영상이 만들어졌어요. 저장해서 릴스에 올려보세요!';
+    // 보정 없이 첫 쿵이 와야 할 영상 시각과 비교 (보정값은 그 차이만큼)
+    if (g && g.level.synced && firstHit != null) syncSelfCheck(blob, firstHit - g.level.syncCalibMs / 1000, g.level.syncCalibMs);
   } else {
     video.hidden = true;
     $('#btn-studio-save').hidden = true;
@@ -2881,6 +2938,11 @@ const ACTIONS = {
   'transfer-take': () => transferTake(),
   'beat-pick': () => pickBeat(),
   'sync-detect': () => syncDetect(),
+  'sync-calib': (el) => {
+    const v = Math.max(-500, Math.min(500, syncCalib() + Number(el.dataset.step)));
+    save('syncCalib', v);
+    $('#sync-calib').textContent = `${v > 0 ? '+' : ''}${v}ms`;
+  },
   'sync-listen': () => syncListen(),
   'beat-reroll': () => {
     saveBeatForm({ reroll: true });
