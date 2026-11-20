@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=c1ae7c2541" />
+  <link rel="stylesheet" href="css/style.css?v=f0be671c5d" />
 </head>
 <body>
   <div id="app">
@@ -251,11 +251,27 @@
         </div>
 
         <div class="studio-block">
-          <h4>② 드럼 <small class="muted">멜로디에 맞춰 자동으로 붙어요</small></h4>
+          <h4>② 드럼 <small class="muted" id="mk-drum-state">멜로디에 맞춰 자동</small></h4>
           <div class="seg seg3" id="mk-auto">
             <button type="button" data-diff="easy"><b>쉬움</b><small>쿵 짝</small></button>
             <button type="button" data-diff="normal"><b>보통</b><small>엇박 조금</small></button>
             <button type="button" data-diff="hard"><b>어려움</b><small>하이햇까지</small></button>
+          </div>
+          <button class="btn btn-ghost mk-drec-open" type="button" data-action="mk-drec-open" id="mk-drec-open" aria-pressed="false"><span data-icon="drum" data-e></span> 직접 쳐서 만들기</button>
+          <div id="mk-drec" hidden>
+            <p class="hint">「드럼 녹음」을 누르면 멜로디가 나와요. 노래에 맞춰 아래 패드를 치면 그대로 드럼 노트가 돼요. 박자는 알아서 맞춰 줘요.</p>
+            <div class="mk-rec-row">
+              <button class="btn btn-hot" type="button" data-action="mk-drec" id="mk-drec-btn"><span class="mk-dot"></span> <span id="mk-drec-label">드럼 녹음</span></button>
+              <label class="field mk-rec-from"><select id="mk-drec-from"><option value="0">처음부터</option><option value="bar">지금 마디부터</option></select></label>
+            </div>
+            <label class="field mk-drec-q"><span>박자 맞춤</span><select id="mk-drec-q"><option value="2" selected>8분음표 (쉬움)</option><option value="1">16분음표 (빠른 연타까지)</option></select></label>
+            <p class="hint mk-rec-msg" id="mk-drec-msg"></p>
+            <div class="mk-pads" id="mk-pads">
+              <button type="button" class="mk-pad pad-c" data-inst="C">크래시</button>
+              <button type="button" class="mk-pad pad-k" data-inst="K">쿵</button>
+              <button type="button" class="mk-pad pad-s" data-inst="S">짝</button>
+              <button type="button" class="mk-pad pad-h" data-inst="H">하이햇</button>
+            </div>
           </div>
           <details class="mk-detail" id="mk-drum-detail">
             <summary>드럼 한 칸씩 고치기 · <span id="mk-barno2">1마디</span></summary>
@@ -836,6 +852,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=f73ac201cc" defer></script>
+  <script src="js/app.js?v=125939449c" defer></script>
 </body>
 </html>

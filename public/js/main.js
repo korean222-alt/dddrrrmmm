@@ -2133,6 +2133,9 @@ function mkRender() {
   $('#mk-way-play').hidden = mk.way !== 'play';
   $$('#mk-len button').forEach((b) => b.setAttribute('aria-pressed', Number(b.dataset.len) === mk.len));
   $$('#mk-auto button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.diff === mk.drumsAuto));
+  $('#mk-drum-state').textContent = mk.drumsAuto ? '멜로디에 맞춰 자동' : '내가 만든 드럼';
+  $('#mk-drec').hidden = !mk.drec;
+  $('#mk-drec-open').setAttribute('aria-pressed', String(!!mk.drec));
   $('#mk-octlabel').textContent = `${midiName(12 * (mk.oct + 1))} ~ ${midiName(12 * (mk.oct + 1) + 23)}`;
   mkKeys();
   mkRoll();
@@ -2376,6 +2379,7 @@ function mkStopPlay() {
 function mkPlayToggle() {
   if (mkp.bus) return mkStopPlay();
   if (rec.on) recStop();
+  if (drec.on) drecStop();
   mkSound(() => {
     const ctx = audio.ctx;
     const bus = ctx.createGain();
@@ -2396,7 +2400,7 @@ function mkPlayToggle() {
       const now = ctx.currentTime;
       // 0.3초 앞까지 예약
       while (mkp.next < mkp.steps && mkp.t0 + mkp.next * mkp.sd < now + 0.3) {
-        mkPlayStep(mkp.next, mkp.t0 + mkp.next * mkp.sd, bus);
+        mkPlayStep(mkp.next, mkp.t0 + mkp.next * mkp.sd, bus, mkp.prog, mkp.sd, true);
         mkp.next++;
       }
       const pos = (now - mkp.t0) / mkp.sd;
@@ -2414,19 +2418,116 @@ function mkPlayToggle() {
     tick();
   });
 }
-function mkPlayStep(i, t, bus) {
+function mkPlayStep(i, t, bus, prog, sd, drums) {
   const b = Math.floor(i / STEPS_PER_BAR);
   const s = i % STEPS_PER_BAR;
-  const sd = mkp.sd;
   for (const n of mk.mel[b] || []) if (n.step === s) audio.lead(t, n.midi, n.len * sd * 0.92, bus);
-  const parts = (mkp.prog[b] || 'C').split(' ');
+  const parts = (prog[b] || 'C').split(' ');
   const partLen = STEPS_PER_BAR / parts.length;
   if (s % partLen === 0) {
     const ch = parseChord(parts[s / partLen]);
     audio.bass(t, ch.root - 24, partLen * sd * 0.9, bus);
     if (s % 8 === 0 || partLen === 8) audio.pluck(t, ch.notes, partLen * sd * 0.8, bus, 0.5);
   }
-  for (const l of CHAR_LANES[(mk.drums[b] || '')[s]] || []) audio.playLane(l, t, bus);
+  if (drums) for (const l of CHAR_LANES[(mk.drums[b] || '')[s]] || []) audio.playLane(l, t, bus);
+}
+
+// ----- 🥁 드럼 직접 쳐서 만들기 (멜로디를 틀어 주고 패드를 치면 그 자리에 노트) -----
+const drec = { on: false, bus: null, t0: 0, sd: 0, startBar: 0, next: 0, raf: 0, prog: null, q: 2, bar: -1 };
+function drecToggle() {
+  if (drec.on) return drecStop();
+  mkStopPlay();
+  recStop();
+  if (!mk.mel.some((b) => b.length) && !confirm('멜로디가 비어 있어요. 똑딱 소리만 들으면서 칠까요?')) return;
+  mkSound(() => {
+    const ctx = audio.ctx;
+    drec.startBar = $('#mk-drec-from').value === 'bar' ? mk.bar : 0;
+    drec.q = Number($('#mk-drec-q').value) || 2;
+    drec.bus = ctx.createGain();
+    drec.bus.connect(audio.musicBus);
+    drec.sd = 15 / mk.bpm;
+    drec.prog = harmonize(mk.mel);
+    // 똑딱 한 마디 뒤부터
+    drec.t0 = ctx.currentTime + 0.2 + STEPS_PER_BAR * drec.sd;
+    drec.next = -STEPS_PER_BAR;
+    drec.bar = -1;
+    drec.on = true;
+    mk.drumsAuto = null;
+    $('#mk-drec-btn').classList.add('on');
+    $('#mk-drec-label').textContent = '멈춤';
+    $('#mk-pads').scrollIntoView({ behavior: 'smooth', block: 'end' });
+    const end = mk.mel.length * STEPS_PER_BAR;
+    const tick = () => {
+      if (!drec.on) return;
+      const now = ctx.currentTime;
+      while (drec.t0 + drec.next * drec.sd < now + 0.25) {
+        const t = drec.t0 + drec.next * drec.sd;
+        const at = drec.startBar * STEPS_PER_BAR + drec.next;
+        if (drec.next % 4 === 0) audio.click(t, drec.next % STEPS_PER_BAR === 0, drec.bus);
+        if (drec.next >= 0 && at < end) mkPlayStep(at, t, drec.bus, drec.prog, drec.sd, false);
+        drec.next++;
+      }
+      const pos = (now - drec.t0) / drec.sd;
+      if (pos < 0) $('#mk-drec-msg').textContent = `준비… ${Math.ceil(-pos / 4)}`;
+      else {
+        const bar = drec.startBar + Math.floor(pos / STEPS_PER_BAR);
+        if (bar >= mk.mel.length) return drecStop();
+        if (bar > drec.bar) {
+          // 지나가는 마디는 새로 침 (예전 드럼 지움)
+          drec.bar = bar;
+          mk.drums[bar] = '................';
+        }
+        if (bar !== mk.bar) {
+          mk.bar = bar;
+          $('#mk-barno').textContent = `${mk.bar + 1} / ${mk.mel.length} 마디`;
+          $('#mk-barno2').textContent = `${mk.bar + 1}마디`;
+          mkGrid();
+        }
+        $('#mk-drec-msg').textContent = `● 드럼 녹음 중 · ${bar + 1} / ${mk.mel.length}마디`;
+        mkRoll(pos - (bar - drec.startBar) * STEPS_PER_BAR);
+      }
+      drec.raf = requestAnimationFrame(tick);
+    };
+    tick();
+  });
+}
+/** 패드 침: 소리는 바로, 녹음 중이면 가까운 칸에 노트 */
+function padHit(inst) {
+  mkSound(() => audio.playLane(LANE_OF[inst], audio.ctx.currentTime + 0.003));
+  if (!drec.on) return;
+  const pos = (audio.heardTime(performance.now()) - (state.settings.offsetMs || 0) / 1000 - drec.t0) / drec.sd;
+  const q = Math.round(pos / drec.q) * drec.q;
+  if (q < 0) return;
+  const at = drec.startBar * STEPS_PER_BAR + q;
+  const bar = Math.floor(at / STEPS_PER_BAR);
+  if (bar >= mk.mel.length) return;
+  // 다음 마디 첫 칸으로 반올림됐는데 그 마디가 아직 안 지워졌으면 지금 지움
+  if (bar > drec.bar) {
+    drec.bar = bar;
+    mk.drums[bar] = '................';
+  }
+  const cells = [...mk.drums[bar]];
+  const s = at % STEPS_PER_BAR;
+  if (!drumCell(cells[s])[inst]) cells[s] = toggleDrum(cells[s], inst);
+  mk.drums[bar] = cells.join('');
+  if (bar === mk.bar) mkGrid();
+}
+function drecStop() {
+  if (!drec.on) return;
+  drec.on = false;
+  cancelAnimationFrame(drec.raf);
+  try {
+    const b = drec.bus;
+    b.gain.setTargetAtTime(0, audio.ctx.currentTime, 0.02);
+    setTimeout(() => b.disconnect(), 300);
+  } catch {}
+  $('#mk-drec-btn').classList.remove('on');
+  $('#mk-drec-label').textContent = '드럼 녹음';
+  let n = 0;
+  for (const b of mk.drums) for (const c of b) n += (CHAR_LANES[c] || []).length;
+  $('#mk-drec-msg').textContent = n >= MAP_LIMITS.minNotes ? `드럼 노트 ${n}개를 넣었어요! 「처음부터 듣기」로 들어 보세요` : '노트가 너무 적어요. 노래에 맞춰 패드를 더 쳐 주세요';
+  mkSave();
+  mkRender();
 }
 
 // ----- ● 건반 쳐서 녹음 (똑딱 소리에 맞춰 치면 8분음표에 맞춰 넣음) -----
@@ -2435,6 +2536,7 @@ const rec = { on: false, bus: null, t0: 0, sd: 0, startBar: 0, next: -STEPS_PER_
 function recToggle() {
   if (rec.on) return recStop();
   mkStopPlay();
+  drecStop();
   mkSound(() => {
     const ctx = audio.ctx;
     const from = $('#mk-rec-from').value;
@@ -2561,6 +2663,7 @@ function mkMap(strict = true) {
 async function mkPlay(auto) {
   mkStopPlay();
   recStop();
+  drecStop();
   const map = mkMap(false);
   if (!map) return;
   um.level = mapLevel(map, { id: UM_ID, by: state.me && state.me.player ? state.me.player.username : '' });
@@ -2572,6 +2675,7 @@ async function mkPlay(auto) {
 async function mkUpload() {
   mkStopPlay();
   recStop();
+  drecStop();
   const map = mkMap(true);
   if (!map) {
     if (!mk.name) $('#mk-name').focus();
@@ -2599,6 +2703,7 @@ function mkNew() {
   if (!confirm('지금 만들던 맵을 지우고 새로 시작할까요?')) return;
   mkStopPlay();
   recStop();
+  drecStop();
   mk = newDraft();
   $('#mk-name').value = '';
   $('#mk-step').checked = false;
@@ -3949,6 +4054,13 @@ const ACTIONS = {
   'mk-back': () => mkBack(),
   'mk-play': () => mkPlayToggle(),
   'mk-rec': () => recToggle(),
+  'mk-drec': () => drecToggle(),
+  'mk-drec-open': () => {
+    mk.drec = !mk.drec;
+    if (!mk.drec) drecStop();
+    mkSave();
+    mkRender();
+  },
   'mk-try': () => mkPlay(false),
   'mk-upload': () => mkUpload(),
   'mk-new': () => mkNew(),
@@ -4299,6 +4411,14 @@ function bindActions() {
     mkRender();
   });
   $('#mk-drum-detail').addEventListener('toggle', () => mkGrid());
+  $('#mk-pads').addEventListener('pointerdown', (e) => {
+    const b = e.target.closest('.mk-pad');
+    if (!b) return;
+    e.preventDefault();
+    b.classList.add('on');
+    setTimeout(() => b.classList.remove('on'), 120);
+    padHit(b.dataset.inst);
+  });
   $('#mk-len').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-len]');
     if (!b) return;
