@@ -1553,6 +1553,7 @@ function beatOpts(o = {}) {
 const BEAT_STYLES = [
   { id: 'levelup', name: '레벨업', desc: '점점 어려워짐' },
   { id: 'steady', name: '비트', desc: '같은 난이도로 쭉' },
+  { id: 'song', name: '노래 따라', desc: '노래 소리대로 (화면 녹화 필요)' },
 ];
 const BEAT_DIFFS = [
   { id: 'easy', name: '쉬움', desc: '쿵·짝만' },
@@ -1560,7 +1561,9 @@ const BEAT_DIFFS = [
   { id: 'hard', name: '어려움', desc: '크래시·탐탐·잘게' },
 ];
 const beatStyleName = (style, diff) =>
-  style === 'steady' ? `비트(${(BEAT_DIFFS.find((x) => x.id === diff) || BEAT_DIFFS[0]).name})` : '레벨업';
+  style === 'steady' || style === 'song'
+    ? `${style === 'song' ? '노래 따라' : '비트'}(${(BEAT_DIFFS.find((x) => x.id === diff) || BEAT_DIFFS[0]).name})`
+    : '레벨업';
 // 같은 엄지(킥·크래시·탐탐 / 스네어·하이햇)는 2칸 이상 띄움. fast(140 BPM 넘음)면 붙은 칸 없음
 const STEADY = {
   easy: {
@@ -1598,8 +1601,10 @@ function steadyBeatBars(diff, rounds, bpm, rand) {
 function makeBeatReel(o = {}) {
   const { bpm, rounds, seed, title, click, style, diff } = beatOpts(o);
   const run = makeEndless({ rounds, seed, bpm });
-  if (style === 'steady') {
-    const bars = steadyBeatBars(diff, rounds, bpm, rng(seed));
+  if (style === 'steady' || style === 'song') {
+    // 노래 따라: 화면 녹화 소리로 만든 채보(o.bars, main 에서 만들어 넘김). 없으면 비트로
+    const song = style === 'song' && Array.isArray(o.bars) && o.bars.length === rounds * ROUND_BARS;
+    const bars = song ? o.bars.slice() : steadyBeatBars(diff, rounds, bpm, rng(seed));
     run.bars = bars;
     run.barMult = bars.map(() => 1);
     run.barRound = bars.map((_, i) => Math.floor(i / ROUND_BARS) + 1);
@@ -1608,7 +1613,7 @@ function makeBeatReel(o = {}) {
     Object.assign(run, {
       id: BEAT_ID,
       beat: true,
-      beatStyle: style,
+      beatStyle: song ? 'song' : 'steady',
       beatDiff: diff,
       steady: true,
       theme: 'city', // 맵이 4마디마다 안 바뀌게
@@ -9003,7 +9008,157 @@ function monoOf(buf) {
   return out;
 }
 
-return { detectBeat, monoOf };
+// ---------------------------------------------------------------
+// 🥁 노래 따라 채보: 노래 소리를 16분음표 칸마다 읽어서 드럼 채보를 만듦
+//   낮은 소리가 '확' 커지는 칸 → 쿵(K), 높은 소리 → 짝(S)/하이햇(H), 둘 다 → 동시에(B),
+//   곡에서 가장 센 순간(정박) → 크래시+스네어 '팡'(X, 쉬움은 B)
+//   엄지 규칙: 붙은 칸(16분)에 같은 엄지 금지, 140 BPM 넘으면 붙은 칸 자체 금지
+// ---------------------------------------------------------------
+const THUMB = { K: 'L', C: 'L', T: 'L', S: 'R', H: 'R', B: 'LR', X: 'LR', J: 'LR', Y: 'LR' };
+const clash = (a, b) => !!THUMB[a] && !!THUMB[b] && [...THUMB[a]].some((h) => THUMB[b].includes(h));
+
+/** 소리 세기 '확 커짐' 을 세 갈래(낮은·높은·전체)로, 10ms 단위 */
+function bandFlux(samples, sr, start, dur) {
+  const hop = Math.max(1, Math.round(sr * 0.01));
+  const s0 = Math.max(0, Math.floor(start * sr));
+  const s1 = Math.min(samples.length, Math.floor((start + dur) * sr));
+  const n = Math.max(0, Math.floor((s1 - s0) / hop));
+  const low = new Float32Array(n);
+  const high = new Float32Array(n);
+  const all = new Float32Array(n);
+  const loud = new Float32Array(n);
+  const aL = Math.exp((-2 * Math.PI * 150) / sr);
+  const aH = Math.exp((-2 * Math.PI * 2500) / sr);
+  let lp = 0;
+  let lp2 = 0;
+  let pL = 0;
+  let pH = 0;
+  let pA = 0;
+  for (let f = 0; f < n; f++) {
+    let eL = 0;
+    let eH = 0;
+    let eA = 0;
+    const base = s0 + f * hop;
+    for (let i = 0; i < hop; i++) {
+      const x = samples[base + i];
+      lp = (1 - aL) * x + aL * lp;
+      lp2 = (1 - aH) * x + aH * lp2;
+      const hp = x - lp2; // 2.5kHz 위 (스네어·하이햇·심벌)
+      eL += lp * lp;
+      eH += hp * hp;
+      eA += x * x;
+    }
+    const lL = Math.log(1e-9 + eL / hop);
+    const lH = Math.log(1e-9 + eH / hop);
+    const lA = Math.log(1e-9 + eA / hop);
+    // 세기도 같이 봄 (아주 작은 소리의 '확' 은 무시)
+    low[f] = Math.max(0, lL - pL) * Math.sqrt(eL / hop);
+    high[f] = Math.max(0, lH - pH) * Math.sqrt(eH / hop);
+    all[f] = Math.max(0, lA - pA) * Math.sqrt(eA / hop);
+    loud[f] = Math.sqrt(eA / hop);
+    pL = lL;
+    pH = lH;
+    pA = lA;
+  }
+  return { low, high, all, loud, hopSec: hop / sr, n };
+}
+
+const DIFF_RULES = {
+  easy: { perBar: 4, grid: 4, chars: 'KSB', accent: 'B', beatBonus: 0.5 }, // 쉬움: 정박(4분)에만
+  normal: { perBar: 6, grid: 2, chars: 'KSHBJ', accent: 'X', beatBonus: 0.3 },
+  hard: { perBar: 9, grid: 1, chars: 'KSHBJ', accent: 'X', beatBonus: 0.2 },
+};
+
+/**
+ * 노래 따라 채보. samples·sr = 노래(화면 녹화) 소리, firstBeat = 채보 첫 칸의 노래 시각, bars = 마디 수
+ * → { bars: ['K...S...', …], covered: 소리가 있는 마디 수 }
+ *   소리가 끝난 뒤 마디는 기본 쿵짝으로 채움
+ */
+function songChart(samples, sr, { firstBeat, bpm, bars, diff = 'easy' }) {
+  const rule = DIFF_RULES[diff] || DIFF_RULES.easy;
+  const fast = bpm > 140;
+  const stepSec = 60 / bpm / 4;
+  const total = bars * 16;
+  const { low, high, loud, hopSec, n } = bandFlux(samples, sr, firstBeat - 0.05, total * stepSec + 0.2);
+  const at = (arr, t) => {
+    // 칸 시각 ±20ms 안에서 가장 큰 값 (앞쪽 0.05초 여유를 둠)
+    const c = Math.round((t + 0.05) / hopSec);
+    let m = 0;
+    for (let i = c - 2; i <= c + 2; i++) if (i >= 0 && i < n && arr[i] > m) m = arr[i];
+    return m;
+  };
+  const L = new Float32Array(total);
+  const Hh = new Float32Array(total);
+  const A = new Float32Array(total);
+  let covered = 0;
+  for (let k = 0; k < total; k++) {
+    const t = k * stepSec;
+    if ((t + 0.05) / hopSec < n - 3) covered = Math.floor(k / 16) + 1;
+    L[k] = at(low, t);
+    Hh[k] = at(high, t);
+    // '팡' 은 소리 크기로: 칸 시각부터 60ms 평균
+    const c = Math.round((t + 0.05) / hopSec);
+    let sum = 0;
+    for (let i = c; i < c + 6 && i < n; i++) sum += loud[i] || 0;
+    A[k] = sum / 6;
+  }
+  const pct = (arr, p) => {
+    const v = Array.from(arr.slice(0, covered * 16)).filter((x) => x > 0).sort((a, b) => a - b);
+    return v.length ? v[Math.min(v.length - 1, Math.floor(v.length * p))] : 1;
+  };
+  const nL = pct(L, 0.9) || 1;
+  const nH = pct(Hh, 0.9) || 1;
+  // '팡': 곡에서 손꼽게 센 순간만 (가장 센 소리의 55% 이상 + 상위 3%)
+  const maxA = Math.max(0, ...Array.from(A.slice(0, covered * 16)));
+  const accentLine = Math.max(pct(A, 0.97), maxA * 0.55);
+  const out = new Array(total).fill('.');
+  for (let b = 0; b < covered; b++) {
+    const cands = [];
+    for (let s = 0; s < 16; s += rule.grid) {
+      const k = b * 16 + s;
+      const lo = Math.min(1.5, L[k] / nL);
+      const hi = Math.min(1.5, Hh[k] / nH);
+      // 정박일수록 조금 더 (마디 첫 박·셋째 박은 쿵 자리)
+      const pos = s % 4 === 0 ? rule.beatBonus : s % 2 === 0 ? 0 : -0.15;
+      let ch;
+      if (A[k] >= accentLine && s % 4 === 0) ch = rule.accent;
+      else if (lo > 0.55 && hi > 0.55 && rule.chars.includes('B') && s % 4 === 0) ch = 'B';
+      else if (lo >= hi) ch = 'K';
+      else ch = rule.chars.includes('H') && s % 4 !== 0 && hi < 0.8 ? 'H' : 'S';
+      const score = Math.max(lo, hi) + pos + (ch === rule.accent ? 1 : 0) + ((s === 0 || s === 8) && ch === 'K' ? 0.2 : 0);
+      if (Math.max(lo, hi) > 0.12 || ch === rule.accent) cands.push({ k, ch, score });
+    }
+    cands.sort((x, y) => y.score - x.score);
+    let placed = 0;
+    for (const c of cands) {
+      if (placed >= rule.perBar) break;
+      const prev = out[c.k - 1];
+      const next = out[c.k + 1];
+      if (fast && ((prev && prev !== '.') || (next && next !== '.'))) continue;
+      if (clash(prev, c.ch) || clash(next, c.ch)) continue;
+      out[c.k] = c.ch;
+      placed++;
+    }
+    // 너무 비면(조용한 마디) 첫 박 쿵·셋째 박 짝 정도는 넣음
+    const base = b * 16;
+    if (placed < 2) {
+      if (out[base] === '.' && !clash(out[base - 1], 'K') && !clash(out[base + 1], 'K')) out[base] = 'K';
+      if (out[base + 4] === '.' && !clash(out[base + 3], 'S') && !clash(out[base + 5], 'S')) out[base + 4] = 'S';
+      if (out[base + 12] === '.' && !clash(out[base + 11], 'S') && !clash(out[base + 13], 'S')) out[base + 12] = 'S';
+    }
+  }
+  // 소리가 끝난 마디: 기본 쿵짝
+  for (let b = covered; b < bars; b++) {
+    const bar = 'K...S...K...S...';
+    for (let s = 0; s < 16; s++) out[b * 16 + s] = bar[s];
+    if (clash(out[b * 16 - 1], 'K')) out[b * 16 - 1] = '.';
+  }
+  const res = [];
+  for (let b = 0; b < bars; b++) res.push(out.slice(b * 16, b * 16 + 16).join(''));
+  return { bars: res, covered: Math.min(covered, bars) };
+}
+
+return { detectBeat, monoOf, songChart };
 })();
 
 // ---- sharecard.js ----
@@ -9423,7 +9578,7 @@ return { NAME_MAX, kstDateKey, todayLevel, cleanName, encodeChallenge, decodeCha
 const __m_main = (() => {
 // 오케이스트라 — 화면 전환, 잠금(팔로우 인증), 랭킹, 설정을 묶는 앱 본체
 
-const { LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES, ENDLESS_ID, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo, ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId, STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase, COUNT_IN_BARS, BEAT_ID, makeBeatReel, beatOpts, beatSeconds, BEAT_MAX_ROUNDS, BEAT_STYLES, BEAT_DIFFS, beatStyleName, QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds } = __m_charts;
+const { LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES, ENDLESS_ID, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo, ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId, STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase, COUNT_IN_BARS, ROUND_BARS, BEAT_ID, makeBeatReel, beatOpts, beatSeconds, BEAT_MAX_ROUNDS, BEAT_STYLES, BEAT_DIFFS, beatStyleName, QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds } = __m_charts;
 const { AudioEngine, playMetronome } = __m_audio;
 const { Renderer } = __m_render;
 const { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } = __m_game;
@@ -9436,7 +9591,7 @@ const { groupStarting } = __m_themes;
 const { NEWS, LATEST_NEWS } = __m_news;
 const { RoomClient, roomOutcome, survivalOutcome } = __m_room;
 const { makeReelCover } = __m_cover;
-const { detectBeat, monoOf } = __m_beatsync;
+const { detectBeat, monoOf, songChart } = __m_beatsync;
 const { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder } = __m_storage;
 
 migrateLevelOrder(); // 8단계에 새 곡이 끼면서 밀린 번호를 이 브라우저 기록에도 반영 (아래 state 보다 먼저)
@@ -9734,7 +9889,10 @@ function playable(id) {
   const eb = levelEndlessBase(id);
   if (eb) return makeLevelEndless(eb);
   if (typeof id === 'string' && /^ch\d+$/.test(id)) return makeEndless({ rounds: Number(id.slice(2)) });
-  if (id === BEAT_ID) return withSync(makeBeatReel(load('beatReel', null) || {}));
+  if (id === BEAT_ID) {
+    const o = load('beatReel', null) || {};
+    return withSync(makeBeatReel({ ...o, bars: songBars(beatOpts(o)) }));
+  }
   if (isQuizId(id)) return makeQuizLevel(id);
   return getStudioLevel(id) || getLevel(id);
 }
@@ -11199,7 +11357,7 @@ function studioDefaults(id) {
   if (isQuizFormat()) return STUDIO_TEXT.quiz;
   if (id === BEAT_ID) {
     const style = beatSaved().style;
-    return style === 'steady' ? STUDIO_TEXT.beatSteady : STUDIO_TEXT.beat;
+    return style === 'steady' || style === 'song' ? STUDIO_TEXT.beatSteady : STUDIO_TEXT.beat;
   }
   return isChallengeId(id) ? STUDIO_TEXT.challenge(Number(String(id).slice(2))) : STUDIO_TEXT.level;
 }
@@ -11378,6 +11536,28 @@ async function syncSelfCheck(blob, target, usedMs) {
     $('#studio-done-msg').textContent += ` · 이번 영상은 드럼이 ${Math.abs(v - usedMs)}ms ${v > usedMs ? '빨라요' : '늦어요'}. 싱크 보정을 자동으로 맞췄으니 「다시 찍기」 한 번 하면 딱 맞아요.`;
   } catch {}
 }
+/** 🥁 노래 따라: 화면 녹화 소리로 채보 (같은 설정이면 다시 안 만듦) */
+let songCache = null;
+function songBars(o) {
+  if (o.style !== 'song' || sync.firstBeat == null) return null;
+  const buf = audio.trackBuffer(sync.url);
+  if (!buf) return null;
+  const key = [sync.url, sync.firstBeat, o.bpm, o.rounds, o.diff].join('|');
+  if (songCache && songCache.key === key) return songCache.bars;
+  const r = songChart(monoOf(buf), buf.sampleRate, { firstBeat: sync.firstBeat, bpm: o.bpm, bars: o.rounds * ROUND_BARS, diff: o.diff });
+  songCache = { key, bars: r.bars, covered: r.covered };
+  return r.bars;
+}
+/** 노래 따라 안내 한 줄 */
+function songInfoText() {
+  const o = beatSaved();
+  if (o.style !== 'song') return '';
+  if (sync.firstBeat == null) return '노래 따라는 위에서 화면 녹화 영상을 넣고 박자를 찾아야 만들어져요 (그 전엔 비트로 쳐요)';
+  songBars(o);
+  const c = songCache ? songCache.covered : 0;
+  const all = o.rounds * ROUND_BARS;
+  return c >= all ? `노래 따라: ${all}마디 전부 노래 소리대로 만들었어요` : `노래 따라: ${all}마디 중 ${c}마디만 녹화 소리가 있어서, 뒤는 기본 쿵짝이에요 (더 길게 화면 녹화하면 끝까지)`;
+}
 let syncPreview = null;
 function stopSyncPreview() {
   if (syncPreview) {
@@ -11398,7 +11578,7 @@ async function syncPick(file) {
   const buf = await audio.loadTrack(sync.url);
   if (!buf) {
     // 아이폰 사파리는 화면 녹화(.mov)를 바로 못 풀어서 → 영상을 소리 없이 한 번 재생하며 소리를 읽음 (버튼을 눌러야 재생됨)
-    $('#sync-result').innerHTML = '<b>「박자 찾기」를 눌러 주세요.</b> 영상을 소리 없이 한 번 재생하면서 소리를 읽어요 (영상 길이만큼, 최대 30초 걸려요)';
+    $('#sync-result').innerHTML = '<b>「박자 찾기」를 눌러 주세요.</b> 영상을 소리 없이 한 번 재생하면서 소리를 읽어요 (영상 길이만큼, 최대 1분 걸려요)';
     $('#sync-detect-btn').textContent = '박자 찾기';
     return;
   }
@@ -11421,7 +11601,7 @@ function captureMediaAudio(url, onProgress) {
     let mute;
     const chunks = [];
     let done = false;
-    const MAX = 30;
+    const MAX = 60;
     const finish = (ok = true) => {
       if (done) return;
       done = true;
@@ -11529,7 +11709,8 @@ async function syncDetect() {
   $('#sync-result').innerHTML =
     `<b>${Math.round(r.bpm * 10) / 10} BPM</b> · 노래 시작(${fmtTime(start)}) 뒤 ${(r.firstBeat - start).toFixed(2)}초에 첫 박` +
     `${r.confidence < 0.3 ? ' · <b>박이 잘 안 들려요</b>(소리 크게 다시 녹화)' : ''}<br>` +
-    '이대로 녹화하면 드럼이 이 박에 맞춰 나와요. 드럼이 2배로 바쁘면 ÷2 누르고 다시 「박자 찾기」';
+    '이대로 녹화하면 드럼이 이 박에 맞춰 나와요. 드럼이 2배로 바쁘면 ÷2 누르고 다시 「박자 찾기」' +
+    (songInfoText() ? `<br>${songInfoText()}` : '');
 }
 function beatChipText() {
   const o = beatSaved();
@@ -11550,13 +11731,13 @@ function fillBeatForm() {
   if (!$('#beat-diff').children.length)
     $('#beat-diff').innerHTML = BEAT_DIFFS.map((x) => `<button type="button" data-beat-diff="${x.id}"><b>${x.name}</b><small>${x.desc}</small></button>`).join('');
   $$('#beat-diff button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.beatDiff === o.diff));
-  $('#beat-diff').hidden = o.style !== 'steady';
+  $('#beat-diff').hidden = o.style === 'levelup';
   const sel = $('#beat-rounds');
   const key = `${o.bpm}|${o.style}`;
   if (!sel.options.length || sel.dataset.key !== key) {
     sel.innerHTML = Array.from({ length: BEAT_MAX_ROUNDS }, (_, i) => {
       const r = i + 1;
-      const text = o.style === 'steady' ? `${r * 4}마디` : `Lv.1→${r}`;
+      const text = o.style === 'levelup' ? `Lv.1→${r}` : `${r * 4}마디`;
       return `<option value="${r}">${text} · 약 ${Math.round(beatSeconds({ bpm: o.bpm, rounds: r }))}초</option>`;
     }).join('');
     sel.dataset.key = key;
@@ -11586,7 +11767,7 @@ function pickBeat() {
   state.studio.format = 'play'; // 박자 맞추기는 '그냥 치기' 형식 안에 있음
   pickStudioLevel(BEAT_ID);
   renderStudioLevels();
-  toast(`${beatChipText()} 골랐어요`, 1600);
+  toast(songInfoText() || `${beatChipText()} 골랐어요`, songInfoText() ? 3500 : 1600);
 }
 // 탭으로 BPM 재기: 마지막 12번 탭 간격의 중앙값 (2초 쉬면 새로 잼)
 const beatTaps = [];

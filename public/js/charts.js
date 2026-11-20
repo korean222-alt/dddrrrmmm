@@ -1549,6 +1549,7 @@ export function beatOpts(o = {}) {
 export const BEAT_STYLES = [
   { id: 'levelup', name: '레벨업', desc: '점점 어려워짐' },
   { id: 'steady', name: '비트', desc: '같은 난이도로 쭉' },
+  { id: 'song', name: '노래 따라', desc: '노래 소리대로 (화면 녹화 필요)' },
 ];
 export const BEAT_DIFFS = [
   { id: 'easy', name: '쉬움', desc: '쿵·짝만' },
@@ -1556,7 +1557,9 @@ export const BEAT_DIFFS = [
   { id: 'hard', name: '어려움', desc: '크래시·탐탐·잘게' },
 ];
 export const beatStyleName = (style, diff) =>
-  style === 'steady' ? `비트(${(BEAT_DIFFS.find((x) => x.id === diff) || BEAT_DIFFS[0]).name})` : '레벨업';
+  style === 'steady' || style === 'song'
+    ? `${style === 'song' ? '노래 따라' : '비트'}(${(BEAT_DIFFS.find((x) => x.id === diff) || BEAT_DIFFS[0]).name})`
+    : '레벨업';
 // 같은 엄지(킥·크래시·탐탐 / 스네어·하이햇)는 2칸 이상 띄움. fast(140 BPM 넘음)면 붙은 칸 없음
 const STEADY = {
   easy: {
@@ -1594,8 +1597,10 @@ function steadyBeatBars(diff, rounds, bpm, rand) {
 export function makeBeatReel(o = {}) {
   const { bpm, rounds, seed, title, click, style, diff } = beatOpts(o);
   const run = makeEndless({ rounds, seed, bpm });
-  if (style === 'steady') {
-    const bars = steadyBeatBars(diff, rounds, bpm, rng(seed));
+  if (style === 'steady' || style === 'song') {
+    // 노래 따라: 화면 녹화 소리로 만든 채보(o.bars, main 에서 만들어 넘김). 없으면 비트로
+    const song = style === 'song' && Array.isArray(o.bars) && o.bars.length === rounds * ROUND_BARS;
+    const bars = song ? o.bars.slice() : steadyBeatBars(diff, rounds, bpm, rng(seed));
     run.bars = bars;
     run.barMult = bars.map(() => 1);
     run.barRound = bars.map((_, i) => Math.floor(i / ROUND_BARS) + 1);
@@ -1604,7 +1609,7 @@ export function makeBeatReel(o = {}) {
     Object.assign(run, {
       id: BEAT_ID,
       beat: true,
-      beatStyle: style,
+      beatStyle: song ? 'song' : 'steady',
       beatDiff: diff,
       steady: true,
       theme: 'city', // 맵이 4마디마다 안 바뀌게

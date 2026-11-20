@@ -4,7 +4,7 @@ import {
   LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES,
   ENDLESS_ID, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo,
   ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId,
-  STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase, COUNT_IN_BARS,
+  STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase, COUNT_IN_BARS, ROUND_BARS,
   BEAT_ID, makeBeatReel, beatOpts, beatSeconds, BEAT_MAX_ROUNDS, BEAT_STYLES, BEAT_DIFFS, beatStyleName,
   QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds,
 } from './charts.js';
@@ -20,7 +20,7 @@ import { groupStarting } from './themes.js';
 import { NEWS, LATEST_NEWS } from './news.js';
 import { RoomClient, roomOutcome, survivalOutcome } from './room.js';
 import { makeReelCover } from './cover.js';
-import { detectBeat, monoOf } from './beatsync.js';
+import { detectBeat, monoOf, songChart } from './beatsync.js';
 import { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder } from './storage.js';
 
 migrateLevelOrder(); // 8단계에 새 곡이 끼면서 밀린 번호를 이 브라우저 기록에도 반영 (아래 state 보다 먼저)
@@ -318,7 +318,10 @@ function playable(id) {
   const eb = levelEndlessBase(id);
   if (eb) return makeLevelEndless(eb);
   if (typeof id === 'string' && /^ch\d+$/.test(id)) return makeEndless({ rounds: Number(id.slice(2)) });
-  if (id === BEAT_ID) return withSync(makeBeatReel(load('beatReel', null) || {}));
+  if (id === BEAT_ID) {
+    const o = load('beatReel', null) || {};
+    return withSync(makeBeatReel({ ...o, bars: songBars(beatOpts(o)) }));
+  }
   if (isQuizId(id)) return makeQuizLevel(id);
   return getStudioLevel(id) || getLevel(id);
 }
@@ -1783,7 +1786,7 @@ function studioDefaults(id) {
   if (isQuizFormat()) return STUDIO_TEXT.quiz;
   if (id === BEAT_ID) {
     const style = beatSaved().style;
-    return style === 'steady' ? STUDIO_TEXT.beatSteady : STUDIO_TEXT.beat;
+    return style === 'steady' || style === 'song' ? STUDIO_TEXT.beatSteady : STUDIO_TEXT.beat;
   }
   return isChallengeId(id) ? STUDIO_TEXT.challenge(Number(String(id).slice(2))) : STUDIO_TEXT.level;
 }
@@ -1962,6 +1965,28 @@ async function syncSelfCheck(blob, target, usedMs) {
     $('#studio-done-msg').textContent += ` · 이번 영상은 드럼이 ${Math.abs(v - usedMs)}ms ${v > usedMs ? '빨라요' : '늦어요'}. 싱크 보정을 자동으로 맞췄으니 「다시 찍기」 한 번 하면 딱 맞아요.`;
   } catch {}
 }
+/** 🥁 노래 따라: 화면 녹화 소리로 채보 (같은 설정이면 다시 안 만듦) */
+let songCache = null;
+function songBars(o) {
+  if (o.style !== 'song' || sync.firstBeat == null) return null;
+  const buf = audio.trackBuffer(sync.url);
+  if (!buf) return null;
+  const key = [sync.url, sync.firstBeat, o.bpm, o.rounds, o.diff].join('|');
+  if (songCache && songCache.key === key) return songCache.bars;
+  const r = songChart(monoOf(buf), buf.sampleRate, { firstBeat: sync.firstBeat, bpm: o.bpm, bars: o.rounds * ROUND_BARS, diff: o.diff });
+  songCache = { key, bars: r.bars, covered: r.covered };
+  return r.bars;
+}
+/** 노래 따라 안내 한 줄 */
+function songInfoText() {
+  const o = beatSaved();
+  if (o.style !== 'song') return '';
+  if (sync.firstBeat == null) return '노래 따라는 위에서 화면 녹화 영상을 넣고 박자를 찾아야 만들어져요 (그 전엔 비트로 쳐요)';
+  songBars(o);
+  const c = songCache ? songCache.covered : 0;
+  const all = o.rounds * ROUND_BARS;
+  return c >= all ? `노래 따라: ${all}마디 전부 노래 소리대로 만들었어요` : `노래 따라: ${all}마디 중 ${c}마디만 녹화 소리가 있어서, 뒤는 기본 쿵짝이에요 (더 길게 화면 녹화하면 끝까지)`;
+}
 let syncPreview = null;
 function stopSyncPreview() {
   if (syncPreview) {
@@ -1982,7 +2007,7 @@ async function syncPick(file) {
   const buf = await audio.loadTrack(sync.url);
   if (!buf) {
     // 아이폰 사파리는 화면 녹화(.mov)를 바로 못 풀어서 → 영상을 소리 없이 한 번 재생하며 소리를 읽음 (버튼을 눌러야 재생됨)
-    $('#sync-result').innerHTML = '<b>「박자 찾기」를 눌러 주세요.</b> 영상을 소리 없이 한 번 재생하면서 소리를 읽어요 (영상 길이만큼, 최대 30초 걸려요)';
+    $('#sync-result').innerHTML = '<b>「박자 찾기」를 눌러 주세요.</b> 영상을 소리 없이 한 번 재생하면서 소리를 읽어요 (영상 길이만큼, 최대 1분 걸려요)';
     $('#sync-detect-btn').textContent = '박자 찾기';
     return;
   }
@@ -2005,7 +2030,7 @@ function captureMediaAudio(url, onProgress) {
     let mute;
     const chunks = [];
     let done = false;
-    const MAX = 30;
+    const MAX = 60;
     const finish = (ok = true) => {
       if (done) return;
       done = true;
@@ -2113,7 +2138,8 @@ async function syncDetect() {
   $('#sync-result').innerHTML =
     `<b>${Math.round(r.bpm * 10) / 10} BPM</b> · 노래 시작(${fmtTime(start)}) 뒤 ${(r.firstBeat - start).toFixed(2)}초에 첫 박` +
     `${r.confidence < 0.3 ? ' · <b>박이 잘 안 들려요</b>(소리 크게 다시 녹화)' : ''}<br>` +
-    '이대로 녹화하면 드럼이 이 박에 맞춰 나와요. 드럼이 2배로 바쁘면 ÷2 누르고 다시 「박자 찾기」';
+    '이대로 녹화하면 드럼이 이 박에 맞춰 나와요. 드럼이 2배로 바쁘면 ÷2 누르고 다시 「박자 찾기」' +
+    (songInfoText() ? `<br>${songInfoText()}` : '');
 }
 function beatChipText() {
   const o = beatSaved();
@@ -2134,13 +2160,13 @@ function fillBeatForm() {
   if (!$('#beat-diff').children.length)
     $('#beat-diff').innerHTML = BEAT_DIFFS.map((x) => `<button type="button" data-beat-diff="${x.id}"><b>${x.name}</b><small>${x.desc}</small></button>`).join('');
   $$('#beat-diff button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.beatDiff === o.diff));
-  $('#beat-diff').hidden = o.style !== 'steady';
+  $('#beat-diff').hidden = o.style === 'levelup';
   const sel = $('#beat-rounds');
   const key = `${o.bpm}|${o.style}`;
   if (!sel.options.length || sel.dataset.key !== key) {
     sel.innerHTML = Array.from({ length: BEAT_MAX_ROUNDS }, (_, i) => {
       const r = i + 1;
-      const text = o.style === 'steady' ? `${r * 4}마디` : `Lv.1→${r}`;
+      const text = o.style === 'levelup' ? `Lv.1→${r}` : `${r * 4}마디`;
       return `<option value="${r}">${text} · 약 ${Math.round(beatSeconds({ bpm: o.bpm, rounds: r }))}초</option>`;
     }).join('');
     sel.dataset.key = key;
@@ -2170,7 +2196,7 @@ function pickBeat() {
   state.studio.format = 'play'; // 박자 맞추기는 '그냥 치기' 형식 안에 있음
   pickStudioLevel(BEAT_ID);
   renderStudioLevels();
-  toast(`${beatChipText()} 골랐어요`, 1600);
+  toast(songInfoText() || `${beatChipText()} 골랐어요`, songInfoText() ? 3500 : 1600);
 }
 // 탭으로 BPM 재기: 마지막 12번 탭 간격의 중앙값 (2초 쉬면 새로 잼)
 const beatTaps = [];
