@@ -1562,6 +1562,27 @@ export function beatSeconds(o = {}) {
 }
 
 // ---------------------------------------------------------------
+// 🎧 노래 맞히기 퀴즈 (영상 찍기 전용): 곡 제목을 숨기고 앞부분만 치다가 끝나면 정답 공개
+//   id = 'q' + 단계 + 'x' + 마디 수 (0 = 끝까지). 예) 'q2x8' = 환희의 송가 앞 8마디. 기록·랭킹엔 안 들어감
+// ---------------------------------------------------------------
+export const QUIZ_BARS = [8, 12, 0];
+export const quizId = (id, bars) => `q${id}x${bars}`;
+export const isQuizId = (id) => /^q\d+x\d+$/.test(String(id));
+export function makeQuizLevel(id) {
+  const m = /^q(\d+)x(\d+)$/.exec(String(id));
+  const base = m && getLevel(Number(m[1]));
+  if (!base) return null;
+  const n = Number(m[2]);
+  const bars = n > 0 && n < base.bars.length ? base.bars.slice(0, n) : base.bars;
+  return { ...base, id, baseId: base.id, quiz: true, bars, lanes: levelLanes(base) };
+}
+/** 퀴즈 영상 길이(초): 카운트인 + 본편 */
+export function quizSeconds(id) {
+  const lv = makeQuizLevel(id);
+  return lv ? Math.round(((COUNT_IN_BARS + lv.bars.length) * 4 * 60) / lv.bpm) : 0;
+}
+
+// ---------------------------------------------------------------
 // 단계별 무제한 모드: 그 단계 곡·채보를 4마디씩 끝없이 이어 치고, 4마디마다 BPM +LEVEL_ENDLESS_STEP
 //   id = 'e' + 단계 번호 (예: 'e13'). 그 단계를 깨면 열림. 다이아 기준은 그리그 무제한과 같음
 // ---------------------------------------------------------------

@@ -6,6 +6,7 @@ import {
   ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId,
   STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase,
   BEAT_ID, makeBeatReel, beatOpts, beatSeconds, BEAT_MAX_ROUNDS,
+  QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds,
 } from './charts.js';
 import { AudioEngine, playMetronome } from './audio.js';
 import { Renderer } from './render.js';
@@ -317,6 +318,7 @@ function playable(id) {
   if (eb) return makeLevelEndless(eb);
   if (typeof id === 'string' && /^ch\d+$/.test(id)) return makeEndless({ rounds: Number(id.slice(2)) });
   if (id === BEAT_ID) return makeBeatReel(load('beatReel', null) || {});
+  if (isQuizId(id)) return makeQuizLevel(id);
   return getStudioLevel(id) || getLevel(id);
 }
 const isChallengeId = (id) => id === ENDLESS_ID || (typeof id === 'string' && /^(ch|e)\d+$/.test(id));
@@ -1769,9 +1771,14 @@ const STUDIO_TEXT = {
   level: { top: '엄지 두 개로 따라 쳐봐!', bottom: '프로필 링크에서 바로 해보기' },
   challenge: (n) => ({ top: '엄지로 드럼 쳐보세요', bottom: `Lv.${n}까지 오면 드러머 재능 있음` }),
   beat: { top: '엄지 드럼 챌린지', bottom: '어디까지 따라오나 보자' },
+  quiz: { top: '이 노래 제목 맞혀봐!', bottom: '정답은 영상 끝에 · 댓글로 먼저!' },
 };
+const isQuizFormat = () => state.studio.format === 'quiz';
+/** 실제로 칠 판 id: 노래 맞히기면 'q2x8' 처럼 */
+const studioPlayId = () => (isQuizFormat() && typeof state.studio.level === 'number' ? quizId(state.studio.level, state.studio.quizBars ?? 8) : state.studio.level);
 const STUDIO_CHALLENGES = [4, 7];
 function studioDefaults(id) {
+  if (isQuizFormat()) return STUDIO_TEXT.quiz;
   if (id === BEAT_ID) return STUDIO_TEXT.beat;
   return isChallengeId(id) ? STUDIO_TEXT.challenge(Number(String(id).slice(2))) : STUDIO_TEXT.level;
 }
@@ -1780,7 +1787,7 @@ function pickStudioLevel(id) {
   const top = $('#studio-top');
   const bottom = $('#studio-bottom');
   // 기본 문구 그대로였으면 새 기본 문구로 바꿔 줌 (직접 쓴 문구는 그대로)
-  const all = [STUDIO_TEXT.level, STUDIO_TEXT.beat, ...STUDIO_CHALLENGES.map(STUDIO_TEXT.challenge)];
+  const all = [STUDIO_TEXT.level, STUDIO_TEXT.beat, STUDIO_TEXT.quiz, ...STUDIO_CHALLENGES.map(STUDIO_TEXT.challenge)];
   const after = studioDefaults(id);
   if (!top.value.trim() || all.some((d) => d.top === top.value.trim())) top.value = after.top;
   if (!bottom.value.trim() || all.some((d) => d.bottom === bottom.value.trim())) bottom.value = after.bottom;
@@ -1791,11 +1798,52 @@ function pickStudioLevel(id) {
     if (!sub.value.trim() || sub.value.trim() === prevAuto) sub.value = coverSubOf(playable(id));
   }
   st.level = id;
+  fillQuizBars();
+}
+
+/** 노래 맞히기: 길이 고르기 (곡마다 초가 달라서 곡을 바꾸면 다시 채움) */
+function fillQuizBars() {
+  const st = state.studio;
+  $('#quiz-len').hidden = !isQuizFormat();
+  if (!isQuizFormat() || typeof st.level !== 'number') return;
+  const lv = getLevel(st.level);
+  const opts = QUIZ_BARS.filter((n) => n === 0 || n < lv.bars.length);
+  if (!opts.includes(st.quizBars ?? 8)) st.quizBars = opts[0];
+  $('#quiz-bars').innerHTML = opts
+    .map((n) => `<option value="${n}">${n ? `앞 ${n}마디` : '끝까지'} · 약 ${quizSeconds(quizId(lv.id, n))}초</option>`)
+    .join('');
+  $('#quiz-bars').value = String(st.quizBars ?? 8);
+}
+
+/** 형식(그냥 치기 / 노래 맞히기)에 맞는 곡 버튼들 */
+function renderStudioLevels() {
+  const st = state.studio;
+  $$('#studio-format button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.format === (st.format || 'play')));
+  if (isQuizFormat()) {
+    $('#studio-levels').innerHTML = LEVELS.map((l) => `<button data-studio-level="${l.id}" aria-pressed="${l.id === st.level}">${levelLabel(l)} · ${l.name}</button>`).join('');
+  } else {
+    $('#studio-levels').innerHTML =
+      (coverOn() ? `<button class="chip-hot" data-studio-level="${BEAT_ID}" aria-pressed="${st.level === BEAT_ID}">${beatChipText()}</button>` : '') +
+      STUDIO_CHALLENGES.map(
+        (n) => `<button class="chip-hot" data-studio-level="ch${n}" aria-pressed="${st.level === 'ch' + n}">🔥 레벨업 챌린지 Lv.1→${n}</button>`
+      ).join('') +
+      STUDIO_LEVELS.map((l) => `<button class="chip-hot" data-studio-level="${l.id}" aria-pressed="${l.id === st.level}">🎬 릴스용 · ${l.name} (느리게)</button>`).join('') +
+      LEVELS.map((l) => `<button data-studio-level="${l.id}" aria-pressed="${l.id === st.level}">${l.id}. ${l.name}</button>`).join('');
+  }
+  fillQuizBars();
+}
+function pickStudioFormat(f) {
+  const st = state.studio;
+  st.format = f;
+  // 노래 맞히기는 진짜 곡만 (레벨업 챌린지·박자 맞추기는 곡이 아님)
+  pickStudioLevel(f === 'quiz' && (typeof st.level !== 'number' || !getLevel(st.level)) ? 2 : st.level);
+  renderStudioLevels();
 }
 
 /** 영상 화면에 그릴 문구 */
 function studioOverlay(lv) {
   const st = state.studio;
+  if (lv.quiz) return { top: st.top, bottom: st.bottom, quiz: true, answer: lv.name, composer: lv.composer, bottomEnd: '프로필 링크에서 직접 쳐보기' };
   return {
     top: st.top,
     bottom: st.bottom,
@@ -1809,13 +1857,8 @@ function openStudio() {
   const st = state.studio;
   st.active = false;
   $('#screen-game').classList.remove('studio-mode');
-  $('#studio-levels').innerHTML =
-    (coverOn() ? `<button class="chip-hot" data-studio-level="${BEAT_ID}" aria-pressed="${st.level === BEAT_ID}">${beatChipText()}</button>` : '') +
-    STUDIO_CHALLENGES.map(
-      (n) => `<button class="chip-hot" data-studio-level="ch${n}" aria-pressed="${st.level === 'ch' + n}">🔥 레벨업 챌린지 Lv.1→${n}</button>`
-    ).join('') +
-    STUDIO_LEVELS.map((l) => `<button class="chip-hot" data-studio-level="${l.id}" aria-pressed="${l.id === st.level}">🎬 릴스용 · ${l.name} (느리게)</button>`).join('') +
-    LEVELS.map((l) => `<button data-studio-level="${l.id}" aria-pressed="${l.id === st.level}">${l.id}. ${l.name}</button>`).join('');
+  if (isQuizFormat() && (typeof st.level !== 'number' || !getLevel(st.level))) st.level = 2;
+  renderStudioLevels();
   $$('#studio-mode button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.mode === st.mode));
   $('#studio-top').value = st.top;
   $('#studio-bottom').value = st.bottom;
@@ -1900,7 +1943,7 @@ function beatTap(e) {
 
 // ---------------- 🖼 릴스 썸네일 (운영자 전용, /?thumb=okay) ----------------
 const coverOn = () => load('thumbTool', false) === true;
-const coverSubOf = (lv) => (!lv ? '' : lv.beat ? `${lv.songName} · 레벨업 챌린지` : lv.challenge ? `${lv.composer} ${lv.songName} · 레벨업 챌린지` : `${lv.composer} ${lv.name}`);
+const coverSubOf = (lv) => (!lv ? '' : isQuizFormat() ? '노래 맞히기 퀴즈' : lv.beat ? `${lv.songName} · 레벨업 챌린지` : lv.challenge ? `${lv.composer} ${lv.songName} · 레벨업 챌린지` : `${lv.composer} ${lv.name}`);
 /** 썸네일 칸 채우기: 직접 쓴 문구는 기억, 곡 배지는 곡을 바꾸면 따라 바뀜(직접 고쳤으면 그대로) */
 function fillCoverForm() {
   $('#cover-block').hidden = !coverOn();
@@ -1957,7 +2000,9 @@ async function studioStart() {
   st.top = $('#studio-top').value.trim();
   st.bottom = $('#studio-bottom').value.trim();
   st.file = $('#studio-file').checked;
-  save('studio', { level: st.level, mode: st.mode, top: st.top, bottom: st.bottom, file: st.file });
+  st.quizBars = Number($('#quiz-bars').value || st.quizBars || 8);
+  save('studio', { level: st.level, mode: st.mode, top: st.top, bottom: st.bottom, file: st.file, format: st.format || 'play', quizBars: st.quizBars });
+  const playId = studioPlayId();
   closeModal('modal-studio-done');
   await audio.unlock();
   st.active = true;
@@ -1965,7 +2010,7 @@ async function studioStart() {
   // 9:16 화면을 먼저 깔고 카운트다운
   show('screen-game');
   $('#screen-game').classList.add('studio-mode');
-  const lv = playable(st.level) || getLevel(1);
+  const lv = playable(playId) || getLevel(1);
   renderer.studio = studioOverlay(lv);
   setKit(lv);
   await fontsReady(`${renderer.studio.top || ''}${renderer.studio.bottom || ''}${renderer.studio.label || ''}`);
@@ -1985,7 +2030,7 @@ async function studioStart() {
   }
   box.hidden = true;
   if (st.file) startRecorder();
-  await startLevel(st.level);
+  await startLevel(playId);
 }
 
 function startRecorder() {
@@ -2041,7 +2086,8 @@ async function studioFinish(res) {
         },
         rt
       );
-      if (performance.now() - t0 < (res.challenge ? 2400 : 1500)) requestAnimationFrame(hold);
+      // 노래 맞히기: 정답이 뜨는 장면을 넉넉히
+      if (performance.now() - t0 < (renderer.studio && renderer.studio.quiz ? 3600 : res.challenge ? 2400 : 1500)) requestAnimationFrame(hold);
       else resolve();
     })();
   });
@@ -2067,7 +2113,7 @@ async function studioFinish(res) {
     $('#btn-studio-save').hidden = true;
     $('#studio-done-msg').textContent = '화면 녹화를 멈추고 사진 앱에서 확인하세요. 위아래를 9:16으로 잘라 쓰면 딱 맞아요.';
   }
-  if (!res.auto && !res.challenge) saveBest(res);
+  if (!res.auto && !res.challenge && !isQuizId(res.levelId)) saveBest(res);
   openModal('modal-studio-done');
 }
 
@@ -2075,7 +2121,7 @@ async function studioSave() {
   const st = state.studio;
   if (!st.blob) return;
   const ext = st.blob.type.includes('mp4') ? 'mp4' : 'webm';
-  const file = new File([st.blob], `okaystra-${isChallengeId(st.level) ? 'challenge' : st.level + '단계'}.${ext}`, { type: st.blob.type });
+  const file = new File([st.blob], `okaystra-${isQuizFormat() ? 'quiz-' + st.level : isChallengeId(st.level) ? 'challenge' : st.level + '단계'}.${ext}`, { type: st.blob.type });
   try {
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       await navigator.share({ files: [file] });
@@ -2825,6 +2871,11 @@ function bindActions() {
       $$('#studio-levels button').forEach((b) => b.setAttribute('aria-pressed', b === sl));
       return;
     }
+    const sf = e.target.closest('#studio-format [data-format]');
+    if (sf) {
+      pickStudioFormat(sf.dataset.format);
+      return;
+    }
     const sm = e.target.closest('#studio-mode [data-mode]');
     if (sm) {
       state.studio.mode = sm.dataset.mode;
@@ -2873,6 +2924,7 @@ function bindActions() {
     })
   );
   ['#beat-bpm', '#beat-rounds', '#beat-title', '#beat-click'].forEach((sel) => $(sel).addEventListener('change', () => saveBeatForm()));
+  $('#quiz-bars').addEventListener('change', (e) => (state.studio.quizBars = Number(e.target.value)));
   $('#calib-pad').addEventListener('pointerdown', (e) => {
     e.preventDefault();
     if (!audio.ctx) return;

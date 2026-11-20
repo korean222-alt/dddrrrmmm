@@ -1388,11 +1388,124 @@ export class Renderer {
     ctx.restore();
   }
 
+  /** 영상 찍기 노래 맞히기: 위에 "이 노래 제목 맞혀봐!" + 가려진 제목 + 정답 공개까지 막대 → 곡이 끝나면 정답 */
+  _drawStudioQuiz(st, rt) {
+    const ctx = this.ctx;
+    const L = this.L;
+    const s = this.studio;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = INK;
+    const top = L.H * 0.045;
+    if (st.finished) {
+      if (s.revealAt == null) s.revealAt = rt;
+      const age = rt - s.revealAt;
+      // "정답은!" 이 먼저 → 0.5초 뒤 제목이 톡 튀어나옴
+      const ls = Math.round(L.GW * 0.07);
+      ctx.font = `${ls}px ${FONT}`;
+      ctx.lineWidth = ls * 0.2;
+      ctx.strokeText('정답은!', L.cx, top + ls * 0.6);
+      ctx.fillStyle = '#FFD84A';
+      ctx.fillText('정답은!', L.cx, top + ls * 0.6);
+      const a2 = age - 0.5;
+      if (a2 > 0) {
+        const pop = a2 < 0.3 ? 0.6 + 0.4 * easeOut(a2 / 0.3) + Math.sin((a2 / 0.3) * Math.PI) * 0.15 : 1;
+        const fs = fitFont(ctx, s.answer, L.GW * 0.9, L.GW * 0.15);
+        const y = top + ls * 1.3 + fs * 0.65;
+        ctx.save();
+        ctx.translate(L.cx, y);
+        ctx.scale(pop, pop);
+        ctx.font = `${fs}px ${FONT}`;
+        ctx.lineWidth = fs * 0.18;
+        ctx.strokeText(s.answer, 0, 0);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillText(s.answer, 0, 0);
+        ctx.restore();
+        if (s.composer && a2 > 0.25) {
+          const cs = Math.round(L.GW * 0.055);
+          ctx.font = `${cs}px ${FONT}`;
+          ctx.lineWidth = cs * 0.22;
+          ctx.globalAlpha = Math.min(1, (a2 - 0.25) / 0.3);
+          ctx.strokeText(s.composer, L.cx, y + fs * 0.62 + cs * 0.5);
+          ctx.fillStyle = '#FFD84A';
+          ctx.fillText(s.composer, L.cx, y + fs * 0.62 + cs * 0.5);
+          ctx.globalAlpha = 1;
+          if (s.bottomEnd) {
+            const bs = fitFont(ctx, s.bottomEnd, L.GW * 0.9, L.GW * 0.048);
+            ctx.font = `${bs}px ${FONT}`;
+            ctx.lineWidth = bs * 0.22;
+            ctx.strokeText(s.bottomEnd, L.cx, y + fs * 0.62 + cs * 1.6 + bs * 0.5);
+            ctx.fillStyle = '#FFFFFF';
+            ctx.fillText(s.bottomEnd, L.cx, y + fs * 0.62 + cs * 1.6 + bs * 0.5);
+          }
+        }
+      }
+      ctx.restore();
+      return;
+    }
+    s.revealAt = null;
+    // 훅
+    const words = (s.top || '').trim();
+    const fs = fitFont(ctx, words, L.GW * 0.92, L.GW * 0.11);
+    ctx.font = `${fs}px ${FONT}`;
+    ctx.lineWidth = fs * 0.16;
+    ctx.strokeText(words, L.cx, top + fs * 0.7);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText(words, L.cx, top + fs * 0.7);
+    let y = top + fs * 1.45;
+    if (s.bottom) {
+      const bs = fitFont(ctx, s.bottom, L.GW * 0.9, L.GW * 0.05);
+      ctx.font = `${bs}px ${FONT}`;
+      ctx.lineWidth = bs * 0.2;
+      ctx.strokeText(s.bottom, L.cx, y + bs * 0.4);
+      ctx.fillStyle = '#FFD84A';
+      ctx.fillText(s.bottom, L.cx, y + bs * 0.4);
+      y += bs * 1.5;
+    }
+    // 가려진 제목 카드 + 정답 공개까지 막대
+    const cw = L.GW * 0.62;
+    const ch = L.GW * 0.13;
+    const beat = st.beatDur ? (Math.max(0, st.now) / st.beatDur) % 1 : 0;
+    const bump = 1 + (st.now > 0 ? (1 - easeOut(Math.min(1, beat * 3))) * 0.04 : 0);
+    ctx.save();
+    ctx.translate(L.cx, y + ch * 0.6);
+    ctx.scale(bump, bump);
+    rr(ctx, -cw / 2, -ch / 2, cw, ch, ch * 0.3);
+    ctx.fillStyle = 'rgba(255,255,255,0.96)';
+    ctx.fill();
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    const qs = Math.round(ch * 0.56);
+    ctx.font = `${qs}px ${FONT}`;
+    ctx.fillStyle = INK;
+    ctx.fillText('제목: ? ? ?', 0, qs * 0.05);
+    ctx.restore();
+    const p = Math.max(0, Math.min(1, st.progress || 0));
+    const bw = cw;
+    const bh = L.GW * 0.022;
+    const by = y + ch * 1.2 + bh;
+    rr(ctx, L.cx - bw / 2, by, bw, bh, bh / 2);
+    ctx.fillStyle = 'rgba(10,6,24,0.55)';
+    ctx.fill();
+    if (p > 0.01) {
+      rr(ctx, L.cx - bw / 2, by, bw * p, bh, bh / 2);
+      ctx.fillStyle = '#FFD84A';
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   _drawStudio(st, rt) {
     const ctx = this.ctx;
     const L = this.L;
     const s = this.studio;
     if (s.cover) return; // 릴스 썸네일: 글씨는 cover.js 가 따로 그림
+    if (s.quiz) {
+      this._drawStudioQuiz(st, rt);
+      return;
+    }
     if (s.challenge) {
       this._drawStudioChallenge(st, rt);
       return;

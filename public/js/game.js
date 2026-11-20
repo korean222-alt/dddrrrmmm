@@ -637,6 +637,7 @@ export class Game {
         countIn,
         rolls: this.rolls,
         finished: now > this.lastNoteTime + 0.3,
+        progress: Math.max(0, Math.min(1, now / this.endTime)),
       },
       rt
     );

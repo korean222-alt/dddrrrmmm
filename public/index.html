@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=cc27783238" />
+  <link rel="stylesheet" href="css/style.css?v=e0812893d3" />
 </head>
 <body>
   <div id="app">
@@ -97,6 +97,14 @@
       </header>
       <div class="studio">
         <p class="studio-lead">릴스용 화면(9:16)으로 플레이 장면을 찍어요. 위아래에 문구가 들어가고, 버튼 같은 건 안 나와요.</p>
+        <div class="studio-block">
+          <h4>형식</h4>
+          <div class="seg" id="studio-format">
+            <button data-format="play" aria-pressed="true"><b>🥁 그냥 치기</b><small>단계·레벨업 챌린지 시범</small></button>
+            <button data-format="quiz" aria-pressed="false"><b>🎵 노래 맞히기</b><small>제목은 숨기고 치다가 끝에 정답 공개</small></button>
+          </div>
+          <label class="field quiz-len" id="quiz-len" hidden><span>길이 <small class="muted">짧을수록 끝까지 봐요</small></span><select id="quiz-bars"></select></label>
+        </div>
         <div class="studio-block">
           <h4>단계</h4>
           <div class="chips" id="studio-levels"></div>
@@ -610,6 +618,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=4006577794" defer></script>
+  <script src="js/app.js?v=b311e02ccd" defer></script>
 </body>
 </html>
