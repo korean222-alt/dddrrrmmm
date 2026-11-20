@@ -366,7 +366,7 @@ test('📦 인스타 아이디 거의 같음: 점·밑줄·대소문자·오타 
   for (const [a, b] of [['jiminnn_12', 'totally.other'], ['abc', 'abd1x'], ['', 'abc'], ['ab', 'ac']]) assert.ok(!igSimilar(a, b), `${a} ≠ ${b}`);
 });
 
-test('🔇 소리 시계가 멈추면(아이폰 다른 앱 소리) 멈춤으로 보고, 엔진을 새로 만든 뒤 멈췄던 자리부터 이어 감', async () => {
+test('🔇 소리 시계가 멈춰도(아이폰) 곡은 화면 시계로 계속 흐르고, 새 엔진·다시 흐르는 시계에 그 자리부터 맞춰 붙음', async () => {
   const { Game } = await import('../public/js/game.js');
   const noop = () => {};
   globalThis.requestAnimationFrame ??= () => 0;
@@ -387,19 +387,22 @@ test('🔇 소리 시계가 멈추면(아이폰 다른 앱 소리) 멈춤으로 
     const at = g._goodNow;
     assert.ok(at > 1.5 && at < 2.5, `곡 시각 ${at}`);
     assert.equal(audio.frozen, false);
-    // 'running' 인데 시계가 멈춤 → 0.5초 넘으면 멈춤
+    // 'running' 인데 시계가 멈춤 → 0.3초 넘으면 멈춤으로 봄. 그래도 곡 시각은 화면 시계로 흐름 ('1' 에서 서 있지 않음)
     for (let i = 0; i < 8; i++) { now += 120; g._loop(); }
     assert.equal(audio.frozen, true);
-    assert.equal(g._goodNow, at, '멈춘 동안 곡 시각이 안 움직임');
-    // 터치 → 새 엔진(시계가 0부터) → 그 자리부터 이어 감
+    assert.ok(Math.abs(g._goodNow - (at + 0.96)) < 0.15, `멈춘 동안에도 곡 시각이 흐름 ${g._goodNow} vs ${at + 0.96}`);
+    // 터치 → 새 엔진(시계가 0부터) → 지금 자리 그대로 이어 감 (뒤로 안 감)
+    const before = g.songTime();
     fake.ctx = mkCtx(0);
     g.reanchor();
-    fake.ctx.currentTime = 0.3;
-    assert.ok(Math.abs(g.songTime() - at) < 0.01, `이어 가는 곡 시각 ${g.songTime()} vs ${at}`);
-    now += 120;
-    fake.ctx.currentTime += 0.12;
-    g._loop();
+    assert.ok(Math.abs(g.songTime() - before) < 0.01, `이어 가는 곡 시각 ${g.songTime()} vs ${before}`);
+    // 새 시계가 흐르기 시작 → 소리 시계에 맞춰 붙음 (곡 시각 이어짐)
+    for (let i = 0; i < 3; i++) { now += 120; fake.ctx.currentTime += 0.12; g._loop(); }
     assert.equal(audio.frozen, false);
+    assert.equal(g._virt, null, '소리 시계로 돌아옴');
+    assert.ok(Math.abs(g.songTime() - (before + 0.36)) < 0.01, `맞춰 붙은 곡 시각 ${g.songTime()} vs ${before + 0.36}`);
+    now += 120; fake.ctx.currentTime += 0.12;
+    assert.ok(Math.abs(g.songTime() - (before + 0.48)) < 0.01, '소리 시계 따라 흐름');
   } finally {
     performance.now = realNow;
     g.stop();

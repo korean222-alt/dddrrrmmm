@@ -768,18 +768,11 @@ async function startLevel(id, opts = {}) {
   }
   let stallToastAt = 0;
   const sg = state.game;
-  sg.onStall = (stuckSec) => {
-    // 4초 넘게 계속 멈춰 있으면(콩이 안 내려옴) 일시정지하고 해결 방법 안내
-    if (stuckSec > 4 && state.game === sg && sg.state === 'playing') {
-      sg.pause();
-      $('#pause-stuck').hidden = false;
-      $('#pause-title').textContent = '곡이 멈췄어요';
-      openModal('modal-pause');
-      return;
-    }
-    if (Date.now() - stallToastAt < 4000) return;
+  sg.onStall = () => {
+    // 소리 시계가 멈춰도 게임은 화면 시계로 계속 감 (game._virt) → 안내만 가끔
+    if (Date.now() - stallToastAt < 10000) return;
     stallToastAt = Date.now();
-    toast('🔇 폰이 소리를 잠깐 멈췄어요. 화면을 한 번 톡 눌러 주세요 (화면 녹화는 시작 버튼 누르기 전에 켜 두세요)', 3600);
+    toast('🔇 폰이 소리를 잠깐 멈췄어요. 화면을 톡 누르면 소리가 다시 나요', 3000);
   };
   // 🎵 내 노래: 녹화 버튼을 켰으면 시작과 같이 녹화
   if (lv.custom && my.rec) {
