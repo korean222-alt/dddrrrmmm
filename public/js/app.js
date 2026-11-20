@@ -6827,11 +6827,38 @@ class Renderer {
     ctx.restore();
   }
 
+  /** 박자 맞추기 카운트다운: 첫 쿵까지 남은 초를 크게 (5·4·3·2·1 → 시작!) */
+  _drawSyncCountdown(st, rt) {
+    const left = st.tempo.barStart(1) - st.now; // 채보 첫 쿵까지
+    if (left <= -0.5 || left > this.studio.countdown + 0.05) return;
+    const ctx = this.ctx;
+    const L = this.L;
+    const text = left > 0 ? String(Math.ceil(left - 1e-6)) : '시작!';
+    const frac = left > 0 ? left - Math.floor(left - 1e-6) : 1; // 1 → 0 (숫자가 바뀔 때 1)
+    const pop = 1 + Math.max(0, frac - 0.75) * 1.2;
+    const fs = L.GW * (left > 0 ? 0.32 : 0.18);
+    ctx.save();
+    ctx.globalAlpha = left > 0 ? 1 : Math.max(0, 1 + left * 2);
+    ctx.translate(L.cx, L.H * 0.43);
+    ctx.scale(pop, pop);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.font = `${Math.round(fs)}px ${FONT}`;
+    ctx.lineWidth = fs * 0.12;
+    ctx.strokeStyle = INK;
+    ctx.strokeText(text, 0, 0);
+    ctx.fillStyle = '#FFD84A';
+    ctx.fillText(text, 0, 0);
+    ctx.restore();
+  }
+
   _drawStudio(st, rt) {
     const ctx = this.ctx;
     const L = this.L;
     const s = this.studio;
     if (s.cover) return; // 릴스 썸네일: 글씨는 cover.js 가 따로 그림
+    if (s.countdown && st.tempo) this._drawSyncCountdown(st, rt);
     if (s.quiz) {
       this._drawStudioQuiz(st, rt);
       return;
@@ -11631,6 +11658,7 @@ function studioOverlay(lv) {
     bottom: st.bottom,
     challenge: !!lv.challenge,
     steady: !!lv.steady,
+    countdown: lv.synced ? lv.syncCountdown || 0 : 0,
     endText: lv.steady ? '클리어!' : '',
     label: lv.beat ? `${lv.songName} · ${beatStyleName(lv.beatStyle, lv.beatDiff)}` : lv.challenge ? '레벨업 챌린지' : lv.studioOnly ? `${lv.composer} ${lv.name}` : `${levelLabel(lv)} · ${lv.composer} ${lv.name}`,
   };
@@ -11670,19 +11698,34 @@ const beatSaved = () => beatOpts(load('beatReel', null) || {});
 const sync = { url: null, name: '', firstBeat: null, t0: 0, bpm: null };
 const syncCalib = () => Number(load('syncCalib', 0)) || 0;
 /** 박자 맞추기 판: 녹화 중이면 첫 쿵이 노래 박에 오게 시작 시각을 정해 줌 */
+/** 카운트다운(초): 영상 0초부터 노래가 나오고, 드럼은 이만큼 뒤의 첫 쿵부터 */
+const syncCountdown = () => Math.max(0, Math.min(20, Number(load('syncCountdown', 5)) || 0));
+/** 채보 첫 쿵의 녹화 속 시각: 노래 구간 시작 + 카운트다운 뒤의 첫 '쿵' 박 (쿵 박은 2박 간격) */
+function syncChartStart() {
+  if (sync.firstBeat == null) return null;
+  const beat = 60 / (beatSaved().bpm || sync.bpm || 120);
+  const k = Math.max(0, Math.ceil((sync.t0 + syncCountdown() - sync.firstBeat) / (beat * 2) - 1e-6));
+  return sync.firstBeat + k * beat * 2;
+}
 function withSync(lv) {
   const st = state.studio;
-  if (sync.firstBeat == null) return lv;
-  // 확인용: 화면 녹화의 노래를 같이 틂 (첫 박 = 채보 첫 쿵). 영상에도 들어감
+  const start = syncChartStart();
+  if (start == null) return lv;
+  // 확인용: 화면 녹화의 노래를 같이 틂 (채보 첫 쿵 = 노래의 그 박). 영상에도 들어감
   if ($('#sync-play').checked && audio.trackBuffer(sync.url)) {
-    lv.song = { ...lv.song, audio: { src: sync.url, offset: sync.firstBeat, gain: 1 } };
+    lv.song = { ...lv.song, audio: { src: sync.url, offset: start, gain: 1 } };
     lv.withSong = true;
   }
-  // 녹화는 카운트다운이 끝나 갈 즈음, '노래 구간 시작' 순간부터 (영상 0초 = 인스타 노래 0초). startLevel 이 시작함
+  // 녹화는 '노래 구간 시작' 순간부터 (영상 0초 = 인스타 노래 0초). 카운트다운 동안 노래가 흐르고 드럼은 그 뒤 첫 쿵부터
   if (!st.active || !st.file) return lv;
   lv.synced = true;
-  lv.syncLead = sync.firstBeat - sync.t0; // 노래 구간 시작 → 첫 쿵
-  lv.hideCountIn = state.auto; // 자동 연주 영상엔 3·2·1 안 보이게 (직접 칠 땐 보여야 함)
+  lv.syncLead = start - sync.t0; // 노래 구간 시작 → 첫 쿵
+  lv.syncCountdown = syncCountdown();
+  // 카운트다운을 쓰면 우리 숫자(5·4·3·2·1)로, 아니면 자동 연주 영상엔 3·2·1 안 보이게
+  lv.hideCountIn = lv.syncCountdown > 0 || state.auto;
+  // 녹화 시작이 판 시작보다 앞서야 하니, 카운트인 한 마디보다 길면 판을 그만큼 늦게 시작
+  const countIn = (60 / lv.bpm) * 4 * COUNT_IN_BARS;
+  lv.leadIn = Math.max(0, lv.syncLead - countIn) + 0.3;
   return lv;
 }
 /** 이 폰의 녹화 지연(ms, 찍은 영상을 재서 자동) */
@@ -11761,9 +11804,10 @@ function songBars(o) {
   if (o.style !== 'song' || sync.firstBeat == null) return null;
   const buf = audio.trackBuffer(sync.url);
   if (!buf) return null;
-  const key = [sync.url, sync.firstBeat, o.bpm, o.rounds, o.diff].join('|');
+  const first = syncChartStart();
+  const key = [sync.url, first, o.bpm, o.rounds, o.diff].join('|');
   if (songCache && songCache.key === key) return songCache.bars;
-  const r = songChart(monoOf(buf), buf.sampleRate, { firstBeat: sync.firstBeat, bpm: o.bpm, bars: o.rounds * ROUND_BARS, diff: o.diff });
+  const r = songChart(monoOf(buf), buf.sampleRate, { firstBeat: first, bpm: o.bpm, bars: o.rounds * ROUND_BARS, diff: o.diff });
   songCache = { key, bars: r.bars, covered: r.covered };
   return r.bars;
 }
@@ -11943,6 +11987,7 @@ function fillBeatForm() {
   $('#beat-title').value = o.title;
   $('#beat-click').checked = o.click;
   $('#sync-calib').textContent = `${syncCalib() > 0 ? '+' : ''}${syncCalib()}ms`;
+  $('#sync-cd').textContent = syncCountdown() ? `${syncCountdown()}초` : '없음';
   // 버튼은 한 번만 만듦 (BPM 칸을 고치다 바로 형식을 누르면, 다시 그리는 사이 누른 게 사라짐)
   if (!$('#beat-style').children.length)
     $('#beat-style').innerHTML = BEAT_STYLES.map((x) => `<button type="button" data-beat-style="${x.id}"><b>${x.name}</b><small>${x.desc}</small></button>`).join('');
@@ -12184,7 +12229,7 @@ async function studioFinish(res) {
       g && g.level.withSong
         ? '노래를 같이 넣은 확인용 영상이에요. 박이 맞으면, 인스타에 올릴 건 「노래도 같이 틀기」를 끄고 다시 찍으세요 (노래는 인스타에서 넣기)'
         : g && g.level.synced
-        ? '영상 0초 = 노래 구간 시작이에요 (카운트다운 없이 바로 시작). 인스타에서 같은 노래·같은 구간을 넣고 노래 클립을 맨 앞(0초)에 붙이면 맞아요. 드럼이 노래보다 빠르면 「싱크 보정」을 +, 늦으면 −로 바꿔 다시 찍기'
+        ? (g.level.syncCountdown ? `영상 0초부터 노래가 나오고, ${g.level.syncCountdown}초 카운트다운 뒤 첫 박(영상 ${g.level.syncLead.toFixed(2)}초)부터 드럼이에요. ` : '') + '영상 0초 = 노래 구간 시작이에요. 인스타에서 같은 노래·같은 구간을 넣고 노래 클립을 맨 앞(0초)에 붙이면 맞아요. 드럼이 노래보다 빠르면 「싱크 보정」을 +, 늦으면 −로 바꿔 다시 찍기'
         : firstHit != null && firstHit > 0
         ? `영상이 만들어졌어요. 첫 쿵은 영상 약 ${firstHit.toFixed(1)}초예요. 인스타에서 영상 앞을 그만큼 잘라내고, 노래는 하이라이트 첫 박(첫 강세)부터 시작하게 고르면 박자가 맞아요.`
         : '영상이 만들어졌어요. 저장해서 릴스에 올려보세요!';
@@ -12860,6 +12905,11 @@ const ACTIONS = {
   'transfer-take': () => transferTake(),
   'beat-pick': () => pickBeat(),
   'sync-detect': () => syncDetect(),
+  'sync-cd': (el) => {
+    const v = Math.max(0, Math.min(20, syncCountdown() + Number(el.dataset.step)));
+    save('syncCountdown', v);
+    $('#sync-cd').textContent = v ? `${v}초` : '없음';
+  },
   'sync-calib': (el) => {
     const v = Math.max(-500, Math.min(500, syncCalib() + Number(el.dataset.step)));
     save('syncCalib', v);

@@ -193,6 +193,13 @@
               <button class="btn btn-hot" type="button" data-action="sync-detect" id="sync-detect-btn">박자 다시 찾기</button>
               <label class="field check"><input type="checkbox" id="sync-play" /><span>노래도 같이 틀기 · 박 맞나 확인용 (영상에도 들어가요)</span></label>
               <div class="beat-row sync-calib-row">
+                <span>카운트다운</span>
+                <button class="beat-mini" type="button" data-action="sync-cd" data-step="-1">−1초</button>
+                <b id="sync-cd">5초</b>
+                <button class="beat-mini" type="button" data-action="sync-cd" data-step="1">+1초</button>
+              </div>
+              <p class="hint">영상 0초부터 노래가 나오고, 카운트다운이 끝난 뒤 첫 박부터 드럼이 나와요. 인스타에선 노래 구간을 그만큼 앞에서 시작하게 고르세요.</p>
+              <div class="beat-row sync-calib-row">
                 <span>싱크 보정</span>
                 <button class="beat-mini" type="button" data-action="sync-calib" data-step="-20">−20ms</button>
                 <b id="sync-calib">0ms</b>
@@ -699,6 +706,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=672a3b9b91" defer></script>
+  <script src="js/app.js?v=a1e61b9fef" defer></script>
 </body>
 </html>

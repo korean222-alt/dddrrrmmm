@@ -1497,11 +1497,38 @@ export class Renderer {
     ctx.restore();
   }
 
+  /** 박자 맞추기 카운트다운: 첫 쿵까지 남은 초를 크게 (5·4·3·2·1 → 시작!) */
+  _drawSyncCountdown(st, rt) {
+    const left = st.tempo.barStart(1) - st.now; // 채보 첫 쿵까지
+    if (left <= -0.5 || left > this.studio.countdown + 0.05) return;
+    const ctx = this.ctx;
+    const L = this.L;
+    const text = left > 0 ? String(Math.ceil(left - 1e-6)) : '시작!';
+    const frac = left > 0 ? left - Math.floor(left - 1e-6) : 1; // 1 → 0 (숫자가 바뀔 때 1)
+    const pop = 1 + Math.max(0, frac - 0.75) * 1.2;
+    const fs = L.GW * (left > 0 ? 0.32 : 0.18);
+    ctx.save();
+    ctx.globalAlpha = left > 0 ? 1 : Math.max(0, 1 + left * 2);
+    ctx.translate(L.cx, L.H * 0.43);
+    ctx.scale(pop, pop);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.font = `${Math.round(fs)}px ${FONT}`;
+    ctx.lineWidth = fs * 0.12;
+    ctx.strokeStyle = INK;
+    ctx.strokeText(text, 0, 0);
+    ctx.fillStyle = '#FFD84A';
+    ctx.fillText(text, 0, 0);
+    ctx.restore();
+  }
+
   _drawStudio(st, rt) {
     const ctx = this.ctx;
     const L = this.L;
     const s = this.studio;
     if (s.cover) return; // 릴스 썸네일: 글씨는 cover.js 가 따로 그림
+    if (s.countdown && st.tempo) this._drawSyncCountdown(st, rt);
     if (s.quiz) {
       this._drawStudioQuiz(st, rt);
       return;
