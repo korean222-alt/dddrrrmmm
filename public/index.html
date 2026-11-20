@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=89114f3608" />
+  <link rel="stylesheet" href="css/style.css?v=c1ae7c2541" />
 </head>
 <body>
   <div id="app">
@@ -49,7 +49,10 @@
           <button class="mode-card mode-multi" data-action="room-open"><b><span data-icon="swords" data-e></span> 멀티</b></button>
         </div>
         <button class="btn btn-primary btn-big" data-action="quickstart"><span data-icon="play"></span> 바로 시작 <small>1단계</small></button>
-        <button class="btn btn-hot mysong-btn" data-action="mysong-open"><span data-icon="note" data-e></span> 내 노래로 치기 <small>NEW</small></button>
+        <div class="home-two">
+          <button class="btn btn-hot mysong-btn" data-action="mysong-open"><span data-icon="note" data-e></span> 내 노래로 치기</button>
+          <button class="btn btn-hot mysong-btn maps-btn" data-action="maps-open"><span data-icon="piano" data-e></span> 유저 맵 <small>NEW</small></button>
+        </div>
         <div class="title-mini">
           <button class="mini-btn" data-action="news-open" id="btn-news"><span data-icon="megaphone" data-e></span><span>업데이트</span><i class="dot" id="news-dot" hidden></i></button>
           <button class="mini-btn" data-action="suggest-open"><span data-icon="chat" data-e></span><span>건의하기</span></button>
@@ -140,6 +143,135 @@
             <p class="hint" id="my-rec-hint"></p>
           </div>
           <button class="btn btn-primary btn-big" data-action="mysong-start"><span data-icon="play"></span> 시작</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- 🎹 유저 맵 -->
+    <section id="screen-maps" class="screen" aria-label="유저 맵">
+      <header class="bar">
+        <button class="icon-btn" data-action="home" aria-label="뒤로"><span data-icon="back"></span></button>
+        <h2>유저 맵</h2>
+        <span class="bar-spacer"></span>
+      </header>
+      <div class="studio maps">
+        <button class="btn btn-primary btn-big" data-action="mapmake-open"><span data-icon="piano" data-e></span> 내 맵 만들기</button>
+        <div class="seg" id="maps-sort">
+          <button type="button" data-sort="new"><b>✨ 새 맵</b><small>방금 올라온 것</small></button>
+          <button type="button" data-sort="top"><b>❤ 인기</b><small>좋아요 많은 것</small></button>
+        </div>
+        <div id="maps-list" class="maps-list"></div>
+        <p class="hint maps-foot">누구나 피아노로 곡을 만들어 올릴 수 있어요. 이상한 맵은 「신고」를 눌러 주세요. 신고가 3개 모이면 저절로 내려가요.</p>
+      </div>
+    </section>
+
+    <!-- 🎹 맵 만들기 -->
+    <section id="screen-mapmake" class="screen" aria-label="맵 만들기">
+      <header class="bar">
+        <button class="icon-btn" data-action="maps-open" aria-label="뒤로"><span data-icon="back"></span></button>
+        <h2>맵 만들기</h2>
+        <span class="bar-spacer"></span>
+      </header>
+      <div class="studio mapmake">
+        <div class="studio-block">
+          <label class="field"><span>곡 이름</span><input type="text" id="mk-name" maxlength="30" placeholder="예) 내가 만든 노래" /></label>
+          <div class="mk-row">
+            <span>빠르기</span>
+            <button class="mk-mini" type="button" data-action="mk-bpm" data-d="-5">−</button>
+            <b id="mk-bpm">100</b><small>BPM</small>
+            <button class="mk-mini" type="button" data-action="mk-bpm" data-d="5">+</button>
+          </div>
+        </div>
+
+        <div class="studio-block">
+          <h4>① 멜로디 만들기</h4>
+          <div class="seg" id="mk-way">
+            <button type="button" data-way="file"><b>🎵 노래 파일로</b><small>음을 자동으로 따요</small></button>
+            <button type="button" data-way="play"><b>🎹 건반 치기</b><small>쳐서 녹음해요</small></button>
+          </div>
+
+          <div id="mk-way-file" class="mk-way" hidden>
+            <p class="hint">폰에 있는 노래(mp3)나 화면 녹화 영상을 넣으면 멜로디를 피아노 음으로 따요. 노래 한 줄이 또렷할수록 잘 나와요. 파일은 이 폰 밖으로 안 나가요.</p>
+            <label class="btn btn-ghost mk-file"><input type="file" accept="audio/*,video/*" id="mk-file" hidden />노래 파일 고르기</label>
+            <p class="hint" id="mk-file-status"></p>
+            <div id="mk-file-opts" hidden>
+              <label class="field"><span>시작 <small class="muted">예) 0:30 (비우면 처음부터)</small></span><input type="text" id="mk-file-start" inputmode="decimal" placeholder="0:00" /></label>
+              <label class="field"><span>길이</span><select id="mk-file-len"><option value="8">8마디</option><option value="16" selected>16마디</option><option value="32">32마디</option><option value="64">64마디 (최대)</option></select></label>
+              <label class="field"><span>음 정리</span><select id="mk-file-clean"><option value="easy" selected>깔끔하게 (8분음표, 추천)</option><option value="fine">자세히 (16분음표까지)</option></select></label>
+              <button class="btn btn-primary" type="button" data-action="mk-transcribe" id="mk-transcribe">음 따기</button>
+            </div>
+          </div>
+
+          <div id="mk-way-play" class="mk-way" hidden>
+            <p class="hint">「녹음」을 누르면 똑딱 소리가 나요. 박자에 맞춰 건반을 치면 그대로 멜로디가 돼요. 박자는 알아서 맞춰 줘요.</p>
+            <div class="mk-rec-row">
+              <button class="btn btn-hot" type="button" data-action="mk-rec" id="mk-rec"><span class="mk-dot"></span> <span id="mk-rec-label">녹음</span></button>
+              <label class="field mk-rec-from"><select id="mk-rec-from"><option value="0">처음부터</option><option value="end">이어서 (끝에 붙이기)</option><option value="bar">지금 마디부터</option></select></label>
+            </div>
+            <p class="hint mk-rec-msg" id="mk-rec-msg"></p>
+          </div>
+
+          <canvas id="mk-roll" class="mk-roll" height="130"></canvas>
+          <div class="mk-barnav">
+            <button class="mk-mini" type="button" data-action="mk-bar" data-d="-1" aria-label="앞 마디"><span data-icon="back"></span></button>
+            <b id="mk-barno">1 / 4 마디</b>
+            <button class="mk-mini" type="button" data-action="mk-bar" data-d="1" aria-label="다음 마디"><span data-icon="back" class="flip"></span></button>
+          </div>
+          <div class="mk-keys-wrap">
+            <div class="mk-oct">
+              <button class="mk-mini" type="button" data-action="mk-oct" data-d="-1" aria-label="낮은 음"><span data-icon="back"></span></button>
+              <span id="mk-octlabel">C4 ~ B5</span>
+              <button class="mk-mini" type="button" data-action="mk-oct" data-d="1" aria-label="높은 음"><span data-icon="back" class="flip"></span></button>
+            </div>
+            <div class="mk-keys" id="mk-keys"></div>
+          </div>
+
+          <details class="mk-detail" id="mk-detail">
+            <summary>자세히 고치기 (한 칸씩)</summary>
+            <p class="hint">켜 두면 건반을 누를 때 빨간 줄 자리에 음이 들어가요. 위 그림을 누르면 그 자리로 옮겨요.</p>
+            <label class="field check"><input type="checkbox" id="mk-step" /><span>건반으로 한 칸씩 넣기</span></label>
+            <div class="mk-row mk-lens" id="mk-len">
+              <span>길이</span>
+              <button type="button" data-len="1">16분</button>
+              <button type="button" data-len="2">8분</button>
+              <button type="button" data-len="4">4분</button>
+              <button type="button" data-len="8">2분</button>
+            </div>
+            <div class="mk-row mk-tools">
+              <button type="button" data-action="mk-rest">쉼</button>
+              <button type="button" data-action="mk-back">한 칸 지우기</button>
+            </div>
+            <div class="mk-baredit">
+              <button type="button" data-action="mk-baradd">+ 마디</button>
+              <button type="button" data-action="mk-barcopy">마디 복사</button>
+              <button type="button" data-action="mk-barclear">비우기</button>
+              <button type="button" data-action="mk-bardel">마디 빼기</button>
+            </div>
+          </details>
+        </div>
+
+        <div class="studio-block">
+          <h4>② 드럼 <small class="muted">멜로디에 맞춰 자동으로 붙어요</small></h4>
+          <div class="seg seg3" id="mk-auto">
+            <button type="button" data-diff="easy"><b>쉬움</b><small>쿵 짝</small></button>
+            <button type="button" data-diff="normal"><b>보통</b><small>엇박 조금</small></button>
+            <button type="button" data-diff="hard"><b>어려움</b><small>하이햇까지</small></button>
+          </div>
+          <details class="mk-detail" id="mk-drum-detail">
+            <summary>드럼 한 칸씩 고치기 · <span id="mk-barno2">1마디</span></summary>
+            <div class="mk-grid" id="mk-grid"></div>
+            <p class="hint">칸을 눌러 켜고 꺼요. 같은 엄지(킥·크래시 / 스네어·하이햇)는 한 칸에 하나만 돼요. 마디는 위 ◀ ▶ 로 옮겨요.</p>
+          </details>
+        </div>
+
+        <div class="studio-block mk-player">
+          <h4>③ 들어 보고 올리기</h4>
+          <button class="btn btn-primary btn-big" type="button" data-action="mk-play" id="mk-play"><span data-icon="play"></span> <span id="mk-play-label">처음부터 듣기</span></button>
+          <div class="stack mk-actions">
+            <button class="btn btn-ghost" data-action="mk-try"><span data-icon="drum" data-e></span> 직접 쳐 보기</button>
+            <button class="btn btn-hot btn-big" data-action="mk-upload"><span data-icon="share"></span> 맵 올리기</button>
+            <button class="link" data-action="mk-new">새로 만들기 (지금 것 지움)</button>
+          </div>
         </div>
       </div>
     </section>
@@ -704,6 +836,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=9ff8b89dcc" defer></script>
+  <script src="js/app.js?v=f73ac201cc" defer></script>
 </body>
 </html>

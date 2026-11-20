@@ -6,8 +6,9 @@ import {
   ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId,
   STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase, COUNT_IN_BARS, ROUND_BARS,
   BEAT_ID, makeBeatReel, beatOpts, beatSeconds, BEAT_MAX_ROUNDS, BEAT_STYLES, BEAT_DIFFS, beatStyleName,
-  QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds,
+  QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds, STEPS_PER_BAR, CHAR_LANES, KICK, SNARE, HAT, CRASH, parseChord,
 } from './charts.js';
+import { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmonize, autoDrums, cleanMap, mapLevel, transcribe, cleanMelody } from './usermap.js';
 import { AudioEngine, playMetronome } from './audio.js';
 import { Renderer } from './render.js';
 import { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } from './game.js';
@@ -324,6 +325,7 @@ function playable(id) {
   }
   if (isQuizId(id)) return makeQuizLevel(id);
   if (id === MY_ID) return my.level;
+  if (id === UM_ID) return um.level;
   return getStudioLevel(id) || getLevel(id);
 }
 const isChallengeId = (id) => id === ENDLESS_ID || (typeof id === 'string' && /^(ch|e)\d+$/.test(id));
@@ -598,7 +600,7 @@ async function startLevel(id, opts = {}) {
   if (state.game) state.game.stop();
   closeModal('modal-pause');
   show('screen-game');
-  $('#hud-lv').textContent = practice ? `🐢 연습 ${Math.round(practice * 100)}%` : lv.custom ? '🎵 내 노래' : lv.survival ? '⚔️ 서바이벌' : lv.challenge ? (lv.endless ? '무제한' : '챌린지') : lv.studioOnly ? '🎬 릴스용' : levelLabel(lv);
+  $('#hud-lv').textContent = practice ? `🐢 연습 ${Math.round(practice * 100)}%` : lv.userMap ? '🎹 유저 맵' : lv.custom ? '🎵 내 노래' : lv.survival ? '⚔️ 서바이벌' : lv.challenge ? (lv.endless ? '무제한' : '챌린지') : lv.studioOnly ? '🎬 릴스용' : levelLabel(lv);
   $('#hud-name').textContent = lv.challenge ? `${lv.songName} · ${lv.composer}` : `${lv.name} · ${lv.composer}`;
   $('#hud-score').textContent = '0';
   $('#hud-progress').style.width = '0%';
@@ -730,7 +732,7 @@ async function startLevel(id, opts = {}) {
       last.p = p;
     },
     onEnd: (res) => {
-      if (lv.custom) return myFinish(res);
+      if (lv.custom) return lv.userMap ? umFinish(res) : myFinish(res);
       if (!state.studio.active && !res.auto && !res.practice) trackPlayEnd({ result: res.failed || res.died ? 'fail' : 'clear', score: res.score, stars: res.stars });
       if (room && state.roomClient.active) {
         res.room = { mode: room.mode, round: room.round };
@@ -768,21 +770,14 @@ async function startLevel(id, opts = {}) {
   }
   let stallToastAt = 0;
   const sg = state.game;
-  sg.onStall = (stuckSec) => {
-    // 4초 넘게 계속 멈춰 있으면(콩이 안 내려옴) 일시정지하고 해결 방법 안내
-    if (stuckSec > 4 && state.game === sg && sg.state === 'playing') {
-      sg.pause();
-      $('#pause-stuck').hidden = false;
-      $('#pause-title').textContent = '곡이 멈췄어요';
-      openModal('modal-pause');
-      return;
-    }
-    if (Date.now() - stallToastAt < 4000) return;
+  sg.onStall = () => {
+    // 소리 시계가 멈춰도 게임은 화면 시계로 계속 감 (game._virt) → 안내만 가끔
+    if (Date.now() - stallToastAt < 10000) return;
     stallToastAt = Date.now();
-    toast('🔇 폰이 소리를 잠깐 멈췄어요. 화면을 한 번 톡 눌러 주세요 (화면 녹화는 시작 버튼 누르기 전에 켜 두세요)', 3600);
+    toast('🔇 폰이 소리를 잠깐 멈췄어요. 화면을 톡 누르면 소리가 다시 나요', 3000);
   };
   // 🎵 내 노래: 녹화 버튼을 켰으면 시작과 같이 녹화
-  if (lv.custom && my.rec) {
+  if (lv.custom && !lv.userMap && my.rec) {
     await stopRecorder(); // 다시 치기: 앞 판 녹화가 남아 있으면 버림
     startRecorder();
   }
@@ -1949,6 +1944,749 @@ async function mySave() {
   document.body.appendChild(a);
   a.click();
   a.remove();
+}
+
+// ---------------- 🎹 유저 맵 ----------------
+//   유저가 피아노로 멜로디를 찍고(또는 노래 파일에서 음을 따서) 드럼 노트를 붙여 올리는 맵. 운영자 개입 없음
+//   올라가는 건 음표 데이터뿐 (몇 KB). 요청: 목록 볼 때(1분 캐시) · 맵 받을 때 · 올리기/좋아요/신고 누를 때만
+const UM_ID = 'um';
+const um = { level: null, from: 'list', sort: 'new', mapId: null, list: null, wasAuto: false };
+const newDraft = () => ({ name: '', bpm: 100, mel: [[], [], [], []], drums: autoDrums([[], [], [], []], 'easy'), drumsAuto: 'easy', bar: 0, cur: 0, len: 2, oct: 4, way: null, step: false });
+let mk = load('mapDraft', null);
+if (!mk || !Array.isArray(mk.mel) || !Array.isArray(mk.drums) || mk.mel.length !== mk.drums.length || mk.mel.length < 2) mk = newDraft();
+const mkSave = () => save('mapDraft', mk);
+const umLikes = () => load('mapLikes', {});
+
+function openMaps() {
+  if (followGated()) {
+    openVerify(null, { label: '🎹 유저 맵은 팔로워만', then: openMaps });
+    return;
+  }
+  if (state.game) state.game.stop();
+  $$('#maps-sort button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.sort === um.sort));
+  show('screen-maps');
+  loadMaps();
+}
+async function loadMaps(fresh = false) {
+  const box = $('#maps-list');
+  if (!state.api.maps) {
+    box.innerHTML = '<p class="rank-empty">지금은 서버에 연결이 안 돼서 유저 맵을 못 불러와요</p>';
+    return;
+  }
+  if (!um.list) box.innerHTML = '<p class="rank-empty">불러오는 중…</p>';
+  try {
+    const r = await state.api.maps(um.sort, fresh);
+    um.list = r.maps || [];
+    renderMaps();
+  } catch (e) {
+    box.innerHTML = `<p class="rank-empty">${e.status === 429 ? '오늘 서버가 바빠요. 내일 오전 9시에 다시 열려요' : '못 불러왔어요. 잠시 뒤 다시 해 보세요'}</p>`;
+  }
+}
+function renderMaps() {
+  const box = $('#maps-list');
+  const likes = umLikes();
+  if (!um.list.length) {
+    box.innerHTML = '<p class="rank-empty">아직 올라온 맵이 없어요.<br>첫 맵을 만들어 올려 보세요!</p>';
+    return;
+  }
+  box.innerHTML = um.list
+    .map((m) => {
+      const liked = !!likes[m.id];
+      return `<div class="map-card" data-id="${m.id}">
+        <div class="map-info"><h4>${escapeHtml(m.name)}</h4>
+          <p>${escapeHtml(m.nick || '익명')} · ${Math.round(m.bpm)} BPM · ${m.bars}마디 · ${DIFFICULTY_WORDS[m.diff] || ''}</p>
+          <p class="map-meta">▶ ${fmt(m.plays)} · ❤ ${fmt(m.likes)}</p></div>
+        <div class="map-btns">
+          <button class="btn btn-primary map-play" type="button" data-map-act="play">▶ 치기</button>
+          <div class="map-small">
+            <button type="button" data-map-act="like" aria-pressed="${liked}">❤ 좋아요</button>
+            ${m.mine ? '<button type="button" data-map-act="delete">지우기</button>' : '<button type="button" data-map-act="report">신고</button>'}
+          </div>
+        </div>
+      </div>`;
+    })
+    .join('');
+}
+async function mapAct(id, act, btn) {
+  const m = (um.list || []).find((x) => x.id === id);
+  if (act === 'play') return playMap(id);
+  try {
+    if (act === 'like') {
+      const likes = umLikes();
+      const on = !likes[id];
+      const r = await state.api.mapVote(id, 'like', on);
+      if (on) likes[id] = 1;
+      else delete likes[id];
+      save('mapLikes', likes);
+      if (m) m.likes = r.likes;
+      renderMaps();
+      return;
+    }
+    if (act === 'report') {
+      if (!confirm('이 맵을 신고할까요? 신고가 3개 모이면 내려가요')) return;
+      await state.api.mapVote(id, 'report', true);
+      toast('신고했어요. 고마워요', 1800);
+      if (btn) btn.disabled = true;
+      return;
+    }
+    if (act === 'delete') {
+      if (!confirm('내 맵을 지울까요? 되돌릴 수 없어요')) return;
+      await state.api.mapDelete(id);
+      um.list = um.list.filter((x) => x.id !== id);
+      renderMaps();
+      toast('지웠어요', 1400);
+    }
+  } catch (e) {
+    toast(e.status === 403 ? '팔로워 인증을 하면 쓸 수 있어요' : e.status === 404 ? '이미 내려간 맵이에요' : '잠시 뒤 다시 해 보세요', 2200);
+  }
+}
+async function playMap(id) {
+  toast('맵 받는 중…', 1500);
+  let r;
+  try {
+    r = await state.api.mapGet(id);
+  } catch (e) {
+    toast(e.status === 404 ? '이미 내려간 맵이에요' : '맵을 못 받았어요. 다시 해 보세요', 2200);
+    if (e.status === 404) loadMaps(true);
+    return;
+  }
+  const map = r.map && cleanMap(r.map.data);
+  if (!map) return toast('맵이 이상해요', 2000);
+  um.level = mapLevel(map, { id: UM_ID, by: r.map.nick || '', mapId: id });
+  um.from = 'list';
+  um.mapId = id;
+  await startLevel(UM_ID);
+}
+/** 판 끝 (유저 맵) */
+function umFinish(res) {
+  if (state.game) state.game.stop();
+  const auto = state.auto;
+  if (um.wasAuto) {
+    state.auto = false;
+    um.wasAuto = false;
+  }
+  if (um.from === 'make') {
+    openMapMake();
+    if (!auto) toast(`${res.grade} · ${fmt(res.score)}점 · 정확도 ${Math.round((res.accuracy || 0) * 100)}%`, 3000);
+    return;
+  }
+  show('screen-maps');
+  const acc = Math.round((res.accuracy || 0) * 100);
+  const liked = !!umLikes()[um.mapId];
+  const box = $('#maps-list');
+  const banner = document.createElement('div');
+  banner.className = 'map-res';
+  banner.innerHTML = `<b>${res.grade}</b> ${fmt(res.score)}점 · 정확도 ${acc}% · 최대 콤보 ${res.maxCombo}
+    <div class="map-res-btns"><button class="btn btn-ghost" type="button" data-map-again>다시 치기</button>${liked ? '' : '<button class="btn btn-hot" type="button" data-map-like>❤ 이 맵 좋아요</button>'}</div>`;
+  box.querySelector('.map-res')?.remove();
+  box.prepend(banner);
+  banner.querySelector('[data-map-again]').onclick = () => startLevel(UM_ID);
+  const lb = banner.querySelector('[data-map-like]');
+  if (lb)
+    lb.onclick = async () => {
+      lb.disabled = true;
+      await mapAct(um.mapId, 'like');
+      $('#maps-list').prepend(banner);
+      lb.remove();
+    };
+  $('#screen-maps').scrollTop = 0;
+}
+function umQuit() {
+  if (um.wasAuto) {
+    state.auto = false;
+    um.wasAuto = false;
+  }
+  if (um.from === 'make') openMapMake();
+  else openMaps();
+}
+
+// ----- 맵 만들기 -----
+//   ① 멜로디: 노래 파일에서 자동으로 따거나, 똑딱 소리에 맞춰 건반을 쳐서 녹음 (자세히 고치기 = 한 칸씩)
+//   ② 드럼: 멜로디에 맞춰 자동 (쉬움·보통·어려움), 원하면 한 칸씩
+//   ③ 처음부터 듣기 → 직접 쳐 보기 → 올리기
+function openMapMake() {
+  if (followGated()) {
+    openVerify(null, { label: '🎹 맵 만들기는 팔로워만', then: openMapMake });
+    return;
+  }
+  if (state.game) state.game.stop();
+  audio.loadPiano();
+  show('screen-mapmake');
+  $('#mk-name').value = mk.name;
+  $('#mk-step').checked = !!mk.step;
+  mkRender();
+}
+function mkFixBars() {
+  while (mk.drums.length < mk.mel.length) mk.drums.push('K...S...K...S...');
+  mk.drums.length = mk.mel.length;
+  if (mk.drumsAuto) mk.drums = autoDrums(mk.mel, mk.drumsAuto);
+  mk.bar = Math.max(0, Math.min(mk.mel.length - 1, mk.bar));
+  mk.cur = Math.max(0, Math.min(STEPS_PER_BAR - 1, mk.cur));
+  mkSave();
+}
+function mkRender() {
+  $('#mk-bpm').textContent = String(mk.bpm);
+  $('#mk-barno').textContent = `${mk.bar + 1} / ${mk.mel.length} 마디`;
+  $('#mk-barno2').textContent = `${mk.bar + 1}마디`;
+  $$('#mk-way button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.way === mk.way));
+  $('#mk-way-file').hidden = mk.way !== 'file';
+  $('#mk-way-play').hidden = mk.way !== 'play';
+  $$('#mk-len button').forEach((b) => b.setAttribute('aria-pressed', Number(b.dataset.len) === mk.len));
+  $$('#mk-auto button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.diff === mk.drumsAuto));
+  $('#mk-octlabel').textContent = `${midiName(12 * (mk.oct + 1))} ~ ${midiName(12 * (mk.oct + 1) + 23)}`;
+  mkKeys();
+  mkRoll();
+  mkGrid();
+}
+function mkKeys() {
+  const box = $('#mk-keys');
+  const base = 12 * (mk.oct + 1);
+  if (box.dataset.base === String(base)) return;
+  box.dataset.base = String(base);
+  const whites = [];
+  const blacks = [];
+  let wi = 0;
+  for (let m = base; m < base + 24; m++) {
+    const pc = m % 12;
+    if ([1, 3, 6, 8, 10].includes(pc)) blacks.push(`<button type="button" class="mk-key black" data-midi="${m}" style="left:calc(${(wi / 14) * 100}% - 3.2%)"></button>`);
+    else {
+      whites.push(`<button type="button" class="mk-key" data-midi="${m}"><small>${pc === 0 ? midiName(m) : SOLFA[pc]}</small></button>`);
+      wi++;
+    }
+  }
+  box.innerHTML = whites.join('') + blacks.join('');
+}
+/** 지금 마디 멜로디 그림 (가로 16칸, 세로 음높이). head = 재생·녹음 중 위치(칸, 소수) */
+function mkRoll(head = null) {
+  const cv = $('#mk-roll');
+  const dpr = Math.min(2, window.devicePixelRatio || 1);
+  const w = cv.clientWidth || 320;
+  const h = 130;
+  if (cv.width !== Math.round(w * dpr)) cv.width = Math.round(w * dpr);
+  if (cv.height !== Math.round(h * dpr)) cv.height = Math.round(h * dpr);
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = '#fffaf3';
+  g.fillRect(0, 0, w, h);
+  const notes = mk.mel[mk.bar] || [];
+  // 세로: 이 마디 음들 둘레만 (없으면 건반 범위 가운데). 음이 크게 보이게
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const n of notes) (lo = Math.min(lo, n.midi)), (hi = Math.max(hi, n.midi));
+  if (lo === Infinity) (lo = 12 * (mk.oct + 1) + 5), (hi = lo + 12);
+  lo -= 2;
+  hi += 2;
+  while (hi - lo < 12) (lo--, hi++);
+  const rows = hi - lo + 1;
+  const cw = w / STEPS_PER_BAR;
+  const rh = h / rows;
+  for (let m = lo; m <= hi; m++) {
+    if ([1, 3, 6, 8, 10].includes(((m % 12) + 12) % 12)) {
+      g.fillStyle = 'rgba(59,42,74,0.06)';
+      g.fillRect(0, h - (m - lo + 1) * rh, w, rh);
+    }
+  }
+  for (let s = 0; s <= STEPS_PER_BAR; s++) {
+    g.fillStyle = s % 4 === 0 ? 'rgba(59,42,74,0.35)' : 'rgba(59,42,74,0.1)';
+    g.fillRect(Math.round(s * cw) - (s % 4 === 0 ? 1 : 0), 0, s % 4 === 0 ? 2 : 1, h);
+  }
+  if (head == null && mk.step) {
+    g.fillStyle = 'rgba(255,95,162,0.22)';
+    g.fillRect(mk.cur * cw, 0, Math.min(mk.len, STEPS_PER_BAR - mk.cur) * cw, h);
+    g.fillStyle = '#ff2f7d';
+    g.fillRect(mk.cur * cw, 0, 3, h);
+  }
+  g.font = '12px sans-serif';
+  g.textBaseline = 'middle';
+  for (const n of notes) {
+    const y = h - (n.midi - lo + 1) * rh;
+    g.fillStyle = '#ff8a4c';
+    g.strokeStyle = '#3b2a4a';
+    g.lineWidth = 1.5;
+    g.beginPath();
+    if (g.roundRect) g.roundRect(n.step * cw + 1, y + 1, n.len * cw - 2, rh - 2, 4);
+    else g.rect(n.step * cw + 1, y + 1, n.len * cw - 2, rh - 2);
+    g.fill();
+    g.stroke();
+    if (n.len * cw > 22 && rh > 11) {
+      g.fillStyle = '#3b2a4a';
+      g.fillText(SOLFA[n.midi % 12], n.step * cw + 4, y + rh / 2);
+    }
+  }
+  if (head != null) {
+    g.fillStyle = '#2f8cff';
+    g.fillRect(head * cw - 1, 0, 3, h);
+  }
+}
+function mkGrid() {
+  if (!$('#mk-drum-detail').open) return;
+  const rows = [
+    ['C', '크래시'],
+    ['K', '킥 (쿵)'],
+    ['S', '스네어 (짝)'],
+    ['H', '하이햇'],
+  ];
+  const bar = mk.drums[mk.bar];
+  $('#mk-grid').innerHTML = rows
+    .map(
+      ([k, label]) =>
+        `<div class="mk-grow"><span>${label}</span><div class="mk-cells">${[...bar]
+          .map((ch, s) => `<button type="button" class="mk-cell${s % 4 === 0 ? ' beat' : ''}" data-step="${s}" data-inst="${k}" aria-pressed="${drumCell(ch)[k]}"></button>`)
+          .join('')}</div></div>`
+    )
+    .join('');
+}
+const LANE_OF = { K: KICK, S: SNARE, H: HAT, C: CRASH };
+function mkDrumTap(step, inst) {
+  const bar = [...mk.drums[mk.bar]];
+  bar[step] = toggleDrum(bar[step], inst);
+  mk.drums[mk.bar] = bar.join('');
+  mk.drumsAuto = null;
+  if (drumCell(bar[step])[inst]) mkSound(() => audio.playLane(LANE_OF[inst], audio.ctx.currentTime + 0.01));
+  mkSave();
+  mkRender();
+}
+/** 소리 내기 (처음엔 소리 엔진을 깨움) */
+function mkSound(fn) {
+  audio.unlock();
+  if (!audio.ctx) return;
+  audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx });
+  try {
+    fn();
+  } catch (e) {
+    console.error(e);
+  }
+}
+/** bar 마디의 from 칸부터 len 칸을 비움 (걸쳐 있던 음은 잘라냄) */
+function mkClearRange(bar, from, len) {
+  const to = from + len;
+  const out = [];
+  for (const n of mk.mel[bar]) {
+    const end = n.step + n.len;
+    if (end <= from || n.step >= to) out.push(n);
+    else if (n.step < from) out.push({ ...n, len: from - n.step });
+    else if (end > to) out.push({ ...n, step: to, len: end - to });
+  }
+  mk.mel[bar] = out.sort((a, b) => a.step - b.step);
+}
+/** 전체 칸 번호 at 에 음 넣기 (마디를 넘으면 그 마디 끝에서 자름, 모자란 마디는 만듦) */
+function mkPut(at, midi, len) {
+  const bar = Math.floor(at / STEPS_PER_BAR);
+  if (bar >= MAP_LIMITS.maxBars) return false;
+  while (mk.mel.length <= bar) mk.mel.push([]);
+  const step = at % STEPS_PER_BAR;
+  len = Math.max(1, Math.min(len, STEPS_PER_BAR - step));
+  mkClearRange(bar, step, len);
+  mk.mel[bar].push({ step, midi, len });
+  mk.mel[bar].sort((a, b) => a.step - b.step);
+  return true;
+}
+function mkAdvance(len) {
+  mk.cur += len;
+  if (mk.cur >= STEPS_PER_BAR) {
+    mk.cur = 0;
+    if (mk.bar + 1 >= mk.mel.length) {
+      if (mk.mel.length >= MAP_LIMITS.maxBars) {
+        mk.cur = STEPS_PER_BAR - 1;
+        toast(`최대 ${MAP_LIMITS.maxBars}마디까지예요`, 1600);
+        return;
+      }
+      mk.mel.push([]);
+    }
+    mk.bar++;
+  }
+}
+/** 건반 누름: 녹음 중이면 녹음, 한 칸씩 넣기면 빨간 줄 자리에, 아니면 소리만 */
+function mkKeyDown(midi, el) {
+  mkSound(() => audio.lead(audio.ctx.currentTime + 0.005, midi, 0.6, audio.musicBus));
+  if (rec.on) return recDown(midi, el);
+  if (!mk.step) return;
+  const len = Math.min(mk.len, STEPS_PER_BAR - mk.cur);
+  mkPut(mk.bar * STEPS_PER_BAR + mk.cur, midi, len);
+  mkAdvance(len);
+  mkFixBars();
+  mkRender();
+}
+function mkRest() {
+  const len = Math.min(mk.len, STEPS_PER_BAR - mk.cur);
+  mkClearRange(mk.bar, mk.cur, len);
+  mkAdvance(len);
+  mkFixBars();
+  mkRender();
+}
+/** 한 칸 지우기: 지금 칸 바로 앞 음을 지우고 그 자리로 */
+function mkBack() {
+  for (let tries = 0; tries < 2; tries++) {
+    const notes = mk.mel[mk.bar];
+    const prev = notes.filter((n) => n.step < mk.cur || (mk.cur === 0 && n.step === 0)).pop();
+    if (prev) {
+      notes.splice(notes.indexOf(prev), 1);
+      mk.cur = prev.step;
+      break;
+    }
+    if (mk.cur > 0) {
+      mk.cur = 0;
+      break;
+    }
+    if (mk.bar === 0) break;
+    mk.bar--;
+    mk.cur = STEPS_PER_BAR;
+  }
+  mk.cur = Math.min(mk.cur, STEPS_PER_BAR - 1);
+  mkFixBars();
+  mkRender();
+}
+function mkBarOp(op) {
+  const b = mk.bar;
+  if (op === 'add' || op === 'copy') {
+    if (mk.mel.length >= MAP_LIMITS.maxBars) return toast(`최대 ${MAP_LIMITS.maxBars}마디까지예요`, 1600);
+    mk.mel.splice(b + 1, 0, op === 'copy' ? mk.mel[b].map((n) => ({ ...n })) : []);
+    mk.drums.splice(b + 1, 0, op === 'copy' ? mk.drums[b] : 'K...S...K...S...');
+    mk.bar = b + 1;
+    mk.cur = 0;
+    if (op === 'copy') toast('마디를 복사해서 뒤에 넣었어요', 1400);
+  } else if (op === 'clear') {
+    mk.mel[b] = [];
+    mk.cur = 0;
+  } else if (op === 'del') {
+    if (mk.mel.length <= MAP_LIMITS.minBars) return toast(`${MAP_LIMITS.minBars}마디는 있어야 해요`, 1400);
+    mk.mel.splice(b, 1);
+    mk.drums.splice(b, 1);
+  }
+  mkFixBars();
+  mkRender();
+}
+
+// ----- ▶ 처음부터 듣기 (멜로디 + 화음 + 드럼, 조금씩 앞서 예약) -----
+const mkp = { bus: null, raf: 0, t0: 0, sd: 0, next: 0, steps: 0, prog: null };
+function mkStopPlay() {
+  if (!mkp.bus) return;
+  const b = mkp.bus;
+  mkp.bus = null;
+  cancelAnimationFrame(mkp.raf);
+  try {
+    b.gain.setTargetAtTime(0, audio.ctx.currentTime, 0.03);
+    setTimeout(() => b.disconnect(), 400);
+  } catch {}
+  $('#mk-play-label').textContent = '처음부터 듣기';
+  $('#mk-play [data-icon]').innerHTML = icon('play');
+  $('#mk-play').classList.remove('playing');
+  mkRoll();
+}
+function mkPlayToggle() {
+  if (mkp.bus) return mkStopPlay();
+  if (rec.on) recStop();
+  mkSound(() => {
+    const ctx = audio.ctx;
+    const bus = ctx.createGain();
+    bus.connect(audio.musicBus);
+    mkp.bus = bus;
+    mkp.sd = 15 / mk.bpm;
+    mkp.t0 = ctx.currentTime + 0.15;
+    mkp.next = 0;
+    mkp.steps = mk.mel.length * STEPS_PER_BAR;
+    mkp.prog = harmonize(mk.mel);
+    $('#mk-play-label').textContent = '멈춤';
+    $('#mk-play [data-icon]').innerHTML = icon('pause');
+    $('#mk-play').classList.add('playing');
+    // 재생 중엔 멜로디 그림이 보이게
+    $('#mk-roll').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    const tick = () => {
+      if (mkp.bus !== bus) return;
+      const now = ctx.currentTime;
+      // 0.3초 앞까지 예약
+      while (mkp.next < mkp.steps && mkp.t0 + mkp.next * mkp.sd < now + 0.3) {
+        mkPlayStep(mkp.next, mkp.t0 + mkp.next * mkp.sd, bus);
+        mkp.next++;
+      }
+      const pos = (now - mkp.t0) / mkp.sd;
+      if (pos >= mkp.steps + 4) return mkStopPlay();
+      const bar = Math.max(0, Math.min(mk.mel.length - 1, Math.floor(pos / STEPS_PER_BAR)));
+      if (bar !== mk.bar) {
+        mk.bar = bar;
+        $('#mk-barno').textContent = `${mk.bar + 1} / ${mk.mel.length} 마디`;
+        $('#mk-barno2').textContent = `${mk.bar + 1}마디`;
+        mkGrid();
+      }
+      mkRoll(pos < 0 ? 0 : Math.min(STEPS_PER_BAR, pos - bar * STEPS_PER_BAR));
+      mkp.raf = requestAnimationFrame(tick);
+    };
+    tick();
+  });
+}
+function mkPlayStep(i, t, bus) {
+  const b = Math.floor(i / STEPS_PER_BAR);
+  const s = i % STEPS_PER_BAR;
+  const sd = mkp.sd;
+  for (const n of mk.mel[b] || []) if (n.step === s) audio.lead(t, n.midi, n.len * sd * 0.92, bus);
+  const parts = (mkp.prog[b] || 'C').split(' ');
+  const partLen = STEPS_PER_BAR / parts.length;
+  if (s % partLen === 0) {
+    const ch = parseChord(parts[s / partLen]);
+    audio.bass(t, ch.root - 24, partLen * sd * 0.9, bus);
+    if (s % 8 === 0 || partLen === 8) audio.pluck(t, ch.notes, partLen * sd * 0.8, bus, 0.5);
+  }
+  for (const l of CHAR_LANES[(mk.drums[b] || '')[s]] || []) audio.playLane(l, t, bus);
+}
+
+// ----- ● 건반 쳐서 녹음 (똑딱 소리에 맞춰 치면 8분음표에 맞춰 넣음) -----
+const REC_Q = 2; // 8분음표 칸에 맞춤
+const rec = { on: false, bus: null, t0: 0, sd: 0, startBar: 0, next: -STEPS_PER_BAR, raf: 0, down: new Map(), last: null, maxStep: 0 };
+function recToggle() {
+  if (rec.on) return recStop();
+  mkStopPlay();
+  mkSound(() => {
+    const ctx = audio.ctx;
+    const from = $('#mk-rec-from').value;
+    const lastBar = mk.mel.reduce((m, bar, i) => (bar.length ? i : m), -1);
+    rec.startBar = from === 'bar' ? mk.bar : from === 'end' ? lastBar + 1 : 0;
+    if (rec.startBar >= MAP_LIMITS.maxBars) return toast(`최대 ${MAP_LIMITS.maxBars}마디까지예요`, 1600);
+    if (from === '0') {
+      if (mk.mel.some((b) => b.length) && !confirm('처음부터 다시 녹음할까요? 지금 멜로디는 지워져요')) return;
+      mk.mel = mk.mel.map(() => []);
+    }
+    rec.bus = ctx.createGain();
+    rec.bus.connect(audio.musicBus);
+    rec.sd = 15 / mk.bpm;
+    // 똑딱 한 마디 뒤부터 녹음
+    rec.t0 = ctx.currentTime + 0.2 + STEPS_PER_BAR * rec.sd;
+    rec.next = -STEPS_PER_BAR;
+    rec.down.clear();
+    rec.last = null;
+    rec.maxStep = 0;
+    rec.on = true;
+    mk.bar = rec.startBar;
+    while (mk.mel.length <= mk.bar) mk.mel.push([]);
+    mkFixBars();
+    mkRender();
+    $('#mk-rec').classList.add('on');
+    $('#mk-rec-label').textContent = '멈춤';
+    const tick = () => {
+      if (!rec.on) return;
+      const now = ctx.currentTime;
+      while (rec.t0 + rec.next * rec.sd < now + 0.25) {
+        if (rec.next % 4 === 0) audio.click(rec.t0 + rec.next * rec.sd, rec.next % STEPS_PER_BAR === 0, rec.bus);
+        rec.next++;
+      }
+      const pos = (now - rec.t0) / rec.sd;
+      if (pos < 0) $('#mk-rec-msg').textContent = `준비… ${Math.ceil(-pos / 4)}`;
+      else {
+        const bar = rec.startBar + Math.floor(pos / STEPS_PER_BAR);
+        if (bar >= MAP_LIMITS.maxBars) return recStop();
+        $('#mk-rec-msg').textContent = `● 녹음 중 · ${bar + 1}마디 (다 치면 「멈춤」)`;
+        if (bar !== mk.bar) {
+          while (mk.mel.length <= bar) mk.mel.push([]);
+          mk.bar = bar;
+          // 녹음이 지나가는 마디의 예전 음은 비움 (덮어쓰기)
+          if (from !== '0') mk.mel[bar] = [];
+          $('#mk-barno').textContent = `${mk.bar + 1} / ${mk.mel.length} 마디`;
+        }
+        mkRoll(pos - (mk.bar - rec.startBar) * STEPS_PER_BAR);
+      }
+      rec.raf = requestAnimationFrame(tick);
+    };
+    if (from !== '0') mk.mel[rec.startBar] = [];
+    tick();
+  });
+}
+/** 녹음 기준 칸 위치 (소수). 박자 보정값만큼 당김 */
+const recPos = () => (audio.heardTime(performance.now()) - (state.settings.offsetMs || 0) / 1000 - rec.t0) / rec.sd;
+function recDown(midi, el) {
+  const pos = recPos();
+  if (pos < -REC_Q) return;
+  const q = Math.max(0, Math.round(pos / REC_Q) * REC_Q);
+  const at = rec.startBar * STEPS_PER_BAR + q;
+  // 앞 음이 아직 눌려 있으면 여기서 끊김 (한 번에 한 음)
+  if (rec.last && rec.last.at < at && rec.last.open) rec.last.len = Math.max(REC_Q, at - rec.last.at);
+  const note = { at, midi, len: REC_Q * 2, open: true };
+  rec.last = note;
+  rec.down.set(el || midi, { note, pos });
+  mkPut(at, midi, note.len);
+  rec.maxStep = Math.max(rec.maxStep, at + REC_Q);
+  mkRoll(pos - (mk.bar - rec.startBar) * STEPS_PER_BAR);
+}
+function recUp(key) {
+  const d = rec.down.get(key);
+  if (!d) return;
+  rec.down.delete(key);
+  const n = d.note;
+  if (!n.open) return;
+  n.open = false;
+  const held = recPos() - d.pos;
+  const len = Math.max(REC_Q, Math.round(held / REC_Q) * REC_Q);
+  if (rec.last === n || len < n.len) {
+    n.len = len;
+    // 다시 넣기 (길이만 바뀜)
+    const bar = Math.floor(n.at / STEPS_PER_BAR);
+    const step = n.at % STEPS_PER_BAR;
+    const same = (mk.mel[bar] || []).find((x) => x.step === step && x.midi === n.midi);
+    if (same) {
+      mk.mel[bar].splice(mk.mel[bar].indexOf(same), 1);
+      mkPut(n.at, n.midi, len);
+    }
+  }
+}
+function recStop() {
+  if (!rec.on) return;
+  rec.on = false;
+  cancelAnimationFrame(rec.raf);
+  try {
+    const b = rec.bus;
+    b.gain.setTargetAtTime(0, audio.ctx.currentTime, 0.02);
+    setTimeout(() => b.disconnect(), 300);
+  } catch {}
+  $('#mk-rec').classList.remove('on');
+  $('#mk-rec-label').textContent = '녹음';
+  // 처음부터 녹음했으면 친 데까지만 남김
+  const lastBar = mk.mel.reduce((m, bar, i) => (bar.length ? i : m), -1);
+  if ($('#mk-rec-from').value === '0' && lastBar >= 0) mk.mel.length = Math.max(MAP_LIMITS.minBars, lastBar + 1);
+  const n = mk.mel.reduce((a, b) => a + b.length, 0);
+  $('#mk-rec-msg').textContent = n ? `녹음했어요! 「처음부터 듣기」로 들어 보세요` : '음이 안 들어갔어요. 똑딱 소리에 맞춰 건반을 눌러 보세요';
+  if (!mk.drumsAuto) mk.drumsAuto = 'easy';
+  mk.bar = Math.min(mk.bar, mk.mel.length - 1);
+  mkFixBars();
+  mkRender();
+}
+
+function mkMap(strict = true) {
+  mk.name = $('#mk-name').value.trim();
+  mkSave();
+  const raw = { name: mk.name || (strict ? '' : '내 맵'), bpm: mk.bpm, bars: mk.drums, melody: mk.mel.map(barToMelody), prog: harmonize(mk.mel) };
+  const map = cleanMap(raw);
+  if (map) return map;
+  if (!raw.name) toast('곡 이름을 적어 주세요', 1800);
+  else toast('드럼 노트가 너무 적어요. ② 드럼에서 더 넣어 주세요', 2400);
+  return null;
+}
+async function mkPlay(auto) {
+  mkStopPlay();
+  recStop();
+  const map = mkMap(false);
+  if (!map) return;
+  um.level = mapLevel(map, { id: UM_ID, by: state.me && state.me.player ? state.me.player.username : '' });
+  um.from = 'make';
+  um.wasAuto = auto && !state.auto;
+  if (auto) state.auto = true;
+  await startLevel(UM_ID);
+}
+async function mkUpload() {
+  mkStopPlay();
+  recStop();
+  const map = mkMap(true);
+  if (!map) {
+    if (!mk.name) $('#mk-name').focus();
+    return;
+  }
+  if (!mk.mel.some((b) => b.length)) return toast('멜로디가 비어 있어요. ① 에서 만들어 주세요', 2200);
+  if (!state.api.mapUpload) return toast('지금은 서버에 연결이 안 돼서 못 올려요', 2200);
+  if (!confirm(`「${map.name}」 맵을 올릴까요? 올리면 누구나 칠 수 있어요`)) return;
+  try {
+    await state.api.mapUpload(map);
+    toast('올렸어요! 유저 맵 「새 맵」에 떠요', 2400);
+    um.sort = 'new';
+    um.list = null;
+    openMaps();
+    loadMaps(true);
+  } catch (e) {
+    const err = e.data && e.data.error;
+    toast(
+      err === 'too_many_maps' ? '맵은 하루 10개까지 올릴 수 있어요' : e.status === 403 ? '팔로워 인증을 하면 올릴 수 있어요' : err === 'bad_map' ? '맵에 이상한 데가 있어요. 다시 확인해 주세요' : '못 올렸어요. 잠시 뒤 다시 해 보세요',
+      2600
+    );
+  }
+}
+function mkNew() {
+  if (!confirm('지금 만들던 맵을 지우고 새로 시작할까요?')) return;
+  mkStopPlay();
+  recStop();
+  mk = newDraft();
+  $('#mk-name').value = '';
+  $('#mk-step').checked = false;
+  mkSave();
+  mkRender();
+}
+
+// ----- 🎵 노래 파일에서 음 따기 -----
+const mkf = { url: null, buf: null, mono: null, name: '', busy: false };
+async function mkPickFile(file) {
+  if (mkf.busy) return;
+  if (mkf.url) URL.revokeObjectURL(mkf.url);
+  mkf.url = URL.createObjectURL(file);
+  mkf.name = file.name.replace(/\.[^.]+$/, '').slice(0, 30);
+  mkf.buf = mkf.mono = null;
+  $('#mk-file-opts').hidden = true;
+  mkf.busy = true;
+  audio.unlock();
+  const buf = await openTrackFile(mkf.url, file, (t, mb) => ($('#mk-file-status').textContent = `노래 여는 중… ${t}초 (파일 ${fmtMb(mb)})`));
+  mkf.busy = false;
+  if (!buf) {
+    $('#mk-file-status').innerHTML =
+      '이 영상은 한 번 재생하면서 소리를 읽어야 해요 (<b>영상 길이만큼</b> 걸려요, 소리는 안 나요).' +
+      '<button class="btn btn-hot my-cap" type="button" data-action="mk-capture">영상 소리 읽기</button>';
+    return;
+  }
+  mkFileLoaded(buf);
+}
+async function mkCapture() {
+  if (!mkf.url || mkf.busy) return;
+  mkf.busy = true;
+  audio.unlock();
+  const buf = await captureMediaAudio(mkf.url, (t, d) => ($('#mk-file-status').textContent = capText(t, d)), 180);
+  mkf.busy = false;
+  mkFileLoaded(buf);
+}
+function mkFileLoaded(buf) {
+  if (!buf || buf.duration < 6) {
+    $('#mk-file-status').textContent = buf ? '노래가 너무 짧아요' : '소리를 못 읽었어요. 소리가 들어 있는 mp3·m4a·mp4 로 해 보세요';
+    return;
+  }
+  mkf.buf = buf;
+  mkf.mono = monoOf(buf);
+  $('#mk-file-status').innerHTML = `<b>${escapeHtml(mkf.name)}</b> · ${Math.floor(buf.duration / 60)}:${String(Math.floor(buf.duration % 60)).padStart(2, '0')}`;
+  $('#mk-file-opts').hidden = false;
+}
+function mkTranscribe() {
+  const buf = mkf.buf;
+  if (!buf) return;
+  const sr = buf.sampleRate;
+  const s0 = soundStart(mkf.mono, sr);
+  const pick = parseTime($('#mk-file-start').value);
+  const from = Math.max(0, Math.min(buf.duration - 4, pick ?? s0));
+  const r = detectBeat(mkf.mono, sr, { start: Math.max(0, Math.min(from + 2, buf.duration - 12)) });
+  if (!r) {
+    $('#mk-file-status').textContent = '박자를 못 찾았어요. 박이 뚜렷한 노래로 해 보세요';
+    return;
+  }
+  let bpm = r.bpm;
+  while (bpm > MAP_LIMITS.maxBpm) bpm /= 2;
+  while (bpm < MAP_LIMITS.minBpm) bpm *= 2;
+  const beat = 60 / bpm;
+  // 고른 시각 바로 뒤의 박부터 (첫 소리가 박보다 살짝 늦게 잡혀도 그 박부터)
+  const k = Math.ceil((from - r.firstBeat) / beat - 0.3);
+  const first = r.firstBeat + k * beat;
+  const want = Number($('#mk-file-len').value) || 16;
+  const bars = Math.max(2, Math.min(want, MAP_LIMITS.maxBars, Math.floor((buf.duration - first) / (beat * 4))));
+  if (bars < 2) return ($('#mk-file-status').textContent = '시작 뒤로 노래가 너무 짧아요');
+  const t = transcribe(mkf.mono, sr, { firstBeat: first, bpm, bars });
+  // 옥타브 실수·16분 부스러기·조에서 벗어난 음 정리
+  t.bars = cleanMelody(t.bars, { grid: $('#mk-file-clean').value === 'fine' ? 1 : 2 });
+  t.found = t.bars.reduce((a, b) => a + b.length, 0);
+  if (t.found < 4) {
+    $('#mk-file-status').textContent = '음을 거의 못 땄어요. 멜로디가 또렷한 구간으로 해 보세요';
+    return;
+  }
+  if (mk.mel.some((b) => b.length) && !confirm('지금 만든 멜로디를 딴 음으로 바꿀까요?')) return;
+  mk.mel = t.bars;
+  mk.bpm = Math.round(bpm);
+  mk.drumsAuto = mk.drumsAuto || 'normal';
+  mk.bar = 0;
+  mk.cur = 0;
+  // 화면 녹화·사진첩 파일 이름(ScreenRecording_…, IMG_1234)은 곡 이름으로 안 씀
+  if (!$('#mk-name').value.trim() && !/^(screen|rpreplay|img|vid|video|audio|record|녹음|화면|\d)/i.test(mkf.name) && !/\d{4}/.test(mkf.name)) $('#mk-name').value = mkf.name;
+  mk.name = $('#mk-name').value.trim();
+  mkFixBars();
+  mkRender();
+  $('#mk-file-status').textContent = `${bars}마디에서 음 ${t.found}개를 땄어요 (${mk.bpm} BPM). 틀린 음은 손으로 고쳐 주세요`;
 }
 
 // ---------------- 영상 찍기 ----------------
@@ -3186,6 +3924,36 @@ const ACTIONS = {
     document.querySelector('[data-action="a2hs-open"]').click();
   },
   'suggest-open': openSuggest,
+  'maps-open': () => openMaps(),
+  'mapmake-open': () => openMapMake(),
+  'mk-bpm': (el) => {
+    mk.bpm = Math.max(MAP_LIMITS.minBpm, Math.min(MAP_LIMITS.maxBpm, mk.bpm + Number(el.dataset.d)));
+    mkSave();
+    mkRender();
+  },
+  'mk-bar': (el) => {
+    mk.bar = Math.max(0, Math.min(mk.mel.length - 1, mk.bar + Number(el.dataset.d)));
+    mk.cur = 0;
+    mkRender();
+  },
+  'mk-oct': (el) => {
+    mk.oct = Math.max(2, Math.min(5, mk.oct + Number(el.dataset.d)));
+    mkSave();
+    mkRender();
+  },
+  'mk-baradd': () => mkBarOp('add'),
+  'mk-barcopy': () => mkBarOp('copy'),
+  'mk-barclear': () => mkBarOp('clear'),
+  'mk-bardel': () => mkBarOp('del'),
+  'mk-rest': () => mkRest(),
+  'mk-back': () => mkBack(),
+  'mk-play': () => mkPlayToggle(),
+  'mk-rec': () => recToggle(),
+  'mk-try': () => mkPlay(false),
+  'mk-upload': () => mkUpload(),
+  'mk-new': () => mkNew(),
+  'mk-capture': () => mkCapture(),
+  'mk-transcribe': () => mkTranscribe(),
   'mysong-open': () => openMysong(),
   'mysong-start': () => myStart(),
   'mysong-save': () => mySave(),
@@ -3280,6 +4048,7 @@ const ACTIONS = {
       openMysong();
       return;
     }
+    if (state.levelId === UM_ID) return umQuit();
     renderLevels();
     show('screen-levels');
   },
@@ -3499,6 +4268,74 @@ function bindActions() {
   });
   $('#sync-file').addEventListener('change', (e) => e.target.files[0] && syncPick(e.target.files[0]));
   $('#my-file').addEventListener('change', (e) => e.target.files[0] && myPick(e.target.files[0]));
+  // 🎹 유저 맵
+  $('#maps-sort').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-sort]');
+    if (!b) return;
+    um.sort = b.dataset.sort;
+    $$('#maps-sort button').forEach((x) => x.setAttribute('aria-pressed', x === b));
+    loadMaps();
+  });
+  $('#maps-list').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-map-act]');
+    const card = b && b.closest('.map-card');
+    if (card) mapAct(card.dataset.id, b.dataset.mapAct, b);
+  });
+  $('#mk-file').addEventListener('change', (e) => e.target.files[0] && mkPickFile(e.target.files[0]));
+  $('#mk-name').addEventListener('change', () => {
+    mk.name = $('#mk-name').value.trim();
+    mkSave();
+  });
+  $('#mk-way').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-way]');
+    if (!b) return;
+    mk.way = mk.way === b.dataset.way ? null : b.dataset.way;
+    mkSave();
+    mkRender();
+  });
+  $('#mk-step').addEventListener('change', () => {
+    mk.step = $('#mk-step').checked;
+    mkSave();
+    mkRender();
+  });
+  $('#mk-drum-detail').addEventListener('toggle', () => mkGrid());
+  $('#mk-len').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-len]');
+    if (!b) return;
+    mk.len = Number(b.dataset.len);
+    mkSave();
+    mkRender();
+  });
+  $('#mk-auto').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-diff]');
+    if (!b) return;
+    mk.drumsAuto = b.dataset.diff;
+    mkFixBars();
+    mkRender();
+    toast('드럼을 멜로디에 맞춰 새로 채웠어요', 1600);
+  });
+  $('#mk-keys').addEventListener('pointerdown', (e) => {
+    const k = e.target.closest('.mk-key');
+    if (!k) return;
+    e.preventDefault();
+    k.classList.add('on');
+    mkKeyDown(Number(k.dataset.midi), k);
+  });
+  // 건반에서 손 뗌: 녹음 중이면 음 길이가 정해짐
+  const keyUp = () => {
+    $$('#mk-keys .mk-key.on').forEach((x) => x.classList.remove('on'));
+    for (const key of [...rec.down.keys()]) recUp(key);
+  };
+  for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) $('#mk-keys').addEventListener(ev, keyUp);
+  $('#mk-grid').addEventListener('click', (e) => {
+    const c = e.target.closest('.mk-cell');
+    if (c) mkDrumTap(Number(c.dataset.step), c.dataset.inst);
+  });
+  $('#mk-roll').addEventListener('pointerdown', (e) => {
+    const r = e.currentTarget.getBoundingClientRect();
+    mk.cur = Math.max(0, Math.min(STEPS_PER_BAR - 1, Math.floor(((e.clientX - r.left) / r.width) * STEPS_PER_BAR)));
+    mkRender();
+  });
   $('#my-diff').addEventListener('click', (e) => {
     const b = e.target.closest('[data-diff]');
     if (!b) return;
