@@ -7089,14 +7089,6 @@ class Game {
     let at = ctx.currentTime + 0.35;
     // 🎵 내 노래: 노래를 처음부터 틀고, 채보(카운트인)는 leadIn 초 뒤에 시작
     if (this.level.leadIn > 0) at += this.level.leadIn;
-    // 🎧 박자 맞추기(화면 녹화로 맞춤): 첫 쿵이 정해진 소리 시각(syncAnchor)에 오게. 늦었으면 한 마디씩 뒤로 (박은 그대로 맞음)
-    const anchor = this.level.syncAnchor;
-    if (anchor != null) {
-      let s = anchor - this.tempo.barStart(COUNT_IN_BARS);
-      const bar = this.tempo.barLen(0);
-      while (s < at) s += bar;
-      at = s;
-    }
     this.startTime = at;
     this.player = new SongPlayer(this.audio, this.level, this.startTime, { autoChart: this.auto });
     this.player.start();
@@ -7533,6 +7525,8 @@ class Game {
     } else if (now < ciEnd + this.beat * 2) {
       countIn = { label: '', phase: 1, fade: 1 - (now - ciEnd) / (this.beat * 2) };
     }
+    // 박자 맞추기 자동 연주 영상: 3·2·1 숫자·말풍선 없이 (영상이 노래 구간 시작부터 찍힘)
+    if (this.level.hideCountIn) countIn = null;
 
     const { hatAge, crashAge } = this._kitAges(now);
     // 곡이 얼마나 달아올랐나 0~1 (반주 악기 수와 같은 기준) → 맵 조명·입자가 같이 커짐
@@ -10373,6 +10367,7 @@ async function startLevel(id, opts = {}) {
     startRecorder();
   }
   state.game.start();
+  if (lv.synced && st.active) scheduleSyncRec(state.game);
   // 영상 찍기·자동 연주·내 노래는 통계에 안 셈
   if (!st.active && !state.auto && !practice && !lv.custom) trackPlayStart(lv.survival ? lv.baseId : id, vs || room ? 'vs' : 'normal');
 }
@@ -11667,11 +11662,28 @@ function withSync(lv) {
     lv.song = { ...lv.song, audio: { src: sync.url, offset: sync.firstBeat, gain: 1 } };
     lv.withSong = true;
   }
-  if (!st.active || !st.recorder || st.recCtx == null) return lv;
-  lv.syncCalibMs = syncCalib();
-  lv.syncAnchor = st.recCtx + (sync.firstBeat - sync.t0) + lv.syncCalibMs / 1000;
+  // 녹화는 카운트다운이 끝나 갈 즈음, '노래 구간 시작' 순간부터 (영상 0초 = 인스타 노래 0초). startLevel 이 시작함
+  if (!st.active || !st.file) return lv;
   lv.synced = true;
+  lv.syncLead = sync.firstBeat - sync.t0; // 노래 구간 시작 → 첫 쿵
+  lv.hideCountIn = state.auto; // 자동 연주 영상엔 3·2·1 안 보이게 (직접 칠 땐 보여야 함)
   return lv;
+}
+/** 이 폰의 녹화 지연(ms, 찍은 영상을 재서 자동) */
+const syncLag = () => Number(load('syncLag', 0)) || 0;
+/** 노래 구간 시작 순간에 녹화 시작 (첫 쿵 - lead - 지연·보정) */
+function scheduleSyncRec(g) {
+  const st = state.studio;
+  const lv = g.level;
+  const c0 = g.startTime + g.tempo.barStart(COUNT_IN_BARS) - lv.syncLead - (syncLag() + syncCalib()) / 1000;
+  const go = () => {
+    if (state.game !== g || !st.active) return;
+    // 마지막 몇 ms 는 소리 시계를 보며 기다림 (타이머 오차 줄이기)
+    const end = performance.now() + 60;
+    while (audio.ctx.currentTime < c0 && performance.now() < end) {}
+    startRecorder();
+  };
+  setTimeout(go, Math.max(0, (c0 - audio.ctx.currentTime) * 1000 - 40));
 }
 /** '1:02.5' · '62.5' → 초 (비우면 null) */
 function parseTime(v) {
@@ -11701,7 +11713,7 @@ function soundStart(mono, sr) {
  * 찍힌 영상에서 첫 쿵이 실제로 몇 초에 나왔나 재서, 폰마다 다른 녹화 지연을 「싱크 보정」에 자동 반영.
  *   (카운트인 똑딱을 껐으니 영상의 첫 소리 = 첫 쿵) 어긋났으면 한 번 더 찍으면 맞음
  */
-async function syncSelfCheck(blob, target, usedMs) {
+async function syncSelfCheck(blob, computed, lead) {
   try {
     const ab = await blob.arrayBuffer();
     const buf = await new Promise((res, rej) => {
@@ -11718,14 +11730,13 @@ async function syncSelfCheck(blob, target, usedMs) {
         break;
       }
     if (at < 0) return;
-    const err = at - target; // 이번 영상에서 드럼이 노래 박보다 이만큼 늦음 (− 면 빠름)
-    if (Math.abs(err) > 0.4) return;
-    // 실제 위치 = 목표 + 보정 + 이 폰의 녹화 지연 → 맞는 보정 = 이번 보정 − 어긋난 만큼
-    const v = Math.max(-500, Math.min(500, Math.round((usedMs - err * 1000) / 5) * 5));
-    if (Math.abs(v - usedMs) < 15) return; // 이번 영상은 이미 맞음
-    save('syncCalib', v);
-    $('#sync-calib').textContent = `${v > 0 ? '+' : ''}${v}ms`;
-    $('#studio-done-msg').textContent += ` · 이번 영상은 드럼이 ${Math.abs(v - usedMs)}ms ${v > usedMs ? '빨라요' : '늦어요'}. 싱크 보정을 자동으로 맞췄으니 「다시 찍기」 한 번 하면 딱 맞아요.`;
+    const d = at - computed; // 이 폰의 녹화 지연 (− 면 영상 소리가 계산보다 빠름)
+    if (Math.abs(d) > 0.4) return;
+    const lag = Math.round((-d * 1000) / 5) * 5;
+    const off = Math.round((at - lead) * 1000); // 이번 영상: 첫 쿵이 노래 박보다 이만큼 늦음
+    save('syncLag', lag);
+    if (Math.abs(off - syncCalib()) > 15)
+      $('#studio-done-msg').textContent += ` · 이번 영상은 드럼이 ${Math.abs(off)}ms ${off < 0 ? '빨라요' : '늦어요'}. 이 폰에 맞게 자동으로 맞췄으니 「다시 찍기」 한 번 하면 딱 맞아요.`;
   } catch {}
 }
 /** 🥁 노래 따라: 화면 녹화 소리로 채보 (같은 설정이면 다시 안 만듦) */
@@ -12071,7 +12082,8 @@ async function studioStart() {
   }
   box.hidden = true;
   if (playId === BEAT_ID && sync.firstBeat != null && !st.file) toast('「영상 파일로 바로 저장」을 켜야 화면 녹화한 노래 박에 맞춰져요', 3000);
-  if (st.file) startRecorder();
+  // 박자 맞추기(화면 녹화로 맞춤)는 녹화를 '노래 구간 시작' 순간에 시작 → startLevel 뒤에
+  if (st.file && !(playId === BEAT_ID && sync.firstBeat != null)) startRecorder();
   await startLevel(playId);
 }
 
@@ -12156,12 +12168,12 @@ async function studioFinish(res) {
       g && g.level.withSong
         ? '노래를 같이 넣은 확인용 영상이에요. 박이 맞으면, 인스타에 올릴 건 「노래도 같이 틀기」를 끄고 다시 찍으세요 (노래는 인스타에서 넣기)'
         : g && g.level.synced
-        ? '화면 녹화한 그 노래 구간에 박자를 맞춘 영상이에요. 인스타 편집에서 같은 노래·같은 구간을 넣고, 노래 클립을 타임라인 맨 앞(0초)까지 끌어다 붙이면 맞아요. 드럼이 노래보다 빠르면 「싱크 보정」을 +, 늦으면 −로 바꿔 다시 찍기'
+        ? '영상 0초 = 노래 구간 시작이에요 (카운트다운 없이 바로 시작). 인스타에서 같은 노래·같은 구간을 넣고 노래 클립을 맨 앞(0초)에 붙이면 맞아요. 드럼이 노래보다 빠르면 「싱크 보정」을 +, 늦으면 −로 바꿔 다시 찍기'
         : firstHit != null && firstHit > 0
         ? `영상이 만들어졌어요. 첫 쿵은 영상 약 ${firstHit.toFixed(1)}초예요. 인스타에서 영상 앞을 그만큼 잘라내고, 노래는 하이라이트 첫 박(첫 강세)부터 시작하게 고르면 박자가 맞아요.`
         : '영상이 만들어졌어요. 저장해서 릴스에 올려보세요!';
     // 보정 없이 첫 쿵이 와야 할 영상 시각과 비교 (보정값은 그 차이만큼)
-    if (g && g.level.synced && !g.level.withSong && firstHit != null) syncSelfCheck(blob, firstHit - g.level.syncCalibMs / 1000, g.level.syncCalibMs);
+    if (g && g.level.synced && !g.level.withSong && state.studio.mode === 'auto' && firstHit != null) syncSelfCheck(blob, firstHit, g.level.syncLead);
   } else {
     video.hidden = true;
     $('#btn-studio-save').hidden = true;

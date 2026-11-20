@@ -175,14 +175,6 @@ export class Game {
     let at = ctx.currentTime + 0.35;
     // 🎵 내 노래: 노래를 처음부터 틀고, 채보(카운트인)는 leadIn 초 뒤에 시작
     if (this.level.leadIn > 0) at += this.level.leadIn;
-    // 🎧 박자 맞추기(화면 녹화로 맞춤): 첫 쿵이 정해진 소리 시각(syncAnchor)에 오게. 늦었으면 한 마디씩 뒤로 (박은 그대로 맞음)
-    const anchor = this.level.syncAnchor;
-    if (anchor != null) {
-      let s = anchor - this.tempo.barStart(COUNT_IN_BARS);
-      const bar = this.tempo.barLen(0);
-      while (s < at) s += bar;
-      at = s;
-    }
     this.startTime = at;
     this.player = new SongPlayer(this.audio, this.level, this.startTime, { autoChart: this.auto });
     this.player.start();
@@ -619,6 +611,8 @@ export class Game {
     } else if (now < ciEnd + this.beat * 2) {
       countIn = { label: '', phase: 1, fade: 1 - (now - ciEnd) / (this.beat * 2) };
     }
+    // 박자 맞추기 자동 연주 영상: 3·2·1 숫자·말풍선 없이 (영상이 노래 구간 시작부터 찍힘)
+    if (this.level.hideCountIn) countIn = null;
 
     const { hatAge, crashAge } = this._kitAges(now);
     // 곡이 얼마나 달아올랐나 0~1 (반주 악기 수와 같은 기준) → 맵 조명·입자가 같이 커짐
