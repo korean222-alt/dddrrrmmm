@@ -1800,19 +1800,35 @@ async function myPick(file) {
   $('#my-status').textContent = '노래 여는 중…';
   my.loading = true;
   await audio.unlock();
-  let buf = await audio.loadTrack(my.url);
-  if (!buf) {
-    // 아이폰은 화면 녹화(.mov) 같은 영상을 바로 못 풀어서 → 소리 없이 한 번 재생하며 읽음
-    $('#my-status').innerHTML = '영상 소리를 읽고 있어요… <b>영상 길이만큼</b> 걸려요 (최대 6분). 화면을 끄지 마세요';
-    buf = await captureMediaAudio(my.url, (t, d) => ($('#my-status').textContent = `영상 소리 읽는 중… ${Math.floor(t)}/${Math.round(d)}초 (화면을 끄지 마세요)`), 360);
-    if (buf) {
-      audio._trackBufs ??= new Map();
-      audio._trackBufs.set(my.url, buf);
-    }
-  }
+  const buf = await audio.loadTrack(my.url);
   my.loading = false;
+  if (!buf) {
+    // 아이폰은 화면 녹화(.mov) 같은 영상을 바로 못 풀어서 → 소리 없이 한 번 재생하며 읽음.
+    //   아이폰은 버튼을 눌러야 영상 재생을 허락해서, 버튼을 누르게 함
+    $('#my-status').innerHTML =
+      '이 영상은 한 번 재생하면서 소리를 읽어야 해요 (<b>영상 길이만큼</b> 걸려요, 소리는 안 나요).' +
+      '<button class="btn btn-hot my-cap" type="button" data-action="mysong-capture">영상 소리 읽기</button>';
+    return;
+  }
+  myLoaded(buf);
+}
+/** 영상 소리 읽기 (버튼 안에서 바로 재생해야 아이폰이 허락함) */
+async function myCapture() {
+  if (!my.url || my.loading) return;
+  my.loading = true;
+  audio.unlock();
+  $('#my-status').textContent = '영상 소리 읽는 중… 화면을 끄지 마세요';
+  const buf = await captureMediaAudio(my.url, (t, d) => ($('#my-status').textContent = `영상 소리 읽는 중… ${Math.floor(t)}/${Math.round(d)}초 (화면을 끄지 마세요)`), 360);
+  my.loading = false;
+  if (buf) {
+    audio._trackBufs ??= new Map();
+    audio._trackBufs.set(my.url, buf);
+  }
+  myLoaded(buf);
+}
+function myLoaded(buf) {
   if (!buf || buf.duration < 12) {
-    $('#my-status').textContent = buf ? '노래가 너무 짧아요 (12초 넘는 걸로 넣어 주세요)' : '이 파일은 열 수 없어요. mp3·m4a·mp4 로 해 보세요';
+    $('#my-status').textContent = buf ? '노래가 너무 짧아요 (12초 넘는 걸로 넣어 주세요)' : '소리를 못 읽었어요. 소리가 들어 있는 mp3·m4a·mp4 로 해 보세요';
     return;
   }
   my.buf = buf;
@@ -3132,6 +3148,7 @@ const ACTIONS = {
   'mysong-open': () => openMysong(),
   'mysong-start': () => myStart(),
   'mysong-save': () => mySave(),
+  'mysong-capture': () => myCapture(),
   'mysong-mul': (el) => myMul(Number(el.dataset.mul)),
   'close-suggest': () => closeModal('modal-suggest'),
   'suggest-send': sendSuggest,
