@@ -424,3 +424,136 @@ export function transcribe(mono, sr, { firstBeat, bpm, bars, lo = 55, hi = 84 })
   }
   return { bars: out, found };
 }
+
+/**
+ * Basic Pitch 같은 음 목록 [{ startTimeSeconds, durationSeconds, pitchMidi, amplitude }] → 마디별 멜로디
+ *   16분 칸마다 그때 울리는 음 중 '위쪽 줄'(멜로디는 보통 제일 높고 셈)을 고름: 센 음들 중 가장 높은 음
+ * @returns {{ bars: Array<Array<{step,midi,len}>>, found: number }}
+ */
+export function notesToMelody(notes, { firstBeat, bpm, bars, lo = 52, hi = 88 }) {
+  const stepSec = 60 / bpm / 4;
+  const steps = bars * STEPS_PER_BAR;
+  const ns = notes.filter((n) => n.pitchMidi >= lo && n.pitchMidi <= hi && n.durationSeconds >= stepSec * 0.6);
+  let maxA = 0;
+  for (const n of ns) maxA = Math.max(maxA, n.amplitude);
+  const pick = new Int16Array(steps).fill(-1);
+  const startAt = new Int8Array(steps);
+  for (let s = 0; s < steps; s++) {
+    const a = firstBeat + s * stepSec;
+    const b = a + stepSec;
+    let loudest = 0;
+    const live = [];
+    for (const n of ns) {
+      const ov = Math.min(b, n.startTimeSeconds + n.durationSeconds) - Math.max(a, n.startTimeSeconds);
+      if (ov < stepSec * 0.5) continue;
+      live.push(n);
+      loudest = Math.max(loudest, n.amplitude);
+    }
+    if (!live.length || loudest < maxA * 0.25) continue;
+    let best = null;
+    for (const n of live) if (n.amplitude >= loudest * 0.7 && (!best || n.pitchMidi > best.pitchMidi)) best = n;
+    pick[s] = best.pitchMidi;
+    // 이 칸 근처에서 시작한 음이면 새 음
+    startAt[s] = Math.abs(best.startTimeSeconds - a) < stepSec * 0.6 ? 1 : 0;
+  }
+  const out = Array.from({ length: bars }, () => []);
+  let found = 0;
+  let cur = null;
+  for (let s = 0; s < steps; s++) {
+    const p = pick[s];
+    if (p < 0) {
+      cur = null;
+      continue;
+    }
+    const step = s % STEPS_PER_BAR;
+    if (!cur || cur.midi !== p || startAt[s] || step === 0) {
+      cur = { step, midi: p, len: 1 };
+      out[Math.floor(s / STEPS_PER_BAR)].push(cur);
+      found++;
+    } else cur.len++;
+  }
+  return { bars: out, found };
+}
+
+/**
+ * 따 온 멜로디 정리 (듣기 좋게)
+ *   1) 옥타브 튐: 앞뒤 음들보다 10반음 넘게 떨어진 음은 옥타브를 옮김
+ *   2) grid=2 면 8분음표 칸마다 음 하나 (16분 부스러기가 없어짐)
+ *   4) key=true 면 조에서 벗어난 음을 가까운 음계 음으로
+ */
+export function cleanMelody(bars, { grid = 2, key = true } = {}) {
+  let all = [];
+  bars.forEach((bar, b) => bar.forEach((n) => all.push({ at: b * STEPS_PER_BAR + n.step, midi: n.midi, len: n.len })));
+  all.sort((a, b) => a.at - b.at);
+  // 1) 옥타브 튐
+  const orig = all.map((n) => n.midi);
+  for (let i = 0; i < all.length; i++) {
+    const near = orig.slice(Math.max(0, i - 4), i).concat(orig.slice(i + 1, i + 5)).sort((a, b) => a - b);
+    if (near.length < 2) continue;
+    const h = near.length / 2;
+    const med = near.length % 2 ? near[Math.floor(h)] : (near[h - 1] + near[h]) / 2;
+    while (all[i].midi - med > 9) all[i].midi -= 12;
+    while (med - all[i].midi > 9) all[i].midi += 12;
+  }
+  // 2) grid=2: 8분 칸마다 음 하나. 칸 앞쪽 음을 쓰되, 앞쪽이 앞 음의 이어짐이고 뒤쪽에서 새 음이 시작하면 그 새 음
+  if (grid > 1) {
+    const total = bars.length * STEPS_PER_BAR;
+    const pitch = new Int16Array(total).fill(-1);
+    const onset = new Uint8Array(total);
+    for (const n of all) {
+      for (let i = 0; i < n.len && n.at + i < total; i++) pitch[n.at + i] = n.midi;
+      onset[n.at] = 1;
+    }
+    const slots = [];
+    for (let at = 0; at < total; at += grid) {
+      let pick = -1;
+      let hit = false;
+      for (let i = 0; i < grid; i++) {
+        const s2 = at + i;
+        if (pitch[s2] < 0) continue;
+        if (pick < 0 || (onset[s2] && !hit)) {
+          if (pick >= 0 && !onset[s2]) continue;
+          pick = pitch[s2];
+          hit = hit || !!onset[s2];
+        }
+      }
+      slots.push({ at, midi: pick, hit });
+    }
+    all = [];
+    for (const sl of slots) {
+      if (sl.midi < 0) continue;
+      const prev = all[all.length - 1];
+      if (prev && prev.midi === sl.midi && prev.at + prev.len === sl.at && !sl.hit) prev.len += grid;
+      else all.push({ at: sl.at, midi: sl.midi, len: grid });
+    }
+  }
+  // 1b) 앞뒤 음 둘 다보다 10반음 넘게 높거나 낮으면 옥타브 실수
+  for (let i = 1; i < all.length - 1; i++) {
+    const d1 = all[i].midi - all[i - 1].midi;
+    const d2 = all[i].midi - all[i + 1].midi;
+    if (d1 >= 10 && d2 >= 10) all[i].midi -= 12;
+    else if (d1 <= -10 && d2 <= -10) all[i].midi += 12;
+  }
+  // 4) 조 맞추기
+  if (key) {
+    const k = guessKey([all.map((n) => ({ midi: n.midi, len: n.len, step: 0 }))]);
+    const scale = [0, 2, 4, 5, 7, 9, 11].map((d) => (k + d) % 12);
+    const w = new Array(12).fill(0);
+    for (const n of all) w[n.midi % 12] += n.len;
+    for (const n of all) {
+      const pc = n.midi % 12;
+      // 음계 밖인데 자주 안 나오는 음만 (곡에 많이 나오면 일부러 쓴 음)
+      if (scale.includes(pc) || w[pc] > all.reduce((a, x) => a + x.len, 0) * 0.08) continue;
+      n.midi += scale.includes((pc + 1) % 12) && (w[(pc + 1) % 12] >= w[(pc + 11) % 12] || !scale.includes((pc + 11) % 12)) ? 1 : -1;
+    }
+  }
+  // 마디로 다시 나눔 (마디를 넘는 음은 마디 끝에서 자름)
+  const res = bars.map(() => []);
+  for (const n of all) {
+    const b = Math.floor(n.at / STEPS_PER_BAR);
+    if (b >= res.length) continue;
+    const step = n.at % STEPS_PER_BAR;
+    res[b].push({ step, midi: n.midi, len: Math.max(1, Math.min(n.len, STEPS_PER_BAR - step)) });
+  }
+  return res;
+}
