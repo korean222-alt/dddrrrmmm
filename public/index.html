@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=d7ee545c50" />
+  <link rel="stylesheet" href="css/style.css?v=2f4280320c" />
 </head>
 <body>
   <div id="app">
@@ -113,7 +113,8 @@
         <div class="studio-block beat-block" id="beat-block" hidden>
           <h4><span data-icon="drum" data-e></span> 유행곡 박자 맞추기 <small class="muted">(이 기기에서만)</small></h4>
           <p class="hint">노래는 영상에 안 들어가요. 드럼만 찍고, 인스타 편집기에서 그 노래 오디오를 입히세요. 고르면 위 단계에 <b>🎵 박자 맞추기</b>가 선택돼요.</p>
-          <div class="seg seg3" id="beat-style"></div>
+          <div class="seg" id="beat-style"></div>
+          <div class="seg seg3" id="beat-diff" hidden></div>
           <button class="beat-tap" id="beat-tap" type="button"><b id="beat-tap-bpm">탭</b><small id="beat-tap-msg">노래를 틀고 쿵·짝 박자에 맞춰 8번 넘게 톡톡</small></button>
           <div class="beat-row">
             <label class="field"><span>BPM</span><input type="number" id="beat-bpm" min="60" max="200" step="0.5" inputmode="decimal" /></label>
@@ -619,6 +620,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=a5ab2b2c53" defer></script>
+  <script src="js/app.js?v=1d7e8679d9" defer></script>
 </body>
 </html>

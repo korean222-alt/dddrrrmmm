@@ -426,25 +426,26 @@ test('🎵 릴스 박자 맞추기: BPM 고정, 단계 수만큼만, 노래 없�
   assert.ok(Math.abs(beatSeconds({ bpm: 120, rounds: 4 }) - (COUNT_IN_BARS + 16) * 2) < 1e-9);
 });
 
-test('🎵 박자 맞추기 형식(빌드업→드롭·드럼 커버): 빠르기 고정, 같은 엄지 연타 없음, 빠르면 16분음표 없음', async () => {
-  const { makeBeatReel, beatOpts, ROUND_BARS, CHAR_LANES, isLeftThumb, levelLanes, buildNotes } = await import('../public/js/charts.js');
+test('🎵 박자 맞추기 비트 형식(쉬움·보통·어려움): 빠르기 고정, 같은 엄지 연타 없음, 빠르면 16분음표 없음', async () => {
+  const { makeBeatReel, beatOpts, ROUND_BARS, CHAR_LANES, isLeftThumb, levelLanes, buildNotes, KICK, SNARE } = await import('../public/js/charts.js');
   const th = (c) => new Set((CHAR_LANES[c] || []).map((l) => (isLeftThumb(l) ? 'L' : 'R')));
   assert.equal(beatOpts({ style: 'zzz' }).style, 'levelup');
-  for (const style of ['drop', 'cover'])
+  assert.equal(beatOpts({ style: 'drop' }).style, 'steady');
+  assert.equal(beatOpts({ diff: 'zzz' }).diff, 'easy');
+  for (const diff of ['easy', 'normal', 'hard'])
     for (const bpm of [90, 128, 140, 141, 170])
       for (let rounds = 1; rounds <= 6; rounds++) {
-        const lv = makeBeatReel({ bpm, rounds, seed: rounds * 11, style });
+        const lv = makeBeatReel({ bpm, rounds, seed: rounds * 11, style: 'steady', diff });
         lv.ensureBars(999);
         assert.equal(lv.bars.length, rounds * ROUND_BARS);
-        assert.equal(lv.beatStyle, style);
         const flat = lv.bars.join('');
         for (let i = 1; i < flat.length; i++) {
           const a = th(flat[i - 1]);
-          assert.ok(![...th(flat[i])].some((h) => a.has(h)), `${style} ${bpm} 같은 엄지 연타 @${i}`);
-          if (bpm > 140) assert.ok(flat[i - 1] === '.' || flat[i] === '.', `${style} ${bpm} 16분음표 @${i}`);
+          assert.ok(![...th(flat[i])].some((h) => a.has(h)), `${diff} ${bpm} 같은 엄지 연타 @${i}`);
+          if (bpm > 140) assert.ok(flat[i - 1] === '.' || flat[i] === '.', `${diff} ${bpm} 16분음표 @${i}`);
         }
         assert.deepEqual(levelLanes(lv), lv.lanes);
+        if (diff === 'easy') assert.deepEqual(lv.lanes, [KICK, SNARE], '쉬움은 쿵·짝만');
         assert.ok(buildNotes(lv).length > 10);
-        assert.ok(lv.roundInfo(1).big);
       }
 });

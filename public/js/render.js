@@ -1359,8 +1359,8 @@ export class Renderer {
     const top = L.H * 0.045;
     if (st.cleared) {
       this._roundText({ sub: s.bottom }, L.cx, top + L.GW * 0.12, L.GW * 0.17, s.endText || `Lv.${st.cleared} 클리어!`);
-    } else if (!st.round || st.countIn || st.now < 0) {
-      // 훅: 큰 흰 글씨 두 줄 + 작은 부제
+    } else if (!st.round || st.countIn || st.now < 0 || s.steady) {
+      // 훅 (비트 형식은 치는 내내): 큰 흰 글씨 두 줄 + 작은 부제
       const words = (s.top || '').trim();
       const fs = fitFont(ctx, words, L.GW * 0.92, L.GW * 0.12);
       ctx.font = `${fs}px ${FONT}`;

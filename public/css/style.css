@@ -593,6 +593,9 @@ body.room-game #modal-pause [data-action='retry'], body.room-game #modal-continu
 .beat-block .beat-row .btn { flex: 1; }
 .beat-block select { font-family: inherit; }
 .quiz-len { margin: 12px 0 0; }
+#beat-style { margin-bottom: 8px; }
+#beat-style button { text-align: center; }
+.seg[hidden] { display: none; }
 .seg.seg3 { grid-template-columns: 1fr 1fr 1fr; gap: 6px; margin-bottom: 4px; }
 .seg.seg3 button { padding: 8px; text-align: center; }
 .seg.seg3 button b { font-size: 15px; }
