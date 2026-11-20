@@ -11409,10 +11409,9 @@ async function myPick(file) {
   my.bpm = my.beat0 = null;
   $('#my-opts').hidden = true;
   $('#my-result').hidden = true;
-  $('#my-status').textContent = '노래 여는 중…';
   my.loading = true;
-  await audio.unlock();
-  const buf = await audio.loadTrack(my.url);
+  audio.unlock();
+  const buf = await openTrackFile(my.url, file, (t, mb) => ($('#my-status').textContent = `노래 여는 중… ${t}초 (파일 ${fmtMb(mb)}, 보통 몇 초면 돼요)`));
   my.loading = false;
   if (!buf) {
     // 아이폰은 화면 녹화(.mov) 같은 영상을 바로 못 풀어서 → 소리 없이 한 번 재생하며 읽음.
@@ -11430,7 +11429,7 @@ async function myCapture() {
   my.loading = true;
   audio.unlock();
   $('#my-status').textContent = '영상 소리 읽는 중… 화면을 끄지 마세요';
-  const buf = await captureMediaAudio(my.url, (t, d) => ($('#my-status').textContent = `영상 소리 읽는 중… ${Math.floor(t)}/${Math.round(d)}초 (화면을 끄지 마세요)`), 360);
+  const buf = await captureMediaAudio(my.url, (t, d) => ($('#my-status').textContent = capText(t, d)), 360);
   my.loading = false;
   if (buf) {
     audio._trackBufs ??= new Map();
@@ -11828,6 +11827,26 @@ function stopSyncPreview() {
     syncPreview = null;
   }
 }
+/**
+ * 노래·영상 파일 열기 (기다린 시간·파일 크기를 onTick 으로 알려 줌).
+ *   아이폰의 영상 파일은 바로 못 여니 시도하지 않음 → null (영상 소리 읽기 버튼으로)
+ *   그 밖에도 limit 초 안에 못 열면 null
+ */
+async function openTrackFile(url, file, onTick, limit = 12) {
+  const isVideo = /^video\//.test(file.type) || /\.(mov|mp4|m4v|webm)$/i.test(file.name);
+  if (isVideo && phoneOs() === 'ios') return null;
+  const mb = file.size / 1048576;
+  const t0 = performance.now();
+  const tick = () => onTick(Math.floor((performance.now() - t0) / 1000), mb);
+  tick();
+  const timer = setInterval(tick, 500);
+  const buf = await Promise.race([audio.loadTrack(url), new Promise((r) => setTimeout(() => r(null), limit * 1000))]);
+  clearInterval(timer);
+  return buf;
+}
+const fmtMb = (mb) => (mb >= 10 ? Math.round(mb) : mb.toFixed(1)) + 'MB';
+/** 영상 소리 읽기 진행: 지난 초/전체 초 + 남은 시간 */
+const capText = (t, d) => `영상 소리 읽는 중… ${Math.floor(t)}/${Math.round(d)}초 · 약 ${Math.max(1, Math.round(d - t))}초 남음 (화면을 끄지 마세요)`;
 async function syncPick(file) {
   stopSyncPreview();
   if (sync.url) URL.revokeObjectURL(sync.url);
@@ -11836,9 +11855,8 @@ async function syncPick(file) {
   sync.firstBeat = null;
   $('#sync-panel').hidden = false;
   $('#sync-name').textContent = file.name;
-  $('#sync-result').textContent = '여는 중…';
-  await audio.unlock();
-  const buf = await audio.loadTrack(sync.url);
+  audio.unlock();
+  const buf = await openTrackFile(sync.url, file, (t, mb) => ($('#sync-result').textContent = `여는 중… ${t}초 (파일 ${fmtMb(mb)}, 보통 몇 초면 돼요)`));
   if (!buf) {
     // 아이폰 사파리는 화면 녹화(.mov)를 바로 못 풀어서 → 영상을 소리 없이 한 번 재생하며 소리를 읽음 (버튼을 눌러야 재생됨)
     $('#sync-result').innerHTML = '<b>「박자 찾기」를 눌러 주세요.</b> 영상을 소리 없이 한 번 재생하면서 소리를 읽어요 (영상 길이만큼, 최대 1분 걸려요)';
@@ -11934,7 +11952,7 @@ async function syncDetect() {
     syncCapturing = true;
     await audio.unlock();
     $('#sync-result').textContent = '소리 읽는 중… (영상이 끝날 때까지 기다려 주세요)';
-    buf = await captureMediaAudio(sync.url, (t, d) => ($('#sync-result').textContent = `소리 읽는 중… ${Math.floor(t)}/${Math.round(d)}초`));
+    buf = await captureMediaAudio(sync.url, (t, d) => ($('#sync-result').textContent = capText(t, d)));
     syncCapturing = false;
     if (!buf) {
       $('#sync-result').textContent = '영상 소리를 못 읽었어요. 화면 녹화할 때 소리가 들어갔는지 확인하고 다시 골라 주세요';
