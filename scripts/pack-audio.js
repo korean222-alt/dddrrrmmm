@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'public', 'audio');
-for (const dir of ['piano', 'orch', 'voice']) {
+for (const dir of ['piano', 'orch']) {
   const names = fs.readdirSync(path.join(root, dir)).filter((f) => f.endsWith('.mp3')).sort();
   const index = {};
   const bufs = [];

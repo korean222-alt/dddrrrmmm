@@ -16,7 +16,7 @@ import { initAds, showRewarded } from './ads.js';
 import { createApi } from './api.js';
 import { initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay } from './track.js';
 import { CONFIG } from './config.js';
-import { buddyUrl, loadBuddies, Voices, VOICE_TEXT } from './buddies.js';
+import { buddyUrl, loadBuddies } from './buddies.js';
 import { groupStarting } from './themes.js';
 import { NEWS, LATEST_NEWS } from './news.js';
 import { RoomClient, roomOutcome, survivalOutcome } from './room.js';
@@ -49,9 +49,7 @@ const diffHTML = (d) =>
   `<span class="diff" aria-label="난이도 ${d}/5"><span class="pips">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= d ? 'on' : ''}"></i>`).join('')}</span>${DIFFICULTY_WORDS[d] || ''}</span>`;
 
 const audio = new AudioEngine();
-const voices = new Voices(audio);
 const renderer = new Renderer($('#game-canvas'));
-renderer.onVoice = (who, kind) => !state.studio.active && voices.say(who, kind, { vol: 0.75 });
 // 자동 화질: 이 기기에서 버벅여서 내려갔던 단계를 기억해 다음 판부터 그대로
 renderer.quality = Math.max(0, Math.min(2, Number(load('gfxQ', 2)) || 0));
 renderer.onQualityDrop = (q) => {
@@ -355,20 +353,12 @@ function buildTitle() {
     const ch = el.querySelector('.b-char');
     ch.src = buddyUrl(who + '_idle');
     const bub = el.querySelector('.b-bubble');
-    let streak = 0;
-    let lastTap = 0;
     el.addEventListener('pointerdown', async (e) => {
       e.preventDefault();
       await audio.unlock();
-      voices.load();
       if (who === 'kong') audio.kick();
       else audio.snare();
-      // 연달아 치면 가끔 신나서 다른 말도 함
-      const now = performance.now();
-      streak = now - lastTap < 900 ? streak + 1 : 0;
-      lastTap = now;
-      const line = voices.say(who, streak > 0 && streak % 5 === 4 ? 'fun' : 'tap', { vol: 0.85 });
-      bub.textContent = VOICE_TEXT[line] || (who === 'kong' ? '쿵!' : '짝!');
+      bub.textContent = who === 'kong' ? '쿵!' : '짝!';
       for (const x of [el, bub]) x.classList.remove(x === el ? 'hit' : 'show');
       void el.offsetWidth;
       el.classList.add('hit');
@@ -384,14 +374,6 @@ function buildTitle() {
   // 미리 받아 둠 (눌렀을 때 바로 바뀌게)
   loadBuddies();
   refreshQuick();
-}
-
-/** 결과 화면: 잘했으면 둘이 환호, 못 했으면 아쉬워함 */
-function buddiesReact(face) {
-  if (face === 'cheer') {
-    voices.say('kong', 'win');
-    voices.say('jjak', 'win', { delay: 1.1 });
-  } else if (face === 'miss') voices.say('kong', 'sad');
 }
 
 /** 결과·인증 화면용 쿵콩이·짝콩이 그림 */
@@ -1055,7 +1037,6 @@ function showResult(res) {
   for (const k of ['perfect', 'great', 'good', 'miss', 'wrong']) $('#res-' + k).textContent = res.counts[k] || 0;
   const face = res.stars === 0 ? 'miss' : res.stars === 1 ? 'idle' : 'cheer';
   $('#res-mascots').innerHTML = buddiesHTML(face);
-  buddiesReact(face);
   const timing =
     Math.abs(res.avgOffsetMs) < 15 ? '타이밍 딱 좋아요' : res.avgOffsetMs < 0 ? `평균 ${-res.avgOffsetMs}ms 빨라요` : `평균 ${res.avgOffsetMs}ms 늦어요`;
   const extras = [res.goldTotal ? `✨ 황금 콩 ${res.goldHits}/${res.goldTotal}` : '', res.rollHits ? `💥 연타 ${res.rollHits}번` : ''].filter(Boolean).join(' · ');
@@ -1117,7 +1098,6 @@ function showChallengeResult(res) {
   for (const k of ['perfect', 'great', 'good', 'miss', 'wrong']) $('#res-' + k).textContent = res.counts[k] || 0;
   const face = res.diamonds === 0 ? 'miss' : res.diamonds === 1 ? 'idle' : 'cheer';
   $('#res-mascots').innerHTML = buddiesHTML(face);
-  buddiesReact(face);
   const prev = best.prev && !best.isNew ? ` · 내 최고 Lv.${best.prev.roundsCleared || 0} 클리어` : '';
   $('#res-meta').innerHTML = `최고 속도 ${res.bpmReached} BPM · 최대 콤보 ${res.maxCombo} · 정확도 ${(res.accuracy * 100).toFixed(1)}%${prev}${state.auto ? '<br>(자동 연주 — 기록 저장 안 됨)' : ''}`;
   $('#btn-next').hidden = true;
@@ -1491,7 +1471,6 @@ function openSettings() {
   $('#set-sfx').value = s.sfx;
   $('#set-offset').value = s.offsetMs;
   $('#set-vibrate').checked = !!s.vibrate;
-  $('#set-voice').checked = s.voice !== false;
   $('#set-lite').checked = !!s.lite;
   $$('#set-band button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.band === (s.band || 'orch')));
   updateSettingLabels();
@@ -1540,7 +1519,6 @@ function applyTransfer(data, me) {
   for (const f of ['nick', 'lastNick', 'lastIg']) if (data[f] && !load(f, '')) save(f, data[f]);
   if (data.settings || data.calib) {
     state.settings = { ...state.settings, ...(data.settings || {}) };
-    voices.on = state.settings.voice !== false;
     if (data.calib) {
       state.settings.offsetMs = data.calib.offsetMs;
       if (data.calib.calibrated) save('calibrated', true);
@@ -1690,15 +1668,13 @@ function bindSettings() {
     s.sfx = Number($('#set-sfx').value);
     s.offsetMs = Number($('#set-offset').value);
     s.vibrate = $('#set-vibrate').checked;
-    s.voice = $('#set-voice').checked;
-    voices.on = s.voice;
     s.lite = $('#set-lite').checked;
     applyLite();
     audio.setVolumes({ music: s.music, sfx: s.sfx });
     saveSettings(s);
     updateSettingLabels();
   };
-  ['#set-music', '#set-sfx', '#set-offset', '#set-vibrate', '#set-voice', '#set-lite'].forEach((id) => $(id).addEventListener('input', upd));
+  ['#set-music', '#set-sfx', '#set-offset', '#set-vibrate', '#set-lite'].forEach((id) => $(id).addEventListener('input', upd));
   $('#set-band').addEventListener('click', async (e) => {
     const b = e.target.closest('[data-band]');
     if (!b) return;
@@ -4241,8 +4217,6 @@ async function boot() {
   audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx });
   audio.orchOn = state.settings.band !== 'piano';
   audio.prefetchPiano().then(() => audio.orchOn && audio.prefetchOrch());
-  voices.on = state.settings.voice !== false;
-  voices.prefetch();
   refreshToday();
 
   if (isInApp() && !load('inappDismissed', false)) $('#inapp-note').hidden = false;
