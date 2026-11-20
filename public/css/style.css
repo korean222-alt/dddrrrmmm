@@ -593,6 +593,12 @@ body.room-game #modal-pause [data-action='retry'], body.room-game #modal-continu
 .beat-block .beat-row .btn { flex: 1; }
 .beat-block select { font-family: inherit; }
 .quiz-len { margin: 12px 0 0; }
+.beat-sync { margin: 4px 0 12px; padding: 12px; border: 2px dashed rgba(0, 0, 0, 0.2); border-radius: 14px; }
+.beat-sync h5 { margin: 0 0 4px; font-weight: 400; font-size: 16px; }
+.beat-sync .beat-file { display: flex; align-items: center; justify-content: center; width: 100%; margin: 6px 0 10px; }
+.beat-sync .sync-name { margin: 0 0 8px; font-size: 14px; word-break: break-all; }
+.beat-sync .btn { width: 100%; margin: 8px 0 4px; }
+.beat-sync input[type='text'] { font-family: inherit; }
 #beat-style { margin-bottom: 8px; }
 #beat-style button { text-align: center; }
 .seg[hidden] { display: none; }

@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=2f4280320c" />
+  <link rel="stylesheet" href="css/style.css?v=5a40455231" />
 </head>
 <body>
   <div id="app">
@@ -120,6 +120,21 @@
             <label class="field"><span>BPM</span><input type="number" id="beat-bpm" min="60" max="200" step="0.5" inputmode="decimal" /></label>
             <button class="beat-mini" type="button" data-beat-mul="0.5">÷2</button>
             <button class="beat-mini" type="button" data-beat-mul="2">×2</button>
+          </div>
+          <div class="beat-sync">
+            <h5><span data-icon="note" data-e></span> 노래 파일로 박자 자동 맞추기</h5>
+            <p class="hint">폰에 있는 노래 파일을 고르면 BPM·첫 박을 찾아서 드럼을 노래에 딱 붙이고, <b>노래까지 들어간 영상</b>으로 찍어요. 파일은 이 폰 밖으로 안 나가요.</p>
+            <label class="beat-mini beat-file"><input type="file" accept="audio/*,video/*" id="sync-file" hidden />노래 파일 고르기 (화면 녹화 영상도 OK)</label>
+            <div id="sync-panel" hidden>
+              <p class="sync-name" id="sync-name"></p>
+              <div class="beat-row">
+                <label class="field"><span>하이라이트 시작 <small class="muted">예) 1:02 또는 62</small></span><input type="text" id="sync-start" inputmode="decimal" placeholder="0" /></label>
+                <button class="beat-mini" type="button" data-action="sync-listen">▶ 듣기</button>
+              </div>
+              <button class="btn btn-hot" type="button" data-action="sync-detect">박자 찾기</button>
+              <p class="hint" id="sync-result"></p>
+              <label class="field check"><input type="checkbox" id="sync-include" checked /><span>노래도 영상에 넣기</span></label>
+            </div>
           </div>
           <div class="beat-row">
             <label class="field"><span>단계 수 <small class="muted">한 단계 = 4마디</small></span><select id="beat-rounds"></select></label>
@@ -620,6 +635,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=1cd8b8a8a3" defer></script>
+  <script src="js/app.js?v=72f8ecf98b" defer></script>
 </body>
 </html>

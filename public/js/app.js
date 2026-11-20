@@ -8862,6 +8862,141 @@ async function makeReelCover({ lv, title, sub, bottom }) {
 return { splitTitle, makeReelCover };
 })();
 
+// ---- beatsync.js ----
+const __m_beatsync = (() => {
+// 🎧 박자 맞추기용 노래 분석 (운영자 전용, 이 폰 안에서만. 파일은 어디에도 안 올림)
+//   노래 파일의 하이라이트 부분에서 BPM 과 박 위치(첫 박)를 찾아서, 드럼 채보가 노래 박에 딱 붙게 함.
+//   방법: 10ms 마다 소리 세기가 '확 커지는 정도'(온셋) → 박 간격별로 겹쳐 보며 가장 잘 맞는 BPM·위치 고르기.
+//   쿵(킥)·짝(스네어) 구분: 낮은 소리가 센 박을 1·3박(쿵)으로.
+
+const HOP = 0.01; // 10ms
+
+/** 구간의 온셋 세기 (전체 소리 + 낮은 소리) */
+function onsetEnvelope(samples, sr, start, dur) {
+  const hop = Math.max(1, Math.round(sr * HOP));
+  const s0 = Math.max(0, Math.floor(start * sr));
+  const s1 = Math.min(samples.length, Math.floor((start + dur) * sr));
+  const n = Math.max(0, Math.floor((s1 - s0) / hop));
+  const all = new Float32Array(n);
+  const low = new Float32Array(n);
+  // 한 극 저역 필터(~150Hz)로 킥 소리만 따로
+  const a = Math.exp((-2 * Math.PI * 150) / sr);
+  let lp = 0;
+  let prevE = 0;
+  let prevL = 0;
+  for (let f = 0; f < n; f++) {
+    let e = 0;
+    let l = 0;
+    const base = s0 + f * hop;
+    for (let i = 0; i < hop; i++) {
+      const x = samples[base + i];
+      lp = (1 - a) * x + a * lp;
+      e += x * x;
+      l += lp * lp;
+    }
+    const le = Math.log(1e-9 + e / hop);
+    const ll = Math.log(1e-9 + l / hop);
+    all[f] = Math.max(0, le - prevE);
+    low[f] = l / hop; // 낮은 소리 세기 그대로 (쿵·짝 구분용)
+    prevE = le;
+    prevL = ll;
+  }
+  // 살짝 뭉개서(3칸) 박 위치를 칸 사이까지 읽을 수 있게
+  const sm = new Float32Array(n);
+  for (let f = 0; f < n; f++) sm[f] = 0.25 * (all[f - 1] || 0) + 0.5 * all[f] + 0.25 * (all[f + 1] || 0);
+  return { all: sm, low, hopSec: hop / sr };
+}
+
+/** 박 간격 period(프레임, 소수 가능)·위치 phase 로 겹친 세기 (박 beats 개만 → 빠르기마다 공평하게) */
+function combScore(env, period, phase, beats) {
+  let s = 0;
+  for (let k = 0; k < beats; k++) {
+    const t = phase + k * period;
+    const i = Math.floor(t);
+    const fr = t - i;
+    s += (env[i] || 0) * (1 - fr) + (env[i + 1] || 0) * fr;
+  }
+  return s / beats;
+}
+
+function bestPhase(env, period, beats = Math.floor((env.length - 2) / period) - 1) {
+  let best = 0;
+  let bestS = -1;
+  for (let p = 0; p < period; p += 0.25) {
+    const s = combScore(env, period, p, beats);
+    if (s > bestS) {
+      bestS = s;
+      best = p;
+    }
+  }
+  return { phase: best, score: bestS };
+}
+
+/**
+ * samples: 모노 Float32Array, sr: 샘플레이트, start: 하이라이트 시작(초)
+ * hintBpm 을 주면 그 근처(±4%)에서만 찾음 (탭으로 잰 값·직접 쓴 값)
+ * → { bpm, firstBeat(초, start 이후 첫 '쿵' 박), confidence 0~1 }
+ */
+function detectBeat(samples, sr, { start = 0, dur = 24, hintBpm = null } = {}) {
+  const { all, low, hopSec: H } = onsetEnvelope(samples, sr, start, dur);
+  if (all.length < 300) return null;
+  // 1) BPM: 0.5 BPM 단위로 훑고 → 0.05 단위로 다듬기
+  const lo = hintBpm ? hintBpm * 0.96 : 70;
+  const hi = hintBpm ? hintBpm * 1.04 : 190;
+  // 가장 느린 빠르기로도 다 들어가는 박 수로 통일
+  const beats = Math.floor((all.length - 2) / (60 / lo / H)) - 1;
+  const scoreAt = (bpm) => bestPhase(all, 60 / bpm / H, beats).score;
+  let best = lo;
+  let bestS = -1;
+  const scores = [];
+  for (let b = lo; b <= hi; b += 0.5) {
+    const s = scoreAt(b);
+    scores.push(s);
+    if (s > bestS) {
+      bestS = s;
+      best = b;
+    }
+  }
+  for (let b = best - 0.5; b <= best + 0.5; b += 0.02) {
+    const s = scoreAt(b);
+    if (s > bestS) {
+      bestS = s;
+      best = b;
+    }
+  }
+  // 힌트 없이 찾았으면: 절반 빠르기도 거의 같은 점수면(반 박마다 소리가 있는 곡) 사람들이 세는 쪽으로 — 그대로 둠.
+  //   두 배 빠르기 쪽이 훨씬 잘 맞으면 그쪽 (드럼이 반 박씩 어긋나는 걸 막음)
+  if (!hintBpm && best * 2 <= 200 && scoreAt(best * 2) > bestS * 1.15) best *= 2;
+  const bpm = Math.round(best * 100) / 100;
+  const period = 60 / bpm / H;
+  const { phase } = bestPhase(all, period, Math.floor((all.length - 2) / period) - 1);
+  // 2) 쿵(1·3박) 찾기: 짝수 박 / 홀수 박 중 낮은 소리가 더 센 쪽
+  const lowAt = (k) => {
+    let s = 0;
+    for (let t = phase + k * period; t < low.length - 6; t += period * 2) for (let i = 0; i < 6; i++) s += low[Math.floor(t) + i];
+    return s;
+  };
+  const kickShift = lowAt(1) > lowAt(0) * 1.05 ? 1 : 0;
+  const firstBeat = start + (phase + kickShift * period) * H;
+  // 믿을 만한가: 맞는 BPM 점수가 평균보다 얼마나 튀나
+  const mean = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const confidence = Math.max(0, Math.min(1, (bestS / (mean || 1) - 1) / 1.5));
+  return { bpm, firstBeat, confidence };
+}
+
+/** AudioBuffer → 모노 */
+function monoOf(buf) {
+  if (buf.numberOfChannels === 1) return buf.getChannelData(0);
+  const a = buf.getChannelData(0);
+  const b = buf.getChannelData(1);
+  const out = new Float32Array(a.length);
+  for (let i = 0; i < a.length; i++) out[i] = (a[i] + b[i]) * 0.5;
+  return out;
+}
+
+return { detectBeat, monoOf };
+})();
+
 // ---- sharecard.js ----
 const __m_sharecard = (() => {
 // 결과 공유 카드 (인스타 스토리 1080x1920)
@@ -9292,6 +9427,7 @@ const { groupStarting } = __m_themes;
 const { NEWS, LATEST_NEWS } = __m_news;
 const { RoomClient, roomOutcome, survivalOutcome } = __m_room;
 const { makeReelCover } = __m_cover;
+const { detectBeat, monoOf } = __m_beatsync;
 const { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder } = __m_storage;
 
 migrateLevelOrder(); // 8단계에 새 곡이 끼면서 밀린 번호를 이 브라우저 기록에도 반영 (아래 state 보다 먼저)
@@ -9589,7 +9725,7 @@ function playable(id) {
   const eb = levelEndlessBase(id);
   if (eb) return makeLevelEndless(eb);
   if (typeof id === 'string' && /^ch\d+$/.test(id)) return makeEndless({ rounds: Number(id.slice(2)) });
-  if (id === BEAT_ID) return makeBeatReel(load('beatReel', null) || {});
+  if (id === BEAT_ID) return withSyncSong(makeBeatReel(load('beatReel', null) || {}));
   if (isQuizId(id)) return makeQuizLevel(id);
   return getStudioLevel(id) || getLevel(id);
 }
@@ -11155,6 +11291,91 @@ function openStudio() {
 // ---------------- 🎵 유행곡 박자 맞추기 (운영자 전용, /?thumb=okay 기기에서만) ----------------
 //   노래 BPM 에 맞춘 레벨업 챌린지(빠르기 고정). 노래는 게임에 안 넣고 인스타 편집기에서 입힘 (저작권)
 const beatSaved = () => beatOpts(load('beatReel', null) || {});
+
+// ---------------- 🎧 노래 파일로 박자 자동 맞추기 (운영자 전용) ----------------
+//   폰에 있는 노래 파일 → 하이라이트 부분의 BPM·첫 박(쿵)을 찾아 드럼을 노래에 붙이고, 노래까지 든 영상으로 녹화.
+//   파일은 이 폰 메모리에만 (서버·저장소 어디에도 안 올림). 새로고침하면 다시 골라야 함
+const sync = { url: null, name: '', firstBeat: null, bpm: null };
+const syncOn = () => !!(sync.url && sync.firstBeat != null && $('#sync-include') && $('#sync-include').checked);
+/** 박자 맞추기 판에 노래 파일을 얹음 (채보 첫 마디 = 노래의 첫 박) */
+function withSyncSong(lv) {
+  if (!syncOn()) return lv;
+  lv.song = { ...lv.song, audio: { src: sync.url, offset: sync.firstBeat, gain: 1 } };
+  lv.synced = true;
+  return lv;
+}
+/** '1:02.5' · '62.5' → 초 */
+function parseTime(v) {
+  const t = String(v || '').trim().replace(/[^\d:.]/g, '');
+  if (!t) return 0;
+  const parts = t.split(':').map(Number);
+  const sec = parts.length > 1 ? parts[0] * 60 + parts[1] : parts[0];
+  return Number.isFinite(sec) && sec > 0 ? sec : 0;
+}
+const fmtTime = (x) => `${Math.floor(x / 60)}:${(x % 60).toFixed(2).padStart(5, '0')}`;
+let syncPreview = null;
+function stopSyncPreview() {
+  if (syncPreview) {
+    syncPreview.pause();
+    syncPreview = null;
+  }
+}
+async function syncPick(file) {
+  stopSyncPreview();
+  if (sync.url) URL.revokeObjectURL(sync.url);
+  sync.url = URL.createObjectURL(file);
+  sync.name = file.name;
+  sync.firstBeat = null;
+  $('#sync-panel').hidden = false;
+  $('#sync-name').textContent = file.name;
+  $('#sync-result').textContent = '하이라이트 시작을 적고 「박자 찾기」를 누르세요';
+  await audio.unlock();
+  toast('노래 여는 중…', 1500);
+  const buf = await audio.loadTrack(sync.url);
+  if (!buf) {
+    $('#sync-result').textContent = '이 파일은 열 수 없어요. mp3·m4a·화면 녹화 영상으로 해 보세요';
+    return;
+  }
+  $('#sync-result').textContent = `${fmtTime(buf.duration)} 길이 · 하이라이트 시작을 적고 「박자 찾기」를 누르세요`;
+}
+function syncListen() {
+  if (!sync.url) return;
+  if (syncPreview) return stopSyncPreview();
+  const a = new Audio(sync.url);
+  a.currentTime = sync.firstBeat != null ? sync.firstBeat : parseTime($('#sync-start').value);
+  a.play().catch(() => {});
+  syncPreview = a;
+  setTimeout(() => syncPreview === a && stopSyncPreview(), 8000);
+}
+function syncDetect() {
+  const buf = sync.url && audio.trackBuffer(sync.url);
+  if (!buf) return toast('노래 파일을 먼저 골라 주세요');
+  stopSyncPreview();
+  const start = parseTime($('#sync-start').value);
+  if (start >= buf.duration - 8) return toast('하이라이트 시작이 노래 끝에 너무 가까워요');
+  const mono = monoOf(buf);
+  const free = detectBeat(mono, buf.sampleRate, { start });
+  // 탭/직접 쓴 BPM 이 감지값(또는 그 두 배·절반)과 가까우면 그 근처에서 다시 정밀하게 → 사람이 세는 쪽(쿵짝 빠르기)을 따름
+  const want = Number($('#beat-bpm').value) || 0;
+  let r = free;
+  if (free && want) {
+    for (const m of [1, 2, 0.5]) {
+      if (Math.abs(free.bpm * m - want) / want < 0.04) {
+        r = detectBeat(mono, buf.sampleRate, { start, hintBpm: want }) || free;
+        break;
+      }
+    }
+  }
+  if (!r) return toast('박자를 못 찾았어요. 다른 구간으로 해 보세요');
+  sync.firstBeat = r.firstBeat;
+  sync.bpm = r.bpm;
+  $('#beat-bpm').value = Math.round(r.bpm * 10) / 10;
+  saveBeatForm();
+  pickBeat();
+  $('#sync-result').innerHTML =
+    `<b>${Math.round(r.bpm * 10) / 10} BPM</b> · 첫 박 ${fmtTime(r.firstBeat)}${r.confidence < 0.3 ? ' · <b>잘 안 들려요</b>(드럼 소리가 큰 구간으로 해 보세요)' : ''}<br>` +
+    '「▶ 듣기」로 첫 박부터 들어보고, 드럼이 2배로 바쁘면 ÷2 누르고 다시 「박자 찾기」';
+}
 function beatChipText() {
   const o = beatSaved();
   return `🎵 박자 맞추기 · ${beatStyleName(o.style, o.diff)} · ${o.title || o.bpm + ' BPM'}`;
@@ -11402,7 +11623,9 @@ async function studioFinish(res) {
     video.hidden = false;
     $('#btn-studio-save').hidden = false;
     $('#studio-done-msg').textContent =
-      firstHit != null && firstHit > 0
+      g && g.level.synced
+        ? '노래까지 박자에 맞춰 들어간 영상이에요. 인스타에 올릴 때 음악을 따로 넣지 말고 이 영상 소리 그대로 쓰세요.'
+        : firstHit != null && firstHit > 0
         ? `영상이 만들어졌어요. 첫 쿵은 영상 약 ${firstHit.toFixed(1)}초예요. 인스타에서 영상 앞을 그만큼 잘라내고, 노래는 하이라이트 첫 박(첫 강세)부터 시작하게 고르면 박자가 맞아요.`
         : '영상이 만들어졌어요. 저장해서 릴스에 올려보세요!';
   } else {
@@ -12064,6 +12287,8 @@ const ACTIONS = {
   },
   'transfer-take': () => transferTake(),
   'beat-pick': () => pickBeat(),
+  'sync-detect': () => syncDetect(),
+  'sync-listen': () => syncListen(),
   'beat-reroll': () => {
     saveBeatForm({ reroll: true });
     toast('패턴을 새로 뽑았어요', 1200);
@@ -12234,6 +12459,7 @@ function bindActions() {
     $$('#beat-diff button').forEach((x) => x.setAttribute('aria-pressed', x === b));
     pickBeat();
   });
+  $('#sync-file').addEventListener('change', (e) => e.target.files[0] && syncPick(e.target.files[0]));
   $('#quiz-bars').addEventListener('change', (e) => (state.studio.quizBars = Number(e.target.value)));
   $('#calib-pad').addEventListener('pointerdown', (e) => {
     e.preventDefault();
