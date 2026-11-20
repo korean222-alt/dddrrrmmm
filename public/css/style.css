@@ -270,6 +270,8 @@ svg.e-tree { color: #2FAF5E; }
 /* ---------- 모달 ---------- */
 .modal { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-end; justify-content: center; background: rgba(59, 42, 74, 0.45); animation: fadein 0.2s ease; }
 @media (min-width: 640px) { .modal { align-items: center; } }
+/* 느리게 연습 창은 이어하기·일시정지 창 위에 떠야 함 (같은 z-index 면 HTML 순서로 아래에 깔려 '안 눌림') */
+#modal-practice { z-index: 55; }
 .sheet { position: relative; width: 100%; max-width: 460px; max-height: 92vh; overflow-y: auto; background: #fff; border: 3px solid var(--ink); border-bottom: 0; border-radius: 28px 28px 0 0; padding: 22px 18px calc(22px + var(--safe-bottom)); -webkit-user-select: text; user-select: text; }
 @media (min-width: 640px) { .sheet { border-radius: 28px; border-bottom: 3px solid var(--ink); } }
 .sheet.small { max-width: 360px; }

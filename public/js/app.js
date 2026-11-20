@@ -7783,6 +7783,9 @@ class Game {
 
   /** 노래 기준 현재 시각(초). 판정과 화면이 같은 시계를 씀 */
   songTime(perfMs) {
+    // 소리 시계가 멈춘 동안(_virt): 화면 시계로 곡 시각을 이어 감 → 게임이 '1' 에서 서 있지 않음 (소리만 잠깐 끊김)
+    const v = this._virt;
+    if (v) return v.at + ((perfMs ?? performance.now()) / 1000 - v.rt);
     return this.audio.heardTime(perfMs) - this.startTime - this.offset;
   }
 
@@ -7799,6 +7802,8 @@ class Game {
     this.player.start();
     this.state = 'playing';
     this._clockWatch = null;
+    this._virt = null;
+    this._goodNow = undefined;
     this._tickAt = performance.now() / 1000;
     this._raf = requestAnimationFrame(this._loop);
   }
@@ -7815,17 +7820,25 @@ class Game {
     }
     if (this.state !== 'playing') return;
     this._needAnchor = false;
-    const at = this._goodNow ?? -0.35; // 마지막으로 시계가 흐르던 곡 시각 (못 흘렀으면 처음부터)
-    const ctx = this.audio.ctx;
+    const at = this._goodNow ?? -0.35; // 마지막 곡 시각 (못 흘렀으면 처음부터)
+    if (this.player) this.player.stop(0.01);
+    // 새 소리 시계가 실제로 흐르는 게 보일 때까지 화면 시계로 이어 가다가 _loop 에서 맞춰 붙임 (_alignClock)
+    this._virt = { at, rt: performance.now() / 1000 };
+    this._clockWatch = null;
+    this._stallSince = null;
+  }
+
+  /** 화면 시계로 가던 곡 시각에 소리 시계를 맞춰 붙이고, 그 자리부터 곡을 다시 틂 */
+  _alignClock(rt) {
+    const v = this._virt;
+    const at = v.at + (rt - v.rt);
+    this._virt = null;
     this.audio.resetClock();
     if (this.player) this.player.stop(0.01);
-    // 0.3초 뒤에 그 자리부터 다시 (heardTime ≈ currentTime 이라 곡 시각이 at 에서 이어짐)
-    this.startTime = ctx.currentTime + 0.3 - at;
+    this.startTime = this.audio.heardTime(rt * 1000) - this.offset - at;
     this.player = new SongPlayer(this.audio, this.level, this.startTime, { autoChart: this.auto });
     this.player.step = Math.max(0, Math.floor(this.tempo.barAt(Math.max(0, at)) * STEPS_PER_BAR) - 1);
     this.player.start();
-    this._clockWatch = null;
-    this._stallSince = null;
   }
 
   pause() {
@@ -7838,6 +7851,8 @@ class Game {
 
   async resume() {
     if (this.state !== 'paused') return;
+    // 화면 시계로 가던 중이면 멈췄던 자리에서 다시 셈
+    if (this._virt) this._virt = { at: this._heldAt, rt: performance.now() / 1000 };
     // 아이폰에서 소리가 막혀 있으면 resume() 이 끝나지 않을 수 있음 → 0.4초만 기다림 (안 켜지면 루프가 '멈춤'으로 보고 터치로 살림)
     await Promise.race([this.audio.ctx.resume().catch(() => {}), new Promise((r) => setTimeout(r, 400))]);
     this.audio.resetClock();
@@ -8097,13 +8112,17 @@ class Game {
     const actx = this.audio.ctx;
     // 'running' 이라면서 시계가 안 가는 경우도 멈춤으로 봄 (아이폰: 다른 앱 소리를 틀고 돌아왔을 때)
     let frozen = !actx || actx.state !== 'running';
+    let flowing = false;
     if (!frozen) {
       const w = this._clockWatch;
       if (!w || w.ct !== actx.currentTime) {
-        if (w) this._tickAt = rt; // 시계가 실제로 흐름 (터치로 엔진을 새로 만들어도 안 흐르면 그대로 → 얼마나 오래 멈췄나)
+        if (w) {
+          this._tickAt = rt; // 시계가 실제로 흐름 (터치로 엔진을 새로 만들어도 안 흐르면 그대로 → 얼마나 오래 멈췄나)
+          flowing = true;
+        }
         this._clockWatch = { ct: actx.currentTime, rt };
       }
-      else if (rt - w.rt > 0.5) frozen = true;
+      else if (rt - w.rt > 0.3) frozen = true;
     }
     this.audio.frozen = frozen;
     if (frozen) {
@@ -8114,9 +8133,15 @@ class Game {
         if (this.onStall && rt - (this._stallSince ?? rt) > 1.2) this.onStall(rt - (this._tickAt ?? rt));
       }
       this._stallSince ??= rt;
-    } else this._stallSince = null;
+      // 소리 시계가 멈춤 → 화면 시계로 곡을 이어 감 (마지막으로 시계가 흐르던 순간부터)
+      if (!this._virt) this._virt = { at: this._goodNow ?? this.songTime(), rt: this._clockWatch?.rt ?? rt };
+    } else {
+      this._stallSince = null;
+      // 소리 시계가 다시 흐름 → 그 시계를 지금 곡 시각에 맞춰 붙임
+      if (this._virt && flowing) this._alignClock(rt);
+    }
     const now = this.songTime();
-    if (!frozen) this._goodNow = now;
+    this._goodNow = now;
     this._extend(now);
     this._checkRound(now, rt);
 
@@ -11098,18 +11123,11 @@ async function startLevel(id, opts = {}) {
   }
   let stallToastAt = 0;
   const sg = state.game;
-  sg.onStall = (stuckSec) => {
-    // 4초 넘게 계속 멈춰 있으면(콩이 안 내려옴) 일시정지하고 해결 방법 안내
-    if (stuckSec > 4 && state.game === sg && sg.state === 'playing') {
-      sg.pause();
-      $('#pause-stuck').hidden = false;
-      $('#pause-title').textContent = '곡이 멈췄어요';
-      openModal('modal-pause');
-      return;
-    }
-    if (Date.now() - stallToastAt < 4000) return;
+  sg.onStall = () => {
+    // 소리 시계가 멈춰도 게임은 화면 시계로 계속 감 (game._virt) → 안내만 가끔
+    if (Date.now() - stallToastAt < 10000) return;
     stallToastAt = Date.now();
-    toast('🔇 폰이 소리를 잠깐 멈췄어요. 화면을 한 번 톡 눌러 주세요 (화면 녹화는 시작 버튼 누르기 전에 켜 두세요)', 3600);
+    toast('🔇 폰이 소리를 잠깐 멈췄어요. 화면을 톡 누르면 소리가 다시 나요', 3000);
   };
   // 🎵 내 노래: 녹화 버튼을 켰으면 시작과 같이 녹화
   if (lv.custom && !lv.userMap && my.rec) {
