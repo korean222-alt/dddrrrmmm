@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=3e55cd3542" />
+  <link rel="stylesheet" href="css/style.css?v=30519e1507" />
 </head>
 <body>
   <div id="app">
@@ -51,6 +51,7 @@
           <button class="mode-card mode-multi" data-action="room-open"><b><span data-icon="swords" data-e></span> 멀티</b></button>
         </div>
         <button class="btn btn-primary btn-big" data-action="quickstart"><span data-icon="play"></span> 바로 시작 <small>1단계</small></button>
+        <button class="btn btn-hot mysong-btn" data-action="mysong-open"><span data-icon="note" data-e></span> 내 노래로 치기 <small>NEW</small></button>
         <div class="title-mini">
           <button class="mini-btn" data-action="news-open" id="btn-news"><span data-icon="megaphone" data-e></span><span>업데이트</span><i class="dot" id="news-dot" hidden></i></button>
           <button class="mini-btn" data-action="suggest-open"><span data-icon="chat" data-e></span><span>건의하기</span></button>
@@ -86,6 +87,63 @@
         <div class="level-list" id="level-list"></div>
       </div>
       <p class="levels-foot" id="levels-foot"></p>
+    </section>
+
+    <!-- 🎵 내 노래로 치기 -->
+    <section id="screen-mysong" class="screen" aria-label="내 노래로 치기">
+      <header class="bar">
+        <button class="icon-btn" data-action="home" aria-label="뒤로"><span data-icon="back"></span></button>
+        <h2>내 노래로 치기</h2>
+        <span class="bar-spacer"></span>
+      </header>
+      <div class="studio mysong">
+        <div class="studio-block" id="my-result" hidden>
+          <h4>결과</h4>
+          <p class="my-res" id="my-res-text"></p>
+          <video id="my-video" playsinline controls hidden></video>
+          <div class="stack">
+            <button class="btn btn-primary" data-action="mysong-save" id="my-save" hidden><span data-icon="share"></span> 영상 저장 / 공유</button>
+            <button class="btn btn-ghost" data-action="mysong-start"><span data-icon="retry"></span> 다시 치기</button>
+          </div>
+        </div>
+        <p class="studio-lead">폰에 있는 노래(mp3)나 영상(mp4·화면 녹화)을 넣으면, 그 노래 박자에 맞춰 드럼 채보를 만들어 줘요. 파일은 이 폰 밖으로 안 나가요.</p>
+        <div class="studio-block">
+          <label class="btn btn-primary btn-big my-file"><input type="file" accept="audio/*,video/*" id="my-file" hidden /><span data-icon="note" data-e></span> 노래 파일 고르기</label>
+          <p class="hint" id="my-status"></p>
+        </div>
+        <div id="my-opts" hidden>
+          <div class="studio-block">
+            <h4>난이도</h4>
+            <div class="seg seg3" id="my-diff">
+              <button type="button" data-diff="easy"><b>쉬움</b><small>정박만</small></button>
+              <button type="button" data-diff="normal"><b>보통</b><small>8분까지</small></button>
+              <button type="button" data-diff="hard"><b>어려움</b><small>잘게·많이</small></button>
+            </div>
+          </div>
+          <div class="studio-block">
+            <h4>빠르기 <small class="muted" id="my-bpm"></small></h4>
+            <div class="beat-row">
+              <button class="beat-mini" type="button" data-action="mysong-mul" data-mul="0.5">÷2 (느리게)</button>
+              <button class="beat-mini" type="button" data-action="mysong-mul" data-mul="2">×2 (빠르게)</button>
+            </div>
+            <p class="hint">드럼이 노래보다 2배 바쁘거나 느리게 느껴지면 눌러 주세요.</p>
+          </div>
+          <div class="studio-block">
+            <h4>어디부터</h4>
+            <div class="seg" id="my-from">
+              <button type="button" data-from="start"><b>처음부터</b><small>노래 전체</small></button>
+              <button type="button" data-from="pick"><b>시작 위치</b><small>하이라이트만</small></button>
+            </div>
+            <label class="field my-start" id="my-start-wrap" hidden><span>시작 <small class="muted">예) 1:02 또는 62</small></span><input type="text" id="my-start" inputmode="decimal" placeholder="0:30" /></label>
+            <label class="field my-len"><span>길이</span><select id="my-len"><option value="0">끝까지</option><option value="30">30초</option><option value="60">1분</option></select></label>
+          </div>
+          <div class="studio-block">
+            <label class="field check"><input type="checkbox" id="my-rec" /><span>🎬 치는 화면 녹화하기</span></label>
+            <p class="hint" id="my-rec-hint"></p>
+          </div>
+          <button class="btn btn-primary btn-big" data-action="mysong-start"><span data-icon="play"></span> 시작</button>
+        </div>
+      </div>
     </section>
 
     <!-- 영상 찍기 -->
@@ -641,6 +699,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=b976e92267" defer></script>
+  <script src="js/app.js?v=a344942426" defer></script>
 </body>
 </html>

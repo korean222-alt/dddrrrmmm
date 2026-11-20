@@ -323,6 +323,7 @@ function playable(id) {
     return withSync(makeBeatReel({ ...o, bars: songBars(beatOpts(o)) }));
   }
   if (isQuizId(id)) return makeQuizLevel(id);
+  if (id === MY_ID) return my.level;
   return getStudioLevel(id) || getLevel(id);
 }
 const isChallengeId = (id) => id === ENDLESS_ID || (typeof id === 'string' && /^(ch|e)\d+$/.test(id));
@@ -566,7 +567,7 @@ function practiceLevel(lv, rate) {
   return { ...lv, bpm: Math.round(lv.bpm * rate * 10) / 10, practice: rate };
 }
 /** 연습으로 칠 수 있는 판인가 (일반 단계만. 무제한·멀티·영상 찍기 X) */
-const canPractice = (lv) => !!lv && !lv.challenge && !lv.studioOnly && !state.studio.active && !document.body.classList.contains('room-game') && !state.auto;
+const canPractice = (lv) => !!lv && !lv.challenge && !lv.studioOnly && !lv.custom && !state.studio.active && !document.body.classList.contains('room-game') && !state.auto;
 
 async function startLevel(id, opts = {}) {
   const base = playable(id);
@@ -592,13 +593,13 @@ async function startLevel(id, opts = {}) {
   if (state.game) state.game.stop();
   closeModal('modal-pause');
   show('screen-game');
-  $('#hud-lv').textContent = practice ? `🐢 연습 ${Math.round(practice * 100)}%` : lv.survival ? '⚔️ 서바이벌' : lv.challenge ? (lv.endless ? '무제한' : '챌린지') : lv.studioOnly ? '🎬 릴스용' : levelLabel(lv);
+  $('#hud-lv').textContent = practice ? `🐢 연습 ${Math.round(practice * 100)}%` : lv.custom ? '🎵 내 노래' : lv.survival ? '⚔️ 서바이벌' : lv.challenge ? (lv.endless ? '무제한' : '챌린지') : lv.studioOnly ? '🎬 릴스용' : levelLabel(lv);
   $('#hud-name').textContent = lv.challenge ? `${lv.songName} · ${lv.composer}` : `${lv.name} · ${lv.composer}`;
   $('#hud-score').textContent = '0';
   $('#hud-progress').style.width = '0%';
   closeModal('modal-continue');
   const st = state.studio;
-  renderLives(st.active || state.auto || practice ? null : MAX_LIVES);
+  renderLives(st.active || state.auto || practice || lv.custom ? null : MAX_LIVES);
   const vs = !room && !st.active && !practice && !lv.challenge && state.vs && state.vs.levelId === id ? state.vs : null;
   $('#hud-vs').hidden = !vs && !room;
   if (vs || room) {
@@ -635,7 +636,7 @@ async function startLevel(id, opts = {}) {
   // 영상 찍기는 팔로우 잠금 없이 (계정 주인이 촬영용으로 씀) → 서버 판 토큰도 안 받음
   // 인증 안 한 사람이 1~3단계를 칠 땐 랭킹에 못 올리니 판 토큰도 안 받음 (서버 요청 아끼기, 통계는 5분마다 따로 감)
   const canRank = isConfirmed() || state.cfg.gateMode === 'open' || isClosed(id);
-  if ((!lv.challenge || lv.endless) && !st.active && !room && !practice && canRank) state.api
+  if ((!lv.challenge || lv.endless) && !st.active && !room && !practice && !lv.custom && canRank) state.api
     .startRun(id)
     .then((r) => (state.runToken = r.runToken))
     .catch((e) => {
@@ -724,6 +725,7 @@ async function startLevel(id, opts = {}) {
       last.p = p;
     },
     onEnd: (res) => {
+      if (lv.custom) return myFinish(res);
       if (!state.studio.active && !res.auto && !res.practice) trackPlayEnd({ result: res.failed || res.died ? 'fail' : 'clear', score: res.score, stars: res.stars });
       if (room && state.roomClient.active) {
         res.room = { mode: room.mode, round: room.round };
@@ -736,7 +738,7 @@ async function startLevel(id, opts = {}) {
     },
     // 영상 찍기 땐 목숨 없음 (녹화 중에 멈추면 안 되니까). 멀티는 광고 이어하기 없이 그 자리에서 끝
     // 🐢 연습은 목숨 없이 끝까지
-    onDeath: st.active || practice ? null : room ? onRoomDeath : onDeath,
+    onDeath: st.active || practice || lv.custom ? null : room ? onRoomDeath : onDeath,
   });
   if (room) {
     // 친구와 같은 시각에 시작: 남은 시간 카운트다운 (Game.start 가 0.35초 뒤에 첫 박을 놓음)
@@ -774,9 +776,14 @@ async function startLevel(id, opts = {}) {
     stallToastAt = Date.now();
     toast('🔇 폰이 소리를 잠깐 멈췄어요. 화면을 한 번 톡 눌러 주세요 (화면 녹화는 시작 버튼 누르기 전에 켜 두세요)', 3600);
   };
+  // 🎵 내 노래: 녹화 버튼을 켰으면 시작과 같이 녹화
+  if (lv.custom && my.rec) {
+    await stopRecorder(); // 다시 치기: 앞 판 녹화가 남아 있으면 버림
+    startRecorder();
+  }
   state.game.start();
-  // 영상 찍기·자동 연주는 통계에 안 셈
-  if (!st.active && !state.auto && !practice) trackPlayStart(lv.survival ? lv.baseId : id, vs || room ? 'vs' : 'normal');
+  // 영상 찍기·자동 연주·내 노래는 통계에 안 셈
+  if (!st.active && !state.auto && !practice && !lv.custom) trackPlayStart(lv.survival ? lv.baseId : id, vs || room ? 'vs' : 'normal');
 }
 
 /** 단계에 맞게 화면 레인(악기) 세팅 */
@@ -1758,6 +1765,171 @@ function finishCalibration() {
   if (calib.required) $('#calib-done').hidden = false;
 }
 
+// ---------------- 🎵 내 노래로 치기 ----------------
+//   폰에 있는 노래(mp3)·영상(mp4·화면 녹화)을 넣으면 BPM·박을 찾아(beatsync.js) 그 노래에 맞는 채보를 만들고
+//   노래를 틀면서 직접 침 (자동 연주 없음). 파일은 이 폰 메모리에만 (서버로 안 감, API 요청도 없음)
+//   기록·랭킹·통계엔 안 들어감. 🎬 녹화 버튼을 켜면 치는 화면 + 소리를 영상으로 저장
+const MY_ID = 'my';
+const my = { url: null, name: '', buf: null, mono: null, bpm: null, beat0: null, sound0: 0, diff: load('myDiff', 'easy'), from: 'start', rec: false, level: null, blob: null, blobUrl: null };
+const myBusy = () => my.loading;
+function openMysong() {
+  if (followGated()) {
+    openVerify(null, { label: '🎵 내 노래로 치기는 팔로워만', then: openMysong });
+    return;
+  }
+  if (state.game) state.game.stop();
+  $$('#my-diff button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.diff === my.diff));
+  $$('#my-from button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.from === my.from));
+  $('#my-start-wrap').hidden = my.from !== 'pick';
+  const ok = canRecordFile();
+  $('#my-rec').disabled = !ok;
+  $('#my-rec').checked = ok && my.rec;
+  $('#my-rec-hint').textContent = ok ? '켜면 치는 화면이 노래 소리까지 영상 파일로 저장돼요.' : '이 브라우저는 바로 녹화가 안 돼요. 폰 화면 녹화로 찍어 주세요.';
+  show('screen-mysong');
+}
+async function myPick(file) {
+  if (my.loading) return;
+  if (my.url) URL.revokeObjectURL(my.url);
+  my.url = URL.createObjectURL(file);
+  my.name = file.name.replace(/\.[^.]+$/, '').slice(0, 30);
+  my.buf = my.mono = null;
+  my.bpm = my.beat0 = null;
+  $('#my-opts').hidden = true;
+  $('#my-result').hidden = true;
+  $('#my-status').textContent = '노래 여는 중…';
+  my.loading = true;
+  await audio.unlock();
+  let buf = await audio.loadTrack(my.url);
+  if (!buf) {
+    // 아이폰은 화면 녹화(.mov) 같은 영상을 바로 못 풀어서 → 소리 없이 한 번 재생하며 읽음
+    $('#my-status').innerHTML = '영상 소리를 읽고 있어요… <b>영상 길이만큼</b> 걸려요 (최대 6분). 화면을 끄지 마세요';
+    buf = await captureMediaAudio(my.url, (t, d) => ($('#my-status').textContent = `영상 소리 읽는 중… ${Math.floor(t)}/${Math.round(d)}초 (화면을 끄지 마세요)`), 360);
+    if (buf) {
+      audio._trackBufs ??= new Map();
+      audio._trackBufs.set(my.url, buf);
+    }
+  }
+  my.loading = false;
+  if (!buf || buf.duration < 12) {
+    $('#my-status').textContent = buf ? '노래가 너무 짧아요 (12초 넘는 걸로 넣어 주세요)' : '이 파일은 열 수 없어요. mp3·m4a·mp4 로 해 보세요';
+    return;
+  }
+  my.buf = buf;
+  my.mono = monoOf(buf);
+  myDetect();
+}
+/** BPM·박 찾기 (노래 가운데쯤에서 재고, 앞뒤로 같은 박 간격을 이어 씀) */
+function myDetect(hintBpm = null) {
+  const buf = my.buf;
+  const sr = buf.sampleRate;
+  my.sound0 = soundStart(my.mono, sr);
+  const winStart = Math.max(my.sound0 + 3, Math.min(buf.duration * 0.3, buf.duration - 26));
+  const r = detectBeat(my.mono, sr, { start: Math.max(0, winStart), hintBpm });
+  if (!r) {
+    $('#my-status').textContent = '박자를 못 찾았어요. 드럼 소리가 뚜렷한 노래로 해 보세요';
+    return;
+  }
+  my.bpm = Math.round(r.bpm * 10) / 10;
+  my.beat0 = r.firstBeat; // 노래 가운데쯤의 '쿵' 박
+  const m = Math.floor(buf.duration / 60);
+  $('#my-status').innerHTML = `<b>${escapeHtml(my.name)}</b> · ${m}:${String(Math.floor(buf.duration % 60)).padStart(2, '0')} · <b>${my.bpm} BPM</b>${r.confidence < 0.3 ? ' · 박이 흐릿해서 조금 어긋날 수 있어요' : ''}`;
+  $('#my-bpm').textContent = `${my.bpm} BPM`;
+  $('#my-opts').hidden = false;
+}
+function myMul(m) {
+  if (!my.buf || !my.bpm) return;
+  const want = my.bpm * m;
+  if (want < 50 || want > 220) return toast('더는 바꿀 수 없어요');
+  myDetect(want);
+  toast(`${my.bpm} BPM 으로 바꿨어요`, 1400);
+}
+/** 고른 옵션으로 채보 만들기 → 판 */
+function myBuild() {
+  const buf = my.buf;
+  const beat = 60 / my.bpm;
+  const bar = beat * 4;
+  // 시작: 처음부터면 첫 소리, 아니면 적은 시각. '쿵' 박 줄(2박 간격)에 맞춰 그 뒤 첫 박
+  const pick = my.from === 'pick' ? parseTime($('#my-start').value) : null;
+  const from = Math.max(0, Math.min(buf.duration - 12, pick ?? my.sound0));
+  const k = Math.ceil((from - my.beat0) / (beat * 2) - 1e-6);
+  const first = my.beat0 + k * beat * 2;
+  const len = Number($('#my-len').value) || 0;
+  const end = len ? Math.min(buf.duration, first + len) : buf.duration;
+  const bars = Math.floor((end - first) / bar);
+  if (bars < 2) return null;
+  const chart = songChart(my.mono, buf.sampleRate, { firstBeat: first, bpm: my.bpm, bars, diff: my.diff });
+  if (!chart.bars.some((b) => /[^.]/.test(b))) return null;
+  const countIn = bar * COUNT_IN_BARS;
+  return {
+    id: MY_ID,
+    custom: true,
+    name: my.name || '내 노래',
+    composer: '내 노래',
+    songName: my.name || '내 노래',
+    tagline: '',
+    theme: 'city',
+    difficulty: my.diff === 'hard' ? 5 : my.diff === 'normal' ? 3 : 1,
+    bpm: my.bpm,
+    bars: chart.bars,
+    // 노래 파일: 채보 첫 마디 = 노래의 first 초. 처음부터면 노래를 0초부터 틀고 채보는 그만큼 뒤에
+    song: { ...LEVELS[0].song, audio: { src: my.url, offset: first, gain: 1 } },
+    leadIn: pick == null ? Math.max(0, first - countIn) : 0,
+  };
+}
+async function myStart() {
+  if (!my.buf || !my.bpm) return toast('노래 파일을 먼저 골라 주세요');
+  const lv = myBuild();
+  if (!lv) return toast('채보를 못 만들었어요. 시작 위치나 길이를 바꿔 보세요');
+  my.level = lv;
+  my.rec = $('#my-rec').checked && !$('#my-rec').disabled;
+  $('#my-result').hidden = true;
+  await startLevel(MY_ID);
+}
+async function myFinish(res) {
+  const blob = await stopRecorder();
+  if (state.game) state.game.stop();
+  if (my.blobUrl) URL.revokeObjectURL(my.blobUrl);
+  my.blob = blob && blob.size ? blob : null;
+  my.blobUrl = my.blob ? URL.createObjectURL(my.blob) : null;
+  const acc = Math.round((res.accuracy || 0) * 100);
+  $('#my-res-text').innerHTML =
+    `<b class="my-grade">${res.grade}</b> ${fmt(res.score)}점 · 정확도 ${acc}% · 최대 콤보 ${res.maxCombo}` +
+    `<br><small>PERFECT ${res.counts.perfect} · GREAT ${res.counts.great} · GOOD ${res.counts.good} · MISS ${res.counts.miss}</small>`;
+  const v = $('#my-video');
+  v.hidden = !my.blobUrl;
+  $('#my-save').hidden = !my.blobUrl;
+  if (my.blobUrl) {
+    v.src = my.blobUrl;
+    v.onloadedmetadata = () => {
+      try {
+        v.currentTime = 0.1;
+      } catch {}
+    };
+  }
+  $('#my-result').hidden = false;
+  openMysong();
+  requestAnimationFrame(() => $('#my-result').scrollIntoView({ block: 'start' }));
+}
+async function mySave() {
+  if (!my.blob) return;
+  const ext = my.blob.type.includes('mp4') ? 'mp4' : 'webm';
+  const file = new File([my.blob], `okaystra-내노래.${ext}`, { type: my.blob.type });
+  try {
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file] });
+      return;
+    }
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;
+  }
+  const a = document.createElement('a');
+  a.href = my.blobUrl;
+  a.download = file.name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+}
+
 // ---------------- 영상 찍기 ----------------
 function pickMime() {
   if (typeof MediaRecorder === 'undefined') return null;
@@ -2017,7 +2189,7 @@ async function syncPick(file) {
  * 영상(.mov 등)을 소리 없이 재생하면서 소리를 그대로 받아 적음 → AudioBuffer (최대 30초)
  *   첫 소리·첫 박의 '간격'만 쓰므로 받아 적기 시작이 조금 늦어도 결과는 같음
  */
-function captureMediaAudio(url, onProgress) {
+function captureMediaAudio(url, onProgress, maxSec = 60) {
   return new Promise((resolve) => {
     const ctx = audio.ensure();
     const v = document.createElement('video');
@@ -2030,7 +2202,7 @@ function captureMediaAudio(url, onProgress) {
     let mute;
     const chunks = [];
     let done = false;
-    const MAX = 60;
+    const MAX = maxSec;
     const finish = (ok = true) => {
       if (done) return;
       done = true;
@@ -2939,6 +3111,10 @@ const ACTIONS = {
     document.querySelector('[data-action="a2hs-open"]').click();
   },
   'suggest-open': openSuggest,
+  'mysong-open': () => openMysong(),
+  'mysong-start': () => myStart(),
+  'mysong-save': () => mySave(),
+  'mysong-mul': (el) => myMul(Number(el.dataset.mul)),
   'close-suggest': () => closeModal('modal-suggest'),
   'suggest-send': sendSuggest,
   quickstart: () => tryStart(state.quickId ?? 1),
@@ -3023,6 +3199,11 @@ const ACTIONS = {
       state.roomClient.send({ final: { score: state.game.score, stars: 0, grade: 'F', failed: true, maxCombo: state.game.maxCombo, accuracy: 0 } }, true);
     document.body.classList.remove('room-game');
     if (state.game) state.game.stop();
+    if (state.levelId === MY_ID) {
+      stopRecorder();
+      openMysong();
+      return;
+    }
     renderLevels();
     show('screen-levels');
   },
@@ -3236,6 +3417,22 @@ function bindActions() {
     pickBeat();
   });
   $('#sync-file').addEventListener('change', (e) => e.target.files[0] && syncPick(e.target.files[0]));
+  $('#my-file').addEventListener('change', (e) => e.target.files[0] && myPick(e.target.files[0]));
+  $('#my-diff').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-diff]');
+    if (!b) return;
+    my.diff = b.dataset.diff;
+    save('myDiff', my.diff);
+    $$('#my-diff button').forEach((x) => x.setAttribute('aria-pressed', x === b));
+  });
+  $('#my-from').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-from]');
+    if (!b) return;
+    my.from = b.dataset.from;
+    $$('#my-from button').forEach((x) => x.setAttribute('aria-pressed', x === b));
+    $('#my-start-wrap').hidden = my.from !== 'pick';
+  });
+  $('#my-rec').addEventListener('change', (e) => (my.rec = e.target.checked));
   $('#quiz-bars').addEventListener('change', (e) => (state.studio.quizBars = Number(e.target.value)));
   $('#calib-pad').addEventListener('pointerdown', (e) => {
     e.preventDefault();

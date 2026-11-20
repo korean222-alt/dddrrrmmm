@@ -173,6 +173,8 @@ export class Game {
     this.r.reset();
     this.r.laneOrder = this.laneOrder;
     let at = ctx.currentTime + 0.35;
+    // 🎵 내 노래: 노래를 처음부터 틀고, 채보(카운트인)는 leadIn 초 뒤에 시작
+    if (this.level.leadIn > 0) at += this.level.leadIn;
     // 🎧 박자 맞추기(화면 녹화로 맞춤): 첫 쿵이 정해진 소리 시각(syncAnchor)에 오게. 늦었으면 한 마디씩 뒤로 (박은 그대로 맞음)
     const anchor = this.level.syncAnchor;
     if (anchor != null) {
@@ -611,7 +613,7 @@ export class Game {
     // 카운트인 표시 (+ 엄지 안내)
     let countIn = null;
     const ciEnd = this.tempo.barStart(COUNT_IN_BARS);
-    if (now < ciEnd) {
+    if (now < ciEnd && (now > -0.5 || !this.level.leadIn)) {
       const b = Math.max(0, Math.floor(now / this.beat));
       countIn = { label: COUNT_LABELS[Math.min(b, 3)], phase: now < 0 ? 0 : (now / this.beat) % 1, fade: 1 };
     } else if (now < ciEnd + this.beat * 2) {

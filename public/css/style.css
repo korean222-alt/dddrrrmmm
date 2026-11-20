@@ -593,6 +593,17 @@ body.room-game #modal-pause [data-action='retry'], body.room-game #modal-continu
 .beat-block .beat-row .btn { flex: 1; }
 .beat-block select { font-family: inherit; }
 .quiz-len { margin: 12px 0 0; }
+/* 🎵 내 노래로 치기 */
+.mysong-btn { width: 100%; }
+.mysong-btn small { opacity: 0.8; font-size: 12px; margin-left: 4px; }
+.mysong .my-file { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; }
+.mysong .my-start, .mysong .my-len { margin: 12px 0 0; }
+.mysong select { width: 100%; font-size: 17px; padding: 10px 12px; border-radius: 12px; border: 2px solid var(--ink); background: var(--cream); color: var(--ink); font-family: inherit; }
+.mysong .beat-row { display: flex; gap: 8px; }
+.mysong .beat-mini { flex: 1; height: 46px; font-size: 16px; border: 2px solid var(--ink); border-radius: 12px; background: #fff; box-shadow: 0 3px 0 var(--ink); }
+.mysong .my-res { font-size: 17px; line-height: 1.6; margin: 0 0 10px; }
+.mysong .my-grade { font-size: 30px; margin-right: 6px; }
+.mysong video { width: 100%; max-height: 50vh; border-radius: 14px; border: 2px solid var(--ink); background: #000; margin-bottom: 10px; }
 .beat-sync { margin: 4px 0 12px; padding: 12px; border: 2px dashed rgba(0, 0, 0, 0.2); border-radius: 14px; }
 .beat-sync h5 { margin: 0 0 4px; font-weight: 400; font-size: 16px; }
 .beat-sync .beat-file { display: flex; align-items: center; justify-content: center; width: 100%; margin: 6px 0 10px; }

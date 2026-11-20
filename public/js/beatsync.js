@@ -232,7 +232,16 @@ export function songChart(samples, sr, { firstBeat, bpm, bars, diff = 'easy' }) 
   const maxA = Math.max(0, ...Array.from(A.slice(0, covered * 16)));
   const accentLine = Math.max(pct(A, 0.97), maxA * 0.55);
   const out = new Array(total).fill('.');
+  // 마디별 소리 크기 → 거의 조용한 마디(인트로 앞 무음·노래 끝)는 쉼
+  const barLoud = [];
   for (let b = 0; b < covered; b++) {
+    let sum = 0;
+    for (let s = 0; s < 16; s++) sum += A[b * 16 + s];
+    barLoud.push(sum / 16);
+  }
+  const midLoud = barLoud.slice().sort((a, b) => a - b)[Math.floor(barLoud.length / 2)] || 0;
+  for (let b = 0; b < covered; b++) {
+    if (barLoud[b] < midLoud * 0.12) continue;
     const cands = [];
     for (let s = 0; s < 16; s += rule.grid) {
       const k = b * 16 + s;
