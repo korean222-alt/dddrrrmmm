@@ -1320,7 +1320,7 @@ export class Renderer {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.lineJoin = 'round';
-    const big = clearText || `Lv.${info.round}`;
+    const big = clearText || info.big || `Lv.${info.round}`;
     const fs = fitFont(ctx, big, this.L.GW * 0.86, size);
     ctx.font = `${fs}px ${FONT}`;
     ctx.lineWidth = fs * 0.14;
@@ -1328,7 +1328,7 @@ export class Renderer {
     ctx.strokeText(big, x, y);
     ctx.fillStyle = '#FFD84A';
     ctx.fillText(big, x, y);
-    const sub = clearText ? info.sub || '' : `${info.name} · ${info.bpm} BPM`;
+    const sub = clearText || info.sub != null ? info.sub || '' : `${info.name} · ${info.bpm} BPM`;
     if (sub) {
       const ss = fitFont(ctx, sub, this.L.GW * 0.86, size * 0.3);
       ctx.font = `${ss}px ${FONT}`;
@@ -1358,7 +1358,7 @@ export class Renderer {
     ctx.lineJoin = 'round';
     const top = L.H * 0.045;
     if (st.cleared) {
-      this._roundText({ sub: s.bottom }, L.cx, top + L.GW * 0.12, L.GW * 0.17, `Lv.${st.cleared} 클리어!`);
+      this._roundText({ sub: s.bottom }, L.cx, top + L.GW * 0.12, L.GW * 0.17, s.endText || `Lv.${st.cleared} 클리어!`);
     } else if (!st.round || st.countIn || st.now < 0) {
       // 훅: 큰 흰 글씨 두 줄 + 작은 부제
       const words = (s.top || '').trim();

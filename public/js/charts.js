@@ -1536,12 +1536,84 @@ export function beatOpts(o = {}) {
   const bpm = Math.round(Math.min(BEAT_MAX_BPM, Math.max(BEAT_MIN_BPM, n(o.bpm, 120))) * 10) / 10;
   const rounds = Math.min(BEAT_MAX_ROUNDS, Math.max(1, Math.round(n(o.rounds, 4))));
   const seed = Number.isInteger(o.seed) ? o.seed : (Math.random() * 2 ** 31) | 0;
-  return { bpm, rounds, seed, title: String(o.title || '').slice(0, 24), click: !!o.click };
+  const style = BEAT_STYLES.some((x) => x.id === o.style) ? o.style : 'levelup';
+  return { bpm, rounds, seed, style, title: String(o.title || '').slice(0, 24), click: !!o.click };
 }
+/**
+ * 박자 맞추기 형식 (빠르기는 노래 그대로, 한 구간 = ROUND_BARS 마디)
+ *   levelup: Lv.1 기본 쿵짝 → 점점 어려워짐
+ *   drop:    인트로 → 빌드업(스네어가 점점 잘게) → 드롭!(크래시·하이햇 꽉 찬 비트) → 브레이크 → 빌드업 → 드롭
+ *   cover:   한 곡 드럼 커버처럼: 벌스(하이햇 그루브) ↔ 후렴(크래시·킥 많이), 4마디마다 필인
+ */
+export const BEAT_STYLES = [
+  { id: 'levelup', name: '레벨업', desc: '점점 어려워짐' },
+  { id: 'drop', name: '빌드업→드롭', desc: '쌓다가 터짐' },
+  { id: 'cover', name: '드럼 커버', desc: '노래 한 곡 치듯' },
+];
+export const beatStyleName = (style) => (BEAT_STYLES.find((x) => x.id === style) || BEAT_STYLES[0]).name;
+const DROP_SECTIONS = ['인트로', '빌드업', '드롭!', '브레이크', '빌드업', '드롭!!'];
+/** 구간 이름들 (단계 수 고르기 글씨용) */
+export function beatSectionNames(style, rounds) {
+  if (style === 'drop') return DROP_SECTIONS.slice(0, rounds);
+  if (style === 'cover') return Array.from({ length: rounds }, (_, i) => (i % 2 ? '후렴' : '벌스'));
+  return Array.from({ length: rounds }, (_, i) => `Lv.${i + 1}`);
+}
+// 같은 엄지(킥·크래시·탐탐 / 스네어·하이햇)는 2칸 이상 띄움. fast(140 BPM 넘음)면 붙은 칸 없음
+const DROP_BARS = {
+  intro: { slow: ['K...S...K...S...', 'K...S...K...S...', 'K...S...K..KS...', 'K...S...K.K.S...'], fast: ['K...S...K...S...', 'K...S...K...S...', 'K...S...K.K.S...', 'K...S...K.K.S...'] },
+  build: { slow: ['S...S...S...S...', 'S.S.S.S.S.S.S.S.', 'KSKSKSKSKSKSKSKS', 'B.B.B.B.B.......'], fast: ['S...S...S...S...', 'S...S...S.S.S.S.', 'S.S.S.S.S.S.S.S.', 'B.B.B.B.B.......'] },
+  drop: { slow: ['X.HKS.H.K.HKS.H.', 'J.HKS.H.K.HKS.H.', 'X.HKS.H.K.HKS.H.', 'K.S.T.S.K.T.X...'], fast: ['X.H.S.H.K.H.S.H.', 'J.H.S.H.J.J.S.H.', 'X.H.S.H.K.H.S.H.', 'K.S.T.S.K.T.X...'] },
+  brk: { slow: ['K.......S.......', 'K.......S.......', 'K.......S...K...', 'K.......S...S.S.'], fast: ['K.......S.......', 'K.......S.......', 'K.......S...K...', 'K.......S...S.S.'] },
+};
+const COVER_VERSE = { slow: ['J.H.S.H.J.HKS.H.', 'J.H.S.H.K.HKS.H.', 'J.HKS.H.J.H.S.H.'], fast: ['J.H.S.H.J.H.S.H.', 'J.H.S.H.K.H.S.H.', 'J.H.S.H.J.J.S.H.'] };
+const COVER_CHORUS = { slow: ['X.H.S.H.K.HKS.H.', 'C.HKS.H.K.HKS.H.', 'X.HKS.H.J.H.S.H.'], fast: ['X.H.S.H.K.H.S.H.', 'C.H.S.H.K.H.S.H.', 'X.H.S.H.J.H.S.H.'] };
+const COVER_FILL = { slow: ['J.H.S.H.KSK.Y.Y.', 'J.H.S...T.T.S.S.', 'K.S.T.S.KSK.B...'], fast: ['J.H.S.H.T.T.S.S.', 'J.H.S...Y...Y...', 'K.S.T.S.K.S.B...'] };
+function styledBeatBars(style, rounds, bpm, rand) {
+  const sp = bpm > 140 ? 'fast' : 'slow';
+  const pick = (list) => list[Math.floor(rand() * list.length) % list.length];
+  const out = [];
+  for (let r = 1; r <= rounds; r++) {
+    if (style === 'drop') {
+      const key = ['intro', 'build', 'drop', 'brk', 'build', 'drop'][r - 1];
+      out.push(...DROP_BARS[key][sp]);
+    } else {
+      const g = r % 2 ? COVER_VERSE[sp] : COVER_CHORUS[sp];
+      const a = pick(g);
+      const b = pick(g);
+      out.push(r % 2 ? a : 'X' + a.slice(1), b, a, pick(COVER_FILL[sp]));
+    }
+  }
+  // 마디 경계에서 같은 엄지 연타가 생기면 앞 마디 마지막 칸을 비움
+  for (let i = 1; i < out.length; i++) if (sameThumb(out[i - 1][STEPS_PER_BAR - 1], out[i][0])) out[i - 1] = out[i - 1].slice(0, -1) + '.';
+  return out;
+}
+
 /** 박자 맞추기 판 (게임 시간 = 카운트인 + 단계 수 × ROUND_BARS 마디) */
 export function makeBeatReel(o = {}) {
-  const { bpm, rounds, seed, title, click } = beatOpts(o);
+  const { bpm, rounds, seed, title, click, style } = beatOpts(o);
   const run = makeEndless({ rounds, seed, bpm });
+  if (style !== 'levelup') {
+    const bars = styledBeatBars(style, rounds, bpm, rng(seed));
+    run.bars = bars;
+    run.barMult = bars.map(() => 1);
+    run.barRound = bars.map((_, i) => Math.floor(i / ROUND_BARS) + 1);
+    run.roundsBuilt = rounds;
+    run.lanes = levelLanes({ bars });
+    const names = beatSectionNames(style, rounds);
+    Object.assign(run, {
+      id: BEAT_ID,
+      beat: true,
+      beatStyle: style,
+      click,
+      name: title || '엄지 드럼 챌린지',
+      songName: title || '엄지 드럼 챌린지',
+      composer: `${bpm} BPM`,
+      tagline: '릴스용 · 노래는 인스타에서 입혀요',
+      bpm,
+      roundInfo: (r) => ({ round: r, bpm, name: names[r - 1] || '', big: names[r - 1] || '', sub: '', warn: '' }),
+    });
+    return run;
+  }
   Object.assign(run, {
     id: BEAT_ID,
     beat: true,
@@ -1551,6 +1623,7 @@ export function makeBeatReel(o = {}) {
     composer: `${bpm} BPM`,
     tagline: '릴스용 · 노래는 인스타에서 입혀요',
     bpm,
+    beatStyle: 'levelup',
     roundInfo: (r) => ({ round: r, bpm, name: BEAT_NAMES[r - 1] || '필인 지옥', warn: '' }),
   });
   return run;

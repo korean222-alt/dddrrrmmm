@@ -1540,12 +1540,84 @@ function beatOpts(o = {}) {
   const bpm = Math.round(Math.min(BEAT_MAX_BPM, Math.max(BEAT_MIN_BPM, n(o.bpm, 120))) * 10) / 10;
   const rounds = Math.min(BEAT_MAX_ROUNDS, Math.max(1, Math.round(n(o.rounds, 4))));
   const seed = Number.isInteger(o.seed) ? o.seed : (Math.random() * 2 ** 31) | 0;
-  return { bpm, rounds, seed, title: String(o.title || '').slice(0, 24), click: !!o.click };
+  const style = BEAT_STYLES.some((x) => x.id === o.style) ? o.style : 'levelup';
+  return { bpm, rounds, seed, style, title: String(o.title || '').slice(0, 24), click: !!o.click };
 }
+/**
+ * 박자 맞추기 형식 (빠르기는 노래 그대로, 한 구간 = ROUND_BARS 마디)
+ *   levelup: Lv.1 기본 쿵짝 → 점점 어려워짐
+ *   drop:    인트로 → 빌드업(스네어가 점점 잘게) → 드롭!(크래시·하이햇 꽉 찬 비트) → 브레이크 → 빌드업 → 드롭
+ *   cover:   한 곡 드럼 커버처럼: 벌스(하이햇 그루브) ↔ 후렴(크래시·킥 많이), 4마디마다 필인
+ */
+const BEAT_STYLES = [
+  { id: 'levelup', name: '레벨업', desc: '점점 어려워짐' },
+  { id: 'drop', name: '빌드업→드롭', desc: '쌓다가 터짐' },
+  { id: 'cover', name: '드럼 커버', desc: '노래 한 곡 치듯' },
+];
+const beatStyleName = (style) => (BEAT_STYLES.find((x) => x.id === style) || BEAT_STYLES[0]).name;
+const DROP_SECTIONS = ['인트로', '빌드업', '드롭!', '브레이크', '빌드업', '드롭!!'];
+/** 구간 이름들 (단계 수 고르기 글씨용) */
+function beatSectionNames(style, rounds) {
+  if (style === 'drop') return DROP_SECTIONS.slice(0, rounds);
+  if (style === 'cover') return Array.from({ length: rounds }, (_, i) => (i % 2 ? '후렴' : '벌스'));
+  return Array.from({ length: rounds }, (_, i) => `Lv.${i + 1}`);
+}
+// 같은 엄지(킥·크래시·탐탐 / 스네어·하이햇)는 2칸 이상 띄움. fast(140 BPM 넘음)면 붙은 칸 없음
+const DROP_BARS = {
+  intro: { slow: ['K...S...K...S...', 'K...S...K...S...', 'K...S...K..KS...', 'K...S...K.K.S...'], fast: ['K...S...K...S...', 'K...S...K...S...', 'K...S...K.K.S...', 'K...S...K.K.S...'] },
+  build: { slow: ['S...S...S...S...', 'S.S.S.S.S.S.S.S.', 'KSKSKSKSKSKSKSKS', 'B.B.B.B.B.......'], fast: ['S...S...S...S...', 'S...S...S.S.S.S.', 'S.S.S.S.S.S.S.S.', 'B.B.B.B.B.......'] },
+  drop: { slow: ['X.HKS.H.K.HKS.H.', 'J.HKS.H.K.HKS.H.', 'X.HKS.H.K.HKS.H.', 'K.S.T.S.K.T.X...'], fast: ['X.H.S.H.K.H.S.H.', 'J.H.S.H.J.J.S.H.', 'X.H.S.H.K.H.S.H.', 'K.S.T.S.K.T.X...'] },
+  brk: { slow: ['K.......S.......', 'K.......S.......', 'K.......S...K...', 'K.......S...S.S.'], fast: ['K.......S.......', 'K.......S.......', 'K.......S...K...', 'K.......S...S.S.'] },
+};
+const COVER_VERSE = { slow: ['J.H.S.H.J.HKS.H.', 'J.H.S.H.K.HKS.H.', 'J.HKS.H.J.H.S.H.'], fast: ['J.H.S.H.J.H.S.H.', 'J.H.S.H.K.H.S.H.', 'J.H.S.H.J.J.S.H.'] };
+const COVER_CHORUS = { slow: ['X.H.S.H.K.HKS.H.', 'C.HKS.H.K.HKS.H.', 'X.HKS.H.J.H.S.H.'], fast: ['X.H.S.H.K.H.S.H.', 'C.H.S.H.K.H.S.H.', 'X.H.S.H.J.H.S.H.'] };
+const COVER_FILL = { slow: ['J.H.S.H.KSK.Y.Y.', 'J.H.S...T.T.S.S.', 'K.S.T.S.KSK.B...'], fast: ['J.H.S.H.T.T.S.S.', 'J.H.S...Y...Y...', 'K.S.T.S.K.S.B...'] };
+function styledBeatBars(style, rounds, bpm, rand) {
+  const sp = bpm > 140 ? 'fast' : 'slow';
+  const pick = (list) => list[Math.floor(rand() * list.length) % list.length];
+  const out = [];
+  for (let r = 1; r <= rounds; r++) {
+    if (style === 'drop') {
+      const key = ['intro', 'build', 'drop', 'brk', 'build', 'drop'][r - 1];
+      out.push(...DROP_BARS[key][sp]);
+    } else {
+      const g = r % 2 ? COVER_VERSE[sp] : COVER_CHORUS[sp];
+      const a = pick(g);
+      const b = pick(g);
+      out.push(r % 2 ? a : 'X' + a.slice(1), b, a, pick(COVER_FILL[sp]));
+    }
+  }
+  // 마디 경계에서 같은 엄지 연타가 생기면 앞 마디 마지막 칸을 비움
+  for (let i = 1; i < out.length; i++) if (sameThumb(out[i - 1][STEPS_PER_BAR - 1], out[i][0])) out[i - 1] = out[i - 1].slice(0, -1) + '.';
+  return out;
+}
+
 /** 박자 맞추기 판 (게임 시간 = 카운트인 + 단계 수 × ROUND_BARS 마디) */
 function makeBeatReel(o = {}) {
-  const { bpm, rounds, seed, title, click } = beatOpts(o);
+  const { bpm, rounds, seed, title, click, style } = beatOpts(o);
   const run = makeEndless({ rounds, seed, bpm });
+  if (style !== 'levelup') {
+    const bars = styledBeatBars(style, rounds, bpm, rng(seed));
+    run.bars = bars;
+    run.barMult = bars.map(() => 1);
+    run.barRound = bars.map((_, i) => Math.floor(i / ROUND_BARS) + 1);
+    run.roundsBuilt = rounds;
+    run.lanes = levelLanes({ bars });
+    const names = beatSectionNames(style, rounds);
+    Object.assign(run, {
+      id: BEAT_ID,
+      beat: true,
+      beatStyle: style,
+      click,
+      name: title || '엄지 드럼 챌린지',
+      songName: title || '엄지 드럼 챌린지',
+      composer: `${bpm} BPM`,
+      tagline: '릴스용 · 노래는 인스타에서 입혀요',
+      bpm,
+      roundInfo: (r) => ({ round: r, bpm, name: names[r - 1] || '', big: names[r - 1] || '', sub: '', warn: '' }),
+    });
+    return run;
+  }
   Object.assign(run, {
     id: BEAT_ID,
     beat: true,
@@ -1555,6 +1627,7 @@ function makeBeatReel(o = {}) {
     composer: `${bpm} BPM`,
     tagline: '릴스용 · 노래는 인스타에서 입혀요',
     bpm,
+    beatStyle: 'levelup',
     roundInfo: (r) => ({ round: r, bpm, name: BEAT_NAMES[r - 1] || '필인 지옥', warn: '' }),
   });
   return run;
@@ -1669,7 +1742,7 @@ function makeLevelEndless(base, { intro = false } = {}) {
   return run;
 }
 
-return { STEPS_PER_BAR, KICK, SNARE, HAT, CRASH, TOM, INSTRUMENTS, CHAR_LANES, isLeftThumb, COUNT_IN_BARS, OUTRO_BARS, JUDGE, POINTS, ACC_WEIGHT, STAR_RULES, DIFFICULTY_WORDS, LEVELS, STUDIO_LEVELS, getStudioLevel, FREE_UPTO, VERIFY_LEVELS, needsVerify, CLOSED_LEVELS, SKIP_LEVELS, isClosed, prevOpenId, nextOpenId, noteToMidi, parseChord, chordAt, parseMelody, getLevel, beatDur, stepDur, barDur, levelDuration, TempoMap, tempoOf, levelLanes, buildNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, GOLD_SPOTS, buildRolls, markGoldNotes, noteCount, comboMultiplier, pointsFor, maxScore, accuracy, gradeFor, starsFor, scoreBounds, isClearBest, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, shiftOldLevelKey, ENDLESS_FROM, FREE_LEVELS, isUnlocked, tierOf, unlockHint, nextChallenge, ENDLESS_ID, ROUND_BARS, ENDLESS_BASE_BPM, ENDLESS_BPM_STEP, DIAMOND_RULES, diamondsFor, roundBpm, roundInfo, roundBars, makeEndless, BEAT_ID, BEAT_MIN_BPM, BEAT_MAX_BPM, BEAT_MAX_ROUNDS, beatOpts, makeBeatReel, beatSeconds, QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds, LEVEL_ENDLESS_STEP, levelEndlessId, levelEndlessBase, levelSurvivalId, levelSurvivalBase, makeLevelEndless };
+return { STEPS_PER_BAR, KICK, SNARE, HAT, CRASH, TOM, INSTRUMENTS, CHAR_LANES, isLeftThumb, COUNT_IN_BARS, OUTRO_BARS, JUDGE, POINTS, ACC_WEIGHT, STAR_RULES, DIFFICULTY_WORDS, LEVELS, STUDIO_LEVELS, getStudioLevel, FREE_UPTO, VERIFY_LEVELS, needsVerify, CLOSED_LEVELS, SKIP_LEVELS, isClosed, prevOpenId, nextOpenId, noteToMidi, parseChord, chordAt, parseMelody, getLevel, beatDur, stepDur, barDur, levelDuration, TempoMap, tempoOf, levelLanes, buildNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, GOLD_SPOTS, buildRolls, markGoldNotes, noteCount, comboMultiplier, pointsFor, maxScore, accuracy, gradeFor, starsFor, scoreBounds, isClearBest, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, shiftOldLevelKey, ENDLESS_FROM, FREE_LEVELS, isUnlocked, tierOf, unlockHint, nextChallenge, ENDLESS_ID, ROUND_BARS, ENDLESS_BASE_BPM, ENDLESS_BPM_STEP, DIAMOND_RULES, diamondsFor, roundBpm, roundInfo, roundBars, makeEndless, BEAT_ID, BEAT_MIN_BPM, BEAT_MAX_BPM, BEAT_MAX_ROUNDS, beatOpts, BEAT_STYLES, beatStyleName, beatSectionNames, makeBeatReel, beatSeconds, QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds, LEVEL_ENDLESS_STEP, levelEndlessId, levelEndlessBase, levelSurvivalId, levelSurvivalBase, makeLevelEndless };
 })();
 
 // ---- audio.js ----
@@ -6567,7 +6640,7 @@ class Renderer {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.lineJoin = 'round';
-    const big = clearText || `Lv.${info.round}`;
+    const big = clearText || info.big || `Lv.${info.round}`;
     const fs = fitFont(ctx, big, this.L.GW * 0.86, size);
     ctx.font = `${fs}px ${FONT}`;
     ctx.lineWidth = fs * 0.14;
@@ -6575,7 +6648,7 @@ class Renderer {
     ctx.strokeText(big, x, y);
     ctx.fillStyle = '#FFD84A';
     ctx.fillText(big, x, y);
-    const sub = clearText ? info.sub || '' : `${info.name} · ${info.bpm} BPM`;
+    const sub = clearText || info.sub != null ? info.sub || '' : `${info.name} · ${info.bpm} BPM`;
     if (sub) {
       const ss = fitFont(ctx, sub, this.L.GW * 0.86, size * 0.3);
       ctx.font = `${ss}px ${FONT}`;
@@ -6605,7 +6678,7 @@ class Renderer {
     ctx.lineJoin = 'round';
     const top = L.H * 0.045;
     if (st.cleared) {
-      this._roundText({ sub: s.bottom }, L.cx, top + L.GW * 0.12, L.GW * 0.17, `Lv.${st.cleared} 클리어!`);
+      this._roundText({ sub: s.bottom }, L.cx, top + L.GW * 0.12, L.GW * 0.17, s.endText || `Lv.${st.cleared} 클리어!`);
     } else if (!st.round || st.countIn || st.now < 0) {
       // 훅: 큰 흰 글씨 두 줄 + 작은 부제
       const words = (s.top || '').trim();
@@ -9207,7 +9280,7 @@ return { NAME_MAX, kstDateKey, todayLevel, cleanName, encodeChallenge, decodeCha
 const __m_main = (() => {
 // 오케이스트라 — 화면 전환, 잠금(팔로우 인증), 랭킹, 설정을 묶는 앱 본체
 
-const { LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES, ENDLESS_ID, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo, ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId, STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase, BEAT_ID, makeBeatReel, beatOpts, beatSeconds, BEAT_MAX_ROUNDS, QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds } = __m_charts;
+const { LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES, ENDLESS_ID, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo, ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId, STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase, BEAT_ID, makeBeatReel, beatOpts, beatSeconds, BEAT_MAX_ROUNDS, BEAT_STYLES, beatStyleName, beatSectionNames, QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds } = __m_charts;
 const { AudioEngine, playMetronome } = __m_audio;
 const { Renderer } = __m_render;
 const { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } = __m_game;
@@ -10971,6 +11044,8 @@ const STUDIO_TEXT = {
   level: { top: '엄지 두 개로 따라 쳐봐!', bottom: '프로필 링크에서 바로 해보기' },
   challenge: (n) => ({ top: '엄지로 드럼 쳐보세요', bottom: `Lv.${n}까지 오면 드러머 재능 있음` }),
   beat: { top: '엄지 드럼 챌린지', bottom: '어디까지 따라오나 보자' },
+  beatDrop: { top: '드롭에서 엄지 터짐 주의', bottom: '빌드업 끝까지 따라와 봐' },
+  beatCover: { top: '이 노래 엄지로 드럼 커버', bottom: '프로필 링크에서 직접 쳐보기' },
   quiz: { top: '이 노래 제목 맞혀봐!', bottom: '정답은 영상 끝에 · 댓글로 먼저!' },
 };
 const isQuizFormat = () => state.studio.format === 'quiz';
@@ -10979,7 +11054,10 @@ const studioPlayId = () => (isQuizFormat() && typeof state.studio.level === 'num
 const STUDIO_CHALLENGES = [4, 7];
 function studioDefaults(id) {
   if (isQuizFormat()) return STUDIO_TEXT.quiz;
-  if (id === BEAT_ID) return STUDIO_TEXT.beat;
+  if (id === BEAT_ID) {
+    const style = beatSaved().style;
+    return style === 'drop' ? STUDIO_TEXT.beatDrop : style === 'cover' ? STUDIO_TEXT.beatCover : STUDIO_TEXT.beat;
+  }
   return isChallengeId(id) ? STUDIO_TEXT.challenge(Number(String(id).slice(2))) : STUDIO_TEXT.level;
 }
 function pickStudioLevel(id) {
@@ -10987,7 +11065,7 @@ function pickStudioLevel(id) {
   const top = $('#studio-top');
   const bottom = $('#studio-bottom');
   // 기본 문구 그대로였으면 새 기본 문구로 바꿔 줌 (직접 쓴 문구는 그대로)
-  const all = [STUDIO_TEXT.level, STUDIO_TEXT.beat, STUDIO_TEXT.quiz, ...STUDIO_CHALLENGES.map(STUDIO_TEXT.challenge)];
+  const all = [STUDIO_TEXT.level, STUDIO_TEXT.beat, STUDIO_TEXT.beatDrop, STUDIO_TEXT.beatCover, STUDIO_TEXT.quiz, ...STUDIO_CHALLENGES.map(STUDIO_TEXT.challenge)];
   const after = studioDefaults(id);
   if (!top.value.trim() || all.some((d) => d.top === top.value.trim())) top.value = after.top;
   if (!bottom.value.trim() || all.some((d) => d.bottom === bottom.value.trim())) bottom.value = after.bottom;
@@ -11048,7 +11126,8 @@ function studioOverlay(lv) {
     top: st.top,
     bottom: st.bottom,
     challenge: !!lv.challenge,
-    label: lv.beat ? `${lv.songName} · 레벨업 챌린지` : lv.challenge ? '레벨업 챌린지' : lv.studioOnly ? `${lv.composer} ${lv.name}` : `${levelLabel(lv)} · ${lv.composer} ${lv.name}`,
+    endText: lv.beatStyle === 'drop' ? '드롭 성공!' : lv.beatStyle === 'cover' ? '커버 끝!' : '',
+    label: lv.beat ? `${lv.songName} · ${beatStyleName(lv.beatStyle)}` : lv.challenge ? '레벨업 챌린지' : lv.studioOnly ? `${lv.composer} ${lv.name}` : `${levelLabel(lv)} · ${lv.composer} ${lv.name}`,
   };
 }
 
@@ -11079,7 +11158,7 @@ function openStudio() {
 const beatSaved = () => beatOpts(load('beatReel', null) || {});
 function beatChipText() {
   const o = beatSaved();
-  return `🎵 박자 맞추기 · ${o.title || o.bpm + ' BPM'}`;
+  return `🎵 박자 맞추기 · ${beatStyleName(o.style)} · ${o.title || o.bpm + ' BPM'}`;
 }
 function fillBeatForm() {
   $('#beat-block').hidden = !coverOn();
@@ -11088,13 +11167,20 @@ function fillBeatForm() {
   $('#beat-bpm').value = o.bpm;
   $('#beat-title').value = o.title;
   $('#beat-click').checked = o.click;
+  // 버튼은 한 번만 만듦 (BPM 칸을 고치다 바로 형식을 누르면, 다시 그리는 사이 누른 게 사라짐)
+  if (!$('#beat-style').children.length)
+    $('#beat-style').innerHTML = BEAT_STYLES.map((x) => `<button type="button" data-beat-style="${x.id}"><b>${x.name}</b><small>${x.desc}</small></button>`).join('');
+  $$('#beat-style button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.beatStyle === o.style));
   const sel = $('#beat-rounds');
-  if (!sel.options.length || sel.dataset.bpm !== String(o.bpm)) {
+  const key = `${o.bpm}|${o.style}`;
+  if (!sel.options.length || sel.dataset.key !== key) {
     sel.innerHTML = Array.from({ length: BEAT_MAX_ROUNDS }, (_, i) => {
       const r = i + 1;
-      return `<option value="${r}">Lv.1→${r} · 약 ${Math.round(beatSeconds({ bpm: o.bpm, rounds: r }))}초</option>`;
+      const names = beatSectionNames(o.style, r);
+      const text = o.style === 'levelup' ? `Lv.1→${r}` : o.style === 'cover' ? `${r * 4}마디 (${names.join('·')})` : names.join('→');
+      return `<option value="${r}">${text} · 약 ${Math.round(beatSeconds({ bpm: o.bpm, rounds: r }))}초</option>`;
     }).join('');
-    sel.dataset.bpm = String(o.bpm);
+    sel.dataset.key = key;
   }
   sel.value = String(o.rounds);
 }
@@ -11106,6 +11192,7 @@ function saveBeatForm({ reroll = false } = {}) {
     rounds: $('#beat-rounds').value,
     title: $('#beat-title').value.trim(),
     click: $('#beat-click').checked,
+    style: ($('#beat-style [aria-pressed="true"]') || {}).dataset?.beatStyle || prev.style,
     seed: reroll ? undefined : prev.seed,
   });
   save('beatReel', o);
@@ -11116,8 +11203,9 @@ function saveBeatForm({ reroll = false } = {}) {
 }
 function pickBeat() {
   saveBeatForm();
+  state.studio.format = 'play'; // 박자 맞추기는 '그냥 치기' 형식 안에 있음
   pickStudioLevel(BEAT_ID);
-  $$('#studio-levels button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.studioLevel === BEAT_ID));
+  renderStudioLevels();
   toast(`${beatChipText()} 골랐어요`, 1600);
 }
 // 탭으로 BPM 재기: 마지막 12번 탭 간격의 중앙값 (2초 쉬면 새로 잼)
@@ -11143,7 +11231,7 @@ function beatTap(e) {
 
 // ---------------- 🖼 릴스 썸네일 (운영자 전용, /?thumb=okay) ----------------
 const coverOn = () => load('thumbTool', false) === true;
-const coverSubOf = (lv) => (!lv ? '' : isQuizFormat() ? '노래 맞히기 퀴즈' : lv.beat ? `${lv.songName} · 레벨업 챌린지` : lv.challenge ? `${lv.composer} ${lv.songName} · 레벨업 챌린지` : `${lv.composer} ${lv.name}`);
+const coverSubOf = (lv) => (!lv ? '' : isQuizFormat() ? '노래 맞히기 퀴즈' : lv.beat ? `${lv.songName} · ${beatStyleName(lv.beatStyle)}` : lv.challenge ? `${lv.composer} ${lv.songName} · 레벨업 챌린지` : `${lv.composer} ${lv.name}`);
 /** 썸네일 칸 채우기: 직접 쓴 문구는 기억, 곡 배지는 곡을 바꾸면 따라 바뀜(직접 고쳤으면 그대로) */
 function fillCoverForm() {
   $('#cover-block').hidden = !coverOn();
@@ -12124,6 +12212,15 @@ function bindActions() {
     })
   );
   ['#beat-bpm', '#beat-rounds', '#beat-title', '#beat-click'].forEach((sel) => $(sel).addEventListener('change', () => saveBeatForm()));
+  // 박자 맞추기 형식 (레벨업 / 빌드업→드롭 / 드럼 커버): 고르면 바로 그 형식으로 선택
+  $('#beat-style').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-beat-style]');
+    if (!b) return;
+    $$('#beat-style button').forEach((x) => x.setAttribute('aria-pressed', x === b));
+    // 드롭은 6구간이 한 바퀴(인트로~드롭!!)라 처음 고르면 3구간(인트로→빌드업→드롭!)부터
+    if (b.dataset.beatStyle === 'drop' && beatSaved().style !== 'drop') $('#beat-rounds').value = '3';
+    pickBeat();
+  });
   $('#quiz-bars').addEventListener('change', (e) => (state.studio.quizBars = Number(e.target.value)));
   $('#calib-pad').addEventListener('pointerdown', (e) => {
     e.preventDefault();
