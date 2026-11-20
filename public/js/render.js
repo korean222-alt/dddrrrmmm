@@ -5,6 +5,7 @@
 // 타격감: 킥은 화면 전체가 '쿵' 하고 눌리고(펀치), 스네어는 '짝' 하고 옆으로 튀며 불꽃.
 
 import { buildRasters } from './mascot.js';
+import { loadBuddies } from './buddies.js';
 import { buildKit, SNARE_RY } from './kit3d.js';
 import { THEMES, themeForLevel, cycleTheme } from './themes.js';
 import { paintScenery, SceneFx } from './scenery.js';
@@ -67,6 +68,8 @@ export class Renderer {
     this.ctx = canvas.getContext('2d', { alpha: false });
     this.bg = document.createElement('canvas');
     this.rasters = null;
+    this.buddies = null; // 쿵콩이·짝콩이 3D 그림 (줄여 둔 캔버스). 못 받으면 예전 그림
+    this.onVoice = null; // (who, kind) => 말하기 (main.js 가 넣음)
     this.studio = null; // 영상 찍기: { top, bottom, label }
     this.laneOrder = [KICK, SNARE]; // 화면 왼쪽부터 악기 순서
     this.newLane = -1; // 이번 단계에 새로 나온 악기 (카운트인 때 NEW 표시)
@@ -207,6 +210,13 @@ export class Renderer {
     if (this._rasterKey !== key) {
       this.rasters = await buildRasters(Math.round(L.mascotW * dpr), drumPx);
       this._rasterKey = key;
+    }
+    L.buddyW = GW * 0.22;
+    const bpx = Math.round(L.buddyW * dpr);
+    if (this._buddyKey !== bpx) {
+      const imgs = await loadBuddies();
+      this.buddies = imgs ? shrinkBuddies(imgs, bpx) : null;
+      this._buddyKey = imgs ? bpx : null;
     }
     this._buildKit();
     this._themeDirty = false;
@@ -414,6 +424,9 @@ export class Renderer {
     this.fx.judges.push({ lane, text: style.text, color: style.color, t0: rt, sub: judge === 'perfect' || judge === 'miss' || judge === 'wrong' ? '' : early ? 'FAST' : 'SLOW' });
     if (judge === 'miss' || judge === 'wrong') {
       this.missAt[lane] = rt;
+      // 긴 콤보가 끊기면 아쉬워함
+      if ((this._combo || 0) >= 15 && this.onVoice) this.onVoice(lane === KICK ? 'kong' : 'jjak', 'sad');
+      this._combo = 0;
       return;
     }
     const pow = judge === 'perfect' ? 1 : judge === 'great' ? 0.8 : 0.55;
@@ -467,9 +480,12 @@ export class Renderer {
 
   onCombo(combo, rt) {
     this.comboPopAt = rt;
+    this._combo = combo;
     if (combo > 0 && combo % 25 === 0) {
       this.fx.banners.push({ text: `${combo} COMBO!`, t0: rt });
       this.cheerUntil = rt + 1.0;
+      // 25콤보마다 번갈아 신나서 한마디
+      if (this.onVoice) this.onVoice((combo / 25) % 2 ? 'kong' : 'jjak', 'fun');
     }
   }
 
@@ -1039,6 +1055,7 @@ export class Renderer {
 
   /** 마스코트 쿵콩이: 화면 맨 아래 가운데에서 박자 타며 표정 바뀜 */
   _drawMascot(st, rt) {
+    if (this.buddies) return this._drawBuddies(st, rt);
     const ctx = this.ctx;
     const L = this.L;
     const set = this.rasters.kong;
@@ -1055,6 +1072,51 @@ export class Renderer {
     const sx = 1 + bob * 0.03;
     const jump = rt < this.cheerUntil ? Math.abs(Math.sin(rt * 12)) * w * 0.12 : 0;
     ctx.drawImage(face, L.cx - (w * sx) / 2, L.mascotBase - w * sy * 0.945 - jump, w * sx, w * sy);
+  }
+
+  /** 쿵콩이(왼쪽, 쿵 줄)·짝콩이(오른쪽, 나머지 줄): 화면 맨 아래 가운데에 나란히. 자기 줄을 치면 콩! */
+  _drawBuddies(st, rt) {
+    const ctx = this.ctx;
+    const L = this.L;
+    const B = this.buddies;
+    const w = L.buddyW;
+    ctx.globalAlpha = 1;
+    const phase = beatPhase(st);
+    const cheer = rt < this.cheerUntil || st.finished;
+    const kongHit = rt - this.hitAt[KICK];
+    const kongMiss = rt - this.missAt[KICK];
+    let jHit = -9;
+    let jMiss = -9;
+    for (let i = 0; i < this.hitAt.length; i++) {
+      if (i === KICK) continue;
+      jHit = Math.max(jHit, this.hitAt[i]);
+      jMiss = Math.max(jMiss, this.missAt[i]);
+    }
+    const parts = [
+      ['kong', -1, kongHit, kongMiss, 0],
+      ['jjak', 1, rt - jHit, rt - jMiss, 0.5],
+    ];
+    for (const [who, side, th, tm, off] of parts) {
+      const set = B[who];
+      let img = set.idle;
+      if (th < 0.16) img = set.hit;
+      else if (tm < 0.45) img = set.miss;
+      else if (cheer) img = set.cheer;
+      // 박자에 맞춰 살짝 출렁 (둘이 엇갈리게)
+      const ph = (phase + off) % 1;
+      const bob = st.playing ? Math.pow(1 - ph, 3) : 0;
+      // 칠 때: 납작했다가 폴짝
+      const hp = th < 0.3 ? th / 0.3 : 1;
+      const hop = th < 0.3 ? Math.sin(hp * Math.PI) * w * 0.1 : 0;
+      const squash = th < 0.06 ? 1 - th / 0.06 : 0;
+      const sy = 1 - bob * 0.04 - squash * 0.12;
+      const sx = 1 + bob * 0.02 + squash * 0.1;
+      const jump = cheer ? Math.abs(Math.sin(rt * 11 + off * 3)) * w * 0.1 : 0;
+      const cx = L.cx + side * w * 0.43;
+      const dw = w * sx;
+      const dh = w * sy;
+      ctx.drawImage(img, cx - dw / 2, L.mascotBase + w * 0.06 - dh * 0.98 - hop - jump, dw, dh);
+    }
   }
 
   _drawCombo(st, rt) {
@@ -1607,4 +1669,19 @@ function fitFont(ctx, text, maxW, start) {
     ctx.font = `${fs}px ${FONT}`;
   }
   return fs;
+}
+
+/** 쿵콩이·짝콩이 그림을 화면 크기에 맞게 미리 줄여 둠 (매 프레임 큰 그림을 줄이면 느림) */
+function shrinkBuddies(imgs, px) {
+  const out = { kong: {}, jjak: {} };
+  for (const who of ['kong', 'jjak'])
+    for (const [pose, im] of Object.entries(imgs[who])) {
+      const c = document.createElement('canvas');
+      c.width = c.height = Math.max(1, px);
+      const g = c.getContext('2d');
+      g.imageSmoothingQuality = 'high';
+      g.drawImage(im, 0, 0, px, px);
+      out[who][pose] = c;
+    }
+  return out;
 }

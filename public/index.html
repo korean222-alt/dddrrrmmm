@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=0dfe2a6642" />
+  <link rel="stylesheet" href="css/style.css?v=89114f3608" />
 </head>
 <body>
   <div id="app">
@@ -37,13 +37,11 @@
       <div class="title-main">
         <h1 class="logo"><span class="logo-ok">OK</span>AYSTRA<small>오케이스트라 · 엄지 드럼</small></h1>
         <p class="logo-sub">모두 아는 명곡에 맞춰 엄지로 쿵! 짝!</p>
-        <div class="scene" id="title-scene">
-          <span class="kit-crash"></span>
-          <span class="kit-drummer"></span>
-          <span class="kit-stick"></span>
-          <button class="kit-bass" data-lane="0" aria-label="킥 쳐보기"></button>
-          <button class="kit-snare" data-lane="1" aria-label="스네어 쳐보기"></button>
+        <div class="scene buddies" id="title-scene">
+          <button class="buddy buddy-kong" data-lane="0" aria-label="쿵콩이 큰북 쳐보기"><img class="b-drum" alt="" /><img class="b-char" alt="" /><span class="b-bubble"></span></button>
+          <button class="buddy buddy-jjak" data-lane="1" aria-label="짝콩이 작은북 쳐보기"><img class="b-drum" alt="" /><img class="b-char" alt="" /><span class="b-bubble"></span></button>
         </div>
+        <p class="buddy-hint">쿵콩이 · 짝콩이를 눌러 보세요!</p>
       </div>
       <div class="title-actions">
         <div class="mode-row">
@@ -467,6 +465,7 @@
         </div>
       </div>
       <label class="field check"><input type="checkbox" id="set-lite" /><span>저사양 모드 <small class="muted">렉이 걸리면 켜 보세요 · 화질·반짝이 효과를 줄여요</small></span></label>
+      <label class="field check"><input type="checkbox" id="set-voice" /><span>쿵콩이·짝콩이 목소리</span></label>
       <label class="field check"><input type="checkbox" id="set-vibrate" /><span>진동 (안드로이드)</span></label>
       <div class="account" id="settings-account"></div>
       <div class="transfer" id="transfer-box">
@@ -706,6 +705,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=3e9b96e255" defer></script>
+  <script src="js/app.js?v=2e3535bcf9" defer></script>
 </body>
 </html>

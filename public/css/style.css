@@ -89,15 +89,25 @@ svg.e-warn { color: #f0a020; }
 .scene { position: relative; width: min(100%, 400px); aspect-ratio: 1.55 / 1; margin-top: 14px; }
 .scene > * { position: absolute; display: block; }
 .scene svg { display: block; width: 100%; height: auto; }
-.kit-crash { left: 0; width: 26%; bottom: 18%; transform-origin: 50% 25%; }
-.kit-drummer { left: 30%; width: 40%; bottom: 30%; transform-origin: 50% 95%; animation: bob 0.6s ease-in-out infinite; }
-.kit-stick { left: 59%; width: 30%; bottom: 50%; z-index: 2; transform-origin: 12% 50%; transform: rotate(-40deg); transition: transform 0.05s ease-out; }
-.kit-bass { left: 3%; width: 46%; bottom: 0; z-index: 3; transition: transform 0.08s; }
-.kit-snare { right: 2%; width: 44%; bottom: 0; z-index: 3; }
-.scene.hit-kick .kit-bass { transform: scale(1.06); }
-.scene.hit-kick .kit-drummer { animation: squish 0.3s ease; }
-.scene.hit-snare .kit-stick { transform: rotate(18deg); }
-.scene.hit-snare .kit-snare { animation: drumhit 0.2s ease; }
+/* 🥁 쿵콩이·짝콩이: 자기 북 위에 타고 있음. 누르면 북 치고 말함 */
+.scene.buddies { aspect-ratio: auto; display: flex; justify-content: center; align-items: flex-end; gap: 2%; }
+.scene.buddies > * { position: relative; }
+.buddy { position: relative; width: 47%; aspect-ratio: 1 / 1.4; padding: 0; border: 0; background: none; cursor: pointer; touch-action: manipulation; }
+.buddy img { position: absolute; display: block; pointer-events: none; -webkit-user-drag: none; }
+.buddy .b-drum { left: 0; bottom: 0; width: 100%; filter: drop-shadow(0 6px 0 rgba(30, 14, 50, 0.35)); transform-origin: 50% 100%; }
+.buddy .b-char { left: 4%; width: 92%; bottom: 40%; transform-origin: 50% 96%; animation: bob 0.9s ease-in-out infinite; }
+.buddy-jjak .b-char { animation-delay: -0.45s; }
+.buddy.hit .b-char { animation: hop 0.32s cubic-bezier(.3, 1.5, .5, 1); }
+.buddy.hit .b-drum { animation: drumhit 0.2s ease; }
+.b-bubble { position: absolute; z-index: 3; left: 50%; top: -4%; transform: translate(-50%, 0) scale(0); padding: 3px 12px 4px; border-radius: 16px; background: #fff; color: var(--ink); border: 3px solid var(--ink); font-size: 20px; line-height: 1.2; white-space: nowrap; box-shadow: 0 3px 0 var(--ink); pointer-events: none; opacity: 0; }
+.b-bubble::after { content: ''; position: absolute; left: 50%; bottom: -10px; margin-left: -7px; border: 7px solid transparent; border-top-color: var(--ink); border-bottom: 0; }
+.b-bubble.show { animation: bubble 0.9s ease forwards; }
+.buddy-hint { margin: 2px 0 0; font-size: 13px; color: #fff; opacity: 0.75; }
+@keyframes hop { 0% { transform: translateY(0) scale(1.14, 0.84); } 45% { transform: translateY(-16%) scale(0.94, 1.07); } 100% { transform: translateY(0) scale(1, 1); } }
+@keyframes bubble { 0% { opacity: 0; transform: translate(-50%, 20%) scale(0.4); } 14% { opacity: 1; transform: translate(-50%, 0) scale(1.08); } 24% { transform: translate(-50%, 0) scale(1); } 80% { opacity: 1; transform: translate(-50%, 0) scale(1); } 100% { opacity: 0; transform: translate(-50%, -12%) scale(0.95); } }
+.res-mascots img, .verify-mascots img { display: block; height: 100%; width: auto; }
+.res-mascots img { animation: bob 0.9s ease-in-out infinite; transform-origin: 50% 96%; }
+.res-mascots img:last-child { animation-delay: -0.45s; }
 @keyframes bob { 0%, 100% { transform: translateY(0) scale(1, 1); } 50% { transform: translateY(-3%) scale(0.98, 1.02); } }
 @keyframes squish { 0% { transform: scale(1.12, 0.84); } 40% { transform: scale(0.96, 1.05); } 100% { transform: scale(1, 1); } }
 @keyframes drumhit { 0% { transform: scale(1.05, 0.93); } 100% { transform: none; } }
@@ -245,7 +255,7 @@ svg.e-tree { color: #2FAF5E; }
 @keyframes stamp { from { transform: scale(2.2) rotate(-10deg); opacity: 0; } to { transform: none; opacity: 1; } }
 .res-badge { background: var(--great); color: #fff; border: 2px solid var(--ink); border-radius: 99px; padding: 3px 14px; font-size: 16px; }
 .res-score { font-size: 42px; font-variant-numeric: tabular-nums; }
-.res-mascots { display: flex; gap: 18px; height: 90px; }
+.res-mascots { display: flex; gap: 6px; height: 110px; }
 .res-mascots svg { width: 90px; height: 90px; animation: bob 0.9s ease-in-out infinite; }
 .res-mascots svg:last-child { animation-delay: -0.45s; }
 .res-stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; width: 100%; margin-top: 6px; }
@@ -269,7 +279,7 @@ svg.e-tree { color: #2FAF5E; }
 .sheet .close { position: absolute; top: 12px; right: 12px; width: 40px; height: 40px; }
 #studio-video { width: 100%; max-height: 50vh; border-radius: 16px; border: 2px solid var(--ink); background: #000; margin-bottom: 12px; }
 
-.verify-mascots { display: flex; justify-content: center; gap: 6px; height: 70px; margin-bottom: 4px; }
+.verify-mascots { display: flex; justify-content: center; gap: 6px; height: 84px; margin-bottom: 4px; }
 .verify-mascots svg { width: 70px; height: 70px; }
 .steps { list-style: none; padding: 0; margin: 0 0 14px; display: grid; gap: 8px; }
 .steps li { display: flex; align-items: center; gap: 10px; background: var(--cream); padding: 10px 12px; border-radius: 14px; font-size: 16px; }
@@ -325,7 +335,7 @@ input[type='range'] { width: 100%; accent-color: var(--grass); height: 28px; }
   .title-main { min-height: 290px; }
 }
 @media (prefers-reduced-motion: reduce) {
-  .scene-mascot, .res-mascots svg { animation: none; }
+  .scene-mascot, .res-mascots svg, .res-mascots img, .buddy .b-char { animation: none; }
 }
 
 /* ---------- 오늘의 노래 ---------- */
@@ -502,7 +512,7 @@ input[type='range'] { width: 100%; accent-color: var(--grass); height: 28px; }
 .icon-btn.gear-btn img { width: 40px; height: 40px; display: block; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35)); }
 .icon-btn.gear-btn:active img { transform: rotate(30deg); }
 /* 저사양 모드: 계속 도는 꾸밈 애니메이션·그림자 끔 */
-html.lite .kit-drummer, html.lite .res-mascots svg, html.lite .scene-mascot, html.lite .hud-lives.low i.on, html.lite .res-new { animation: none; }
+html.lite .buddy .b-char, html.lite .res-mascots svg, html.lite .res-mascots img, html.lite .scene-mascot, html.lite .hud-lives.low i.on, html.lite .res-new { animation: none; }
 html.lite .hud-lives i, html.lite .icon-btn.gear-btn img { filter: none; }
 
 /* ---------- 친구 대결 방 ---------- */

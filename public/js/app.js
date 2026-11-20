@@ -3173,6 +3173,149 @@ async function buildRasters(mascotPx, drumPx) {
 return { OUTLINE, MASCOTS, DRUMS, mascotSVG, DRUM_VIEW, drumSVG, stickSVG, bassDrumSVG, SNARE_VIEW, snareSVG, buildRasters };
 })();
 
+// ---- buddies.js ----
+const __m_buddies = (() => {
+// 🥁 쿵콩이·짝콩이 (3D 그림 + 목소리)
+//   쿵콩이 = 주황 콩, 빨간 큰북(쿵·왼쪽) / 짝콩이 = 초록 콩, 파란 작은북(짝·오른쪽)
+//   그림: public/assets/mascot/{kong|jjak}_{idle|hit|miss|cheer}.webp, drum_{kong|jjak}.webp
+//   목소리: public/audio/voice.bin (scripts/pack-audio.js 로 묶음, 원본 public/audio/voice/*.mp3)
+//   그림·목소리를 바꾸면 V 를 올릴 것 (정적 파일은 30일 캐시)
+
+const V = '1';
+const BUDDY_POSES = ['idle', 'hit', 'miss', 'cheer'];
+const buddyUrl = (name) => `assets/mascot/${name}.webp?v=${V}`;
+
+const VOICE_LINES = {
+  kong: { tap: ['kong_1', 'kong_1', 'kong_1', 'kong_2'], fun: ['kong_good', 'kong_more'], sad: ['kong_sad'], win: ['kong_win'] },
+  jjak: { tap: ['jjak_1', 'jjak_1', 'jjak_1', 'jjak_2'], fun: ['jjak_good', 'jjak_more'], sad: ['jjak_sad'], win: ['jjak_win'] },
+};
+/** 말풍선 글자 (목소리 파일 이름 → 하는 말) */
+const VOICE_TEXT = {
+  kong_1: '쿵!', kong_2: '쿵쿵!', kong_good: '좋아~!', kong_more: '더 더!', kong_sad: '으앙…', kong_win: '와아~ 최고야!',
+  jjak_1: '짝!', jjak_2: '짝짝!', jjak_good: '신난다~!', jjak_more: '가자!', jjak_sad: '힝…', jjak_win: '야호~ 해냈다!',
+};
+
+let imgsP = null;
+function loadImg(src) {
+  return new Promise((res) => {
+    const im = new Image();
+    im.decoding = 'async';
+    im.onload = () => res(im);
+    im.onerror = () => res(null);
+    im.src = src;
+  });
+}
+/** 그림 전부 받아 둠. { kong:{idle,hit,miss,cheer}, jjak:{...}, drum:{kong,jjak} } — 하나라도 실패하면 null (예전 그림으로) */
+function loadBuddies() {
+  if (imgsP) return imgsP;
+  const names = [];
+  for (const k of ['kong', 'jjak']) for (const p of BUDDY_POSES) names.push([k, p, `${k}_${p}`]);
+  names.push(['drum', 'kong', 'drum_kong'], ['drum', 'jjak', 'drum_jjak']);
+  imgsP = Promise.all(names.map(([, , n]) => loadImg(buddyUrl(n)))).then((ims) => {
+    if (ims.some((x) => !x)) {
+      imgsP = null;
+      return null;
+    }
+    const out = { kong: {}, jjak: {}, drum: {} };
+    names.forEach(([a, b], i) => (out[a][b] = ims[i]));
+    return out;
+  });
+  return imgsP;
+}
+
+/** 목소리: 묶음 파일 하나 받아서 풀어 둠 */
+class Voices {
+  constructor(audio) {
+    this.audio = audio;
+    this.bufs = null;
+    this.loading = null;
+    this.on = true;
+    this.cur = {}; // 캐릭터별 지금 말하는 소리 (새로 말하면 끊음)
+    this.lastAt = 0;
+  }
+  /** 파일만 미리 받아 둠 (소리 엔진 없이도 됨) */
+  prefetch() {
+    this.raw ??= fetch(`audio/voice.bin?v=${V}`)
+      .then((r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        return r.arrayBuffer();
+      })
+      .catch(() => {
+        this.raw = null;
+        return null;
+      });
+    return this.raw;
+  }
+  load() {
+    if (this.loading) return this.loading;
+    const ctx = this.audio.ensure();
+    this.loading = (async () => {
+      try {
+        const all = await this.prefetch();
+        if (!all) throw new Error('voice.bin');
+        const hl = new DataView(all).getUint32(0);
+        const index = JSON.parse(new TextDecoder().decode(new Uint8Array(all, 4, hl)));
+        const base = 4 + hl;
+        const bufs = {};
+        await Promise.all(
+          Object.entries(index).map(async ([file, [off, len]]) => {
+            const ab = all.slice(base + off, base + off + len);
+            try {
+              bufs[file.replace(/\.mp3$/, '')] = await new Promise((res, rej) => {
+                const q = ctx.decodeAudioData(ab, res, rej);
+                if (q && q.then) q.then(res, rej);
+              });
+            } catch {}
+          })
+        );
+        this.bufs = bufs;
+        return true;
+      } catch {
+        this.loading = null;
+        return false;
+      }
+    })();
+    return this.loading;
+  }
+  /** who = 'kong'|'jjak', kind = 'tap'|'fun'|'sad'|'win' 또는 파일 이름. 말한 파일 이름 (못 하면 null) */
+  say(who, kind, { vol = 1, delay = 0 } = {}) {
+    if (!this.on) return null;
+    const ctx = this.audio.ctx;
+    if (!ctx) return null;
+    const list = VOICE_LINES[who]?.[kind];
+    const name = list ? list[Math.floor(Math.random() * list.length)] : kind;
+    if (!this.bufs) {
+      // 아직 안 풀었으면 풀고 바로 말함 (조금 늦으면 그냥 넘어감)
+      const t = performance.now();
+      this.load().then((ok) => ok && performance.now() - t < 600 && this.say(who, name, { vol, delay }));
+      return name;
+    }
+    const buf = this.bufs[name];
+    if (!buf) return null;
+    try {
+      const prev = this.cur[who];
+      if (prev) prev.g.gain.setTargetAtTime(0, ctx.currentTime, 0.02);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      const g = ctx.createGain();
+      g.gain.value = 0.9 * vol;
+      src.connect(g).connect(this.audio.sfxBus);
+      src.start(ctx.currentTime + delay);
+      this.cur[who] = { src, g };
+      src.onended = () => {
+        if (this.cur[who]?.src === src) this.cur[who] = null;
+      };
+    } catch {
+      return null;
+    }
+    this.lastAt = performance.now();
+    return name;
+  }
+}
+
+return { BUDDY_POSES, buddyUrl, VOICE_LINES, VOICE_TEXT, loadBuddies, Voices };
+})();
+
 // ---- kit3d.js ----
 const __m_kit3d = (() => {
 // 3D 느낌 드럼 세트 그림 (Canvas 2D 로 원통 음영·금속 반사·광택을 직접 그려 스프라이트로 만들어 둠)
@@ -5335,6 +5478,7 @@ const __m_render = (() => {
 // 타격감: 킥은 화면 전체가 '쿵' 하고 눌리고(펀치), 스네어는 '짝' 하고 옆으로 튀며 불꽃.
 
 const { buildRasters } = __m_mascot;
+const { loadBuddies } = __m_buddies;
 const { buildKit, SNARE_RY } = __m_kit3d;
 const { THEMES, themeForLevel, cycleTheme } = __m_themes;
 const { paintScenery, SceneFx } = __m_scenery;
@@ -5397,6 +5541,8 @@ class Renderer {
     this.ctx = canvas.getContext('2d', { alpha: false });
     this.bg = document.createElement('canvas');
     this.rasters = null;
+    this.buddies = null; // 쿵콩이·짝콩이 3D 그림 (줄여 둔 캔버스). 못 받으면 예전 그림
+    this.onVoice = null; // (who, kind) => 말하기 (main.js 가 넣음)
     this.studio = null; // 영상 찍기: { top, bottom, label }
     this.laneOrder = [KICK, SNARE]; // 화면 왼쪽부터 악기 순서
     this.newLane = -1; // 이번 단계에 새로 나온 악기 (카운트인 때 NEW 표시)
@@ -5537,6 +5683,13 @@ class Renderer {
     if (this._rasterKey !== key) {
       this.rasters = await buildRasters(Math.round(L.mascotW * dpr), drumPx);
       this._rasterKey = key;
+    }
+    L.buddyW = GW * 0.22;
+    const bpx = Math.round(L.buddyW * dpr);
+    if (this._buddyKey !== bpx) {
+      const imgs = await loadBuddies();
+      this.buddies = imgs ? shrinkBuddies(imgs, bpx) : null;
+      this._buddyKey = imgs ? bpx : null;
     }
     this._buildKit();
     this._themeDirty = false;
@@ -5744,6 +5897,9 @@ class Renderer {
     this.fx.judges.push({ lane, text: style.text, color: style.color, t0: rt, sub: judge === 'perfect' || judge === 'miss' || judge === 'wrong' ? '' : early ? 'FAST' : 'SLOW' });
     if (judge === 'miss' || judge === 'wrong') {
       this.missAt[lane] = rt;
+      // 긴 콤보가 끊기면 아쉬워함
+      if ((this._combo || 0) >= 15 && this.onVoice) this.onVoice(lane === KICK ? 'kong' : 'jjak', 'sad');
+      this._combo = 0;
       return;
     }
     const pow = judge === 'perfect' ? 1 : judge === 'great' ? 0.8 : 0.55;
@@ -5797,9 +5953,12 @@ class Renderer {
 
   onCombo(combo, rt) {
     this.comboPopAt = rt;
+    this._combo = combo;
     if (combo > 0 && combo % 25 === 0) {
       this.fx.banners.push({ text: `${combo} COMBO!`, t0: rt });
       this.cheerUntil = rt + 1.0;
+      // 25콤보마다 번갈아 신나서 한마디
+      if (this.onVoice) this.onVoice((combo / 25) % 2 ? 'kong' : 'jjak', 'fun');
     }
   }
 
@@ -6369,6 +6528,7 @@ class Renderer {
 
   /** 마스코트 쿵콩이: 화면 맨 아래 가운데에서 박자 타며 표정 바뀜 */
   _drawMascot(st, rt) {
+    if (this.buddies) return this._drawBuddies(st, rt);
     const ctx = this.ctx;
     const L = this.L;
     const set = this.rasters.kong;
@@ -6385,6 +6545,51 @@ class Renderer {
     const sx = 1 + bob * 0.03;
     const jump = rt < this.cheerUntil ? Math.abs(Math.sin(rt * 12)) * w * 0.12 : 0;
     ctx.drawImage(face, L.cx - (w * sx) / 2, L.mascotBase - w * sy * 0.945 - jump, w * sx, w * sy);
+  }
+
+  /** 쿵콩이(왼쪽, 쿵 줄)·짝콩이(오른쪽, 나머지 줄): 화면 맨 아래 가운데에 나란히. 자기 줄을 치면 콩! */
+  _drawBuddies(st, rt) {
+    const ctx = this.ctx;
+    const L = this.L;
+    const B = this.buddies;
+    const w = L.buddyW;
+    ctx.globalAlpha = 1;
+    const phase = beatPhase(st);
+    const cheer = rt < this.cheerUntil || st.finished;
+    const kongHit = rt - this.hitAt[KICK];
+    const kongMiss = rt - this.missAt[KICK];
+    let jHit = -9;
+    let jMiss = -9;
+    for (let i = 0; i < this.hitAt.length; i++) {
+      if (i === KICK) continue;
+      jHit = Math.max(jHit, this.hitAt[i]);
+      jMiss = Math.max(jMiss, this.missAt[i]);
+    }
+    const parts = [
+      ['kong', -1, kongHit, kongMiss, 0],
+      ['jjak', 1, rt - jHit, rt - jMiss, 0.5],
+    ];
+    for (const [who, side, th, tm, off] of parts) {
+      const set = B[who];
+      let img = set.idle;
+      if (th < 0.16) img = set.hit;
+      else if (tm < 0.45) img = set.miss;
+      else if (cheer) img = set.cheer;
+      // 박자에 맞춰 살짝 출렁 (둘이 엇갈리게)
+      const ph = (phase + off) % 1;
+      const bob = st.playing ? Math.pow(1 - ph, 3) : 0;
+      // 칠 때: 납작했다가 폴짝
+      const hp = th < 0.3 ? th / 0.3 : 1;
+      const hop = th < 0.3 ? Math.sin(hp * Math.PI) * w * 0.1 : 0;
+      const squash = th < 0.06 ? 1 - th / 0.06 : 0;
+      const sy = 1 - bob * 0.04 - squash * 0.12;
+      const sx = 1 + bob * 0.02 + squash * 0.1;
+      const jump = cheer ? Math.abs(Math.sin(rt * 11 + off * 3)) * w * 0.1 : 0;
+      const cx = L.cx + side * w * 0.43;
+      const dw = w * sx;
+      const dh = w * sy;
+      ctx.drawImage(img, cx - dw / 2, L.mascotBase + w * 0.06 - dh * 0.98 - hop - jump, dw, dh);
+    }
   }
 
   _drawCombo(st, rt) {
@@ -6937,6 +7142,21 @@ function fitFont(ctx, text, maxW, start) {
     ctx.font = `${fs}px ${FONT}`;
   }
   return fs;
+}
+
+/** 쿵콩이·짝콩이 그림을 화면 크기에 맞게 미리 줄여 둠 (매 프레임 큰 그림을 줄이면 느림) */
+function shrinkBuddies(imgs, px) {
+  const out = { kong: {}, jjak: {} };
+  for (const who of ['kong', 'jjak'])
+    for (const [pose, im] of Object.entries(imgs[who])) {
+      const c = document.createElement('canvas');
+      c.width = c.height = Math.max(1, px);
+      const g = c.getContext('2d');
+      g.imageSmoothingQuality = 'high';
+      g.drawImage(im, 0, 0, px, px);
+      out[who][pose] = c;
+    }
+  return out;
 }
 
 return { LANE, JUDGE_STYLE, Renderer };
@@ -7871,6 +8091,8 @@ const DEFAULT_SETTINGS = {
   noteSpeed: 1,
   offsetMs: 0,
   vibrate: true,
+  // 쿵콩이·짝콩이 목소리 (첫 화면에서 누를 때·콤보·결과)
+  voice: true,
   // 저사양 모드: 그림 해상도 낮추고 반짝이·조명 효과 끔 (렉 걸리는 폰용)
   lite: false,
   // 반주: 'orch' = 오케스트라(현악·금관·팀파니 + 피아노) / 'piano' = 피아노만
@@ -8309,10 +8531,12 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-20m',
+    id: '2026-11-20k',
     date: '11월 20일',
-    title: '🎵 내 노래로 치기',
+    title: '🥁 쿵콩이·짝콩이 새 모습 · 🎵 내 노래로 치기',
     items: [
+      '<b>쿵콩이·짝콩이</b>가 자기 북을 타고 나타났어요! 첫 화면에서 누르면 북 치면서 말해요 (설정에서 목소리 끄기)',
+      '게임 중에도 둘이 같이 쳐요. 콤보 올리면 신나 하고, 끊기면 아쉬워해요',
       '폰에 있는 노래(mp3)나 영상(mp4·화면 녹화)을 넣으면 그 노래 박자에 맞춰 채보를 만들어 줘요',
       '쉬움·보통·어려움, 노래 전체 또는 하이라이트만. 🎬 녹화 버튼으로 치는 영상도 저장할 수 있어요',
     ],
@@ -9207,6 +9431,7 @@ const __m_sharecard = (() => {
 // 결과 공유 카드 (인스타 스토리 1080x1920)
 
 const { buildRasters } = __m_mascot;
+const { loadBuddies } = __m_buddies;
 const { getLevel } = __m_charts;
 
 const FONT = '"Jua", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif';
@@ -9304,12 +9529,26 @@ async function makeShareCard(result, { siteUrl, handle }) {
 
   // 마스코트 + 드럼
   try {
+    const B = await loadBuddies();
+    if (!B) throw new Error('no buddies');
+    const face = (result.stars || 0) <= 1 ? 'miss' : 'cheer';
+    const dw = 400;
+    const bottom = 1720;
+    for (const [who, x] of [['kong', W / 2 - dw - 10], ['jjak', W / 2 + 10]]) {
+      const dh = (dw * B.drum[who].height) / B.drum[who].width;
+      g.drawImage(B.drum[who], x, bottom - dh, dw, dh);
+      const cw = dw * 0.92;
+      g.drawImage(B[who][face], x + dw * 0.04, bottom - dw * 0.56 - cw, cw, cw);
+    }
+  } catch {
+   try {
     const r = await buildRasters(340, 400);
     const face = (result.stars || 0) <= 1 ? 'miss' : 'cheer';
     g.drawImage(r.kong[face], W / 2 - 170, 1170, 340, 340);
     g.drawImage(r.bass, W / 2 - 400, 1300, 380, 399);
     g.drawImage(r.snare, W / 2 + 40, 1370, 360, 345);
-  } catch {}
+   } catch {}
+  }
 
   g.font = `56px ${FONT}`;
   g.fillStyle = '#FFFFFF';
@@ -9627,7 +9866,7 @@ const { initAds, showRewarded } = __m_ads;
 const { createApi } = __m_api;
 const { initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay } = __m_track;
 const { CONFIG } = __m_config;
-const { mascotSVG, stickSVG, bassDrumSVG, snareSVG } = __m_mascot;
+const { buddyUrl, loadBuddies, Voices, VOICE_TEXT } = __m_buddies;
 const { groupStarting } = __m_themes;
 const { NEWS, LATEST_NEWS } = __m_news;
 const { RoomClient, roomOutcome, survivalOutcome } = __m_room;
@@ -9660,7 +9899,9 @@ const diffHTML = (d) =>
   `<span class="diff" aria-label="난이도 ${d}/5"><span class="pips">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= d ? 'on' : ''}"></i>`).join('')}</span>${DIFFICULTY_WORDS[d] || ''}</span>`;
 
 const audio = new AudioEngine();
+const voices = new Voices(audio);
 const renderer = new Renderer($('#game-canvas'));
+renderer.onVoice = (who, kind) => !state.studio.active && voices.say(who, kind, { vol: 0.75 });
 // 자동 화질: 이 기기에서 버벅여서 내려갔던 단계를 기억해 다음 판부터 그대로
 renderer.quality = Math.max(0, Math.min(2, Number(load('gfxQ', 2)) || 0));
 renderer.onQualityDrop = (q) => {
@@ -9808,7 +10049,7 @@ function openVerify(id, { pass = '', label = '', then = null, restore = false } 
   const free = freePass() && !restore && !done;
   // 임시 인증 기간이 끝나 다시 잠긴 사람
   const tempOver = !done && !restore && !freePass() && !!load('wasTemp', false);
-  $('#verify-mascots').innerHTML = mascotSVG('kong', 'cheer') + mascotSVG('jjak', done ? 'cheer' : 'idle');
+  $('#verify-mascots').innerHTML = buddiesHTML('cheer', done ? 'cheer' : 'idle');
   $('#verify-title').textContent = restore ? '예전 기록 되찾기' : done ? (state.me.temp && freePass() ? '이용 가능해요!' : '팔로워 인증 완료!') : freePass() ? '이용 등록' : '팔로워 인증';
   $('#verify-desc').innerHTML = restore
     ? `예전 주소(kongkong-drum.vercel.app)에서 <b>팔로워 인증</b>을 받았던 분은, 그때 쓴 <b>인스타 아이디</b>와 <b>팔로워 암호</b>를 넣으면 랭킹 닉네임·점수·깬 단계를 되찾아요.`
@@ -9956,34 +10197,55 @@ const CLOSED_META = () => `<span class="lockline">${icon('lock')} 팔로워 암�
 // ---------------- 타이틀 ----------------
 function buildTitle() {
   const scene = $('#title-scene');
-  const drummer = scene.querySelector('.kit-drummer');
-  drummer.innerHTML = mascotSVG('kong', 'idle');
-  scene.querySelector('.kit-stick').innerHTML = stickSVG();
-  scene.querySelector('.kit-bass').innerHTML = bassDrumSVG();
-  scene.querySelector('.kit-snare').innerHTML = snareSVG();
-  scene.querySelector('.kit-crash').innerHTML =
-    '<svg viewBox="0 0 120 120"><path d="M60 30 L60 120" stroke="#2B1D3A" stroke-width="7"/><path d="M60 30 L60 120" stroke="#D9D6E6" stroke-width="3"/><ellipse cx="60" cy="28" rx="56" ry="12" fill="#F4C84A" stroke="#2B1D3A" stroke-width="4" transform="rotate(-12 60 28)"/></svg>';
-  let t;
-  scene.querySelectorAll('[data-lane]').forEach((el) => {
+  const timers = {};
+  scene.querySelectorAll('.buddy').forEach((el) => {
+    const who = el.classList.contains('buddy-kong') ? 'kong' : 'jjak';
+    el.querySelector('.b-drum').src = buddyUrl('drum_' + who);
+    const ch = el.querySelector('.b-char');
+    ch.src = buddyUrl(who + '_idle');
+    const bub = el.querySelector('.b-bubble');
+    let streak = 0;
+    let lastTap = 0;
     el.addEventListener('pointerdown', async (e) => {
       e.preventDefault();
       await audio.unlock();
-      const kick = el.dataset.lane === '0';
-      if (kick) audio.kick();
+      voices.load();
+      if (who === 'kong') audio.kick();
       else audio.snare();
-      const cls = kick ? 'hit-kick' : 'hit-snare';
-      scene.classList.remove(cls);
-      void scene.offsetWidth;
-      scene.classList.add(cls);
-      drummer.innerHTML = mascotSVG('kong', 'hit');
-      clearTimeout(t);
-      t = setTimeout(() => {
-        drummer.innerHTML = mascotSVG('kong', 'idle');
-        scene.classList.remove('hit-kick', 'hit-snare');
-      }, 170);
+      // 연달아 치면 가끔 신나서 다른 말도 함
+      const now = performance.now();
+      streak = now - lastTap < 900 ? streak + 1 : 0;
+      lastTap = now;
+      const line = voices.say(who, streak > 0 && streak % 5 === 4 ? 'fun' : 'tap', { vol: 0.85 });
+      bub.textContent = VOICE_TEXT[line] || (who === 'kong' ? '쿵!' : '짝!');
+      for (const x of [el, bub]) x.classList.remove(x === el ? 'hit' : 'show');
+      void el.offsetWidth;
+      el.classList.add('hit');
+      bub.classList.add('show');
+      ch.src = buddyUrl(who + '_hit');
+      clearTimeout(timers[who]);
+      timers[who] = setTimeout(() => {
+        ch.src = buddyUrl(who + '_idle');
+        el.classList.remove('hit');
+      }, 260);
     });
   });
+  // 미리 받아 둠 (눌렀을 때 바로 바뀌게)
+  loadBuddies();
   refreshQuick();
+}
+
+/** 결과 화면: 잘했으면 둘이 환호, 못 했으면 아쉬워함 */
+function buddiesReact(face) {
+  if (face === 'cheer') {
+    voices.say('kong', 'win');
+    voices.say('jjak', 'win', { delay: 1.1 });
+  } else if (face === 'miss') voices.say('kong', 'sad');
+}
+
+/** 결과·인증 화면용 쿵콩이·짝콩이 그림 */
+function buddiesHTML(face, face2 = face) {
+  return `<img alt="" src="${buddyUrl('kong_' + face)}" /><img alt="" src="${buddyUrl('jjak_' + face2)}" />`;
 }
 
 /** '바로 시작': 릴스 링크(?level=N)로 온 곡이 열려 있으면 그 곡, 아니면 아직 안 깬 첫 단계 */
@@ -10641,7 +10903,8 @@ function showResult(res) {
   badge.textContent = res.counts.perfect === res.total && !res.counts.wrong ? 'ALL PERFECT' : 'FULL COMBO';
   for (const k of ['perfect', 'great', 'good', 'miss', 'wrong']) $('#res-' + k).textContent = res.counts[k] || 0;
   const face = res.stars === 0 ? 'miss' : res.stars === 1 ? 'idle' : 'cheer';
-  $('#res-mascots').innerHTML = mascotSVG('kong', face) + mascotSVG('jjak', face);
+  $('#res-mascots').innerHTML = buddiesHTML(face);
+  buddiesReact(face);
   const timing =
     Math.abs(res.avgOffsetMs) < 15 ? '타이밍 딱 좋아요' : res.avgOffsetMs < 0 ? `평균 ${-res.avgOffsetMs}ms 빨라요` : `평균 ${res.avgOffsetMs}ms 늦어요`;
   const extras = [res.goldTotal ? `✨ 황금 콩 ${res.goldHits}/${res.goldTotal}` : '', res.rollHits ? `💥 연타 ${res.rollHits}번` : ''].filter(Boolean).join(' · ');
@@ -10702,7 +10965,8 @@ function showChallengeResult(res) {
   $('#res-badge').hidden = true;
   for (const k of ['perfect', 'great', 'good', 'miss', 'wrong']) $('#res-' + k).textContent = res.counts[k] || 0;
   const face = res.diamonds === 0 ? 'miss' : res.diamonds === 1 ? 'idle' : 'cheer';
-  $('#res-mascots').innerHTML = mascotSVG('kong', face) + mascotSVG('jjak', face);
+  $('#res-mascots').innerHTML = buddiesHTML(face);
+  buddiesReact(face);
   const prev = best.prev && !best.isNew ? ` · 내 최고 Lv.${best.prev.roundsCleared || 0} 클리어` : '';
   $('#res-meta').innerHTML = `최고 속도 ${res.bpmReached} BPM · 최대 콤보 ${res.maxCombo} · 정확도 ${(res.accuracy * 100).toFixed(1)}%${prev}${state.auto ? '<br>(자동 연주 — 기록 저장 안 됨)' : ''}`;
   $('#btn-next').hidden = true;
@@ -11076,6 +11340,7 @@ function openSettings() {
   $('#set-sfx').value = s.sfx;
   $('#set-offset').value = s.offsetMs;
   $('#set-vibrate').checked = !!s.vibrate;
+  $('#set-voice').checked = s.voice !== false;
   $('#set-lite').checked = !!s.lite;
   $$('#set-band button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.band === (s.band || 'orch')));
   updateSettingLabels();
@@ -11124,6 +11389,7 @@ function applyTransfer(data, me) {
   for (const f of ['nick', 'lastNick', 'lastIg']) if (data[f] && !load(f, '')) save(f, data[f]);
   if (data.settings || data.calib) {
     state.settings = { ...state.settings, ...(data.settings || {}) };
+    voices.on = state.settings.voice !== false;
     if (data.calib) {
       state.settings.offsetMs = data.calib.offsetMs;
       if (data.calib.calibrated) save('calibrated', true);
@@ -11273,13 +11539,15 @@ function bindSettings() {
     s.sfx = Number($('#set-sfx').value);
     s.offsetMs = Number($('#set-offset').value);
     s.vibrate = $('#set-vibrate').checked;
+    s.voice = $('#set-voice').checked;
+    voices.on = s.voice;
     s.lite = $('#set-lite').checked;
     applyLite();
     audio.setVolumes({ music: s.music, sfx: s.sfx });
     saveSettings(s);
     updateSettingLabels();
   };
-  ['#set-music', '#set-sfx', '#set-offset', '#set-vibrate', '#set-lite'].forEach((id) => $(id).addEventListener('input', upd));
+  ['#set-music', '#set-sfx', '#set-offset', '#set-vibrate', '#set-voice', '#set-lite'].forEach((id) => $(id).addEventListener('input', upd));
   $('#set-band').addEventListener('click', async (e) => {
     const b = e.target.closest('[data-band]');
     if (!b) return;
@@ -13213,6 +13481,8 @@ async function boot() {
   audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx });
   audio.orchOn = state.settings.band !== 'piano';
   audio.prefetchPiano().then(() => audio.orchOn && audio.prefetchOrch());
+  voices.on = state.settings.voice !== false;
+  voices.prefetch();
   refreshToday();
 
   if (isInApp() && !load('inappDismissed', false)) $('#inapp-note').hidden = false;

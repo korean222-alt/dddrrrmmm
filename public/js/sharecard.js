@@ -1,6 +1,7 @@
 // 결과 공유 카드 (인스타 스토리 1080x1920)
 
 import { buildRasters } from './mascot.js';
+import { loadBuddies } from './buddies.js';
 import { getLevel } from './charts.js';
 
 const FONT = '"Jua", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif';
@@ -98,12 +99,26 @@ export async function makeShareCard(result, { siteUrl, handle }) {
 
   // 마스코트 + 드럼
   try {
+    const B = await loadBuddies();
+    if (!B) throw new Error('no buddies');
+    const face = (result.stars || 0) <= 1 ? 'miss' : 'cheer';
+    const dw = 400;
+    const bottom = 1720;
+    for (const [who, x] of [['kong', W / 2 - dw - 10], ['jjak', W / 2 + 10]]) {
+      const dh = (dw * B.drum[who].height) / B.drum[who].width;
+      g.drawImage(B.drum[who], x, bottom - dh, dw, dh);
+      const cw = dw * 0.92;
+      g.drawImage(B[who][face], x + dw * 0.04, bottom - dw * 0.56 - cw, cw, cw);
+    }
+  } catch {
+   try {
     const r = await buildRasters(340, 400);
     const face = (result.stars || 0) <= 1 ? 'miss' : 'cheer';
     g.drawImage(r.kong[face], W / 2 - 170, 1170, 340, 340);
     g.drawImage(r.bass, W / 2 - 400, 1300, 380, 399);
     g.drawImage(r.snare, W / 2 + 40, 1370, 360, 345);
-  } catch {}
+   } catch {}
+  }
 
   g.font = `56px ${FONT}`;
   g.fillStyle = '#FFFFFF';
