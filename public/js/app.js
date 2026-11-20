@@ -11391,10 +11391,81 @@ async function syncPick(file) {
   await audio.unlock();
   const buf = await audio.loadTrack(sync.url);
   if (!buf) {
-    $('#sync-result').textContent = '이 파일은 열 수 없어요. 화면 녹화 영상(소리 포함)으로 해 보세요';
+    // 아이폰 사파리는 화면 녹화(.mov)를 바로 못 풀어서 → 영상을 소리 없이 한 번 재생하며 소리를 읽음 (버튼을 눌러야 재생됨)
+    $('#sync-result').innerHTML = '<b>「박자 찾기」를 눌러 주세요.</b> 영상을 소리 없이 한 번 재생하면서 소리를 읽어요 (영상 길이만큼, 최대 30초 걸려요)';
+    $('#sync-detect-btn').textContent = '박자 찾기';
     return;
   }
   syncDetect();
+}
+/**
+ * 영상(.mov 등)을 소리 없이 재생하면서 소리를 그대로 받아 적음 → AudioBuffer (최대 30초)
+ *   첫 소리·첫 박의 '간격'만 쓰므로 받아 적기 시작이 조금 늦어도 결과는 같음
+ */
+function captureMediaAudio(url, onProgress) {
+  return new Promise((resolve) => {
+    const ctx = audio.ensure();
+    const v = document.createElement('video');
+    v.src = url;
+    v.playsInline = true;
+    v.setAttribute('playsinline', '');
+    v.preload = 'auto';
+    let src;
+    let sp;
+    let mute;
+    const chunks = [];
+    let done = false;
+    const MAX = 30;
+    const finish = (ok = true) => {
+      if (done) return;
+      done = true;
+      try {
+        v.pause();
+        src && src.disconnect();
+        sp && sp.disconnect();
+        mute && mute.disconnect();
+      } catch {}
+      const len = chunks.reduce((a, c) => a + c.length, 0);
+      if (!ok || len < ctx.sampleRate * 3) return resolve(null);
+      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+      const ch = buf.getChannelData(0);
+      let o = 0;
+      for (const c of chunks) {
+        ch.set(c, o);
+        o += c.length;
+      }
+      resolve(buf);
+    };
+    try {
+      src = ctx.createMediaElementSource(v);
+      sp = ctx.createScriptProcessor(4096, 2, 1);
+      mute = ctx.createGain();
+      mute.gain.value = 0; // 스피커로는 안 나감
+      src.connect(sp);
+      sp.connect(mute);
+      mute.connect(ctx.destination);
+    } catch {
+      return resolve(null);
+    }
+    sp.onaudioprocess = (e) => {
+      if (done || v.paused) return;
+      const ib = e.inputBuffer;
+      const a = ib.getChannelData(0);
+      const b = ib.numberOfChannels > 1 ? ib.getChannelData(1) : a;
+      const m = new Float32Array(a.length);
+      for (let i = 0; i < a.length; i++) m[i] = (a[i] + b[i]) * 0.5;
+      chunks.push(m);
+    };
+    v.ontimeupdate = () => {
+      onProgress && onProgress(v.currentTime, Math.min(MAX, v.duration || MAX));
+      if (v.currentTime >= MAX) finish();
+    };
+    v.onended = () => finish();
+    v.onerror = () => finish(false);
+    setTimeout(() => finish(), (MAX + 15) * 1000);
+    const p = v.play();
+    if (p && p.catch) p.catch(() => finish(false));
+  });
 }
 function syncListen() {
   if (!sync.url) return;
@@ -11405,9 +11476,25 @@ function syncListen() {
   syncPreview = a;
   setTimeout(() => syncPreview === a && stopSyncPreview(), 8000);
 }
-function syncDetect() {
-  const buf = sync.url && audio.trackBuffer(sync.url);
-  if (!buf) return toast('화면 녹화 영상을 먼저 골라 주세요');
+let syncCapturing = false;
+async function syncDetect() {
+  if (!sync.url) return toast('화면 녹화 영상을 먼저 골라 주세요');
+  let buf = audio.trackBuffer(sync.url);
+  if (!buf) {
+    if (syncCapturing) return;
+    syncCapturing = true;
+    await audio.unlock();
+    $('#sync-result').textContent = '소리 읽는 중… (영상이 끝날 때까지 기다려 주세요)';
+    buf = await captureMediaAudio(sync.url, (t, d) => ($('#sync-result').textContent = `소리 읽는 중… ${Math.floor(t)}/${Math.round(d)}초`));
+    syncCapturing = false;
+    if (!buf) {
+      $('#sync-result').textContent = '영상 소리를 못 읽었어요. 화면 녹화할 때 소리가 들어갔는지 확인하고 다시 골라 주세요';
+      return;
+    }
+    audio._trackBufs ??= new Map();
+    audio._trackBufs.set(sync.url, buf); // 다시 찾기 때는 바로
+    $('#sync-detect-btn').textContent = '박자 다시 찾기';
+  }
   stopSyncPreview();
   const mono = monoOf(buf);
   // 구간 시작: 비우면 녹화에서 소리가 처음 나는 순간 (인스타 구간이 재생되기 시작한 때)

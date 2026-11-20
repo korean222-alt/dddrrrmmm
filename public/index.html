@@ -132,7 +132,7 @@
                 <label class="field"><span>노래 시작 <small class="muted">비우면 자동</small></span><input type="text" id="sync-start" inputmode="decimal" placeholder="자동" /></label>
                 <button class="beat-mini" type="button" data-action="sync-listen">▶ 듣기</button>
               </div>
-              <button class="btn btn-hot" type="button" data-action="sync-detect">박자 다시 찾기</button>
+              <button class="btn btn-hot" type="button" data-action="sync-detect" id="sync-detect-btn">박자 다시 찾기</button>
               <div class="beat-row sync-calib-row">
                 <span>싱크 보정</span>
                 <button class="beat-mini" type="button" data-action="sync-calib" data-step="-20">−20ms</button>
@@ -640,6 +640,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=969c24fa39" defer></script>
+  <script src="js/app.js?v=6efe4df95e" defer></script>
 </body>
 </html>
