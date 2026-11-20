@@ -89,6 +89,7 @@ function serverApi(boot = null) {
       lbCache.delete('maps:new');
       return http('POST', '/api/maps', { map });
     },
+    mapScore: (id, mode, score) => http('POST', `/api/maps/${encodeURIComponent(id)}/score`, { mode, score }),
     mapVote: (id, kind, on) => http('POST', `/api/maps/${encodeURIComponent(id)}/${kind === 'report' ? 'report' : 'like'}`, { on }),
     mapDelete: (id) => {
       lbCache.delete('maps:new');

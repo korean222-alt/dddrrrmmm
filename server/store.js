@@ -24,7 +24,7 @@ export const sortPlayers = (rows) => rows.sort((a, b) => !!a.hiddenAt - !!b.hidd
 export class JsonStore {
   constructor(file) {
     this.file = file;
-    this.data = { players: {}, usedRuns: {}, sessions: {}, plays: {}, settings: {}, suggestions: [], rooms: {}, transfers: {}, recoverRequests: [], maps: {}, mapVotes: {} };
+    this.data = { players: {}, usedRuns: {}, sessions: {}, plays: {}, settings: {}, suggestions: [], rooms: {}, transfers: {}, recoverRequests: [], maps: {}, mapVotes: {}, mapScores: {} };
     this._timer = null;
   }
 
@@ -32,7 +32,7 @@ export class JsonStore {
     try {
       const raw = fs.readFileSync(this.file, 'utf8');
       const d = JSON.parse(raw);
-      this.data = { players: d.players || {}, usedRuns: d.usedRuns || {}, sessions: d.sessions || {}, plays: d.plays || {}, settings: d.settings || {}, suggestions: d.suggestions || [], rooms: d.rooms || {}, transfers: d.transfers || {}, recoverRequests: d.recoverRequests || [], maps: d.maps || {}, mapVotes: d.mapVotes || {} };
+      this.data = { players: d.players || {}, usedRuns: d.usedRuns || {}, sessions: d.sessions || {}, plays: d.plays || {}, settings: d.settings || {}, suggestions: d.suggestions || [], rooms: d.rooms || {}, transfers: d.transfers || {}, recoverRequests: d.recoverRequests || [], maps: d.maps || {}, mapVotes: d.mapVotes || {}, mapScores: d.mapScores || {} };
       // 인스타 아이디 등록 기능을 없앴으므로, 예전에 인증된 인스타 계정 기록과 인증 코드는 지움
       for (const [k, p] of Object.entries(this.data.players)) if (p.followVerifiedAt) delete this.data.players[k];
       // 무제한 기록(level <= 0): 예전 방식(깬 단계 × 100만 + 점수) → 새 방식(× 10억)
@@ -366,8 +366,31 @@ export class JsonStore {
     if (!m || m.igsid !== igsid) return false;
     delete this.data.maps[id];
     for (const k of Object.keys(this.data.mapVotes)) if (k.startsWith(`${id}|`)) delete this.data.mapVotes[k];
+    for (const k of Object.keys(this.data.mapScores)) if (k.startsWith(`${id}|`)) delete this.data.mapScores[k];
     this._save();
     return true;
+  }
+  /** 🏆 맵 점수 (mode 'free' 무적 / 'hearts' 하트 5개). 사람마다 그 모드 최고 점수만 */
+  addMapScore(id, igsid, nick, mode, score, now = Date.now()) {
+    const m = this.data.maps[id];
+    if (!m || m.hiddenAt) return null;
+    const key = `${id}|${mode}|${igsid}`;
+    const old = this.data.mapScores[key];
+    const better = !old || score > old.score;
+    if (better) this.data.mapScores[key] = { nick: nick ?? null, score, at: now };
+    else if (nick && old.nick !== nick) old.nick = nick;
+    this._save();
+    return { best: better };
+  }
+  /** 모드별 1~n등 { free: [{ nick, score }], hearts: [...] } */
+  topMapScores(id, n = 3) {
+    const out = { free: [], hearts: [] };
+    for (const [k, v] of Object.entries(this.data.mapScores)) {
+      const [mid, mode] = k.split('|');
+      if (mid === id && out[mode]) out[mode].push({ nick: v.nick, score: v.score, at: v.at });
+    }
+    for (const mode of Object.keys(out)) out[mode] = out[mode].sort((a, b) => b.score - a.score || a.at - b.at).slice(0, n).map(({ nick, score }) => ({ nick, score }));
+    return out;
   }
 
   // ----- 친구 대결 방 -----

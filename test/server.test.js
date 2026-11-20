@@ -889,3 +889,27 @@ test('🌍 유저 맵: 올리기 → 목록 → 받기(플레이 수) → 좋아
   assert.equal((await a('POST', `/api/maps/${id2}/delete`)).json.ok, true);
   assert.equal((await a('GET', `/api/maps/${id2}`)).status, 404);
 });
+
+test('🏆 유저 맵 랭킹: 모드(🛡 무적 / ❤ 하트)별 따로 · 사람마다 최고 점수 · 1~3등만 · 말이 안 되는 점수는 거절', async () => {
+  const map = { name: '랭킹 맵', bpm: 100, bars: ['K...S...K...S...', 'K...S...K.K.S...'], melody: ['C5 E5 G5 E5', 'F5:8 _:8'], prog: ['C', 'F G'] };
+  const a = await verifiedClient('랭맵장', 'rank.maker');
+  const id = (await a('POST', '/api/maps', { map })).json.id;
+  // 인증 안 한 사람은 못 올림
+  assert.equal((await client()('POST', `/api/maps/${id}/score`, { mode: 'free', score: 100 })).json.error, 'confirm_required');
+  assert.equal((await a('POST', `/api/maps/${id}/score`, { mode: 'x', score: 100 })).json.error, 'bad_score');
+  assert.equal((await a('POST', `/api/maps/${id}/score`, { mode: 'free', score: 99999999 })).json.error, 'bad_score');
+  const p = [a, await verifiedClient('랭둘', 'rank.two'), await verifiedClient('랭셋', 'rank.three'), await verifiedClient('랭넷', 'rank.four')];
+  const scores = [3000, 5000, 4000, 1000];
+  for (let i = 0; i < 4; i++) assert.equal((await p[i]('POST', `/api/maps/${id}/score`, { mode: 'free', score: scores[i] })).status, 200);
+  // 더 낮은 점수는 최고 기록을 안 바꿈
+  assert.equal((await p[1]('POST', `/api/maps/${id}/score`, { mode: 'free', score: 10 })).json.best, false);
+  const r = await p[0]('POST', `/api/maps/${id}/score`, { mode: 'hearts', score: 2000 });
+  assert.equal(r.json.best, true);
+  assert.deepEqual(r.json.top.free.map((x) => [x.nick, x.score]), [['랭둘', 5000], ['랭셋', 4000], ['랭맵장', 3000]]);
+  assert.deepEqual(r.json.top.hearts.map((x) => [x.nick, x.score]), [['랭맵장', 2000]]);
+  // 맵을 받을 때(치러 들어갈 때) 같은 요청에 1~3등이 같이 옴
+  const got = (await p[3]('GET', `/api/maps/${id}?play=1`)).json;
+  assert.equal(got.top.free.length, 3);
+  assert.equal(got.top.hearts[0].score, 2000);
+  assert.equal(got.top.free[0].igsid, undefined);
+});

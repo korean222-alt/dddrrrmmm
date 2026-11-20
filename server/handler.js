@@ -7,7 +7,7 @@ import crypto from 'node:crypto';
 import { sign, unsign, parseCookies, cookie, newId } from './session.js';
 import { buildStats } from './stats.js';
 import { createRoomHandler } from './rooms.js';
-import { cleanMap, mapDifficulty } from '../public/js/usermap.js';
+import { cleanMap, mapDifficulty, mapLevel } from '../public/js/usermap.js';
 import { LEVELS, LAST_LEVEL_ID, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur, ENDLESS_ID, ROUND_BARS, roundBpm, pointsFor, levelEndlessBase, LEVEL_ENDLESS_STEP, needsVerify, isClosed, diamondsFor } from '../public/js/charts.js';
 
 // 무제한 모드 랭킹은 저장소의 level 칸에 '깬 단계 × 1,000,000,000 + 점수' 한 숫자로 저장 (단계가 먼저, 같으면 점수)
@@ -573,17 +573,33 @@ export function createHandler(cfg, { store }) {
         if (!id) return json(500, { error: 'server_error' });
         return json(200, { ok: true, id });
       }
-      const mm = /^\/api\/maps\/([A-Za-z0-9]{7})(?:\/(like|report|delete))?$/.exec(p);
+      const mm = /^\/api\/maps\/([A-Za-z0-9]{7})(?:\/(like|report|delete|score))?$/.exec(p);
       if (!mm) return json(404, { error: 'not_found' });
       const [, id, act] = mm;
       if (!act && m === 'GET') {
-        const r = await store.getMap(id, { play: url.searchParams.get('play') === '1' });
+        const play = url.searchParams.get('play') === '1';
+        const r = await store.getMap(id, { play });
         if (!r) return json(404, { error: 'not_found' });
-        return json(200, { map: { ...pub(r), data: r.data } });
+        // 🏆 치러 들어갈 때 같은 요청에 모드별 1~3등을 같이 실어 보냄 (따로 요청 안 늘림)
+        return json(200, { map: { ...pub(r), data: r.data }, top: play ? await store.topMapScores(id, 3) : undefined });
       }
       if (act && m === 'POST') {
         if (!canWrite) return writeErr();
         if (act === 'delete') return json(200, { ok: await store.deleteMap(id, pl.igsid) });
+        if (act === 'score') {
+          // 🏆 판이 끝날 때 한 번: mode 'free'(무적) / 'hearts'(하트 5개, 끝까지 살아남은 판만)
+          const b = await readJson(request);
+          const mode = b.mode === 'hearts' ? 'hearts' : b.mode === 'free' ? 'free' : null;
+          const score = Math.floor(Number(b.score));
+          if (!mode || !Number.isFinite(score) || score < 0) return json(400, { error: 'bad_score' });
+          const r = await store.getMap(id);
+          if (!r) return json(404, { error: 'not_found' });
+          const map = cleanMap(r.data);
+          if (!map || score > maxScore(mapLevel(map))) return json(400, { error: 'bad_score' });
+          const s = await store.addMapScore(id, pl.igsid, pl.username, mode, score);
+          if (!s) return json(404, { error: 'not_found' });
+          return json(200, { ok: true, best: s.best, top: await store.topMapScores(id, 3) });
+        }
         const b = await readJson(request);
         const r = await store.voteMap(id, pl.igsid, act, act === 'report' ? true : b.on !== false);
         if (!r) return json(404, { error: 'not_found' });

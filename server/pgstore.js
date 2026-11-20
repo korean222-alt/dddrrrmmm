@@ -60,6 +60,9 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS maps_at ON maps (at)`,
   `CREATE INDEX IF NOT EXISTS maps_igsid ON maps (igsid, at)`,
   `CREATE TABLE IF NOT EXISTS map_votes (map_id TEXT NOT NULL, who TEXT NOT NULL, kind TEXT NOT NULL, PRIMARY KEY (map_id, who, kind))`,
+  // 🏆 유저 맵 점수: 맵·모드(free 무적 / hearts 하트 5개)·사람마다 최고 점수 하나
+  `CREATE TABLE IF NOT EXISTS map_scores (map_id TEXT NOT NULL, mode TEXT NOT NULL, igsid TEXT NOT NULL, nick TEXT, score INTEGER NOT NULL, at BIGINT NOT NULL, PRIMARY KEY (map_id, mode, igsid))`,
+  `CREATE INDEX IF NOT EXISTS map_scores_top ON map_scores (map_id, mode, score DESC)`,
 ];
 
 /** init 에서 도는 옛 기록 옮기기 목록 — 새로 추가하면 여기에도 이름을 붙임 (SCHEMA_FLAG 가 바뀌어 다시 돎) */
@@ -560,8 +563,32 @@ END $$`);
   }
   async deleteMap(id, igsid) {
     const r = await this.q('DELETE FROM maps WHERE id = $1 AND igsid = $2 RETURNING id', [id, igsid]);
-    if (r.length) await this.q('DELETE FROM map_votes WHERE map_id = $1', [id]);
+    if (r.length) {
+      await this.q('DELETE FROM map_votes WHERE map_id = $1', [id]);
+      await this.q('DELETE FROM map_scores WHERE map_id = $1', [id]);
+    }
     return r.length === 1;
+  }
+  /** 🏆 맵 점수: 그 사람의 그 모드 최고 점수보다 높을 때만 바꿈 */
+  async addMapScore(id, igsid, nick, mode, score, now = Date.now()) {
+    if (!(await this.one('SELECT id FROM maps WHERE id = $1 AND hidden_at IS NULL', [id]))) return null;
+    const r = await this.q(
+      `INSERT INTO map_scores (map_id, mode, igsid, nick, score, at) VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (map_id, mode, igsid) DO UPDATE SET score = EXCLUDED.score, nick = EXCLUDED.nick, at = EXCLUDED.at WHERE map_scores.score < EXCLUDED.score
+       RETURNING score`,
+      [id, mode, igsid, nick ?? null, score, now]
+    );
+    return { best: r.length === 1 };
+  }
+  /** 모드별 1~n등 */
+  async topMapScores(id, n = 3) {
+    const rows = await this.q(
+      `SELECT mode, nick, score FROM (SELECT mode, nick, score, ROW_NUMBER() OVER (PARTITION BY mode ORDER BY score DESC, at ASC) AS rk FROM map_scores WHERE map_id = $1) t WHERE rk <= $2 ORDER BY mode, rk`,
+      [id, n]
+    );
+    const out = { free: [], hearts: [] };
+    for (const r of rows) if (out[r.mode]) out[r.mode].push({ nick: r.nick, score: Number(r.score) });
+    return out;
   }
 
   // ----- 친구 대결 방 -----

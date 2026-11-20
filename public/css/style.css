@@ -773,3 +773,27 @@ button.ig-pause:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--i
 .mk-pad.pad-c { background: #f5b400; font-size: 14px; }
 .mk-pad.pad-h { background: #25b865; font-size: 14px; }
 .mk-pad.on { transform: translateY(4px); box-shadow: 0 1px 0 var(--ink); filter: brightness(1.15); }
+
+/* 🎹 유저 맵 모드 고르기 (🛡 무적 / ❤ 하트 5개) + 1~3등 */
+.mm-sheet h3 { margin: 0 0 4px; }
+.mm-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }
+.mm-mode { display: flex; flex-direction: column; align-items: stretch; gap: 2px; text-align: left; background: #fff; border: 2px solid var(--ink); border-radius: 16px; padding: 10px; box-shadow: 0 3px 0 var(--ink); }
+.mm-mode[aria-pressed="true"] { background: #fff5d6; }
+.mm-mode b { font-weight: 400; font-size: 18px; }
+.mm-mode small { color: var(--muted); font-size: 12px; }
+.mm-top, .map-rank ol { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 3px; }
+.mm-top li, .map-rank li { display: flex; align-items: center; gap: 5px; font-size: 13px; min-width: 0; }
+.mm-top li em, .map-rank li em { font-style: normal; flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mm-top li b, .map-rank li b { font-weight: 400; font-variant-numeric: tabular-nums; }
+.mm-top .mm-empty, .map-rank .mm-empty { color: var(--muted); font-size: 12px; }
+.map-rank { margin: 8px 0 4px; text-align: left; }
+.map-rank small { color: var(--muted); }
+
+/* 🎭 장거리 */
+#screen-long { padding: 0; overflow: hidden; touch-action: none; background: #0b0820; }
+#long-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+#screen-long .hud-score small i { font-style: normal; color: var(--grass-dark); }
+.long-box { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(320px, calc(100% - 32px)); background: #fff; border: 3px solid var(--ink); border-radius: 22px; padding: 18px 16px; text-align: center; box-shadow: 0 6px 0 var(--ink); z-index: 3; }
+.long-box h3 { margin: 6px 0; }
+.long-box .res-stars { justify-content: center; min-height: 48px; }
+.long-card .lv .ev { font-size: 26px; }

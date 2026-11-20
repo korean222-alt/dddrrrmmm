@@ -12,6 +12,7 @@ import { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmoni
 import { AudioEngine, playMetronome } from './audio.js';
 import { Renderer } from './render.js';
 import { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } from './game.js';
+import { LONG_SONGS, getLongSong, LongGame } from './longplay.js';
 import { initAds, showRewarded } from './ads.js';
 import { createApi } from './api.js';
 import { initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay } from './track.js';
@@ -443,8 +444,110 @@ function refreshTitle() {
 // ---------------- 레벨 목록 ----------------
 /** 단계 목록 보기: 'normal' = 일반 단계 / 'endless' = 단계별 무제한 */
 function levelMode() {
-  return load('levelMode', 'normal') === 'endless' ? 'endless' : 'normal';
+  const m = load('levelMode', 'normal');
+  return m === 'endless' || m === 'long' ? m : 'normal';
 }
+
+// ---------------- 🎭 장거리 (드럼 말고 멜로디를 길게 누르고 밀기) ----------------
+const long = { game: null, id: null };
+if (/[?&]debug\b/.test(location.search)) window.__long = long;
+function renderLongLevels() {
+  const bests = load('longBest', {});
+  const gated = followGated();
+  $('#level-list').innerHTML = LONG_SONGS.map((s) => {
+    const b = bests[s.id];
+    const meta = gated
+      ? `<span class="lockline">${icon('lock')} 팔로워 인증</span>`
+      : b
+      ? `${starsHTML(b.stars || 0, 'sm')}<span>${fmt(b.score)}</span>`
+      : `${starsHTML(0, 'sm')}<span>NEW</span>`;
+    return `<button class="level-card long-card ${gated ? 'locked' : ''}" data-long="${s.id}">
+      <div class="lv"><span class="ev">${icon('hall', true)}<small>장거리</small></span></div>
+      <div class="info"><h4>${s.name} <small>${s.composer}</small></h4><p>${s.sub} · ${s.tagline}</p>${diffHTML(s.difficulty)}</div>
+      <div class="meta">${meta}</div>
+    </button>`;
+  }).join('');
+  refreshToday();
+  $('#levels-foot').innerHTML = '🎭 장거리는 드럼 대신 <b>멜로디</b>를 따라가요.<br>동그라미가 선에 닿을 때 <b>톡</b> 누르고, 손을 떼지 말고 띠를 따라 <b>좌우로 밀어요</b>.<br>노래(목소리) 없이 오케스트라 반주만 나와요.';
+}
+async function openLong(id) {
+  if (followGated()) {
+    openVerify(null, { label: '🎭 장거리는 팔로워만', then: () => openLong(id) });
+    return;
+  }
+  const song = getLongSong(id);
+  if (!song) return;
+  await audio.unlock();
+  audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx });
+  audio.orchOn = state.settings.band !== 'piano';
+  if (state.game) state.game.stop();
+  if (long.game) long.game.stop();
+  long.id = id;
+  $('#long-name').textContent = song.name;
+  $('#long-res').hidden = true;
+  $('#long-score').textContent = '0';
+  $('#long-keep').textContent = '100%';
+  $('#long-progress').style.width = '0%';
+  show('screen-long');
+  if (audio.orchOn && !audio.orch) {
+    toast('오케스트라 소리 받는 중…', 2500);
+    await audio.loadOrch();
+  }
+  if (long.id !== id || !$('#screen-long').classList.contains('active')) return;
+  const g = new LongGame({
+    audio,
+    canvas: $('#long-canvas'),
+    song,
+    offsetMs: state.settings.offsetMs || 0,
+    onHud: (h) => {
+      $('#long-score').textContent = fmt(h.score);
+      $('#long-keep').textContent = `${Math.round(h.keep * 100)}%`;
+      $('#long-progress').style.width = `${Math.round(h.progress * 100)}%`;
+    },
+    onEnd: (res) => longFinish(res),
+  });
+  long.game = g;
+  g.start();
+}
+function longFinish(res) {
+  const bests = load('longBest', {});
+  const old = bests[res.songId];
+  const isBest = !old || res.score > old.score;
+  if (isBest) {
+    bests[res.songId] = { score: res.score, stars: Math.max(res.stars, old ? old.stars || 0 : 0) };
+    save('longBest', bests);
+  } else if (res.stars > (old.stars || 0)) {
+    old.stars = res.stars;
+    save('longBest', bests);
+  }
+  $('#long-res-stars').innerHTML = starsHTML(res.stars);
+  $('#long-res-score').textContent = `${fmt(res.score)}점${isBest ? ' · 최고 기록!' : ''}`;
+  const c = res.counts;
+  $('#long-res-detail').textContent = `톡 PERFECT ${c.perfect} · GREAT ${c.great} · GOOD ${c.good} · MISS ${c.miss} · 따라가기 ${Math.round(res.keep * 100)}%`;
+  $('#long-res').hidden = false;
+  if (res.stars >= 3) audio.fanfare();
+}
+function longQuit() {
+  if (long.game) long.game.stop();
+  long.game = null;
+  long.id = null;
+  renderLevels();
+  show('screen-levels');
+}
+function longPause() {
+  const g = long.game;
+  if (!g) return;
+  if (g.state === 'playing') {
+    g.pause();
+    $('#long-pause-box').hidden = false;
+  } else if (g.state === 'paused') {
+    $('#long-pause-box').hidden = true;
+    g.resume();
+  }
+}
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && long.game && long.game.state === 'playing') longPause();
+});
 
 /** 그리그 무제한 모드 카드 (12단계를 깨고 팔로워 인증을 받으면 열림) */
 function grieggCardHTML(bests) {
@@ -500,6 +603,10 @@ function renderLevels() {
   $$('#level-mode button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.mode === mode)));
   if (mode === 'endless') {
     renderEndlessLevels(bests);
+    return;
+  }
+  if (mode === 'long') {
+    renderLongLevels();
     return;
   }
   // 🎄 크리스마스 이벤트 곡은 맨 위에
@@ -745,7 +852,7 @@ async function startLevel(id, opts = {}) {
     },
     // 영상 찍기 땐 목숨 없음 (녹화 중에 멈추면 안 되니까). 멀티는 광고 이어하기 없이 그 자리에서 끝
     // 🐢 연습은 목숨 없이 끝까지
-    onDeath: st.active || practice || lv.custom ? null : room ? onRoomDeath : onDeath,
+    onDeath: st.active || practice ? null : lv.userMap && um.from === 'list' && um.mode === 'hearts' ? umDeath : lv.custom ? null : room ? onRoomDeath : onDeath,
   });
   if (room) {
     // 친구와 같은 시각에 시작: 남은 시간 카운트다운 (Game.start 가 0.35초 뒤에 첫 박을 놓음)
@@ -1950,7 +2057,7 @@ async function mySave() {
 //   유저가 피아노로 멜로디를 찍고(또는 노래 파일에서 음을 따서) 드럼 노트를 붙여 올리는 맵. 운영자 개입 없음
 //   올라가는 건 음표 데이터뿐 (몇 KB). 요청: 목록 볼 때(1분 캐시) · 맵 받을 때 · 올리기/좋아요/신고 누를 때만
 const UM_ID = 'um';
-const um = { level: null, from: 'list', sort: 'new', mapId: null, list: null, wasAuto: false };
+const um = { level: null, from: 'list', sort: 'new', mapId: null, list: null, wasAuto: false, mode: load('mapMode', 'free') === 'hearts' ? 'hearts' : 'free', top: null };
 const newDraft = () => ({ name: '', bpm: 100, mel: [[], [], [], []], drums: autoDrums([[], [], [], []], 'easy'), drumsAuto: 'easy', bar: 0, cur: 0, len: 2, oct: 4, way: null, step: false });
 let mk = load('mapDraft', null);
 if (!mk || !Array.isArray(mk.mel) || !Array.isArray(mk.drums) || mk.mel.length !== mk.drums.length || mk.mel.length < 2) mk = newDraft();
@@ -2055,7 +2162,33 @@ async function playMap(id) {
   um.level = mapLevel(map, { id: UM_ID, by: r.map.nick || '', mapId: id });
   um.from = 'list';
   um.mapId = id;
+  um.top = r.top || null;
+  openMapMode(r.map.name);
+}
+/** 🛡 무적 / ❤ 하트 5개 고르기 + 모드별 1~3등 (맵 받을 때 같이 온 것) */
+function mapTopHTML(list) {
+  if (!list || !list.length) return '<li class="mm-empty">아직 기록 없음 · 1등 해 보세요!</li>';
+  const medal = ['🥇', '🥈', '🥉'];
+  return list.map((r, i) => `<li><span>${medal[i]}</span><em>${escapeHtml(r.nick || '익명')}</em><b>${fmt(r.score)}</b></li>`).join('');
+}
+function openMapMode(name) {
+  $('#mm-name').textContent = name || '유저 맵';
+  for (const mode of ['free', 'hearts']) {
+    $(`#mm-top-${mode}`).innerHTML = mapTopHTML(um.top && um.top[mode]);
+    $(`#modal-mapmode [data-mm="${mode}"]`).setAttribute('aria-pressed', String(um.mode === mode));
+  }
+  openModal('modal-mapmode');
+}
+async function startMapMode(mode) {
+  um.mode = mode === 'hearts' ? 'hearts' : 'free';
+  save('mapMode', um.mode);
+  closeModal('modal-mapmode');
   await startLevel(UM_ID);
+}
+/** ❤ 하트 모드: 다 쓰면 이어하기 없이 바로 끝 (기록 안 남음) */
+function umDeath() {
+  const g = state.game;
+  if (g && g.state === 'dead') g.giveUp();
 }
 /** 판 끝 (유저 맵) */
 function umFinish(res) {
@@ -2076,11 +2209,34 @@ function umFinish(res) {
   const box = $('#maps-list');
   const banner = document.createElement('div');
   banner.className = 'map-res';
-  banner.innerHTML = `<b>${res.grade}</b> ${fmt(res.score)}점 · 정확도 ${acc}% · 최대 콤보 ${res.maxCombo}
+  const mode = um.mode;
+  const modeName = mode === 'hearts' ? '❤ 하트 5개' : '🛡 무적';
+  // 🏆 기록 보내기: 무적은 끝까지 친 판, 하트는 살아남은 판만 (판마다 요청 1번)
+  const canRank = !auto && !res.practice && !res.stopped && um.mapId && state.api.mapScore && !(mode === 'hearts' && res.failed);
+  banner.innerHTML = `<b>${res.failed ? '💔' : res.grade}</b> ${fmt(res.score)}점 · 정확도 ${acc}% · 최대 콤보 ${res.maxCombo}
+    <div class="map-rank"><small>${modeName} 랭킹</small><ol id="map-res-top">${res.failed && mode === 'hearts' ? '<li class="mm-empty">하트를 다 써서 이번 판은 기록이 안 남아요</li>' : canRank ? '<li class="mm-empty">기록 올리는 중…</li>' : mapTopHTML(um.top && um.top[mode])}</ol></div>
     <div class="map-res-btns"><button class="btn btn-ghost" type="button" data-map-again>다시 치기</button>${liked ? '' : '<button class="btn btn-hot" type="button" data-map-like>❤ 이 맵 좋아요</button>'}</div>`;
+  if (canRank) {
+    const id = um.mapId;
+    state.api
+      .mapScore(id, mode, res.score)
+      .then((r) => {
+        if (um.mapId !== id) return;
+        um.top = r.top || um.top;
+        const ol = banner.querySelector('#map-res-top');
+        if (ol) ol.innerHTML = mapTopHTML(um.top && um.top[mode]);
+        const rank = (um.top && um.top[mode] ? um.top[mode] : []).findIndex((x) => x.nick === (state.me && state.me.player && state.me.player.username) && x.score === res.score);
+        if (rank >= 0) toast(`${['🥇 1등', '🥈 2등', '🥉 3등'][rank]}! ${modeName} 랭킹에 올랐어요`, 2600);
+        else if (r.best) toast('내 최고 기록!', 1600);
+      })
+      .catch(() => {
+        const ol = banner.querySelector('#map-res-top');
+        if (ol) ol.innerHTML = '<li class="mm-empty">기록을 못 올렸어요 (서버가 바빠요)</li>';
+      });
+  }
   box.querySelector('.map-res')?.remove();
   box.prepend(banner);
-  banner.querySelector('[data-map-again]').onclick = () => startLevel(UM_ID);
+  banner.querySelector('[data-map-again]').onclick = () => openMapMode(um.level && um.level.name);
   const lb = banner.querySelector('[data-map-like]');
   if (lb)
     lb.onclick = async () => {
@@ -4030,6 +4186,11 @@ const ACTIONS = {
   },
   'suggest-open': openSuggest,
   'maps-open': () => openMaps(),
+  'long-back': longQuit,
+  'long-pause': longPause,
+  'long-again': () => openLong(long.id),
+  'mm-start': (el) => startMapMode(el.dataset.mm),
+  'mm-close': () => closeModal('modal-mapmode'),
   'mapmake-open': () => openMapMake(),
   'mk-bpm': (el) => {
     mk.bpm = Math.max(MAP_LIMITS.minBpm, Math.min(MAP_LIMITS.maxBpm, mk.bpm + Number(el.dataset.d)));
@@ -4297,6 +4458,11 @@ function bindActions() {
     if (modeBtn) {
       save('levelMode', modeBtn.dataset.mode);
       renderLevels();
+      return;
+    }
+    const longBtn = e.target.closest('[data-long]');
+    if (longBtn) {
+      openLong(longBtn.dataset.long);
       return;
     }
     const lvBtn = e.target.closest('[data-level]');
