@@ -24,7 +24,7 @@ export const sortPlayers = (rows) => rows.sort((a, b) => !!a.hiddenAt - !!b.hidd
 export class JsonStore {
   constructor(file) {
     this.file = file;
-    this.data = { players: {}, usedRuns: {}, sessions: {}, plays: {}, settings: {}, suggestions: [], rooms: {}, transfers: {}, recoverRequests: [] };
+    this.data = { players: {}, usedRuns: {}, sessions: {}, plays: {}, settings: {}, suggestions: [], rooms: {}, transfers: {}, recoverRequests: [], maps: {}, mapVotes: {} };
     this._timer = null;
   }
 
@@ -32,7 +32,7 @@ export class JsonStore {
     try {
       const raw = fs.readFileSync(this.file, 'utf8');
       const d = JSON.parse(raw);
-      this.data = { players: d.players || {}, usedRuns: d.usedRuns || {}, sessions: d.sessions || {}, plays: d.plays || {}, settings: d.settings || {}, suggestions: d.suggestions || [], rooms: d.rooms || {}, transfers: d.transfers || {}, recoverRequests: d.recoverRequests || [] };
+      this.data = { players: d.players || {}, usedRuns: d.usedRuns || {}, sessions: d.sessions || {}, plays: d.plays || {}, settings: d.settings || {}, suggestions: d.suggestions || [], rooms: d.rooms || {}, transfers: d.transfers || {}, recoverRequests: d.recoverRequests || [], maps: d.maps || {}, mapVotes: d.mapVotes || {} };
       // 인스타 아이디 등록 기능을 없앴으므로, 예전에 인증된 인스타 계정 기록과 인증 코드는 지움
       for (const [k, p] of Object.entries(this.data.players)) if (p.followVerifiedAt) delete this.data.players[k];
       // 무제한 기록(level <= 0): 예전 방식(깬 단계 × 100만 + 점수) → 새 방식(× 10억)
@@ -316,6 +316,58 @@ export class JsonStore {
   }
   countSuggestions(vid, since) {
     return this.data.suggestions.filter((r) => r.vid === vid && r.at >= since).length;
+  }
+
+  // ----- 🌍 유저 맵 -----
+  addMap({ id, igsid, nick, name, bpm, bars, diff, data, at }) {
+    if (this.data.maps[id]) return false;
+    this.data.maps[id] = { id, igsid, nick: nick ?? null, name, bpm, bars, diff, data: structuredClone(data), at, plays: 0, likes: 0, reports: 0, hiddenAt: null };
+    this._save();
+    return true;
+  }
+  countMapsBy(igsid, since) {
+    return Object.values(this.data.maps).filter((m) => m.igsid === igsid && m.at >= since).length;
+  }
+  /** 목록 (data 빼고). sort: 'new' 최신 / 'top' 좋아요·플레이 */
+  listMaps(sort = 'new', limit = 60) {
+    const rows = Object.values(this.data.maps).filter((m) => !m.hiddenAt);
+    rows.sort(sort === 'top' ? (a, b) => b.likes - a.likes || b.plays - a.plays || b.at - a.at : (a, b) => b.at - a.at);
+    return rows.slice(0, limit).map(({ data, hiddenAt, reports, ...m }) => ({ ...m }));
+  }
+  getMap(id, { play = false } = {}) {
+    const m = this.data.maps[id];
+    if (!m || m.hiddenAt) return null;
+    if (play) {
+      m.plays++;
+      this._save();
+    }
+    const { hiddenAt, reports, ...r } = m;
+    return structuredClone(r);
+  }
+  /** 좋아요·신고 (kind 'like' | 'report'). 같은 사람은 한 번만. 신고가 hideAt 개 쌓이면 숨김 */
+  voteMap(id, who, kind, on, now = Date.now(), hideAt = 3) {
+    const m = this.data.maps[id];
+    if (!m || m.hiddenAt) return null;
+    const key = `${id}|${who}|${kind}`;
+    if (on) this.data.mapVotes[key] = 1;
+    else delete this.data.mapVotes[key];
+    const n = Object.keys(this.data.mapVotes).filter((k) => k.startsWith(`${id}|`) && k.endsWith(`|${kind}`)).length;
+    if (kind === 'like') m.likes = n;
+    else {
+      m.reports = n;
+      if (n >= hideAt) m.hiddenAt = now;
+    }
+    this._save();
+    return { likes: m.likes, hidden: !!m.hiddenAt };
+  }
+  /** 만든 사람만 지움 */
+  deleteMap(id, igsid) {
+    const m = this.data.maps[id];
+    if (!m || m.igsid !== igsid) return false;
+    delete this.data.maps[id];
+    for (const k of Object.keys(this.data.mapVotes)) if (k.startsWith(`${id}|`)) delete this.data.mapVotes[k];
+    this._save();
+    return true;
   }
 
   // ----- 친구 대결 방 -----

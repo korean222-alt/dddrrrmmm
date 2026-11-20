@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { sign, unsign, parseCookies, cookie, newId } from './session.js';
 import { buildStats } from './stats.js';
 import { createRoomHandler } from './rooms.js';
+import { cleanMap, mapDifficulty } from '../public/js/usermap.js';
 import { LEVELS, LAST_LEVEL_ID, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur, ENDLESS_ID, ROUND_BARS, roundBpm, pointsFor, levelEndlessBase, LEVEL_ENDLESS_STEP, needsVerify, isClosed, diamondsFor } from '../public/js/charts.js';
 
 // 무제한 모드 랭킹은 저장소의 level 칸에 '깬 단계 × 1,000,000,000 + 점수' 한 숫자로 저장 (단계가 먼저, 같으면 점수)
@@ -156,6 +157,8 @@ export function createHandler(cfg, { store }) {
   const limitTransferTake = rateLimiter(10, 10 * 60 * 1000);
   const limitRecoverReq = rateLimiter(5, 10 * 60 * 1000);
   const limitRecoverCheck = rateLimiter(60, 10 * 60 * 1000);
+  // 🌍 유저 맵: 목록·받기·좋아요 (올리기는 하루 개수로 따로 막음)
+  const limitMaps = rateLimiter(150, 10 * 60 * 1000);
   // 팔로워 암호: 틀린 시도만 셈. IP 당 10분에 10번 틀리면 잠깐 막음
   const passFails = new Map();
   const passBlocked = (ip) => {
@@ -542,6 +545,51 @@ export function createHandler(cfg, { store }) {
       const contact = String(b.contact ?? '').replace(/\s+/g, ' ').trim().slice(0, 80) || null;
       const id = await store.addSuggestion({ at: now, kind, body, nick: pl ? pl.username : null, vid, contact });
       return json(200, { ok: true, id });
+    }
+
+    // 🌍 유저 맵: 누구나 올리고(팔로워 인증한 사람), 누구나 침. 운영자 개입 없음 — 신고 3개면 자동으로 숨김
+    if (p === '/api/maps' || p.startsWith('/api/maps/')) {
+      if (!limitMaps(ip)) return json(429, { error: 'rate_limited' });
+      const pl = await getPlayer(request);
+      const canWrite = cfg.gateMode === 'open' ? !!pl : isConfirmed(pl);
+      const writeErr = () => json(403, { error: !pl ? 'confirm_required' : isVerified(pl) ? 'confirm_pending' : 'confirm_required' });
+      const pub = (m) => ({ id: m.id, nick: m.nick, name: m.name, bpm: m.bpm, bars: m.bars, diff: m.diff, at: m.at, plays: m.plays, likes: m.likes, mine: !!pl && m.igsid === pl.igsid });
+      if (p === '/api/maps' && m === 'GET') {
+        const sort = url.searchParams.get('sort') === 'top' ? 'top' : 'new';
+        return json(200, { maps: (await store.listMaps(sort, 60)).map(pub) });
+      }
+      if (p === '/api/maps' && m === 'POST') {
+        if (!canWrite) return writeErr();
+        const b = await readJson(request);
+        const map = cleanMap(b.map);
+        if (!map) return json(400, { error: 'bad_map' });
+        const now = Date.now();
+        if ((await store.countMapsBy(pl.igsid, now - 24 * 3600 * 1000)) >= 10) return json(429, { error: 'too_many_maps' });
+        let id = null;
+        for (let i = 0; i < 5 && !id; i++) {
+          const tryId = crypto.randomBytes(5).toString('base64url').replace(/[-_]/g, 'x').slice(0, 7);
+          if (await store.addMap({ id: tryId, igsid: pl.igsid, nick: pl.username, name: map.name, bpm: map.bpm, bars: map.bars.length, diff: mapDifficulty(map), data: map, at: now })) id = tryId;
+        }
+        if (!id) return json(500, { error: 'server_error' });
+        return json(200, { ok: true, id });
+      }
+      const mm = /^\/api\/maps\/([A-Za-z0-9]{7})(?:\/(like|report|delete))?$/.exec(p);
+      if (!mm) return json(404, { error: 'not_found' });
+      const [, id, act] = mm;
+      if (!act && m === 'GET') {
+        const r = await store.getMap(id, { play: url.searchParams.get('play') === '1' });
+        if (!r) return json(404, { error: 'not_found' });
+        return json(200, { map: { ...pub(r), data: r.data } });
+      }
+      if (act && m === 'POST') {
+        if (!canWrite) return writeErr();
+        if (act === 'delete') return json(200, { ok: await store.deleteMap(id, pl.igsid) });
+        const b = await readJson(request);
+        const r = await store.voteMap(id, pl.igsid, act, act === 'report' ? true : b.on !== false);
+        if (!r) return json(404, { error: 'not_found' });
+        return json(200, { ok: true, ...r });
+      }
+      return json(405, { error: 'method_not_allowed' });
     }
 
     // 건의함을 매일 읽는 봇 (읽기 전용 토큰). ?days=1 (1~30) 최근 N일

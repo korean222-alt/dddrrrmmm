@@ -74,6 +74,27 @@ function serverApi(boot = null) {
     transfer: (body) => http('POST', '/api/transfer', body),
     recoverRequest: (body) => http('POST', '/api/recover-request', body),
     recoverStatus: (token) => http('POST', '/api/recover-request/status', { token }),
+    // 🎹 유저 맵: 목록은 1분 동안 같은 걸 다시 씀 (fresh 면 새로)
+    maps: (sort, fresh) => {
+      const key = 'maps:' + sort;
+      const hit = lbCache.get(key);
+      if (!fresh && hit && Date.now() - hit.at < LB_CACHE_MS) return hit.p;
+      const p = http('GET', `/api/maps?sort=${sort === 'top' ? 'top' : 'new'}`);
+      lbCache.set(key, { at: Date.now(), p });
+      p.catch(() => lbCache.delete(key));
+      return p;
+    },
+    mapGet: (id) => http('GET', `/api/maps/${encodeURIComponent(id)}?play=1`),
+    mapUpload: (map) => {
+      lbCache.delete('maps:new');
+      return http('POST', '/api/maps', { map });
+    },
+    mapVote: (id, kind, on) => http('POST', `/api/maps/${encodeURIComponent(id)}/${kind === 'report' ? 'report' : 'like'}`, { on }),
+    mapDelete: (id) => {
+      lbCache.delete('maps:new');
+      lbCache.delete('maps:top');
+      return http('POST', `/api/maps/${encodeURIComponent(id)}/delete`);
+    },
   };
 }
 
