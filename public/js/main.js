@@ -1895,7 +1895,13 @@ const syncCalib = () => Number(load('syncCalib', 0)) || 0;
 /** 박자 맞추기 판: 녹화 중이면 첫 쿵이 노래 박에 오게 시작 시각을 정해 줌 */
 function withSync(lv) {
   const st = state.studio;
-  if (sync.firstBeat == null || !st.active || !st.recorder || st.recCtx == null) return lv;
+  if (sync.firstBeat == null) return lv;
+  // 확인용: 화면 녹화의 노래를 같이 틂 (첫 박 = 채보 첫 쿵). 영상에도 들어감
+  if ($('#sync-play').checked && audio.trackBuffer(sync.url)) {
+    lv.song = { ...lv.song, audio: { src: sync.url, offset: sync.firstBeat, gain: 1 } };
+    lv.withSong = true;
+  }
+  if (!st.active || !st.recorder || st.recCtx == null) return lv;
   lv.syncCalibMs = syncCalib();
   lv.syncAnchor = st.recCtx + (sync.firstBeat - sync.t0) + lv.syncCalibMs / 1000;
   lv.synced = true;
@@ -2358,13 +2364,15 @@ async function studioFinish(res) {
     video.hidden = false;
     $('#btn-studio-save').hidden = false;
     $('#studio-done-msg').textContent =
-      g && g.level.synced
+      g && g.level.withSong
+        ? '노래를 같이 넣은 확인용 영상이에요. 박이 맞으면, 인스타에 올릴 건 「노래도 같이 틀기」를 끄고 다시 찍으세요 (노래는 인스타에서 넣기)'
+        : g && g.level.synced
         ? '화면 녹화한 그 노래 구간에 박자를 맞춘 영상이에요. 인스타에서 같은 노래·같은 구간(시작 위치 그대로)을 넣으면 맞아요. 드럼이 노래보다 빠르면 「싱크 보정」을 +, 늦으면 −로 바꿔 다시 찍기'
         : firstHit != null && firstHit > 0
         ? `영상이 만들어졌어요. 첫 쿵은 영상 약 ${firstHit.toFixed(1)}초예요. 인스타에서 영상 앞을 그만큼 잘라내고, 노래는 하이라이트 첫 박(첫 강세)부터 시작하게 고르면 박자가 맞아요.`
         : '영상이 만들어졌어요. 저장해서 릴스에 올려보세요!';
     // 보정 없이 첫 쿵이 와야 할 영상 시각과 비교 (보정값은 그 차이만큼)
-    if (g && g.level.synced && firstHit != null) syncSelfCheck(blob, firstHit - g.level.syncCalibMs / 1000, g.level.syncCalibMs);
+    if (g && g.level.synced && !g.level.withSong && firstHit != null) syncSelfCheck(blob, firstHit - g.level.syncCalibMs / 1000, g.level.syncCalibMs);
   } else {
     video.hidden = true;
     $('#btn-studio-save').hidden = true;
