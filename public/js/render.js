@@ -69,7 +69,6 @@ export class Renderer {
     this.bg = document.createElement('canvas');
     this.rasters = null;
     this.buddies = null; // 쿵콩이·짝콩이 3D 그림 (줄여 둔 캔버스). 못 받으면 예전 그림
-    this.onVoice = null; // (who, kind) => 말하기 (main.js 가 넣음)
     this.studio = null; // 영상 찍기: { top, bottom, label }
     this.laneOrder = [KICK, SNARE]; // 화면 왼쪽부터 악기 순서
     this.newLane = -1; // 이번 단계에 새로 나온 악기 (카운트인 때 NEW 표시)
@@ -424,9 +423,6 @@ export class Renderer {
     this.fx.judges.push({ lane, text: style.text, color: style.color, t0: rt, sub: judge === 'perfect' || judge === 'miss' || judge === 'wrong' ? '' : early ? 'FAST' : 'SLOW' });
     if (judge === 'miss' || judge === 'wrong') {
       this.missAt[lane] = rt;
-      // 긴 콤보가 끊기면 아쉬워함
-      if ((this._combo || 0) >= 15 && this.onVoice) this.onVoice(lane === KICK ? 'kong' : 'jjak', 'sad');
-      this._combo = 0;
       return;
     }
     const pow = judge === 'perfect' ? 1 : judge === 'great' ? 0.8 : 0.55;
@@ -480,12 +476,9 @@ export class Renderer {
 
   onCombo(combo, rt) {
     this.comboPopAt = rt;
-    this._combo = combo;
     if (combo > 0 && combo % 25 === 0) {
       this.fx.banners.push({ text: `${combo} COMBO!`, t0: rt });
       this.cheerUntil = rt + 1.0;
-      // 25콤보마다 번갈아 신나서 한마디
-      if (this.onVoice) this.onVoice((combo / 25) % 2 ? 'kong' : 'jjak', 'fun');
     }
   }
 

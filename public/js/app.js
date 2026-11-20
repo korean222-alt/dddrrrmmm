@@ -3175,32 +3175,15 @@ return { OUTLINE, MASCOTS, DRUMS, mascotSVG, DRUM_VIEW, drumSVG, stickSVG, bassD
 
 // ---- buddies.js ----
 const __m_buddies = (() => {
-// 🥁 쿵콩이·짝콩이 (3D 그림 + 냥 소리)
+// 🥁 쿵콩이·짝콩이 (3D 그림)
 //   쿵콩이 = 주황 콩, 빨간 큰북(쿵·왼쪽) / 짝콩이 = 초록 콩, 파란 작은북(짝·오른쪽)
 //   그림: public/assets/mascot/{kong|jjak}_{idle|hit|miss|cheer}.webp, drum_{kong|jjak}.webp
-//   소리: 말 없이 귀여운 '냥' 소리 (사용자 요청: 한국어 말은 별로). public/audio/voice.bin
-//     (scripts/pack-audio.js 로 묶음, 원본 public/audio/voice/*.mp3). 둘이 같은 소리를 쓰고 높낮이만 다름
-//   그림을 바꾸면 V, 소리를 바꾸면 SV 를 올릴 것 (정적 파일은 30일 캐시)
+//   그림을 바꾸면 V 를 올릴 것 (정적 파일은 30일 캐시)
+//   소리(말·냥)는 넣었다가 거슬린다고 해서 뺌 (2026-11-20)
 
 const V = '1';
-const SV = '2';
 const BUDDY_POSES = ['idle', 'hit', 'miss', 'cheer'];
 const buddyUrl = (name) => `assets/mascot/${name}.webp?v=${V}`;
-
-/** kind → 소리 파일들 (아무거나 하나) */
-const VOICE_LINES = {
-  tap: ['tap1', 'tap2', 'tap3', 'tap4'],
-  fun: ['fun1', 'fun2', 'fun3'],
-  sad: ['sad1', 'sad2'],
-  win: ['win1', 'win2', 'win3'],
-};
-/** 캐릭터별 높낮이 (짝콩이가 조금 더 높고 가벼움) */
-const PITCH = { kong: 0.94, jjak: 1.14 };
-/** 말풍선 글자 */
-const BUBBLE = {
-  kong: { tap: '쿵!', fun: '냥냥~♪', sad: '냐앙…', win: '냐아~!' },
-  jjak: { tap: '짝!', fun: '냥냥~♪', sad: '냐앙…', win: '냐아~!' },
-};
 
 let imgsP = null;
 function loadImg(src) {
@@ -3230,98 +3213,7 @@ function loadBuddies() {
   return imgsP;
 }
 
-/** 냥 소리: 묶음 파일 하나 받아서 풀어 둠 */
-class Voices {
-  constructor(audio) {
-    this.audio = audio;
-    this.bufs = null;
-    this.loading = null;
-    this.on = true;
-    this.cur = {}; // 캐릭터별 지금 말하는 소리 (새로 말하면 끊음)
-    this.lastAt = 0;
-  }
-  /** 파일만 미리 받아 둠 (소리 엔진 없이도 됨) */
-  prefetch() {
-    this.raw ??= fetch(`audio/voice.bin?v=${SV}`)
-      .then((r) => {
-        if (!r.ok) throw new Error(String(r.status));
-        return r.arrayBuffer();
-      })
-      .catch(() => {
-        this.raw = null;
-        return null;
-      });
-    return this.raw;
-  }
-  load() {
-    if (this.loading) return this.loading;
-    const ctx = this.audio.ensure();
-    this.loading = (async () => {
-      try {
-        const all = await this.prefetch();
-        if (!all) throw new Error('voice.bin');
-        const hl = new DataView(all).getUint32(0);
-        const index = JSON.parse(new TextDecoder().decode(new Uint8Array(all, 4, hl)));
-        const base = 4 + hl;
-        const bufs = {};
-        await Promise.all(
-          Object.entries(index).map(async ([file, [off, len]]) => {
-            const ab = all.slice(base + off, base + off + len);
-            try {
-              bufs[file.replace(/\.mp3$/, '')] = await new Promise((res, rej) => {
-                const q = ctx.decodeAudioData(ab, res, rej);
-                if (q && q.then) q.then(res, rej);
-              });
-            } catch {}
-          })
-        );
-        this.bufs = bufs;
-        return true;
-      } catch {
-        this.loading = null;
-        return false;
-      }
-    })();
-    return this.loading;
-  }
-  /** who = 'kong'|'jjak', kind = 'tap'|'fun'|'sad'|'win' 또는 파일 이름. 낸 소리 파일 이름 (못 내면 null) */
-  say(who, kind, { vol = 1, delay = 0 } = {}) {
-    if (!this.on) return null;
-    const ctx = this.audio.ctx;
-    if (!ctx) return null;
-    const list = VOICE_LINES[kind];
-    const name = list ? list[Math.floor(Math.random() * list.length)] : kind;
-    if (!this.bufs) {
-      // 아직 안 풀었으면 풀고 바로 말함 (조금 늦으면 그냥 넘어감)
-      const t = performance.now();
-      this.load().then((ok) => ok && performance.now() - t < 600 && this.say(who, name, { vol, delay }));
-      return name;
-    }
-    const buf = this.bufs[name];
-    if (!buf) return null;
-    try {
-      const prev = this.cur[who];
-      if (prev) prev.g.gain.setTargetAtTime(0, ctx.currentTime, 0.02);
-      const src = ctx.createBufferSource();
-      src.buffer = buf;
-      src.playbackRate.value = (PITCH[who] || 1) * (0.97 + Math.random() * 0.06);
-      const g = ctx.createGain();
-      g.gain.value = 0.9 * vol;
-      src.connect(g).connect(this.audio.sfxBus);
-      src.start(ctx.currentTime + delay);
-      this.cur[who] = { src, g };
-      src.onended = () => {
-        if (this.cur[who]?.src === src) this.cur[who] = null;
-      };
-    } catch {
-      return null;
-    }
-    this.lastAt = performance.now();
-    return name;
-  }
-}
-
-return { BUDDY_POSES, buddyUrl, VOICE_LINES, BUBBLE, loadBuddies, Voices };
+return { BUDDY_POSES, buddyUrl, loadBuddies };
 })();
 
 // ---- kit3d.js ----
@@ -5550,7 +5442,6 @@ class Renderer {
     this.bg = document.createElement('canvas');
     this.rasters = null;
     this.buddies = null; // 쿵콩이·짝콩이 3D 그림 (줄여 둔 캔버스). 못 받으면 예전 그림
-    this.onVoice = null; // (who, kind) => 말하기 (main.js 가 넣음)
     this.studio = null; // 영상 찍기: { top, bottom, label }
     this.laneOrder = [KICK, SNARE]; // 화면 왼쪽부터 악기 순서
     this.newLane = -1; // 이번 단계에 새로 나온 악기 (카운트인 때 NEW 표시)
@@ -5905,9 +5796,6 @@ class Renderer {
     this.fx.judges.push({ lane, text: style.text, color: style.color, t0: rt, sub: judge === 'perfect' || judge === 'miss' || judge === 'wrong' ? '' : early ? 'FAST' : 'SLOW' });
     if (judge === 'miss' || judge === 'wrong') {
       this.missAt[lane] = rt;
-      // 긴 콤보가 끊기면 아쉬워함
-      if ((this._combo || 0) >= 15 && this.onVoice) this.onVoice(lane === KICK ? 'kong' : 'jjak', 'sad');
-      this._combo = 0;
       return;
     }
     const pow = judge === 'perfect' ? 1 : judge === 'great' ? 0.8 : 0.55;
@@ -5961,12 +5849,9 @@ class Renderer {
 
   onCombo(combo, rt) {
     this.comboPopAt = rt;
-    this._combo = combo;
     if (combo > 0 && combo % 25 === 0) {
       this.fx.banners.push({ text: `${combo} COMBO!`, t0: rt });
       this.cheerUntil = rt + 1.0;
-      // 25콤보마다 번갈아 신나서 한마디
-      if (this.onVoice) this.onVoice((combo / 25) % 2 ? 'kong' : 'jjak', 'fun');
     }
   }
 
@@ -8099,8 +7984,6 @@ const DEFAULT_SETTINGS = {
   noteSpeed: 1,
   offsetMs: 0,
   vibrate: true,
-  // 쿵콩이·짝콩이 냥 소리 (첫 화면에서 누를 때·콤보·결과)
-  voice: true,
   // 저사양 모드: 그림 해상도 낮추고 반짝이·조명 효과 끔 (렉 걸리는 폰용)
   lite: false,
   // 반주: 'orch' = 오케스트라(현악·금관·팀파니 + 피아노) / 'piano' = 피아노만
@@ -8543,8 +8426,8 @@ const NEWS = [
     date: '11월 20일',
     title: '🥁 쿵콩이·짝콩이 새 모습 · 🎵 내 노래로 치기',
     items: [
-      '<b>쿵콩이·짝콩이</b>가 자기 북을 타고 나타났어요! 첫 화면에서 누르면 북 치면서 냥! 해요 (설정에서 소리 끄기)',
-      '게임 중에도 둘이 같이 쳐요. 콤보 올리면 신나 하고, 끊기면 아쉬워해요',
+      '<b>쿵콩이·짝콩이</b>가 자기 북을 타고 나타났어요! 첫 화면에서 눌러 보세요',
+      '게임 중에도 둘이 같이 쳐요. 콤보 올리면 신나 하고, 틀리면 시무룩해요',
       '폰에 있는 노래(mp3)나 영상(mp4·화면 녹화)을 넣으면 그 노래 박자에 맞춰 채보를 만들어 줘요',
       '쉬움·보통·어려움, 노래 전체 또는 하이라이트만. 🎬 녹화 버튼으로 치는 영상도 저장할 수 있어요',
     ],
@@ -9874,7 +9757,7 @@ const { initAds, showRewarded } = __m_ads;
 const { createApi } = __m_api;
 const { initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay } = __m_track;
 const { CONFIG } = __m_config;
-const { buddyUrl, loadBuddies, Voices, BUBBLE } = __m_buddies;
+const { buddyUrl, loadBuddies } = __m_buddies;
 const { groupStarting } = __m_themes;
 const { NEWS, LATEST_NEWS } = __m_news;
 const { RoomClient, roomOutcome, survivalOutcome } = __m_room;
@@ -9907,9 +9790,7 @@ const diffHTML = (d) =>
   `<span class="diff" aria-label="난이도 ${d}/5"><span class="pips">${[1, 2, 3, 4, 5].map((i) => `<i class="${i <= d ? 'on' : ''}"></i>`).join('')}</span>${DIFFICULTY_WORDS[d] || ''}</span>`;
 
 const audio = new AudioEngine();
-const voices = new Voices(audio);
 const renderer = new Renderer($('#game-canvas'));
-renderer.onVoice = (who, kind) => !state.studio.active && voices.say(who, kind, { vol: 0.75 });
 // 자동 화질: 이 기기에서 버벅여서 내려갔던 단계를 기억해 다음 판부터 그대로
 renderer.quality = Math.max(0, Math.min(2, Number(load('gfxQ', 2)) || 0));
 renderer.onQualityDrop = (q) => {
@@ -10212,21 +10093,12 @@ function buildTitle() {
     const ch = el.querySelector('.b-char');
     ch.src = buddyUrl(who + '_idle');
     const bub = el.querySelector('.b-bubble');
-    let streak = 0;
-    let lastTap = 0;
     el.addEventListener('pointerdown', async (e) => {
       e.preventDefault();
       await audio.unlock();
-      voices.load();
       if (who === 'kong') audio.kick();
       else audio.snare();
-      // 연달아 치면 가끔 신나서 다른 말도 함
-      const now = performance.now();
-      streak = now - lastTap < 900 ? streak + 1 : 0;
-      lastTap = now;
-      const kind = streak > 0 && streak % 5 === 4 ? 'fun' : 'tap';
-      voices.say(who, kind, { vol: 0.85 });
-      bub.textContent = BUBBLE[who][kind];
+      bub.textContent = who === 'kong' ? '쿵!' : '짝!';
       for (const x of [el, bub]) x.classList.remove(x === el ? 'hit' : 'show');
       void el.offsetWidth;
       el.classList.add('hit');
@@ -10242,14 +10114,6 @@ function buildTitle() {
   // 미리 받아 둠 (눌렀을 때 바로 바뀌게)
   loadBuddies();
   refreshQuick();
-}
-
-/** 결과 화면: 잘했으면 둘이 환호, 못 했으면 아쉬워함 */
-function buddiesReact(face) {
-  if (face === 'cheer') {
-    voices.say('kong', 'win');
-    voices.say('jjak', 'win', { delay: 1.1 });
-  } else if (face === 'miss') voices.say('kong', 'sad');
 }
 
 /** 결과·인증 화면용 쿵콩이·짝콩이 그림 */
@@ -10913,7 +10777,6 @@ function showResult(res) {
   for (const k of ['perfect', 'great', 'good', 'miss', 'wrong']) $('#res-' + k).textContent = res.counts[k] || 0;
   const face = res.stars === 0 ? 'miss' : res.stars === 1 ? 'idle' : 'cheer';
   $('#res-mascots').innerHTML = buddiesHTML(face);
-  buddiesReact(face);
   const timing =
     Math.abs(res.avgOffsetMs) < 15 ? '타이밍 딱 좋아요' : res.avgOffsetMs < 0 ? `평균 ${-res.avgOffsetMs}ms 빨라요` : `평균 ${res.avgOffsetMs}ms 늦어요`;
   const extras = [res.goldTotal ? `✨ 황금 콩 ${res.goldHits}/${res.goldTotal}` : '', res.rollHits ? `💥 연타 ${res.rollHits}번` : ''].filter(Boolean).join(' · ');
@@ -10975,7 +10838,6 @@ function showChallengeResult(res) {
   for (const k of ['perfect', 'great', 'good', 'miss', 'wrong']) $('#res-' + k).textContent = res.counts[k] || 0;
   const face = res.diamonds === 0 ? 'miss' : res.diamonds === 1 ? 'idle' : 'cheer';
   $('#res-mascots').innerHTML = buddiesHTML(face);
-  buddiesReact(face);
   const prev = best.prev && !best.isNew ? ` · 내 최고 Lv.${best.prev.roundsCleared || 0} 클리어` : '';
   $('#res-meta').innerHTML = `최고 속도 ${res.bpmReached} BPM · 최대 콤보 ${res.maxCombo} · 정확도 ${(res.accuracy * 100).toFixed(1)}%${prev}${state.auto ? '<br>(자동 연주 — 기록 저장 안 됨)' : ''}`;
   $('#btn-next').hidden = true;
@@ -11349,7 +11211,6 @@ function openSettings() {
   $('#set-sfx').value = s.sfx;
   $('#set-offset').value = s.offsetMs;
   $('#set-vibrate').checked = !!s.vibrate;
-  $('#set-voice').checked = s.voice !== false;
   $('#set-lite').checked = !!s.lite;
   $$('#set-band button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.band === (s.band || 'orch')));
   updateSettingLabels();
@@ -11398,7 +11259,6 @@ function applyTransfer(data, me) {
   for (const f of ['nick', 'lastNick', 'lastIg']) if (data[f] && !load(f, '')) save(f, data[f]);
   if (data.settings || data.calib) {
     state.settings = { ...state.settings, ...(data.settings || {}) };
-    voices.on = state.settings.voice !== false;
     if (data.calib) {
       state.settings.offsetMs = data.calib.offsetMs;
       if (data.calib.calibrated) save('calibrated', true);
@@ -11548,15 +11408,13 @@ function bindSettings() {
     s.sfx = Number($('#set-sfx').value);
     s.offsetMs = Number($('#set-offset').value);
     s.vibrate = $('#set-vibrate').checked;
-    s.voice = $('#set-voice').checked;
-    voices.on = s.voice;
     s.lite = $('#set-lite').checked;
     applyLite();
     audio.setVolumes({ music: s.music, sfx: s.sfx });
     saveSettings(s);
     updateSettingLabels();
   };
-  ['#set-music', '#set-sfx', '#set-offset', '#set-vibrate', '#set-voice', '#set-lite'].forEach((id) => $(id).addEventListener('input', upd));
+  ['#set-music', '#set-sfx', '#set-offset', '#set-vibrate', '#set-lite'].forEach((id) => $(id).addEventListener('input', upd));
   $('#set-band').addEventListener('click', async (e) => {
     const b = e.target.closest('[data-band]');
     if (!b) return;
@@ -13490,8 +13348,6 @@ async function boot() {
   audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx });
   audio.orchOn = state.settings.band !== 'piano';
   audio.prefetchPiano().then(() => audio.orchOn && audio.prefetchOrch());
-  voices.on = state.settings.voice !== false;
-  voices.prefetch();
   refreshToday();
 
   if (isInApp() && !load('inappDismissed', false)) $('#inapp-note').hidden = false;
