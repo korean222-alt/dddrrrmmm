@@ -967,7 +967,8 @@ export class SongPlayer {
     const sd = this.tempo.barLen(bar) / STEPS_PER_BAR;
     const orch = a.orchestra;
     if (bar < COUNT_IN_BARS) {
-      if (s % 4 === 0) a.click(t, s === 0, this.bus);
+      // 박자 맞추기 영상: 시작 전 똑딱이 노래와 겹치지 않게 (박자 소리를 켰을 때만)
+      if (s % 4 === 0 && (!this.level.beat || this.level.click)) a.click(t, s === 0, this.bus);
       return;
     }
     const mb = bar - COUNT_IN_BARS; // 본편 마디 번호

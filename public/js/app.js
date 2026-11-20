@@ -2720,7 +2720,8 @@ class SongPlayer {
     const sd = this.tempo.barLen(bar) / STEPS_PER_BAR;
     const orch = a.orchestra;
     if (bar < COUNT_IN_BARS) {
-      if (s % 4 === 0) a.click(t, s === 0, this.bus);
+      // 박자 맞추기 영상: 시작 전 똑딱이 노래와 겹치지 않게 (박자 소리를 켰을 때만)
+      if (s % 4 === 0 && (!this.level.beat || this.level.click)) a.click(t, s === 0, this.bus);
       return;
     }
     const mb = bar - COUNT_IN_BARS; // 본편 마디 번호
@@ -9278,7 +9279,7 @@ return { NAME_MAX, kstDateKey, todayLevel, cleanName, encodeChallenge, decodeCha
 const __m_main = (() => {
 // 오케이스트라 — 화면 전환, 잠금(팔로우 인증), 랭킹, 설정을 묶는 앱 본체
 
-const { LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES, ENDLESS_ID, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo, ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId, STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase, BEAT_ID, makeBeatReel, beatOpts, beatSeconds, BEAT_MAX_ROUNDS, BEAT_STYLES, BEAT_DIFFS, beatStyleName, QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds } = __m_charts;
+const { LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES, ENDLESS_ID, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo, ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId, STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase, COUNT_IN_BARS, BEAT_ID, makeBeatReel, beatOpts, beatSeconds, BEAT_MAX_ROUNDS, BEAT_STYLES, BEAT_DIFFS, beatStyleName, QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds } = __m_charts;
 const { AudioEngine, playMetronome } = __m_audio;
 const { Renderer } = __m_render;
 const { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } = __m_game;
@@ -11336,6 +11337,7 @@ function startRecorder() {
     rec.ondataavailable = (e) => e.data && e.data.size && st.chunks.push(e.data);
     rec.start(250);
     st.recorder = rec;
+    st.recCtx = audio.ctx.currentTime; // 영상 0초 = 이 소리 시각 (첫 쿵이 영상 몇 초인지 계산용)
   } catch (e) {
     st.recorder = null;
     toast('영상 저장을 시작하지 못했어요. 화면 녹화로 찍어주세요.');
@@ -11381,6 +11383,8 @@ async function studioFinish(res) {
       else resolve();
     })();
   });
+  // 박자 맞추기: 첫 쿵이 영상 몇 초에 나오나 (인스타에서 노래 첫 박을 여기에 맞춤)
+  const firstHit = g && g.level.beat && st.recorder && st.recCtx != null ? g.startTime + g.tempo.barStart(COUNT_IN_BARS) - st.recCtx : null;
   const blob = await stopRecorder();
   st.active = false;
   state.auto = false;
@@ -11397,7 +11401,10 @@ async function studioFinish(res) {
     };
     video.hidden = false;
     $('#btn-studio-save').hidden = false;
-    $('#studio-done-msg').textContent = '영상이 만들어졌어요. 저장해서 릴스에 올려보세요!';
+    $('#studio-done-msg').textContent =
+      firstHit != null && firstHit > 0
+        ? `영상이 만들어졌어요. 첫 쿵은 영상 약 ${firstHit.toFixed(1)}초예요. 인스타에서 영상 앞을 그만큼 잘라내고, 노래는 하이라이트 첫 박(첫 강세)부터 시작하게 고르면 박자가 맞아요.`
+        : '영상이 만들어졌어요. 저장해서 릴스에 올려보세요!';
   } else {
     video.hidden = true;
     $('#btn-studio-save').hidden = true;

@@ -4,7 +4,7 @@ import {
   LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES,
   ENDLESS_ID, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo,
   ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId,
-  STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase,
+  STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase, COUNT_IN_BARS,
   BEAT_ID, makeBeatReel, beatOpts, beatSeconds, BEAT_MAX_ROUNDS, BEAT_STYLES, BEAT_DIFFS, beatStyleName,
   QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds,
 } from './charts.js';
@@ -2065,6 +2065,7 @@ function startRecorder() {
     rec.ondataavailable = (e) => e.data && e.data.size && st.chunks.push(e.data);
     rec.start(250);
     st.recorder = rec;
+    st.recCtx = audio.ctx.currentTime; // 영상 0초 = 이 소리 시각 (첫 쿵이 영상 몇 초인지 계산용)
   } catch (e) {
     st.recorder = null;
     toast('영상 저장을 시작하지 못했어요. 화면 녹화로 찍어주세요.');
@@ -2110,6 +2111,8 @@ async function studioFinish(res) {
       else resolve();
     })();
   });
+  // 박자 맞추기: 첫 쿵이 영상 몇 초에 나오나 (인스타에서 노래 첫 박을 여기에 맞춤)
+  const firstHit = g && g.level.beat && st.recorder && st.recCtx != null ? g.startTime + g.tempo.barStart(COUNT_IN_BARS) - st.recCtx : null;
   const blob = await stopRecorder();
   st.active = false;
   state.auto = false;
@@ -2126,7 +2129,10 @@ async function studioFinish(res) {
     };
     video.hidden = false;
     $('#btn-studio-save').hidden = false;
-    $('#studio-done-msg').textContent = '영상이 만들어졌어요. 저장해서 릴스에 올려보세요!';
+    $('#studio-done-msg').textContent =
+      firstHit != null && firstHit > 0
+        ? `영상이 만들어졌어요. 첫 쿵은 영상 약 ${firstHit.toFixed(1)}초예요. 인스타에서 영상 앞을 그만큼 잘라내고, 노래는 하이라이트 첫 박(첫 강세)부터 시작하게 고르면 박자가 맞아요.`
+        : '영상이 만들어졌어요. 저장해서 릴스에 올려보세요!';
   } else {
     video.hidden = true;
     $('#btn-studio-save').hidden = true;
