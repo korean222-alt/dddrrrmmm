@@ -32,7 +32,7 @@ export const DEFAULT_SETTINGS = {
   noteSpeed: 1,
   offsetMs: 0,
   vibrate: true,
-  // 쿵콩이·짝콩이 목소리 (첫 화면에서 누를 때·콤보·결과)
+  // 쿵콩이·짝콩이 냥 소리 (첫 화면에서 누를 때·콤보·결과)
   voice: true,
   // 저사양 모드: 그림 해상도 낮추고 반짝이·조명 효과 끔 (렉 걸리는 폰용)
   lite: false,

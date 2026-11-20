@@ -1,21 +1,28 @@
-// 🥁 쿵콩이·짝콩이 (3D 그림 + 목소리)
+// 🥁 쿵콩이·짝콩이 (3D 그림 + 냥 소리)
 //   쿵콩이 = 주황 콩, 빨간 큰북(쿵·왼쪽) / 짝콩이 = 초록 콩, 파란 작은북(짝·오른쪽)
 //   그림: public/assets/mascot/{kong|jjak}_{idle|hit|miss|cheer}.webp, drum_{kong|jjak}.webp
-//   목소리: public/audio/voice.bin (scripts/pack-audio.js 로 묶음, 원본 public/audio/voice/*.mp3)
-//   그림·목소리를 바꾸면 V 를 올릴 것 (정적 파일은 30일 캐시)
+//   소리: 말 없이 귀여운 '냥' 소리 (사용자 요청: 한국어 말은 별로). public/audio/voice.bin
+//     (scripts/pack-audio.js 로 묶음, 원본 public/audio/voice/*.mp3). 둘이 같은 소리를 쓰고 높낮이만 다름
+//   그림을 바꾸면 V, 소리를 바꾸면 SV 를 올릴 것 (정적 파일은 30일 캐시)
 
 const V = '1';
+const SV = '2';
 export const BUDDY_POSES = ['idle', 'hit', 'miss', 'cheer'];
 export const buddyUrl = (name) => `assets/mascot/${name}.webp?v=${V}`;
 
+/** kind → 소리 파일들 (아무거나 하나) */
 export const VOICE_LINES = {
-  kong: { tap: ['kong_1', 'kong_1', 'kong_1', 'kong_2'], fun: ['kong_good', 'kong_more'], sad: ['kong_sad'], win: ['kong_win'] },
-  jjak: { tap: ['jjak_1', 'jjak_1', 'jjak_1', 'jjak_2'], fun: ['jjak_good', 'jjak_more'], sad: ['jjak_sad'], win: ['jjak_win'] },
+  tap: ['tap1', 'tap2', 'tap3', 'tap4'],
+  fun: ['fun1', 'fun2', 'fun3'],
+  sad: ['sad1', 'sad2'],
+  win: ['win1', 'win2', 'win3'],
 };
-/** 말풍선 글자 (목소리 파일 이름 → 하는 말) */
-export const VOICE_TEXT = {
-  kong_1: '쿵!', kong_2: '쿵쿵!', kong_good: '좋아~!', kong_more: '더 더!', kong_sad: '으앙…', kong_win: '와아~ 최고야!',
-  jjak_1: '짝!', jjak_2: '짝짝!', jjak_good: '신난다~!', jjak_more: '가자!', jjak_sad: '힝…', jjak_win: '야호~ 해냈다!',
+/** 캐릭터별 높낮이 (짝콩이가 조금 더 높고 가벼움) */
+const PITCH = { kong: 0.94, jjak: 1.14 };
+/** 말풍선 글자 */
+export const BUBBLE = {
+  kong: { tap: '쿵!', fun: '냥냥~♪', sad: '냐앙…', win: '냐아~!' },
+  jjak: { tap: '짝!', fun: '냥냥~♪', sad: '냐앙…', win: '냐아~!' },
 };
 
 let imgsP = null;
@@ -46,7 +53,7 @@ export function loadBuddies() {
   return imgsP;
 }
 
-/** 목소리: 묶음 파일 하나 받아서 풀어 둠 */
+/** 냥 소리: 묶음 파일 하나 받아서 풀어 둠 */
 export class Voices {
   constructor(audio) {
     this.audio = audio;
@@ -58,7 +65,7 @@ export class Voices {
   }
   /** 파일만 미리 받아 둠 (소리 엔진 없이도 됨) */
   prefetch() {
-    this.raw ??= fetch(`audio/voice.bin?v=${V}`)
+    this.raw ??= fetch(`audio/voice.bin?v=${SV}`)
       .then((r) => {
         if (!r.ok) throw new Error(String(r.status));
         return r.arrayBuffer();
@@ -100,12 +107,12 @@ export class Voices {
     })();
     return this.loading;
   }
-  /** who = 'kong'|'jjak', kind = 'tap'|'fun'|'sad'|'win' 또는 파일 이름. 말한 파일 이름 (못 하면 null) */
+  /** who = 'kong'|'jjak', kind = 'tap'|'fun'|'sad'|'win' 또는 파일 이름. 낸 소리 파일 이름 (못 내면 null) */
   say(who, kind, { vol = 1, delay = 0 } = {}) {
     if (!this.on) return null;
     const ctx = this.audio.ctx;
     if (!ctx) return null;
-    const list = VOICE_LINES[who]?.[kind];
+    const list = VOICE_LINES[kind];
     const name = list ? list[Math.floor(Math.random() * list.length)] : kind;
     if (!this.bufs) {
       // 아직 안 풀었으면 풀고 바로 말함 (조금 늦으면 그냥 넘어감)
@@ -120,6 +127,7 @@ export class Voices {
       if (prev) prev.g.gain.setTargetAtTime(0, ctx.currentTime, 0.02);
       const src = ctx.createBufferSource();
       src.buffer = buf;
+      src.playbackRate.value = (PITCH[who] || 1) * (0.97 + Math.random() * 0.06);
       const g = ctx.createGain();
       g.gain.value = 0.9 * vol;
       src.connect(g).connect(this.audio.sfxBus);

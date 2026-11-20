@@ -3175,24 +3175,31 @@ return { OUTLINE, MASCOTS, DRUMS, mascotSVG, DRUM_VIEW, drumSVG, stickSVG, bassD
 
 // ---- buddies.js ----
 const __m_buddies = (() => {
-// 🥁 쿵콩이·짝콩이 (3D 그림 + 목소리)
+// 🥁 쿵콩이·짝콩이 (3D 그림 + 냥 소리)
 //   쿵콩이 = 주황 콩, 빨간 큰북(쿵·왼쪽) / 짝콩이 = 초록 콩, 파란 작은북(짝·오른쪽)
 //   그림: public/assets/mascot/{kong|jjak}_{idle|hit|miss|cheer}.webp, drum_{kong|jjak}.webp
-//   목소리: public/audio/voice.bin (scripts/pack-audio.js 로 묶음, 원본 public/audio/voice/*.mp3)
-//   그림·목소리를 바꾸면 V 를 올릴 것 (정적 파일은 30일 캐시)
+//   소리: 말 없이 귀여운 '냥' 소리 (사용자 요청: 한국어 말은 별로). public/audio/voice.bin
+//     (scripts/pack-audio.js 로 묶음, 원본 public/audio/voice/*.mp3). 둘이 같은 소리를 쓰고 높낮이만 다름
+//   그림을 바꾸면 V, 소리를 바꾸면 SV 를 올릴 것 (정적 파일은 30일 캐시)
 
 const V = '1';
+const SV = '2';
 const BUDDY_POSES = ['idle', 'hit', 'miss', 'cheer'];
 const buddyUrl = (name) => `assets/mascot/${name}.webp?v=${V}`;
 
+/** kind → 소리 파일들 (아무거나 하나) */
 const VOICE_LINES = {
-  kong: { tap: ['kong_1', 'kong_1', 'kong_1', 'kong_2'], fun: ['kong_good', 'kong_more'], sad: ['kong_sad'], win: ['kong_win'] },
-  jjak: { tap: ['jjak_1', 'jjak_1', 'jjak_1', 'jjak_2'], fun: ['jjak_good', 'jjak_more'], sad: ['jjak_sad'], win: ['jjak_win'] },
+  tap: ['tap1', 'tap2', 'tap3', 'tap4'],
+  fun: ['fun1', 'fun2', 'fun3'],
+  sad: ['sad1', 'sad2'],
+  win: ['win1', 'win2', 'win3'],
 };
-/** 말풍선 글자 (목소리 파일 이름 → 하는 말) */
-const VOICE_TEXT = {
-  kong_1: '쿵!', kong_2: '쿵쿵!', kong_good: '좋아~!', kong_more: '더 더!', kong_sad: '으앙…', kong_win: '와아~ 최고야!',
-  jjak_1: '짝!', jjak_2: '짝짝!', jjak_good: '신난다~!', jjak_more: '가자!', jjak_sad: '힝…', jjak_win: '야호~ 해냈다!',
+/** 캐릭터별 높낮이 (짝콩이가 조금 더 높고 가벼움) */
+const PITCH = { kong: 0.94, jjak: 1.14 };
+/** 말풍선 글자 */
+const BUBBLE = {
+  kong: { tap: '쿵!', fun: '냥냥~♪', sad: '냐앙…', win: '냐아~!' },
+  jjak: { tap: '짝!', fun: '냥냥~♪', sad: '냐앙…', win: '냐아~!' },
 };
 
 let imgsP = null;
@@ -3223,7 +3230,7 @@ function loadBuddies() {
   return imgsP;
 }
 
-/** 목소리: 묶음 파일 하나 받아서 풀어 둠 */
+/** 냥 소리: 묶음 파일 하나 받아서 풀어 둠 */
 class Voices {
   constructor(audio) {
     this.audio = audio;
@@ -3235,7 +3242,7 @@ class Voices {
   }
   /** 파일만 미리 받아 둠 (소리 엔진 없이도 됨) */
   prefetch() {
-    this.raw ??= fetch(`audio/voice.bin?v=${V}`)
+    this.raw ??= fetch(`audio/voice.bin?v=${SV}`)
       .then((r) => {
         if (!r.ok) throw new Error(String(r.status));
         return r.arrayBuffer();
@@ -3277,12 +3284,12 @@ class Voices {
     })();
     return this.loading;
   }
-  /** who = 'kong'|'jjak', kind = 'tap'|'fun'|'sad'|'win' 또는 파일 이름. 말한 파일 이름 (못 하면 null) */
+  /** who = 'kong'|'jjak', kind = 'tap'|'fun'|'sad'|'win' 또는 파일 이름. 낸 소리 파일 이름 (못 내면 null) */
   say(who, kind, { vol = 1, delay = 0 } = {}) {
     if (!this.on) return null;
     const ctx = this.audio.ctx;
     if (!ctx) return null;
-    const list = VOICE_LINES[who]?.[kind];
+    const list = VOICE_LINES[kind];
     const name = list ? list[Math.floor(Math.random() * list.length)] : kind;
     if (!this.bufs) {
       // 아직 안 풀었으면 풀고 바로 말함 (조금 늦으면 그냥 넘어감)
@@ -3297,6 +3304,7 @@ class Voices {
       if (prev) prev.g.gain.setTargetAtTime(0, ctx.currentTime, 0.02);
       const src = ctx.createBufferSource();
       src.buffer = buf;
+      src.playbackRate.value = (PITCH[who] || 1) * (0.97 + Math.random() * 0.06);
       const g = ctx.createGain();
       g.gain.value = 0.9 * vol;
       src.connect(g).connect(this.audio.sfxBus);
@@ -3313,7 +3321,7 @@ class Voices {
   }
 }
 
-return { BUDDY_POSES, buddyUrl, VOICE_LINES, VOICE_TEXT, loadBuddies, Voices };
+return { BUDDY_POSES, buddyUrl, VOICE_LINES, BUBBLE, loadBuddies, Voices };
 })();
 
 // ---- kit3d.js ----
@@ -8091,7 +8099,7 @@ const DEFAULT_SETTINGS = {
   noteSpeed: 1,
   offsetMs: 0,
   vibrate: true,
-  // 쿵콩이·짝콩이 목소리 (첫 화면에서 누를 때·콤보·결과)
+  // 쿵콩이·짝콩이 냥 소리 (첫 화면에서 누를 때·콤보·결과)
   voice: true,
   // 저사양 모드: 그림 해상도 낮추고 반짝이·조명 효과 끔 (렉 걸리는 폰용)
   lite: false,
@@ -8531,11 +8539,11 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-20k',
+    id: '2026-11-20n',
     date: '11월 20일',
     title: '🥁 쿵콩이·짝콩이 새 모습 · 🎵 내 노래로 치기',
     items: [
-      '<b>쿵콩이·짝콩이</b>가 자기 북을 타고 나타났어요! 첫 화면에서 누르면 북 치면서 말해요 (설정에서 목소리 끄기)',
+      '<b>쿵콩이·짝콩이</b>가 자기 북을 타고 나타났어요! 첫 화면에서 누르면 북 치면서 냥! 해요 (설정에서 소리 끄기)',
       '게임 중에도 둘이 같이 쳐요. 콤보 올리면 신나 하고, 끊기면 아쉬워해요',
       '폰에 있는 노래(mp3)나 영상(mp4·화면 녹화)을 넣으면 그 노래 박자에 맞춰 채보를 만들어 줘요',
       '쉬움·보통·어려움, 노래 전체 또는 하이라이트만. 🎬 녹화 버튼으로 치는 영상도 저장할 수 있어요',
@@ -9866,7 +9874,7 @@ const { initAds, showRewarded } = __m_ads;
 const { createApi } = __m_api;
 const { initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay } = __m_track;
 const { CONFIG } = __m_config;
-const { buddyUrl, loadBuddies, Voices, VOICE_TEXT } = __m_buddies;
+const { buddyUrl, loadBuddies, Voices, BUBBLE } = __m_buddies;
 const { groupStarting } = __m_themes;
 const { NEWS, LATEST_NEWS } = __m_news;
 const { RoomClient, roomOutcome, survivalOutcome } = __m_room;
@@ -10216,8 +10224,9 @@ function buildTitle() {
       const now = performance.now();
       streak = now - lastTap < 900 ? streak + 1 : 0;
       lastTap = now;
-      const line = voices.say(who, streak > 0 && streak % 5 === 4 ? 'fun' : 'tap', { vol: 0.85 });
-      bub.textContent = VOICE_TEXT[line] || (who === 'kong' ? '쿵!' : '짝!');
+      const kind = streak > 0 && streak % 5 === 4 ? 'fun' : 'tap';
+      voices.say(who, kind, { vol: 0.85 });
+      bub.textContent = BUBBLE[who][kind];
       for (const x of [el, bub]) x.classList.remove(x === el ? 'hit' : 'show');
       void el.offsetWidth;
       el.classList.add('hit');
