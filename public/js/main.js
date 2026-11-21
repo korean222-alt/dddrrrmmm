@@ -2433,7 +2433,7 @@ function mkDroll(head = null) {
   if (!cv || !cv.clientWidth) return;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const w = cv.clientWidth;
-  const h = 88;
+  const h = 120;
   if (cv.width !== Math.round(w * dpr)) cv.width = Math.round(w * dpr);
   if (cv.height !== Math.round(h * dpr)) cv.height = Math.round(h * dpr);
   const g = cv.getContext('2d');
@@ -2452,6 +2452,14 @@ function mkDroll(head = null) {
   for (let st = 0; st <= STEPS_PER_BAR; st++) {
     g.fillStyle = st % 4 === 0 ? 'rgba(59,42,74,0.35)' : 'rgba(59,42,74,0.1)';
     g.fillRect(lx + Math.round(st * cw) - (st % 4 === 0 ? 1 : 0), 0, st % 4 === 0 ? 2 : 1, h);
+  }
+  // 고른 칸 (패드를 치면 여기에 들어감)
+  if (mk.dsel != null && !drec.on) {
+    g.fillStyle = 'rgba(255,47,125,0.16)';
+    g.fillRect(lx + mk.dsel * cw, 0, cw, h);
+    g.strokeStyle = '#ff2f7d';
+    g.lineWidth = 2;
+    g.strokeRect(lx + mk.dsel * cw + 1, 1, cw - 2, h - 2);
   }
   const bar = mk.drums[mk.bar] || '';
   [...bar].forEach((ch, st) => {
@@ -2818,6 +2826,7 @@ function drecToggle() {
     drec.next = -STEPS_PER_BAR;
     drec.bar = -1;
     drec.on = true;
+    mk.dsel = null;
     mk.drumsAuto = null;
     mk.bar = drec.startBar;
     while (mk.mel.length <= mk.bar) mk.mel.push([]), mk.drums.push('................');
@@ -2864,7 +2873,18 @@ function drecToggle() {
 /** 패드 침: 소리는 바로, 녹음 중이면 가까운 칸에 노트 */
 function padHit(inst) {
   mkSound(() => audio.playLane(LANE_OF[inst], audio.ctx.currentTime + 0.003));
-  if (!drec.on) return;
+  if (!drec.on) {
+    // 아래 칸을 골라 뒀으면 그 칸에 노트
+    if (mk.dsel == null || !mk.drums[mk.bar]) return;
+    const cells = [...mk.drums[mk.bar]];
+    if (drumCell(cells[mk.dsel])[inst]) return;
+    cells[mk.dsel] = toggleDrum(cells[mk.dsel], inst);
+    mk.drums[mk.bar] = cells.join('');
+    mk.drumsAuto = null;
+    mkSave();
+    mkRender();
+    return;
+  }
   const pos = (audio.heardTime(performance.now()) - (state.settings.offsetMs || 0) / 1000 - drec.t0) / drec.sd;
   const q = Math.round(pos / drec.q) * drec.q;
   if (q < 0) return;
@@ -5417,6 +5437,29 @@ function bindActions() {
   $('#mk-grid').addEventListener('click', (e) => {
     const c = e.target.closest('.mk-cell');
     if (c) mkDrumTap(Number(c.dataset.step), c.dataset.inst);
+  });
+  // 드럼 칸 그림: 점을 누르면 지움, 빈 곳을 누르면 그 칸을 고름 (패드를 치면 거기에 들어감)
+  $('#mk-droll').addEventListener('pointerdown', (e) => {
+    if (drec.on) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    const lx = 44;
+    const x = e.clientX - r.left;
+    if (x < lx) return void ((mk.dsel = null), mkDroll());
+    const st = Math.max(0, Math.min(STEPS_PER_BAR - 1, Math.floor(((x - lx) / (r.width - lx)) * STEPS_PER_BAR)));
+    const row = Math.max(0, Math.min(DROLL_ROWS.length - 1, Math.floor(((e.clientY - r.top) / r.height) * DROLL_ROWS.length)));
+    const inst = { [CRASH]: 'C', [HAT]: 'H', [SNARE]: 'S', [KICK]: 'K' }[DROLL_ROWS[row][0]];
+    const cells = [...(mk.drums[mk.bar] || '')];
+    if (cells.length && drumCell(cells[st])[inst]) {
+      cells[st] = toggleDrum(cells[st], inst);
+      mk.drums[mk.bar] = cells.join('');
+      mk.drumsAuto = null;
+      mk.dsel = st;
+      mkSave();
+      mkRender();
+      return;
+    }
+    mk.dsel = mk.dsel === st ? null : st;
+    mkDroll();
   });
   $('#mk-roll').addEventListener('pointerdown', (e) => {
     const r = e.currentTarget.getBoundingClientRect();
