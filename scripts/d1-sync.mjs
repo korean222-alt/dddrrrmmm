@@ -404,6 +404,15 @@ async function main() {
         console.log(`  ${t.name.padEnd(18)} ${n}`);
       }
       console.log(`  합계 ${total} (D1 무료 쓰기 = 하루 10만 줄, 색인도 셈)`);
+      // 하루에 새로 생기는 양 (D1 무료 쓰기 한도와 비교)
+      const day = Date.now() - 86400000;
+      const one = async (sql) => Number((await neonDbConn.q(sql))[0].n);
+      console.log('\n지난 24시간:');
+      console.log(`  plays 새로 ${await one(`SELECT COUNT(*) AS n FROM plays WHERE started_at >= ${day}`)} · 끝남 ${await one(`SELECT COUNT(*) AS n FROM plays WHERE ended_at >= ${day}`)}`);
+      console.log(`  sessions 새로 ${await one(`SELECT COUNT(*) AS n FROM sessions WHERE started_at >= ${day}`)} · 갱신 ${await one(`SELECT COUNT(*) AS n FROM sessions WHERE last_at >= ${day}`)}`);
+      console.log(`  scores 바뀜 ${await one(`SELECT COUNT(*) AS n FROM scores WHERE at >= ${day}`)} · players 새로 ${await one(`SELECT COUNT(*) AS n FROM players WHERE created_at >= ${day}`)}`);
+      console.log(`  used_runs 지금 ${await one(`SELECT COUNT(*) AS n FROM used_runs`)} · 살아 있는 것 ${await one(`SELECT COUNT(*) AS n FROM used_runs WHERE expires_at >= ${Date.now()}`)}`);
+      console.log(`  plays 첫 기록 ${new Date(await one(`SELECT MIN(started_at) AS n FROM plays`)).toISOString()}`);
     }
     return;
   }
