@@ -465,7 +465,8 @@ test('이용 통계: 접속·판 기록 → 관리자만 집계 조회', async (
   assert.equal(t.fails, 1);
   assert.equal(t.quits, 1);
   // 활동 시간은 줄어들지 않고 가장 큰 값 (A 200초, B 30초 → 평균 115)
-  assert.equal(t.avgSessionSec, 115);
+  //   D1 은 쓰기 아끼려고 접속 줄을 10분에 한 번만 고침 → 여기선 처음 값 (A 10초, B 30초 → 평균 20)
+  assert.equal(t.avgSessionSec, process.env.TEST_D1 ? 20 : 115);
   const lv2 = st.byLevel.find((x) => x.level === '2');
   assert.equal(lv2.clear, 1);
   assert.equal(lv2.avgScore, 1234);

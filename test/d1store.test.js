@@ -62,13 +62,14 @@ test('점수·랭킹·참여자·통계가 Postgres 와 같은 결과', async ()
     r.push(await s.setHidden('g_c', true, 1));
     r.push(await s.purgeHidden(Date.now()));
     r.push(await s.expireTempChecks());
+    // 통계는 D1 에서 덜 씀(끝난 판만·접속은 10분마다) → 끝난 판·첫 접속 기준으로 비교
     await s.trackSession({ sid: 's1', vid: 'v1', now: 100, activeSec: 5 });
-    await s.trackSession({ sid: 's1', vid: 'v1', now: 200, activeSec: 3 });
+    await s.trackSession({ sid: 's1', vid: 'v1', now: 100 + 600000, activeSec: 9 });
     // 9줄 넘게 한 번에 (D1 바인딩 100개 제한 → 끊어 보냄)
     await s.trackPlays(Array.from({ length: 23 }, (_, i) => ({ id: 'p' + i, sid: 's1', vid: 'v1', level: String(i), startedAt: 100 + i, endedAt: i % 2 ? 900 : null, result: i % 2 ? 'clear' : null, score: i })));
     await s.trackPlays([{ id: 'p0', sid: 's1', vid: 'v1', level: '0', startedAt: 1, endedAt: 999, result: 'fail' }]);
     const st = await s.statsRaw(0, 1e15);
-    r.push(st.sessions, st.plays.sort((a, b) => a.id.localeCompare(b.id)), st.newVids);
+    r.push(st.sessions, st.plays.filter((p) => p.result && p.id !== 'p0').sort((a, b) => a.id.localeCompare(b.id)), st.newVids);
     const sid = await s.addSuggestion({ at: 5, kind: 'k', body: 'b', nick: 'n', vid: 'v1', contact: null });
     r.push(sid, await s.setSuggestionDone(sid, true, 7), await s.listSuggestions(0), await s.countSuggestions('v1', 0));
     const rid = await s.addRecoverRequest({ token: 'tok', at: 1, nick: 'n', oldIg: 'o', nowIg: 'w', memo: null, fromIgsid: 'g_b' });
@@ -81,7 +82,7 @@ test('점수·랭킹·참여자·통계가 Postgres 와 같은 결과', async ()
   }
   assert.deepEqual(out.d1, out.pg);
   // 테스트 끝 표시: 두 DB 의 줄 수 같음
-  for (const t of ['players', 'scores', 'season_scores', 'plays', 'sessions'])
+  for (const t of ['players', 'scores', 'season_scores', 'sessions'])
     assert.equal(Number((await dq(`SELECT COUNT(*) AS n FROM ${t}`))[0].n), Number((await pq(`SELECT COUNT(*) AS n FROM ${t}`))[0].n), t);
 });
 
@@ -147,4 +148,24 @@ test('친구 대결 방: patchRoom(얕게 합치기·조건)·findOpenRooms·옮
     out[name] = r;
   }
   assert.deepEqual(out.d1, out.pg);
+});
+
+test('D1 통계는 덜 씀: 시작만 한 판은 안 남고, 접속은 10분 넘게 지났을 때만 고침', async () => {
+  const raw = d1Local(new DatabaseSync(':memory:'));
+  const lite = { ...raw, q: async (t, p) => (await raw.q(t, p)).map((r) => ({ ...r })) };
+  const d1 = await new D1Store(lite).init();
+  await d1.trackPlays([{ id: 'play0001', sid: 's', vid: 'v', level: '3', startedAt: 10 }]);
+  assert.equal((await lite.q('SELECT COUNT(*) AS n FROM plays'))[0].n, 0);
+  await d1.trackPlays([
+    { id: 'play0002', sid: 's', vid: 'v', level: '3', startedAt: 10 },
+    { id: 'play0002', sid: 's', vid: 'v', level: '3', startedAt: 5, endedAt: 70, result: 'clear', score: 9, stars: 3, sec: 60 },
+  ]);
+  assert.deepEqual(await lite.q('SELECT id, started_at, ended_at, result FROM plays'), [{ id: 'play0002', started_at: 10, ended_at: 70, result: 'clear' }]);
+  await d1.trackSession({ sid: 's', vid: 'v', now: 1000, activeSec: 1 });
+  await d1.trackSession({ sid: 's', vid: 'v', now: 1000 + 60000, activeSec: 50 });
+  assert.deepEqual(await lite.q('SELECT last_at, active_sec FROM sessions'), [{ last_at: 1000, active_sec: 1 }]);
+  await d1.trackSession({ sid: 's', vid: 'v', now: 1000 + 600000, activeSec: 300 });
+  assert.deepEqual(await lite.q('SELECT last_at, active_sec FROM sessions'), [{ last_at: 601000, active_sec: 300 }]);
+  // 통계 표엔 색인 없음 (쓰기 아끼기)
+  assert.deepEqual((await lite.q("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name IN ('plays', 'sessions') AND name NOT LIKE 'sqlite_%'")), []);
 });

@@ -5,6 +5,9 @@
 //   node scripts/d1-sync.mjs catchup        (D1 로 바꾼 뒤) 복사 시작 뒤 Neon 에 생긴/바뀐 줄을 D1 에 합침 → 최종 맞춰 보기
 //   node scripts/d1-sync.mjs verify         Neon 과 D1 비교 보고만 (아무것도 안 바꿈)
 //   node scripts/d1-sync.mjs back           (Neon 으로 되돌린 뒤) D1 로 바꾼 뒤 D1 에 생긴/바뀐 줄을 Neon 에 합침
+//   node scripts/d1-sync.mjs backfill       예전 통계(plays·sessions, 15만 줄+)를 그날 남은 D1 쓰기 한도 안에서 조금씩 (매일 Actions 가 돌림)
+//
+//   ⚠ D1 무료 쓰기 = 하루 10만 줄(색인 포함, UTC 0시 = 한국 9시 초기화) → 통계 두 표는 copy·catchup 에서 빼고 backfill 로 며칠에 나눠 옮김
 //
 //   환경: CLOUDFLARE_API_TOKEN · CLOUDFLARE_ACCOUNT_ID · NEON_DATABASE_URL (GitHub 비밀값) · D1_NAME(기본 okaystra)
 //   시험: D1_LOCAL=파일.sqlite 면 D1 대신 node:sqlite 파일, NEON_LOCAL=pglite 폴더면 Neon 대신 PGlite
@@ -13,6 +16,9 @@
 //   전체 복사는 Neon 값이 이김(D1 은 아직 아무도 안 씀), 따라잡기는 '더 높은 점수·더 늦은 시각·빈 칸만 채움' 처럼 둘 다 살림
 
 import { D1_SCHEMA } from '../server/d1store.js';
+
+/** 통계 표 (backfill 로 따로 옮김) */
+const MAIN = (list) => list.filter((t) => !t.backfill);
 
 export const TABLES = [
   {
@@ -63,16 +69,17 @@ export const TABLES = [
   },
   {
     name: 'sessions', cols: { sid: 't', vid: 't', started_at: 'i', last_at: 'i', active_sec: 'i', ref: 't', device: 't' }, pk: ['sid'], ts: 'last_at >= $S',
-    merge: `last_at = CASE WHEN excluded.last_at > sessions.last_at THEN excluded.last_at ELSE sessions.last_at END,
+    merge: `started_at = CASE WHEN excluded.started_at < sessions.started_at THEN excluded.started_at ELSE sessions.started_at END,
+      last_at = CASE WHEN excluded.last_at > sessions.last_at THEN excluded.last_at ELSE sessions.last_at END,
       active_sec = CASE WHEN excluded.active_sec > sessions.active_sec THEN excluded.active_sec ELSE sessions.active_sec END`,
-    page: 5000, light: true,
+    page: 5000, light: true, backfill: 'started_at',
   },
   {
     name: 'plays', cols: { id: 't', sid: 't', vid: 't', level: 't', mode: 't', started_at: 'i', ended_at: 'i', result: 't', score: 'i', stars: 'i', sec: 'i' }, pk: ['id'],
     ts: 'started_at >= $S OR COALESCE(ended_at, 0) >= $S',
     merge: `ended_at = COALESCE(plays.ended_at, excluded.ended_at), result = COALESCE(plays.result, excluded.result), score = COALESCE(plays.score, excluded.score),
       stars = COALESCE(plays.stars, excluded.stars), sec = COALESCE(plays.sec, excluded.sec)`,
-    page: 5000, light: true,
+    page: 5000, light: true, backfill: 'started_at',
   },
   {
     name: 'ranked', cols: { season: 't', igsid: 't', rating: 'i', games: 'i', at: 'i', data: 'j' }, pk: ['season', 'igsid'], ts: 'at >= $S',
@@ -255,7 +262,7 @@ const tsOf = (r) => Math.max(0, ...['at', 'created_at', 'checked_at', 'hidden_at
  * src 의 줄이 dst 에 다 있고 같은지. { table, src, dst, missing, diff, extra, lateOnly }
  *   lateOnly = 빠지거나 다른 줄이 전부 `late` 이후에 바뀐 것 (복사 중에 새로 생긴 기록 → 따라잡기로 채워질 것)
  */
-export async function compare(src, dst, { late = Infinity, tables = TABLES } = {}) {
+export async function compare(src, dst, { late = Infinity, tables = MAIN(TABLES) } = {}) {
   const report = [];
   for (const t of tables) {
     const cols = t.light ? [...t.pk, ...Object.keys(t.cols).filter((c) => /_at$/.test(c))] : Object.keys(t.cols);
@@ -301,8 +308,8 @@ export async function createSchema(d1) {
   for (const s of D1_SCHEMA) await d1.q(s);
 }
 
-export async function copyAll(neonDb, d1, { since = 0, mode = 'replace', log = console.log } = {}) {
-  for (const t of TABLES) {
+export async function copyAll(neonDb, d1, { since = 0, mode = 'replace', log = console.log, tables = MAIN(TABLES) } = {}) {
+  for (const t of tables) {
     const rows = await readTable(neonDb, t, { since });
     const n = await writeRows(d1, t, rows, mode);
     log(`  ${t.name}: ${n}줄 ${mode === 'replace' ? '복사' : '합침'}`);
@@ -364,14 +371,86 @@ export async function runBack(neonDb, d1, { log = console.log } = {}) {
   const since = Number(await getFlag(d1, 'd1:switched_at')) || Number(await getFlag(d1, 'd1:copied_at'));
   if (!since) throw new Error('D1 로 바꾼 적 없음');
   log(`되돌리기: ${new Date(since - 120_000).toISOString()} 뒤 D1 기록 → Neon`);
-  await copyAll(d1, neonDb, { since: since - 120_000, mode: 'merge', log });
+  await copyAll(d1, neonDb, { since: since - 120_000, mode: 'merge', log, tables: TABLES });
   await setFlag(d1, 'd1:rolled_back_at', Date.now());
   // 다시 D1 로 갈 땐 catchup 이 그 뒤 Neon 기록을 가져오게
   await setFlag(d1, 'd1:copied_at', Date.now() - 60_000);
   await d1.q(`DELETE FROM settings WHERE key = 'd1:switched_at'`);
-  const report = await compare(d1, neonDb);
+  const report = await compare(d1, neonDb, { tables: TABLES });
   printReport('되돌린 뒤 (D1 의 줄이 Neon 에 있어야 함, 여기선 왼쪽이 D1)', report);
   log('✅ 되돌리기 합치기 끝');
+}
+
+/** 오늘(UTC) 이 계정 D1 에 쓴 줄 수 (Cloudflare GraphQL). 못 읽으면 null */
+export async function d1WrittenToday({ token, account }) {
+  try {
+    const date = new Date().toISOString().slice(0, 10);
+    const res = await fetch('https://api.cloudflare.com/client/v4/graphql', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: `query($a: String!, $d: Date!) { viewer { accounts(filter: { accountTag: $a }) { d1AnalyticsAdaptiveGroups(limit: 100, filter: { date: $d }) { sum { rowsWritten } } } } }`,
+        variables: { a: account, d: date },
+      }),
+    });
+    const j = await res.json();
+    const groups = j && j.data && j.data.viewer.accounts[0] && j.data.viewer.accounts[0].d1AnalyticsAdaptiveGroups;
+    if (!groups) return null;
+    return groups.reduce((n, g) => n + Number(g.sum.rowsWritten || 0), 0);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * backfill: 예전 통계를 오래된 것부터 budget 줄까지 D1 에 (어디까지 했는지는 D1 settings 'd1:backfill:<표>')
+ *   D1 에 같은 줄이 이미 있으면(바꾼 뒤 이어진 접속 등) 합침. 돌려주는 값 = 이번에 넣은 줄 수 · 다 끝났나
+ */
+export async function runBackfill(neonDb, d1, { budget, log = console.log } = {}) {
+  if (!(await getFlag(d1, 'd1:switched_at'))) throw new Error('아직 D1 로 안 바꿈 — migrate 먼저');
+  let left = budget;
+  let done = true;
+  for (const t of TABLES.filter((x) => x.backfill)) {
+    const key = 'd1:backfill:' + t.name;
+    const pos = JSON.parse((await getFlag(d1, key)) || 'null');
+    if (pos && pos.done) continue;
+    let ts = pos ? pos.ts : -1;
+    let id = pos ? pos.id : '';
+    let n = 0;
+    const pk = t.pk[0];
+    while (left > 0) {
+      const lim = Math.min(t.page || 2000, left, neonDb.pageCap || Infinity);
+      const rows = await neonDb.q(
+        `SELECT ${Object.keys(t.cols).join(', ')} FROM ${t.name}
+         WHERE ${t.backfill} > ${Math.floor(ts)} OR (${t.backfill} = ${Math.floor(ts)} AND ${pk} > ${lit(id, 't')})
+         ORDER BY ${t.backfill}, ${pk} LIMIT ${lim}`
+      );
+      if (!rows.length) {
+        await setFlag(d1, key, JSON.stringify({ ts, id, done: true }));
+        log(`  ${t.name}: 다 옮김 ✅`);
+        break;
+      }
+      await writeRows(d1, t, rows, 'merge');
+      const last = rows[rows.length - 1];
+      ts = Number(last[t.backfill]);
+      id = String(last[pk]);
+      n += rows.length;
+      left -= rows.length;
+      await setFlag(d1, key, JSON.stringify({ ts, id, done: false }));
+    }
+    const all = await countOf(neonDb, t);
+    const before = await neonDb.q(`SELECT COUNT(*) AS n FROM ${t.name} WHERE ${t.backfill} < ${Math.floor(ts)} OR (${t.backfill} = ${Math.floor(ts)} AND ${pk} <= ${lit(id, 't')})`);
+    log(`  ${t.name}: 이번에 ${n}줄 · Neon ${all}줄 중 ${Number(before[0].n)}줄까지 옮김 (${new Date(Math.max(0, ts)).toISOString().slice(0, 16)} 까지)`);
+    const p = JSON.parse((await getFlag(d1, key)) || 'null');
+    if (!p || !p.done) done = false;
+  }
+  if (done) {
+    const rep = await compare(neonDb, d1, { tables: TABLES.filter((x) => x.backfill) });
+    printReport('통계 옮기기 끝 — Neon 의 모든 통계 줄이 D1 에 있어야 함', rep);
+    const miss = rep.filter((r) => r.missing);
+    if (miss.length) throw new Error(`D1 에 빠진 통계 줄: ${miss.map((r) => `${r.table} ${r.missing}`).join(', ')}`);
+  }
+  return { written: budget - left, done };
 }
 
 async function main() {
@@ -416,6 +495,26 @@ async function main() {
     }
     return;
   }
+  const usage = async (when) => {
+    if (env.D1_LOCAL) return null;
+    const w = await d1WrittenToday({ token: env.CLOUDFLARE_API_TOKEN, account: env.CLOUDFLARE_ACCOUNT_ID });
+    console.log(`D1 오늘(UTC) 쓴 줄 ${when}: ${w == null ? '못 읽음' : w.toLocaleString()} / 100,000`);
+    return w;
+  };
+  if (cmd === 'backfill') {
+    if (!(await d1.find()) || !(await getFlag(d1, 'd1:switched_at').catch(() => null))) return void console.log('아직 D1 로 안 바꿈 — 할 일 없음');
+    const w = await usage('지금');
+    // 하루 한도 10만 중 9만까지만, 남은 시간 실사용 몫(5천)은 남겨 둠. 사용량을 못 읽으면 조심해서 1만 5천
+    const cap = Number(env.BACKFILL_MAX || 40000);
+    const budget = w == null ? 15000 : Math.max(0, Math.min(cap, 85000 - w));
+    console.log(`이번 통계 옮기기 한도: ${budget}줄`);
+    if (!budget) return;
+    const r = await runBackfill(neonDbConn, d1, { budget });
+    console.log(r.done ? '✅ 예전 통계 전부 D1 에 옮김' : `이번에 ${r.written}줄. 남은 건 내일 이어서`);
+    await usage('끝난 뒤');
+    return;
+  }
+  if (cmd === 'copy' || cmd === 'catchup') await usage('시작 전');
   if (cmd === 'copy') return void (await runCopy(neonDbConn, d1));
   if (cmd === 'catchup') return void (await runCatchup(neonDbConn, d1));
   if (cmd === 'back') return void (await runBack(neonDbConn, d1));
@@ -425,7 +524,7 @@ async function main() {
     console.log(`secret:session: ${s.same ? '같음 ✅' : '다름 ❌'}`);
     return;
   }
-  console.error('명령: prepare | copy | catchup | verify | back');
+  console.error('명령: prepare | copy | catchup | verify | back | backfill');
   process.exit(2);
 }
 

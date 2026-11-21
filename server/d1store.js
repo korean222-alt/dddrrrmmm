@@ -13,9 +13,15 @@ export function toSqlite(text) {
 }
 
 /** D1 은 undefined·boolean 을 못 받음 */
+/** 접속 통계를 다시 쓰는 최소 간격 */
+export const SESSION_WRITE_EVERY_MS = 10 * 60 * 1000;
+
 const val = (v) => (v === undefined ? null : v === true ? 1 : v === false ? 0 : v);
 
-/** SQLite 표 (Neon 의 SCHEMA 를 다 돈 뒤 모양과 같은 열) */
+/**
+ * SQLite 표 (Neon 의 SCHEMA 를 다 돈 뒤 모양과 같은 열)
+ *   ⚠ D1 무료 쓰기 = 하루 10만 줄, 색인도 한 줄씩 셈 → 통계 표(sessions·plays)엔 색인을 안 둠 (관리자 통계는 가끔이라 읽기로 충분)
+ */
 export const D1_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS players (igsid TEXT PRIMARY KEY, username TEXT, follow_verified_at INTEGER, ig TEXT, created_at INTEGER, checked_at INTEGER, hidden_at INTEGER)`,
   `CREATE TABLE IF NOT EXISTS scores (igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, grade TEXT, max_combo INTEGER, at INTEGER NOT NULL, PRIMARY KEY (igsid, level))`,
@@ -23,10 +29,7 @@ export const D1_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS used_runs (nonce TEXT PRIMARY KEY, expires_at INTEGER NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS sessions (sid TEXT PRIMARY KEY, vid TEXT NOT NULL, started_at INTEGER NOT NULL, last_at INTEGER NOT NULL, active_sec INTEGER NOT NULL DEFAULT 0, ref TEXT, device TEXT)`,
-  `CREATE INDEX IF NOT EXISTS sessions_started ON sessions (started_at)`,
-  `CREATE INDEX IF NOT EXISTS sessions_vid ON sessions (vid)`,
   `CREATE TABLE IF NOT EXISTS plays (id TEXT PRIMARY KEY, sid TEXT NOT NULL, vid TEXT NOT NULL, level TEXT NOT NULL, mode TEXT, started_at INTEGER NOT NULL, ended_at INTEGER, result TEXT, score INTEGER, stars INTEGER, sec INTEGER)`,
-  `CREATE INDEX IF NOT EXISTS plays_started ON plays (started_at)`,
   `CREATE TABLE IF NOT EXISTS suggestions (id INTEGER PRIMARY KEY, at INTEGER NOT NULL, kind TEXT, body TEXT NOT NULL, nick TEXT, vid TEXT, done_at INTEGER, contact TEXT)`,
   `CREATE INDEX IF NOT EXISTS suggestions_at ON suggestions (at)`,
   `CREATE TABLE IF NOT EXISTS rooms (code TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at INTEGER NOT NULL, expires_at INTEGER NOT NULL)`,
@@ -152,18 +155,28 @@ export class D1Store extends PgStore {
     return { improved, best: improved ? entry.score : Number(pre.prev) };
   }
 
+  /**
+   * 접속 통계: 처음 한 번 넣고, 그 뒤엔 10분 넘게 지났을 때만 고침 (D1 쓰기 아끼기 — 매 판·5분마다 고치던 것)
+   *   조건이 안 맞으면 아무 줄도 안 바뀌어 쓰기로 안 셈
+   */
   async trackSession({ sid, vid, now, activeSec, ref, device }) {
     await this.q(
       `INSERT INTO sessions (sid, vid, started_at, last_at, active_sec, ref, device) VALUES ($1, $2, $3, $3, $4, $5, $6)
-       ON CONFLICT (sid) DO UPDATE SET last_at = excluded.last_at, active_sec = MAX(sessions.active_sec, excluded.active_sec)`,
+       ON CONFLICT (sid) DO UPDATE SET last_at = excluded.last_at, active_sec = MAX(sessions.active_sec, excluded.active_sec)
+       WHERE excluded.last_at >= sessions.last_at + ${SESSION_WRITE_EVERY_MS}`,
       [sid, vid, now, activeSec, ref || null, device || null]
     );
   }
 
-  /** 여러 판을 한 번에. 바인딩 값 100개 제한이라 9줄(×11)씩 끊어서 batch 로 */
+  /**
+   * 판 통계: 끝난 판만 한 줄 (D1 쓰기 아끼기 — 시작 때 한 줄 + 끝날 때 고치던 것). 끝 신호 없이 사라진 판은 안 남음
+   *   바인딩 값 100개 제한이라 9줄(×11)씩 끊어서 batch 로
+   */
   async trackPlays(list) {
     const byId = new Map();
+    const ended = new Set(list.filter((p) => p.endedAt != null).map((p) => p.id));
     for (const p of list) {
+      if (!ended.has(p.id)) continue;
       const r = byId.get(p.id);
       if (!r) byId.set(p.id, { ...p });
       else for (const k of ['endedAt', 'result', 'score', 'stars', 'sec']) if (p[k] != null) r[k] = p[k];

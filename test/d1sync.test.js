@@ -9,7 +9,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { PGlite } from '@electric-sql/pglite';
 import { PgStore } from '../server/pgstore.js';
 import { D1Store, d1Local } from '../server/d1store.js';
-import { localPg, localSqlite, runCopy, runCatchup, runBack, compare, TABLES, lit } from '../scripts/d1-sync.mjs';
+import { localPg, localSqlite, runCopy, runCatchup, runBack, runBackfill, compare, TABLES, lit } from '../scripts/d1-sync.mjs';
 
 const quiet = () => {};
 
@@ -76,6 +76,23 @@ test('Neon → D1 전체 복사 · 따라잡기 · 되돌리기', async () => {
   // 두 번 돌려도 그대로
   await runCatchup(neon, d1, { log: quiet });
   assert.equal((await d1Store.listSuggestions()).length, 3);
+
+  // 통계(plays·sessions)는 copy·catchup 에서 빠지고 backfill 로 조금씩
+  const stats = TABLES.filter((t) => t.backfill);
+  assert.equal((await d1.q('SELECT COUNT(*) AS n FROM plays'))[0].n, 0);
+  await neonStore.trackPlays(Array.from({ length: 30 }, (_, i) => ({ id: 'bf' + String(i).padStart(3, '0'), sid: 'os1', vid: 'v', level: '1', startedAt: old + (i % 7) })));
+  // 바꾼 뒤 D1 에 이어진 접속 (같은 sid) → 합칠 때 처음 시각은 Neon 쪽
+  await d1Store.trackSession({ sid: 'os1', vid: 'v', now: Date.now(), activeSec: 99 });
+  let r1 = await runBackfill(neon, d1, { budget: 5, log: quiet });
+  assert.deepEqual(r1, { written: 5, done: false });
+  r1 = await runBackfill(neon, d1, { budget: 7, log: quiet });
+  assert.equal(r1.done, false);
+  r1 = await runBackfill(neon, d1, { budget: 1000, log: quiet });
+  assert.equal(r1.done, true);
+  for (const r of await compare(neon, d1, { tables: stats })) assert.equal(r.missing, 0, r.table);
+  assert.equal((await d1.q('SELECT COUNT(*) AS n FROM plays'))[0].n, (await neon.q('SELECT COUNT(*) AS n FROM plays'))[0].n);
+  assert.equal(Number((await d1.q("SELECT started_at FROM sessions WHERE sid = 'os1'"))[0].started_at), old);
+  assert.equal((await runBackfill(neon, d1, { budget: 1000, log: quiet })).written, 0);
 
   // 되돌리기: D1 에서 생긴 기록이 Neon 으로
   await runBack(neon, d1, { log: quiet });
