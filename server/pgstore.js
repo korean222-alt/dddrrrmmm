@@ -323,8 +323,8 @@ END $$`);
     return this.getPlayer(igsid);
   }
   /** 관리자용 참여자 목록 (확인 안 한 사람 먼저, 최근 가입 순) */
-  /** limit: admin 참여자 탭은 1000명, 되찾기 후보 찾기는 전부(예전 계정은 목록 맨 뒤라 잘리면 못 찾음) */
-  async listPlayers(limit = 1000) {
+  /** limit: 기본은 제한 없음(2026-11-21 사용자 요청, 1000명 넘어 사람이 안 보였음)(예전 계정은 목록 맨 뒤라 잘리면 못 찾음) */
+  async listPlayers(limit = 1_000_000) {
     const rows = await this.q(
       `SELECT p.igsid, p.username, p.ig, p.created_at, p.checked_at, p.hidden_at,
          COALESCE(SUM(s.score) FILTER (WHERE s.level > 0), 0) AS total, COUNT(s.level) FILTER (WHERE s.level > 0) AS levels,
