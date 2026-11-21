@@ -24,7 +24,7 @@ export const sortPlayers = (rows) => rows.sort((a, b) => !!a.hiddenAt - !!b.hidd
 export class JsonStore {
   constructor(file) {
     this.file = file;
-    this.data = { players: {}, usedRuns: {}, sessions: {}, plays: {}, settings: {}, suggestions: [], rooms: {}, transfers: {}, recoverRequests: [], maps: {}, mapVotes: {}, mapScores: {}, ranked: {}, rankedRuns: {} };
+    this.data = { players: {}, usedRuns: {}, sessions: {}, plays: {}, settings: {}, suggestions: [], rooms: {}, transfers: {}, recoverRequests: [], maps: {}, mapVotes: {}, mapScores: {}, ranked: {}, rankedRuns: {}, seasonScores: {}, hall: [] };
     this._timer = null;
   }
 
@@ -32,7 +32,7 @@ export class JsonStore {
     try {
       const raw = fs.readFileSync(this.file, 'utf8');
       const d = JSON.parse(raw);
-      this.data = { players: d.players || {}, usedRuns: d.usedRuns || {}, sessions: d.sessions || {}, plays: d.plays || {}, settings: d.settings || {}, suggestions: d.suggestions || [], rooms: d.rooms || {}, transfers: d.transfers || {}, recoverRequests: d.recoverRequests || [], maps: d.maps || {}, mapVotes: d.mapVotes || {}, mapScores: d.mapScores || {}, ranked: d.ranked || {}, rankedRuns: d.rankedRuns || {} };
+      this.data = { players: d.players || {}, usedRuns: d.usedRuns || {}, sessions: d.sessions || {}, plays: d.plays || {}, settings: d.settings || {}, suggestions: d.suggestions || [], rooms: d.rooms || {}, transfers: d.transfers || {}, recoverRequests: d.recoverRequests || [], maps: d.maps || {}, mapVotes: d.mapVotes || {}, mapScores: d.mapScores || {}, ranked: d.ranked || {}, rankedRuns: d.rankedRuns || {}, seasonScores: d.seasonScores || {}, hall: d.hall || [] };
       // 인스타 아이디 등록 기능을 없앴으므로, 예전에 인증된 인스타 계정 기록과 인증 코드는 지움
       for (const [k, p] of Object.entries(this.data.players)) if (p.followVerifiedAt) delete this.data.players[k];
       // 무제한 기록(level <= 0): 예전 방식(깬 단계 × 100만 + 점수) → 새 방식(× 10억)
@@ -222,6 +222,57 @@ export class JsonStore {
     return r ? { rank: r.rank, score: r.score } : null;
   }
 
+  // ---------- 🏛 시즌 총합 랭킹 · 명예의 전당 ----------
+  recordSeasonScore(season, igsid, level, score, now = Date.now()) {
+    const key = `${season}|${igsid}`;
+    const m = (this.data.seasonScores[key] ||= {});
+    if (!m[level] || score > m[level].score) {
+      m[level] = { score, at: now };
+      this._save();
+    }
+  }
+  _seasonAll(season, board) {
+    const rows = [];
+    const want = (lv) => (board === 'endless' ? lv <= 0 : lv > 0 && lv <= LAST_LEVEL_ID);
+    for (const p of Object.values(this.data.players)) {
+      if (!p.username || p.hiddenAt || !p.checkedAt) continue;
+      const src = Number(season) === 1 ? p.bests || {} : this.data.seasonScores[`${season}|${p.igsid}`] || {};
+      const bs = Object.entries(src).filter(([lv]) => want(Number(lv))).map(([, b]) => b);
+      if (!bs.length) continue;
+      const E = 1_000_000_000;
+      rows.push({
+        igsid: p.igsid, username: p.username, n: bs.length, at: Math.max(...bs.map((b) => b.at || 0)),
+        score: bs.reduce((a, b) => a + (board === 'endless' ? b.score % E : b.score), 0),
+        rounds: board === 'endless' ? bs.reduce((a, b) => a + Math.floor(b.score / E), 0) : 0,
+      });
+    }
+    rows.sort((a, b) => b.score - a.score || a.at - b.at);
+    rows.forEach((r, i) => (r.rank = i + 1));
+    return rows;
+  }
+  seasonBoard(season, board, limit = 50) {
+    return { rows: this._seasonAll(season, board).slice(0, limit) };
+  }
+  seasonRankOf(season, board, igsid) {
+    return this._seasonAll(season, board).find((r) => r.igsid === igsid) || null;
+  }
+  hallList() {
+    return [...this.data.hall].sort((a, b) => b.season - a.season || a.board.localeCompare(b.board) || a.rank - b.rank).map((r) => ({ image: null, ...r }));
+  }
+  hallInsert(rows) {
+    for (const r of rows)
+      if (!this.data.hall.some((h) => h.season === r.season && h.board === r.board && h.rank === r.rank))
+        this.data.hall.push({ season: r.season, board: r.board, rank: r.rank, igsid: r.igsid, username: r.username, score: r.score, n: r.n ?? null, rounds: r.rounds ?? null, at: r.at, image: null });
+    this._save();
+  }
+  hallSetImage(season, board, rank, image, igsid = null) {
+    const h = this.data.hall.find((x) => x.season === season && x.board === board && x.rank === rank && (!igsid || x.igsid === igsid));
+    if (!h) return false;
+    h.image = image;
+    this._save();
+    return true;
+  }
+
   playersByIg(ig) {
     return Object.values(this.data.players)
       .filter((p) => p.ig === ig && p.username)
@@ -249,6 +300,13 @@ export class JsonStore {
     if (!a || !b || from === to) return;
     for (const [lv, e] of Object.entries(a.bests || {})) if (!b.bests[lv] || e.score > b.bests[lv].score) b.bests[lv] = e;
     a.bests = {};
+    for (const [k, m] of Object.entries(this.data.seasonScores)) {
+      const [season, who] = k.split('|');
+      if (who !== from) continue;
+      const t = (this.data.seasonScores[`${season}|${to}`] ||= {});
+      for (const [lv, e] of Object.entries(m)) if (!t[lv] || e.score > t[lv].score) t[lv] = e;
+      delete this.data.seasonScores[k];
+    }
     this._save();
   }
 

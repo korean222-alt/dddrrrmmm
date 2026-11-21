@@ -9046,6 +9046,54 @@ const hasOpenPlay = () => !!play;
 return { takeTrack, initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay };
 })();
 
+// ---- season.js ----
+const __m_season = (() => {
+// 🏛 시즌 · 명예의 전당 (브라우저와 서버가 같이 씀)
+//   시즌마다 '단계 총합'(1~LAST_LEVEL_ID 단계 최고점 합)과 '무제한 총합'(무제한 판들의 점수 합) 두 랭킹.
+//   시즌이 끝나면 두 랭킹의 1·2·3등이 명예의 전당(hall)에 영원히 남고, 그 사람은 프로필 사진을 올릴 수 있음.
+//   시즌 1 = 처음 ~ 2026-11-26 23:59:59 (한국 시간, 인스타 DM 금지 마지막 날) / 시즌 2 = 11-27 부터 (끝나는 날은 아직 안 정함)
+//   시즌 1 점수 = 지금까지의 최고 기록(scores), 시즌 2 부터는 그 시즌에 친 기록만(season_scores)
+
+const SEASONS = [
+  { n: 1, end: Date.UTC(2026, 10, 26, 14, 59, 59, 999) },
+  { n: 2, end: null },
+];
+const HALL_BOARDS = ['stage', 'endless'];
+const BOARD_LABEL = { stage: '🎵 단계 총합', endless: '💎 무제한 총합' };
+/** 프로필 사진 (data URL) 최대 길이 — 160px 정사각 JPEG 면 보통 10~20KB */
+const HALL_IMAGE_MAX = 60000;
+
+/** 그 시각의 시즌 { n, start, end } */
+function seasonAt(t = Date.now()) {
+  let start = 0;
+  for (const s of SEASONS) {
+    if (s.end == null || t <= s.end) return { n: s.n, start, end: s.end };
+    start = s.end + 1;
+  }
+  const last = SEASONS[SEASONS.length - 1];
+  return { n: last.n, start, end: last.end };
+}
+/** 이미 끝난 시즌 번호들 */
+const endedSeasons = (t = Date.now()) => SEASONS.filter((s) => s.end != null && t > s.end).map((s) => s.n);
+
+/** '3일 뒤 시즌 1이 끝나요' 같은 안내 (한국 날짜 기준) */
+function seasonLeftText(t = Date.now()) {
+  const s = seasonAt(t);
+  if (s.end == null) return `🏆 시즌 ${s.n} 진행 중`;
+  const day = (ms) => Math.floor((ms + 9 * 3600e3) / 86400e3); // 한국 날짜 번호
+  const d = day(s.end) - day(t);
+  if (d <= 0) return `⏰ 오늘 밤 12시에 시즌 ${s.n}이 끝나요!`;
+  if (d === 1) return `⏰ 내일 밤 12시에 시즌 ${s.n}이 끝나요!`;
+  return `🏆 ${d}일 뒤 시즌 ${s.n}이 종료돼요`;
+}
+
+/** 사진 data URL 검사 */
+const cleanHallImage = (v) =>
+  typeof v === 'string' && v.length <= HALL_IMAGE_MAX && /^data:image\/(jpeg|webp|png);base64,[A-Za-z0-9+/=]+$/.test(v) ? v : null;
+
+return { SEASONS, HALL_BOARDS, BOARD_LABEL, HALL_IMAGE_MAX, seasonAt, endedSeasons, seasonLeftText, cleanHallImage };
+})();
+
 // ---- api.js ----
 const __m_api = (() => {
 // 서버 통신. 서버가 없으면(정적 호스팅/로컬 파일) 브라우저 안 가짜 API로 동작합니다.
@@ -9055,6 +9103,7 @@ const __m_api = (() => {
 const { load, save } = __m_storage;
 const { gradeFor } = __m_charts;
 const { takeTrack } = __m_track;
+const { seasonAt } = __m_season;
 
 async function http(method, url, body) {
   const res = await fetch(url, {
@@ -9117,6 +9166,21 @@ function serverApi(boot = null) {
       lbCache.set(String(level), { at: Date.now(), p });
       p.catch(() => lbCache.delete(String(level)));
       return p;
+    },
+    // 🏛 명예의 전당: 랭킹처럼 1분 동안 같은 걸 다시 씀
+    hall: (board) => {
+      const key = 'hall:' + board;
+      const hit = lbCache.get(key);
+      if (hit && Date.now() - hit.at < LB_CACHE_MS) return hit.p;
+      const p = http('GET', `/api/hall?board=${board === 'endless' ? 'endless' : 'stage'}`);
+      lbCache.set(key, { at: Date.now(), p });
+      p.catch(() => lbCache.delete(key));
+      return p;
+    },
+    hallPhoto: (body) => {
+      lbCache.delete('hall:stage');
+      lbCache.delete('hall:endless');
+      return http('POST', '/api/hall/photo', body);
     },
     logout: () => http('POST', '/api/logout'),
     suggest: (kind, text, contact) => http('POST', '/api/suggestions', { kind, text, contact }),
@@ -9217,6 +9281,10 @@ function mockApi(cfg) {
       const me = entries.find((e) => e.me) || null;
       return { level: Number(level), entries, me, sample: true };
     },
+    async hall(board) {
+      const s = seasonAt();
+      return { season: { n: s.n, end: s.end }, board, levels: 15, entries: [], me: null, hall: [], sample: true };
+    },
     async logout() {
       save('mockPlayer', null);
       return { ok: true };
@@ -9299,12 +9367,12 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-21c',
+    id: '2026-11-21d',
     date: '11월 21일',
-    title: '🏆 랭킹전 · 🎭 장거리 네순 도르마',
+    title: '🏛 명예의 전당 · 시즌 1 · 🎭 장거리 네순 도르마',
     items: [
-      '<b>🏆 랭킹전</b>이 생겼어요! 실시간으로 상대를 찾고, 없으면 비슷한 실력인 사람의 기록(👻 고스트)과 겨뤄요',
-      '이기면 점수가 오르고 지면 내려가요. 🥉브론즈 → 🥈실버 → 🥇골드 → 💎다이아 → 👑마스터, 한 달마다 새 시즌',
+      '<b>🏛 명예의 전당</b>이 생겼어요! 🏆 랭킹 → 🎵 단계 총합 / 💎 무제한 총합',
+      '<b>시즌 1은 11월 26일 밤 12시에 끝나요.</b> 1·2·3등은 명예의 전당에 영원히 기록되고, 프로필 사진도 올릴 수 있어요',
       '<b>🎭 장거리</b>가 바뀌었어요: 곡 하나를 <b>처음부터 끝까지</b>! 첫 곡은 오페라 <b>네순 도르마</b>',
       '왼쪽 엄지는 <b>쿵</b>, 오른쪽 엄지는 <b>멜로디</b> — 누를 때마다 그 음이 피아노 화음으로 울려요. 놓치면 그 음은 안 들려요!',
       '<b>🎹 유저 맵</b> 노래 파일 음 따기가 더 정확해졌어요: 반주는 빼고 <b>보컬 멜로디</b>를 골라 들어요',
@@ -10654,6 +10722,7 @@ const { NEWS, LATEST_NEWS } = __m_news;
 const { RoomClient, roomOutcome, survivalOutcome } = __m_room;
 const { makeReelCover } = __m_cover;
 const { detectBeat, monoOf, songChart } = __m_beatsync;
+const { seasonLeftText, BOARD_LABEL } = __m_season;
 const { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder } = __m_storage;
 
 migrateLevelOrder(); // 8단계에 새 곡이 끼면서 밀린 번호를 이 브라우저 기록에도 반영 (아래 state 보다 먼저)
@@ -10800,7 +10869,7 @@ function isVerified() {
   return !!(state.me && state.me.guest && state.me.checked);
 }
 const verifyLocked = (id) => state.cfg.gateMode !== 'open' && needsVerify(id) && !isVerified();
-const VERIFY_WHAT = () => `${FREE_UPTO + 1}단계부터·💎 무제한·🏆 랭킹전·💬 건의하기`;
+const VERIFY_WHAT = () => `${FREE_UPTO + 1}단계부터·💎 무제한·⚔️ 멀티·💬 건의하기`;
 /** 운영자가 팔로우를 확인함 = 인증 완료 (서버 없는 모드에선 확인할 방법이 없어서 잠가 둠) */
 function isConfirmed() {
   return !!(state.api && state.api.mode === 'server' && isVerified() && state.me.confirmed);
@@ -10917,7 +10986,7 @@ async function submitVerify() {
     if (me.temp) toast(`🎉 ${freePassDay()}까지 전부 이용할 수 있어요! 그 뒤엔 팔로우 인증을 다시 받아야 해요`, 4600);
     else if (restored) toast(`📦 예전 기록을 되찾았어요! 「${restored.username}」 계정${restored.levels ? ` · ${restored.levels}개 단계` : ''} 그대로예요`, 4200);
     else if (state.verifyRestore) toast('이 인스타 아이디로 된 예전 랭킹 기록은 없었어요. 인증은 완료!', 3600);
-    else toast(`🎉 팔로워 인증 완료! 잠긴 단계·💎 무제한·랭킹전·건의하기가 전부 열렸어요`, 3600);
+    else toast(`🎉 팔로워 인증 완료! 잠긴 단계·💎 무제한·멀티·건의하기가 전부 열렸어요`, 3600);
     state.verifyRestore = false;
     submitRank();
     state.verifyFor = null;
@@ -11057,10 +11126,10 @@ function refreshTitle() {
   // 🆓 임시 인증 기간 안내 (인스타 DM 막힘)
   const fp = $('#free-pass-note');
   fp.hidden = !(state.api && state.api.mode === 'server' && freePass());
-  if (!fp.hidden) fp.querySelector('span').innerHTML = `인스타 DM 이 잠시 막혀서 <b>${freePassDay()}까지는</b> 4단계부터·무제한·랭킹전 전부 이용할 수 있어요! 그 뒤엔 팔로우 인증을 다시 받아야 해요.`;
-  // 랭킹전·건의하기는 팔로워 인증한 사람만 → 안 했으면 🔒
+  if (!fp.hidden) fp.querySelector('span').innerHTML = `인스타 DM 이 잠시 막혀서 <b>${freePassDay()}까지는</b> 4단계부터·무제한·멀티 전부 이용할 수 있어요! 그 뒤엔 팔로우 인증을 다시 받아야 해요.`;
+  // 멀티·건의하기는 팔로워 인증한 사람만 → 안 했으면 🔒
   const lockMark = followGated() ? '🔒 ' : '';
-  $('.mode-multi b').innerHTML = `${icon('trophy', true)} ${lockMark}랭킹전`;
+  $('.mode-multi b').innerHTML = `${icon('swords', true)} ${lockMark}멀티`;
   $('[data-action="suggest-open"] span:not([data-icon])').textContent = `${lockMark}건의하기`;
   refreshToday();
   refreshQuick();
@@ -12024,23 +12093,30 @@ async function shareResult() {
 // ---------------- 랭킹 ----------------
 /** 이 랭킹 칸이 무제한 랭킹인지 ('endless' 또는 'e5' 같은 단계별 무제한) */
 const isEndlessRank = (id) => id === ENDLESS_ID || !!levelEndlessBase(id);
+/** 🏛 명예의 전당 칸 ('hall-stage' 단계 총합 / 'hall-endless' 무제한 총합) */
+const isHallRank = (id) => typeof id === 'string' && id.startsWith('hall-');
+const rankModeOf = (id) => (isHallRank(id) ? 'hall' : isEndlessRank(id) ? 'endless' : 'normal');
 
 async function openRank(levelId) {
-  state.rankLevel = levelId || state.rankLevel || 1;
+  state.rankLevel = levelId === 'total' ? 'hall-stage' : levelId || state.rankLevel || 'hall-stage';
   renderRankTabs();
   openModal('modal-rank');
   await loadRank();
 }
 
-/** 위: 🎵 단계 / 💎 무제한 전환. 아래: 그 안의 탭 (단계 = 총 등수 + 1~15단계, 무제한 = 그리그 + 단계별 무제한) */
+/** 위: 🏛 명예의 전당 / 🎵 단계 / 💎 무제한. 아래: 그 안의 탭 (전당 = 단계 총합·무제한 총합, 단계 = 단계별, 무제한 = 그리그 + 단계별 무제한) */
 function renderRankTabs() {
   const cur = state.rankLevel;
-  const endless = isEndlessRank(cur);
-  $$('#rank-mode button').forEach((b) => b.setAttribute('aria-selected', String((b.dataset.rankMode === 'endless') === endless)));
+  const mode = rankModeOf(cur);
+  $('#rank-season').textContent = seasonLeftText();
+  $$('#rank-mode button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.rankMode === mode)));
   const tab = (id, label) => `<button role="tab" data-rank="${id}" aria-selected="${id === cur}">${label}</button>`;
-  $('#rank-tabs').innerHTML = endless
-    ? tab(ENDLESS_ID, '♾️ 그리그') + MAIN_LEVELS.filter((l) => !closedLocked(levelEndlessId(l.id))).map((l) => tab(levelEndlessId(l.id), `${l.id}단계 ∞`)).join('')
-    : tab('total', '🏆 총 등수') + LEVELS.map((l) => tab(l.id, l.xmas ? '🎄 이벤트' : l.long ? '🎭 장거리' : `${l.id}단계`)).join('');
+  $('#rank-tabs').innerHTML =
+    mode === 'hall'
+      ? tab('hall-stage', BOARD_LABEL.stage) + tab('hall-endless', BOARD_LABEL.endless)
+      : mode === 'endless'
+        ? tab(ENDLESS_ID, '♾️ 그리그') + MAIN_LEVELS.filter((l) => !closedLocked(levelEndlessId(l.id))).map((l) => tab(levelEndlessId(l.id), `${l.id}단계 ∞`)).join('')
+        : LEVELS.map((l) => tab(l.id, l.xmas ? '🎄 이벤트' : l.long ? '🎭 장거리' : `${l.id}단계`)).join('');
   const sel = $('#rank-tabs [aria-selected="true"]');
   if (sel) sel.scrollIntoView({ block: 'nearest', inline: 'center' });
 }
@@ -12053,12 +12129,24 @@ async function loadRank() {
     return;
   }
   list.innerHTML = '<div class="rank-empty"><span class="spinner" style="display:inline-block"></span></div>';
+  const want = state.rankLevel;
   try {
-    const data = await state.api.leaderboard(state.rankLevel);
-    const total = state.rankLevel === 'total';
-    const endless = isEndlessRank(state.rankLevel);
+    if (isHallRank(want)) {
+      const board = want === 'hall-endless' ? 'endless' : 'stage';
+      const data = await state.api.hall(board);
+      if (state.rankLevel !== want) return;
+      list.innerHTML = hallHtml(data, board);
+      const foot = [];
+      foot.push(board === 'endless' ? '무제한 판(그리그·단계별 무제한) 점수를 모두 더한 점수예요.' : '단계별 최고점을 모두 더한 점수예요. 더 많은 단계를 높은 점수로 칠수록 올라가요!');
+      if (data.season.n > 1) foot.push(`시즌 ${data.season.n}에 친 기록만 세요.`);
+      if (data.me) foot.push(`내 순위: ${data.me.rank}위.`);
+      rankFootJoin(foot);
+      return;
+    }
+    const data = await state.api.leaderboard(want);
+    if (state.rankLevel !== want) return;
+    const endless = isEndlessRank(want);
     if (!data.entries.length) list.innerHTML = '<div class="rank-empty">아직 아무도 없어요. 첫 1위의 주인공이 되어보세요!</div>';
-    else if (total) list.innerHTML = totalRankHtml(data);
     else if (endless) list.innerHTML = endlessRankHtml(data);
     else
       list.innerHTML = data.entries
@@ -12071,17 +12159,101 @@ async function loadRank() {
         .join('');
     const foot = [];
     if (data.sample && isLocalDev()) foot.push('(개발 모드: 서버 없이 내 기록만 보여요)');
-    if (total) foot.push('단계별 최고점을 모두 더한 점수예요. 더 많은 단계를 높은 점수로 칠수록 올라가요!');
     if (endless) {
-      const eb = levelEndlessBase(state.rankLevel);
+      const eb = levelEndlessBase(want);
       foot.push(`${eb ? `${eb.id}단계 ${escapeHtml(eb.name)} 무제한` : '그리그 무제한 모드'} 랭킹이에요. 더 높은 단계(Lv.)까지 깬 사람이 위, 같으면 점수가 높은 사람이 위예요.`);
     }
     if (data.me) foot.push(`내 순위: ${data.me.rank}위.`);
-    if (state.me.guest) foot.push(`<b>${escapeHtml(state.me.player?.username)}</b> 님으로 참여 중 · 끝까지 치면 점수가 알아서 올라가요.`);
-    else foot.push('닉네임을 정하면 끝까지 친 점수가 알아서 랭킹에 올라가요. <button class="link" data-action="rank-join">닉네임 정하기</button>');
-    $('#rank-foot').innerHTML = foot.join(' ');
+    rankFootJoin(foot);
   } catch {
     list.innerHTML = '<div class="rank-empty">랭킹을 불러오지 못했어요.</div>';
+  }
+}
+function rankFootJoin(foot) {
+  if (state.me.guest) foot.push(`<b>${escapeHtml(state.me.player?.username)}</b> 님으로 참여 중 · 끝까지 치면 점수가 알아서 올라가요.`);
+  else foot.push('닉네임을 정하면 끝까지 친 점수가 알아서 랭킹에 올라가요. <button class="link" data-action="rank-join">닉네임 정하기</button>');
+  $('#rank-foot').innerHTML = foot.join(' ');
+}
+
+/** 🏛 명예의 전당: 끝난 시즌 1·2·3등(사진) + 이번 시즌 총합 순위(시상대 + 목록) */
+function hallHtml(data, board) {
+  const sub = (e) => (board === 'endless' ? `Lv.${fmt(e.rounds)} · ${e.n}판` : `${e.n}/${data.levels}단계`);
+  const past = {};
+  for (const h of data.hall || []) if (h.board === board) (past[h.season] ||= []).push(h);
+  const seasons = Object.keys(past).map(Number).sort((a, b) => b - a);
+  const avatar = (h) => (h.image ? `<img class="hall-img" src="${escapeHtml(h.image)}" alt="">` : `<span class="hall-img none medal m${h.rank}">${icon('medal')}</span>`);
+  const btn = (n, h, action, label, cls) => `<button class="${cls}" data-action="${action}" data-season="${n}" data-board="${board}" data-rank="${h.rank}">${label}</button>`;
+  const pastHtml = seasons
+    .map((n) => {
+      const cards = [2, 1, 3]
+        .map((rk) => past[n].find((h) => h.rank === rk))
+        .filter(Boolean)
+        .map((h) => {
+          const mine = h.me
+            ? btn(n, h, 'hall-photo', `📷 ${h.image ? '사진 바꾸기' : '사진 올리기'}`, 'btn btn-sm btn-ghost') + (h.image ? btn(n, h, 'hall-photo-del', '지우기', 'link small') : '')
+            : '';
+          return `<div class="hall-card r${h.rank} ${h.me ? 'me' : ''}">${avatar(h)}<span class="hall-rk">${['🥇', '🥈', '🥉'][h.rank - 1]} ${h.rank}등</span>
+            <b class="hall-nm">${escapeHtml(h.username)}</b><span class="hall-sc">${fmt(h.score)}</span><span class="pl">${sub(h)}</span>${mine}</div>`;
+        })
+        .join('');
+      return `<div class="hall-sec"><h4>🏛 시즌 ${n} 명예의 전당</h4><div class="hall-row">${cards}</div></div>`;
+    })
+    .join('');
+  const note = `<div class="hall-note">🏛 시즌이 끝나면 <b>1·2·3등은 명예의 전당에 영원히 기록돼요</b><br>명예의 전당에 오르면 프로필 사진도 올릴 수 있어요</div>`;
+  const cur = data.entries || [];
+  let now = `<h4 class="hall-cur">🏆 시즌 ${data.season.n} 지금 순위</h4>`;
+  if (!cur.length) now += '<div class="rank-empty">아직 아무도 없어요. 첫 1위의 주인공이 되어보세요!</div>';
+  else {
+    const top = cur.slice(0, 3);
+    const podium = [1, 0, 2]
+      .filter((i) => top[i])
+      .map((i) => {
+        const e = top[i];
+        return `<div class="pod pod${i + 1} ${e.me ? 'me' : ''}"><span class="medal m${i + 1}">${icon('medal')}</span>
+          <span class="pn">${escapeHtml(e.username)}</span><span class="ps">${fmt(e.score)}</span>
+          <span class="pl">${sub(e)}</span><span class="step">${i + 1}등</span></div>`;
+      })
+      .join('');
+    const rest = cur
+      .slice(3, 50)
+      .map(
+        (e) => `<div class="rank-row ${e.me ? 'me' : ''}"><span class="r">${e.rank}</span><span class="u">${escapeHtml(e.username)}</span>
+          <span class="s">${fmt(e.score)}</span><span class="g small">${board === 'endless' ? `Lv.${fmt(e.rounds)}` : `${e.n}/${data.levels}`}</span></div>`
+      )
+      .join('');
+    now += `<div class="podium">${podium}</div>${rest}`;
+  }
+  return note + pastHtml + now;
+}
+
+/** 🏛 명예의 전당 사진: 고른 사진을 가운데 정사각형으로 잘라 160px JPEG 로 (서버엔 이 작은 사진만) */
+let hallPick = null;
+async function hallPhotoPicked(file) {
+  const pick = hallPick;
+  hallPick = null;
+  if (!file || !pick) return;
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((ok, bad) => {
+      const im = new Image();
+      im.onload = () => ok(im);
+      im.onerror = bad;
+      im.src = url;
+    });
+    const S = 160;
+    const c = document.createElement('canvas');
+    c.width = c.height = S;
+    const side = Math.min(img.naturalWidth, img.naturalHeight);
+    c.getContext('2d').drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, S, S);
+    let image = c.toDataURL('image/jpeg', 0.82);
+    if (image.length > 58000) image = c.toDataURL('image/jpeg', 0.6);
+    await state.api.hallPhoto({ ...pick, image });
+    toast('📷 프로필 사진을 올렸어요! (이상한 사진은 운영자가 지울 수 있어요)', 2800);
+    loadRank();
+  } catch {
+    toast('사진을 올리지 못했어요. 다른 사진으로 해 보세요');
+  } finally {
+    URL.revokeObjectURL(url);
   }
 }
 
@@ -12102,30 +12274,6 @@ function endlessRankHtml(data) {
     .map(
       (e) => `<div class="rank-row ${e.me ? 'me' : ''}"><span class="r">${e.rank}</span><span class="u">${escapeHtml(e.username)}</span>
         <span class="s">${fmt(e.score)}</span><span class="g endless">Lv.${e.rounds}</span></div>`
-    )
-    .join('');
-  return `<div class="podium">${podium}</div>${rest}`;
-}
-
-/** 총 등수: 1·2·3등 시상대 + 4등부터 목록 */
-function totalRankHtml(data) {
-  const n = data.levels || LEVELS.length;
-  const top = data.entries.slice(0, 3);
-  // 시상대는 2등-1등-3등 순서로 늘어놓기
-  const order = [1, 0, 2].filter((i) => top[i]);
-  const podium = order
-    .map((i) => {
-      const e = top[i];
-      return `<div class="pod pod${i + 1} ${e.me ? 'me' : ''}"><span class="medal m${i + 1}">${icon('medal')}</span>
-        <span class="pn">${escapeHtml(e.username)}</span><span class="ps">${fmt(e.score)}</span>
-        <span class="pl">${e.levels}/${n}단계</span><span class="step">${i + 1}등</span></div>`;
-    })
-    .join('');
-  const rest = data.entries
-    .slice(3, 50)
-    .map(
-      (e) => `<div class="rank-row ${e.me ? 'me' : ''}"><span class="r">${e.rank}</span><span class="u">${escapeHtml(e.username)}</span>
-        <span class="s">${fmt(e.score)}</span><span class="g small">${e.levels}/${n}</span></div>`
     )
     .join('');
   return `<div class="podium">${podium}</div>${rest}`;
@@ -14313,7 +14461,7 @@ function followGated() {
 }
 function openRoom(code) {
   if (followGated()) {
-    openVerify(null, { label: '🏆 랭킹전 · 친구 대결은 팔로워만', then: () => openRoom(code) });
+    openVerify(null, { label: '⚔️ 친구 대결은 팔로워만', then: () => openRoom(code) });
     return;
   }
   const c = state.roomClient;
@@ -14325,41 +14473,7 @@ function openRoom(code) {
     if (code) $('#room-code').value = code;
     $$('#room-mode-new [data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === roomUi.newMode)));
   }
-  renderRankedInfo();
   openModal('modal-room');
-  // 내 점수·순위는 창 열 때 한 번 (1분 안에 다시 열면 그대로)
-  if (Date.now() - rk.infoAt > 60_000) loadRankedInfo();
-}
-async function loadRankedInfo() {
-  try {
-    rk.info = await state.api.ranked({ action: 'info' });
-    rk.infoAt = Date.now();
-  } catch (e) {
-    if (!rk.info) $('#rk-me').innerHTML = `<p class="muted">${roomErrText(e)}</p>`;
-    return;
-  }
-  renderRankedInfo();
-}
-function renderRankedInfo() {
-  const d = rk.info;
-  if (!d) {
-    $('#rk-me').innerHTML = '<p class="muted">불러오는 중…</p>';
-    $('#rk-top').innerHTML = '';
-    return;
-  }
-  const m = d.me;
-  const [y, mo] = d.season.split('-');
-  $('#rk-season').textContent = `${y}년 ${Number(mo)}월 시즌 · 매달 1일 새 시즌 (점수는 반만큼 1000 쪽으로)`;
-  if (m) {
-    const prev = m.prevTier && TIER_UI[m.prevTier] ? `<span class="rk-prev">지난 시즌 ${TIER_UI[m.prevTier].join(' ')}</span>` : '';
-    $('#rk-me').innerHTML = `<div class="rk-tier t-${tierOfRating(m.rating)}">${tierHtml(tierOfRating(m.rating), m.rating)}</div>
-      <div class="rk-sub">${m.games ? `${m.wins}승 ${m.losses}패` : '첫 판을 쳐 보세요!'}${m.placement ? ` · 배치고사 ${m.placement}판 남음` : ''} · 오늘 ${m.left}판 남음</div>${prev}`;
-  } else $('#rk-me').innerHTML = '';
-  $('#rk-top').innerHTML = d.top.length
-    ? `<h4>🏆 이번 시즌 순위</h4><ol>${d.top
-        .map((r) => `<li class="${r.me ? 'me' : ''}"><span class="rk-n">${r.rank <= 3 ? ['🥇', '🥈', '🥉'][r.rank - 1] : r.rank}</span><span class="rk-name">${escapeHtml(r.nick || '드러머')}</span><span class="rk-r">${TIER_UI[r.tier] ? TIER_UI[r.tier][0] : ''} ${fmt(r.rating)}</span></li>`)
-        .join('')}</ol>`
-    : '<p class="muted small">아직 이번 시즌 기록이 없어요. 1등을 노려 보세요!</p>';
 }
 function renderRoom(room) {
   const c = state.roomClient;
@@ -15019,7 +15133,22 @@ const ACTIONS = {
     toast(`박자 보정 ${state.settings.offsetMs > 0 ? '+' : ''}${state.settings.offsetMs}ms 저장! 다시 해 보세요`, 2800);
   },
   ranking: () => {
-    openRank('total');
+    openRank('hall-stage');
+  },
+  'hall-photo': (a) => {
+    hallPick = { season: Number(a.dataset.season), board: a.dataset.board, rank: Number(a.dataset.rank) };
+    const f = $('#hall-photo-file');
+    f.value = '';
+    f.click();
+  },
+  'hall-photo-del': async (a) => {
+    if (!confirm('프로필 사진을 지울까요?')) return;
+    try {
+      await state.api.hallPhoto({ season: Number(a.dataset.season), board: a.dataset.board, rank: Number(a.dataset.rank), image: null });
+      loadRank();
+    } catch {
+      toast('사진을 지우지 못했어요. 잠시 뒤 다시 해 주세요');
+    }
   },
   settings: openSettings,
   pause: togglePause,
@@ -15219,9 +15348,9 @@ function bindActions() {
     }
     const rm = e.target.closest('[data-rank-mode]');
     if (rm) {
-      const want = rm.dataset.rankMode === 'endless';
-      if (want !== isEndlessRank(state.rankLevel)) {
-        state.rankLevel = want ? ENDLESS_ID : 'total';
+      const want = rm.dataset.rankMode;
+      if (want !== rankModeOf(state.rankLevel)) {
+        state.rankLevel = want === 'hall' ? 'hall-stage' : want === 'endless' ? ENDLESS_ID : 1;
         renderRankTabs();
         loadRank();
       }
@@ -15288,6 +15417,7 @@ function bindActions() {
     if (card) mapAct(card.dataset.id, b.dataset.mapAct, b);
   });
   $('#mk-file').addEventListener('change', (e) => e.target.files[0] && mkPickFile(e.target.files[0]));
+  $('#hall-photo-file').addEventListener('change', (e) => hallPhotoPicked(e.target.files[0]));
   $('#mk-name').addEventListener('change', () => {
     mk.name = $('#mk-name').value.trim();
     mkSave();

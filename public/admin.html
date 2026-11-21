@@ -73,7 +73,12 @@
         <button type="button" data-tab="old">미인증</button>
         <button type="button" data-tab="suggest">건의함</button>
         <button type="button" data-tab="recover">되찾기 요청</button>
+        <button type="button" data-tab="hall">명예의 전당</button>
       </div>
+      <section id="tab-hall" hidden>
+        <p>끝난 시즌의 1·2·3등(단계 총합·무제한 총합)이에요. 본인이 프로필 사진을 올릴 수 있어요. <b>이상한 사진이면 '사진 지우기'</b>.</p>
+        <div class="card"><div class="head"><b>🏛 명예의 전당</b><span><button type="button" class="ghost" id="hall-reload">새로고침</button></span></div><ul id="hall-list"></ul></div>
+      </section>
       <section id="tab-recover" hidden>
         <p>사이트의 <b>되찾기 요청</b>으로 들어온 글이에요 (예전 주소에서 인증했는데 자동으로 못 찾은 사람). 요청마다 <b>맞을 만한 계정</b>을 찾아 옆에 보여 줘요.
           맞는 계정의 <b>이 계정으로 승인</b>을 누르면, 그 사람이 <b>요청을 보낸 폰으로 사이트에 다시 들어올 때 자동으로</b> 그 계정·깬 단계가 돌아가요.
@@ -319,6 +324,27 @@
       $('#fp-msg').className = 'msg ' + (r.status === 200 ? 'ok' : 'bad');
       loadFollowPass();
     });
+    // ---------- 🏛 명예의 전당 ----------
+    const BOARD = { stage: '🎵 단계 총합', endless: '💎 무제한 총합' };
+    const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
+    async function loadHall() {
+      const r = await call('GET', '/api/admin/hall');
+      const rows = (r.data && r.data.hall) || [];
+      $('#hall-list').innerHTML = rows.length
+        ? rows
+            .map((h) => `<li><b>시즌 ${h.season} · ${BOARD[h.board] || esc(h.board)} · ${h.rank}등</b> ${esc(h.username)} (${Number(h.score).toLocaleString('ko-KR')})
+              ${h.image ? `<br><img src="${esc(h.image)}" alt="" style="width:64px;height:64px;border-radius:50%;object-fit:cover;vertical-align:middle"> <button type="button" class="ghost" data-hall-del="${h.season}|${esc(h.board)}|${h.rank}">사진 지우기</button>` : ' · 사진 없음'}</li>`)
+            .join('')
+        : '<li>아직 끝난 시즌이 없어요. 시즌 1은 11월 26일 밤 12시에 끝나요.</li>';
+    }
+    $('#hall-reload').addEventListener('click', loadHall);
+    $('#hall-list').addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-hall-del]');
+      if (!b || !confirm('이 사진을 지울까요?')) return;
+      const [season, board, rank] = b.dataset.hallDel.split('|');
+      await call('POST', '/api/admin/hall/photo', { season: Number(season), board, rank: Number(rank) });
+      loadHall();
+    });
     $('#main-tabs').addEventListener('click', (e) => {
       const b = e.target.closest('[data-tab]');
       if (!b) return;
@@ -327,7 +353,9 @@
       $('#tab-players').hidden = b.dataset.tab !== 'players' && b.dataset.tab !== 'old';
       $('#tab-suggest').hidden = b.dataset.tab !== 'suggest';
       $('#tab-recover').hidden = b.dataset.tab !== 'recover';
-      if (b.dataset.tab === 'suggest') loadSuggestions();
+      $('#tab-hall').hidden = b.dataset.tab !== 'hall';
+      if (b.dataset.tab === 'hall') loadHall();
+      else if (b.dataset.tab === 'suggest') loadSuggestions();
       else if (b.dataset.tab === 'recover') loadRecovers();
       else if (b.dataset.tab !== 'stats') {
         playersView = b.dataset.tab === 'old' ? 'old' : 'ig';

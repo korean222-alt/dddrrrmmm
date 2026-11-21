@@ -67,6 +67,10 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS map_scores_top ON map_scores (map_id, mode, score DESC)`,
   `CREATE TABLE IF NOT EXISTS ranked (season TEXT NOT NULL, igsid TEXT NOT NULL, rating INTEGER NOT NULL, games INTEGER NOT NULL, at BIGINT NOT NULL, data JSONB NOT NULL, PRIMARY KEY (season, igsid))`,
   `CREATE INDEX IF NOT EXISTS ranked_top ON ranked (season, rating DESC)`,
+  // 🏛 시즌 2 부터의 시즌 기록 (단계·무제한 총합 랭킹용, 시즌마다 사람·단계별 최고점 하나). 시즌 1 은 scores 를 그대로 씀
+  `CREATE TABLE IF NOT EXISTS season_scores (season INTEGER NOT NULL, igsid TEXT NOT NULL, level INTEGER NOT NULL, score BIGINT NOT NULL, at BIGINT NOT NULL, PRIMARY KEY (season, igsid, level))`,
+  // 🏛 명예의 전당: 끝난 시즌의 1·2·3등 (영원히). image = 본인이 올린 프로필 사진(data URL)
+  `CREATE TABLE IF NOT EXISTS hall (season INTEGER NOT NULL, board TEXT NOT NULL, rank INTEGER NOT NULL, igsid TEXT NOT NULL, username TEXT, score BIGINT NOT NULL, n INTEGER, rounds INTEGER, at BIGINT NOT NULL, image TEXT, PRIMARY KEY (season, board, rank))`,
   `CREATE TABLE IF NOT EXISTS ranked_runs (igsid TEXT NOT NULL, level INTEGER NOT NULL, rating INTEGER NOT NULL, at BIGINT NOT NULL, data JSONB NOT NULL, PRIMARY KEY (igsid, level))`,
 ];
 
@@ -310,6 +314,7 @@ END $$`);
   }
   async deletePlayer(igsid) {
     await this.q('DELETE FROM scores WHERE igsid = $1', [igsid]);
+    await this.q('DELETE FROM season_scores WHERE igsid = $1', [igsid]);
     const r = await this.q('DELETE FROM players WHERE igsid = $1 RETURNING igsid', [igsid]);
     return r.length === 1;
   }
@@ -404,6 +409,58 @@ END $$`);
     return { rank: Number(r.n) + 1, score: Number(r.score) };
   }
 
+  // ---------- 🏛 시즌 총합 랭킹 · 명예의 전당 ----------
+  async recordSeasonScore(season, igsid, level, score, now = Date.now()) {
+    await this.q(
+      `INSERT INTO season_scores (season, igsid, level, score, at) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (season, igsid, level) DO UPDATE SET score = EXCLUDED.score, at = EXCLUDED.at WHERE EXCLUDED.score > season_scores.score`,
+      [season, igsid, level, score, now]
+    );
+  }
+  /** 시즌 총합 순위 SQL (board: stage = 단계 최고점 합, endless = 무제한 점수 합) */
+  _seasonSql(season, board) {
+    const src = Number(season) === 1 ? 'scores' : `(SELECT igsid, level, score, at FROM season_scores WHERE season = ${Math.floor(Number(season)) || 0})`;
+    const sum = board === 'endless' ? 'SUM(s.score % 1000000000)' : 'SUM(s.score)';
+    const rounds = board === 'endless' ? 'SUM(s.score / 1000000000)' : '0';
+    const where = board === 'endless' ? 's.level <= 0' : `s.level > 0 AND s.level <= ${LAST_LEVEL_ID}`;
+    return `SELECT x.*, ROW_NUMBER() OVER (ORDER BY x.score DESC, x.at ASC) AS rank FROM (
+        SELECT s.igsid, p.username, ${sum} AS score, COUNT(*) AS n, ${rounds} AS rounds, MAX(s.at) AS at
+        FROM ${src} s JOIN players p ON p.igsid = s.igsid
+        WHERE ${where} AND p.username IS NOT NULL AND p.hidden_at IS NULL AND p.checked_at IS NOT NULL
+        GROUP BY s.igsid, p.username) x`;
+  }
+  _seasonRow(r) {
+    return { igsid: r.igsid, username: r.username, score: Number(r.score), n: Number(r.n), rounds: Number(r.rounds), at: Number(r.at), rank: Number(r.rank) };
+  }
+  async seasonBoard(season, board, limit = 50) {
+    const rows = await this.q(`${this._seasonSql(season, board)} ORDER BY rank LIMIT $1`, [limit]);
+    return { rows: rows.map((r) => this._seasonRow(r)) };
+  }
+  async seasonRankOf(season, board, igsid) {
+    const r = await this.one(`SELECT * FROM (${this._seasonSql(season, board)}) y WHERE y.igsid = $1`, [igsid]);
+    return r ? this._seasonRow(r) : null;
+  }
+  async hallList() {
+    const rows = await this.q('SELECT * FROM hall ORDER BY season DESC, board, rank');
+    return rows.map((r) => ({ season: Number(r.season), board: r.board, rank: Number(r.rank), igsid: r.igsid, username: r.username, score: Number(r.score), n: num(r.n), rounds: num(r.rounds), at: Number(r.at), image: r.image || null }));
+  }
+  /** 끝난 시즌의 1·2·3등 넣기 (이미 있으면 그대로) */
+  async hallInsert(rows) {
+    for (const r of rows)
+      await this.q(
+        `INSERT INTO hall (season, board, rank, igsid, username, score, n, rounds, at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (season, board, rank) DO NOTHING`,
+        [r.season, r.board, r.rank, r.igsid, r.username, r.score, r.n ?? null, r.rounds ?? null, r.at]
+      );
+  }
+  /** 프로필 사진 (null = 지우기). igsid 를 주면 본인 것만 */
+  async hallSetImage(season, board, rank, image, igsid = null) {
+    const rows = await this.q(
+      `UPDATE hall SET image = $4 WHERE season = $1 AND board = $2 AND rank = $3 ${igsid ? 'AND igsid = $5' : ''} RETURNING rank`,
+      igsid ? [season, board, rank, image, igsid] : [season, board, rank, image]
+    );
+    return rows.length > 0;
+  }
+
   /** 이 인스타 아이디로 된 참여자들 (기록 되찾기용): 점수 많은 순 → 오래된 순 */
   async playersByIg(ig) {
     const rows = await this.q(
@@ -439,6 +496,13 @@ END $$`);
       [from, to]
     );
     await this.q('DELETE FROM scores WHERE igsid = $1', [from]);
+    await this.q(
+      `INSERT INTO season_scores (season, igsid, level, score, at)
+       SELECT season, $2, level, score, at FROM season_scores WHERE igsid = $1
+       ON CONFLICT (season, igsid, level) DO UPDATE SET score = EXCLUDED.score, at = EXCLUDED.at WHERE EXCLUDED.score > season_scores.score`,
+      [from, to]
+    );
+    await this.q('DELETE FROM season_scores WHERE igsid = $1', [from]);
   }
 
   // ----- 판 토큰 1회용 처리 -----

@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=76d734e9e5" />
+  <link rel="stylesheet" href="css/style.css?v=870adf6a1f" />
 </head>
 <body>
   <div id="app">
@@ -46,7 +46,7 @@
       <div class="title-actions">
         <div class="mode-row">
           <button class="mode-card mode-single" data-action="levels"><b><span data-icon="drum" data-e></span> 싱글</b></button>
-          <button class="mode-card mode-multi" data-action="room-open"><b><span data-icon="trophy" data-e></span> 랭킹전</b></button>
+          <button class="mode-card mode-multi" data-action="room-open"><b><span data-icon="swords" data-e></span> 멀티</b></button>
         </div>
         <button class="btn btn-primary btn-big" data-action="quickstart"><span data-icon="play"></span> 바로 시작 <small>1단계</small></button>
         <div class="home-two">
@@ -608,13 +608,16 @@
     <div class="sheet tall">
       <button class="icon-btn close" data-action="close-rank" aria-label="닫기"><span data-icon="close"></span></button>
       <h3>랭킹</h3>
+      <p class="rank-season" id="rank-season"></p>
       <div class="tabs mode-tabs" id="rank-mode" role="tablist">
-        <button role="tab" data-rank-mode="normal" aria-selected="true"><span data-icon="note" data-e></span> 단계</button>
+        <button role="tab" data-rank-mode="hall" aria-selected="true">🏛 명예의 전당</button>
+        <button role="tab" data-rank-mode="normal" aria-selected="false"><span data-icon="note" data-e></span> 단계</button>
         <button role="tab" data-rank-mode="endless" aria-selected="false"><span data-icon="gem" data-e></span> 무제한</button>
       </div>
       <div class="tabs" id="rank-tabs" role="tablist"></div>
       <div class="rank-list" id="rank-list"></div>
       <p class="muted small" id="rank-foot"></p>
+      <input type="file" id="hall-photo-file" accept="image/*" hidden />
     </div>
   </div>
 
@@ -706,17 +709,8 @@
   <div class="modal" id="modal-room" hidden>
     <div class="sheet">
       <button class="icon-btn close" data-action="room-close" aria-label="닫기"><span data-icon="close"></span></button>
-      <h3><span data-icon="trophy" data-e></span> 랭킹전 · 친구 대결</h3>
+      <h3><span data-icon="swords" data-e></span> 친구 대결</h3>
       <div id="room-entry">
-        <div class="room-sec">
-          <h4><span data-icon="trophy" data-e></span> 랭킹전</h4>
-          <div class="rk-me" id="rk-me"></div>
-          <div class="stack"><button class="btn btn-primary btn-big" data-action="ranked-go"><span data-icon="swords" data-e></span> 랭킹전 시작</button></div>
-          <p class="muted small rk-rule">실시간으로 상대를 찾고, 없으면 비슷한 실력인 사람의 기록(👻 고스트)과 겨뤄요. 같은 곡을 쳐서 점수가 높으면 이기고, 목숨을 다 쓰면 져요.</p>
-          <p class="muted small rk-tiers">🥉 브론즈 · 🥈 실버 1100 · 🥇 골드 1300 · 💎 다이아 1500 · 👑 마스터 1700</p>
-          <div class="rk-top" id="rk-top"></div>
-          <p class="muted small" id="rk-season"></p>
-        </div>
         <div class="room-sec">
           <h4><span data-icon="team" data-e></span> 친구랑</h4>
         <label class="field"><span>내 이름</span><input type="text" id="room-name" maxlength="12" placeholder="예) 쿵짝왕" autocomplete="off" /></label>
@@ -874,6 +868,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=f3d59c85d1" defer></script>
+  <script src="js/app.js?v=a144c91740" defer></script>
 </body>
 </html>

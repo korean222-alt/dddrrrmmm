@@ -972,3 +972,26 @@ test('🏆 유저 맵 랭킹: 모드(🛡 무적 / ❤ 하트)별 따로 · 사�
   assert.equal(got.top.hearts[0].score, 2000);
   assert.equal(got.top.free[0].igsid, undefined);
 });
+
+test('🏛 명예의 전당 API: 이번 시즌 단계·무제한 총합 · 시즌 정보 · 사진은 전당에 오른 사람만', async () => {
+  const c = await verifiedClient('전당후보', 'hall_cand');
+  const lv = 1;
+  const run = (await c('POST', '/api/runs', { level: lv })).json.runToken;
+  const r = perfectRun(lv);
+  assert.equal((await c('POST', '/api/scores', { runToken: run, level: lv, ...r })).status, 200);
+  const h = (await c('GET', '/api/hall?board=stage')).json;
+  assert.equal(h.season.n, 1);
+  assert.ok(h.season.end > Date.now());
+  assert.equal(h.board, 'stage');
+  assert.ok(h.entries.some((e) => e.username === '전당후보' && e.me));
+  assert.equal(h.me.username, '전당후보');
+  assert.ok(Array.isArray(h.hall));
+  const en = (await c('GET', '/api/hall?board=endless')).json;
+  assert.equal(en.board, 'endless');
+  assert.ok(en.entries.every((e) => e.score < 1_000_000_000));
+  // 아직 끝난 시즌이 없어 전당에 내 칸이 없음 → 사진 못 올림
+  assert.equal((await c('POST', '/api/hall/photo', { season: 1, board: 'stage', rank: 1, image: 'data:image/jpeg;base64,AAAA' })).status, 403);
+  assert.equal((await c('POST', '/api/hall/photo', { season: 1, board: 'stage', rank: 1, image: 'javascript:1' })).status, 400);
+  assert.equal((await client()('GET', '/api/admin/hall')).status, 401);
+  assert.ok(Array.isArray((await client()('GET', '/api/admin/hall', null, adm)).json.hall));
+});

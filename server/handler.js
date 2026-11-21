@@ -9,6 +9,7 @@ import { buildStats } from './stats.js';
 import { createRoomHandler } from './rooms.js';
 import { createRankedHandler } from './ranked.js';
 import { cleanMap, mapDifficulty, mapLevel } from '../public/js/usermap.js';
+import { seasonAt, endedSeasons, HALL_BOARDS, cleanHallImage } from '../public/js/season.js';
 import { LEVELS, LAST_LEVEL_ID, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur, ENDLESS_ID, ROUND_BARS, roundBpm, pointsFor, levelEndlessBase, LEVEL_ENDLESS_STEP, needsVerify, isClosed, diamondsFor } from '../public/js/charts.js';
 
 // 무제한 모드 랭킹은 저장소의 level 칸에 '깬 단계 × 1,000,000,000 + 점수' 한 숫자로 저장 (단계가 먼저, 같으면 점수)
@@ -160,6 +161,7 @@ export function createHandler(cfg, { store }) {
   const limitRecoverCheck = rateLimiter(60, 10 * 60 * 1000);
   // 🌍 유저 맵: 목록·받기·좋아요 (올리기는 하루 개수로 따로 막음)
   const limitMaps = rateLimiter(150, 10 * 60 * 1000);
+  const limitHallPhoto = rateLimiter(10, 10 * 60 * 1000);
   // 팔로워 암호: 틀린 시도만 셈. IP 당 10분에 10번 틀리면 잠깐 막음
   const passFails = new Map();
   const passBlocked = (ip) => {
@@ -207,6 +209,25 @@ export function createHandler(cfg, { store }) {
       console.error('[free-pass]', e);
     }
   }
+
+  // 🏛 끝난 시즌의 1·2·3등을 명예의 전당에 넣기: 시즌이 끝난 뒤 처음 오는 점수 등록·명예의 전당 요청 때 한 번
+  //   (점수 등록보다 먼저 해야 끝난 시즌 기록이 새 점수로 덮이지 않음). 인스턴스마다 한 번 확인하면 기억
+  const hallDone = new Set();
+  async function ensureHall(now = Date.now()) {
+    for (const n of endedSeasons(now)) {
+      if (hallDone.has(n)) continue;
+      const flag = `hall:done:${n}`;
+      if (!(await store.getSetting(flag))) {
+        for (const board of HALL_BOARDS) {
+          const top = await store.seasonBoard(n, board, 3);
+          await store.hallInsert(top.rows.map((r) => ({ ...r, season: n, board })));
+        }
+        await store.setSetting(flag, String(now));
+      }
+      hallDone.add(n);
+    }
+  }
+  const hallEntry = (r, pl) => ({ rank: r.rank, username: r.username, score: r.score, n: r.n, rounds: r.rounds, me: pl ? r.igsid === pl.igsid : false });
 
   /** 관리자 비밀번호 확인 (길이 같을 때만 한 글자씩 비교) */
   function isAdmin(request) {
@@ -666,6 +687,12 @@ export function createHandler(cfg, { store }) {
         const from = todayStart - (days - 1) * dayMs;
         return json(200, { days, ...buildStats(await store.statsRaw(from, now + 1), { from, to: now, tzMin }) });
       }
+      // 🏛 명예의 전당 사진 보기·지우기 (이상한 사진이면)
+      if (p === '/api/admin/hall' && m === 'GET') return json(200, { hall: await store.hallList() });
+      if (p === '/api/admin/hall/photo' && m === 'POST') {
+        const b = await readJson(request);
+        return json(200, { ok: await store.hallSetImage(Number(b.season), String(b.board), Number(b.rank), null) });
+      }
       // 랭킹 참여자 (인스타 아이디로 팔로우 확인 → 안 했으면 삭제)
       if (p === '/api/admin/players' && m === 'GET') {
         await store.purgeHidden();
@@ -837,7 +864,9 @@ export function createHandler(cfg, { store }) {
         const e = validateEndless(body, cfg);
         if (!e.ok) return json(400, { error: e.error });
         if (!(await store.useRun(e.nonce, Date.now() + 2 * 24 * 3600 * 1000))) return json(409, { error: 'run_used' });
+        await ensureHall();
         const out = await store.recordScore(pl.igsid, em.slot, { score: endlessKey(e.rounds, e.score), grade: null, maxCombo: 0 });
+        if (seasonAt().n > 1) await store.recordSeasonScore(seasonAt().n, pl.igsid, em.slot, endlessKey(e.rounds, e.score));
         const mine = await store.rankOf(em.slot, pl.igsid);
         const best = endlessParts(out.best);
         return json(200, { improved: out.improved, best: best.score, rounds: best.rounds, rank: mine ? mine.rank : null });
@@ -845,9 +874,36 @@ export function createHandler(cfg, { store }) {
       const v = validateScore(body, cfg);
       if (!v.ok) return json(400, { error: v.error });
       if (!(await store.useRun(v.nonce, Date.now() + 2 * 24 * 3600 * 1000))) return json(409, { error: 'run_used' });
+      await ensureHall();
       const out = await store.recordScore(pl.igsid, v.level.id, { score: v.score, grade: v.grade, maxCombo: v.maxCombo });
+      if (seasonAt().n > 1 && v.level.id > 0 && v.level.id <= LAST_LEVEL_ID) await store.recordSeasonScore(seasonAt().n, pl.igsid, v.level.id, v.score);
       const mine = await store.rankOf(v.level.id, pl.igsid);
       return json(200, { ...out, rank: mine ? mine.rank : null });
+    }
+
+    // 🏛 명예의 전당: 이번 시즌 총합 랭킹(단계·무제한) + 끝난 시즌 1·2·3등(사진 포함)
+    if (p === '/api/hall' && m === 'GET') {
+      const board = url.searchParams.get('board') === 'endless' ? 'endless' : 'stage';
+      await ensureHall();
+      const pl = await getPlayer(request);
+      const season = seasonAt();
+      const lb = await store.seasonBoard(season.n, board, 50);
+      const mine = pl ? await store.seasonRankOf(season.n, board, pl.igsid) : null;
+      const hall = (await store.hallList()).map((h) => ({ ...hallEntry(h, pl), season: h.season, board: h.board, image: h.image }));
+      return json(200, { season: { n: season.n, end: season.end }, board, levels: LAST_LEVEL_ID, entries: lb.rows.map((r) => hallEntry(r, pl)), me: mine ? hallEntry(mine, pl) : null, hall });
+    }
+    // 명예의 전당에 오른 사람만 자기 칸에 프로필 사진 올리기 / 지우기 (image: null)
+    if (p === '/api/hall/photo' && m === 'POST') {
+      if (!limitHallPhoto(ip)) return json(429, { error: 'rate_limited' });
+      const b = await readJson(request);
+      const pl = await getPlayer(request);
+      if (!pl) return json(401, { error: 'verify_required' });
+      const image = b.image === null ? null : cleanHallImage(b.image);
+      if (b.image !== null && !image) return json(400, { error: 'bad_image' });
+      const board = HALL_BOARDS.includes(b.board) ? b.board : null;
+      if (!board || !Number.isInteger(b.season) || !Number.isInteger(b.rank)) return json(400, { error: 'bad_request' });
+      const ok = await store.hallSetImage(b.season, board, b.rank, image, pl.igsid);
+      return ok ? json(200, { ok: true }) : json(403, { error: 'not_yours' });
     }
 
     if (p === '/api/leaderboard' && m === 'GET' && url.searchParams.get('level') === 'total') {

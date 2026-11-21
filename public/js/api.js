@@ -5,6 +5,7 @@
 import { load, save } from './storage.js';
 import { gradeFor } from './charts.js';
 import { takeTrack } from './track.js';
+import { seasonAt } from './season.js';
 
 async function http(method, url, body) {
   const res = await fetch(url, {
@@ -67,6 +68,21 @@ function serverApi(boot = null) {
       lbCache.set(String(level), { at: Date.now(), p });
       p.catch(() => lbCache.delete(String(level)));
       return p;
+    },
+    // 🏛 명예의 전당: 랭킹처럼 1분 동안 같은 걸 다시 씀
+    hall: (board) => {
+      const key = 'hall:' + board;
+      const hit = lbCache.get(key);
+      if (hit && Date.now() - hit.at < LB_CACHE_MS) return hit.p;
+      const p = http('GET', `/api/hall?board=${board === 'endless' ? 'endless' : 'stage'}`);
+      lbCache.set(key, { at: Date.now(), p });
+      p.catch(() => lbCache.delete(key));
+      return p;
+    },
+    hallPhoto: (body) => {
+      lbCache.delete('hall:stage');
+      lbCache.delete('hall:endless');
+      return http('POST', '/api/hall/photo', body);
     },
     logout: () => http('POST', '/api/logout'),
     suggest: (kind, text, contact) => http('POST', '/api/suggestions', { kind, text, contact }),
@@ -166,6 +182,10 @@ function mockApi(cfg) {
       entries.forEach((e, i) => (e.rank = i + 1));
       const me = entries.find((e) => e.me) || null;
       return { level: Number(level), entries, me, sample: true };
+    },
+    async hall(board) {
+      const s = seasonAt();
+      return { season: { n: s.n, end: s.end }, board, levels: 15, entries: [], me: null, hall: [], sample: true };
     },
     async logout() {
       save('mockPlayer', null);
