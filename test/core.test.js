@@ -465,3 +465,37 @@ test('🎭 장거리(tapMelody): 오른쪽 멜로디 콩 = 악보 음 하나하�
   assert.equal(nd.song.melody.at(-1), 'A5:16');
   assert.equal(nd.song.melody.at(-2), 'A5:12 D5:3 B5:1');
 });
+
+test('👍 같은 엄지 줄: 4줄 맵에서 챙 줄을 눌러도 그때 쿵 노트가 있으면 쿵으로 (챙 노트 없을 때만)', async () => {
+  const { Game } = await import('../public/js/game.js');
+  const { KICK, SNARE, HAT, CRASH } = await import('../public/js/charts.js');
+  const noop = () => {};
+  globalThis.cancelAnimationFrame ??= noop;
+  const renderer = { onJudge: noop, onLife: noop, onCombo: noop, onTap: noop, draw: noop, reset: noop };
+  let clock = 0;
+  const audio = { ctx: { suspend: async () => {}, resume: async () => {} }, heardTime: () => clock, crash: noop, playLane: noop };
+  const level = { id: 'um', custom: true, bpm: 175, bars: ["X.S.S.J.J.S.SHH.", "J...S...K...S...", "J.S.S.J.J.S.SHH."], song: { prog: ['C', 'C', 'C'] } };
+  const g = new Game({ audio, renderer, level, settings: {}, onDeath: noop, onEnd: noop });
+  g.startTime = 0;
+  g.state = 'playing';
+  g.player = { stop: noop };
+  const kick = g.lanes[KICK][0];
+  clock = kick.time;
+  g.input(CRASH, 0, [{ lane: KICK, d: 0.9 }], 0.2); // 챙 줄 깊숙이 → 그래도 쿵
+  assert.equal(kick.judged, true);
+  assert.equal(g.counts.wrong, 0);
+  // 오른손: 츠 줄을 눌렀는데 짝 노트만 있으면 짝 (츠 줄은 짝 바로 옆이 아니어도)
+  const sn = g.lanes[SNARE].find((n) => !g.lanes[HAT].some((m) => Math.abs(m.time - n.time) < 0.16) && n.time > kick.time + 0.3);
+  clock = sn.time;
+  g.input(HAT, 0, [{ lane: SNARE, d: 0.9 }], 3.8);
+  assert.equal(sn.judged, true);
+  // 다른 엄지 줄로는 안 넘김: 쿵 노트 때 짝을 누르면 헛침
+  const k2 = g.lanes[KICK].find((n) => !n.judged && !g.lanes[SNARE].some((m) => Math.abs(m.time - n.time) < 0.2) && !g.lanes[HAT].some((m) => Math.abs(m.time - n.time) < 0.2));
+  if (k2) {
+    clock = k2.time;
+    const w = g.counts.wrong;
+    g.input(SNARE, 0, [{ lane: KICK, d: 0.9 }], 2.5);
+    assert.equal(k2.judged, false);
+    assert.equal(g.counts.wrong, w + 1);
+  }
+});

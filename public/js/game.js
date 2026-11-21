@@ -389,6 +389,19 @@ export class Game {
         bestGap = Math.abs(t - n.time);
       }
     }
+    if (best === null && !own) {
+      // 같은 엄지가 맡는 줄(챙·쿵·탐 / 짝·츠)은 동시에 나오지 않음 → 내 줄에 노트가 없으면 같은 엄지 줄의 노트로.
+      //   4줄일 때 맨 왼쪽 챙 줄이 넓어서 왼쪽 엄지가 쿵 대신 챙을 눌러 쿵이 '안 쳐지던' 것 (유저 맵 신고)
+      const hand = INSTRUMENTS[lane] && INSTRUMENTS[lane].hand;
+      for (const l of this.laneOrder) {
+        if (l === lane || !INSTRUMENTS[l] || INSTRUMENTS[l].hand !== hand) continue;
+        const n = this._noteFor(l, t);
+        if (n && Math.abs(t - n.time) < bestGap) {
+          best = l;
+          bestGap = Math.abs(t - n.time);
+        }
+      }
+    }
     if (best === null) return lane;
     if (!own) return best;
     // 둘 다 노트가 있으면 내 줄 우선. 다만 엄지가 넘어온 경우 옆 줄 노트가 확실히 더 가까우면 옆 줄
