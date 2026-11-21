@@ -676,7 +676,7 @@ export function detectChords(x0, sr0, { firstBeat, bpm, bars, melody = null }) {
  *   mix = 원래 소리 [L, R], voc = 골라낸 목소리 [L, R] (못 골랐으면 null), firstBeat = 첫 마디 시작(초, 이 소리 안에서)
  * @returns {{ bars, found, prog, drums, vocalShare, leadShare }}
  */
-export function transcribeSong({ mix, voc = null, sr, firstBeat, bpm, bars, grid = 2, lead = true }) {
+export function transcribeSong({ mix, voc = null, sr, firstBeat, bpm, bars, grid = 2, lead = true, inst = null }) {
   const mixM = center(mix);
   const n = mixM.length;
   const accM = new Float32Array(n);
@@ -750,13 +750,17 @@ export function transcribeSong({ mix, voc = null, sr, firstBeat, bpm, bars, grid
       }
       let e = s;
       while (e < total && !vocCell[e]) e++;
-      if (lead && (e - s >= 16 || vocCount < total * 0.1)) gaps.push([s, e]);
+      // 악기 음(inst)이 있으면 한 박 넘게 빈 곳도 채움 (중간중간 비는 곳 줄이기)
+      if (lead && (e - s >= (inst ? 4 : 16) || vocCount < total * 0.1)) gaps.push([s, e]);
       s = e;
     }
   }
   let leadBars = null;
   let leadCount = 0;
-  if (gaps.length) {
+  if (gaps.length && inst) {
+    leadBars = instLine(inst, gaps, firstBeat, bpm, bars);
+    leadBars.forEach((bar) => (leadCount += bar.reduce((a, x) => a + x.len, 0)));
+  } else if (gaps.length) {
     const { y, sr: sr2 } = downsample(vocCount < total * 0.1 ? mixM : accM, sr, 22050);
     const hop = Math.round(sr2 * 0.0116);
     const hopSec = hop / sr2;
@@ -832,6 +836,71 @@ export function transcribeSong({ mix, voc = null, sr, firstBeat, bpm, bars, grid
     drums = null;
   }
   return { bars: res, found, prog, drums, vocalShare: vocCount / total, leadShare: leadCount / total, vocalRatio };
+}
+
+/**
+ * Basic Pitch 결과 → 악기 멜로디 (16분 칸마다 '위쪽 줄': 울리는 음 중 가장 높은 음, 베이스 위에 아무것도 없으면 베이스)
+ *   gaps 안의 칸만. 같은 음이 이어져도 그 건반의 '막 시작' 확률이 높으면 새 음
+ */
+function instLine(inst, gaps, firstBeat, bpm, bars) {
+  const { note, onset, frames, fps } = inst;
+  const st = 60 / bpm / 4;
+  const total = bars * STEPS_PER_BAR;
+  const want = new Uint8Array(total);
+  for (const [a, b] of gaps) for (let s = a; s < b; s++) want[s] = 1;
+  const pick = new Int16Array(total).fill(-1);
+  const hit = new Uint8Array(total);
+  const act = new Float32Array(88);
+  // 문턱: 곡에서 가장 또렷한 음의 30% (0.15~0.3) — 베이스·비트뿐인 곡도 뭔가는 따게
+  let gmax = 0;
+  for (let i = 0; i < note.length; i++) if (note[i] > gmax) gmax = note[i];
+  const TH = Math.max(0.15, Math.min(0.3, gmax * 0.3));
+  for (let s = 0; s < total; s++) {
+    if (!want[s]) continue;
+    const f0 = Math.max(0, Math.round((firstBeat + (s + 0.15) * st) * fps));
+    const f1 = Math.min(frames, Math.round((firstBeat + (s + 0.9) * st) * fps) + 1);
+    if (f1 <= f0) continue;
+    act.fill(0);
+    for (let f = f0; f < f1; f++) for (let k = 0; k < 88; k++) act[k] += note[f * 88 + k];
+    let mx = 0;
+    for (let k = 0; k < 88; k++) (act[k] /= f1 - f0), (mx = Math.max(mx, act[k]));
+    if (mx < TH) continue;
+    // 위쪽 줄: 꽤 센 음 중 가장 높은 음 (C3 위). 없으면 가장 센 음(베이스 줄)
+    let best = -1;
+    for (let k = 87; k >= 48 - 21; k--)
+      if (act[k] >= Math.max(TH, mx * 0.45)) {
+        best = k;
+        break;
+      }
+    if (best < 0) for (let k = 0; k < 88; k++) if (act[k] === mx) best = k;
+    pick[s] = best + 21;
+    // 그 건반이 칸 시작 근처에서 막 울리기 시작했나
+    const c = Math.round((firstBeat + s * st) * fps);
+    let on = 0;
+    for (let f = Math.max(0, c - 2); f <= Math.min(frames - 1, c + 3); f++) on = Math.max(on, onset[f * 88 + best]);
+    hit[s] = on > 0.4 ? 1 : 0;
+  }
+  const out = Array.from({ length: bars }, () => []);
+  let cur = null;
+  for (let s = 0; s < total; s++) {
+    const p = pick[s];
+    const step = s % STEPS_PER_BAR;
+    if (p < 0) {
+      cur = null;
+      continue;
+    }
+    if (!cur || cur.midi !== p || hit[s] || step === 0) {
+      cur = { step, midi: p, len: 1 };
+      out[Math.floor(s / STEPS_PER_BAR)].push(cur);
+    } else cur.len++;
+  }
+  // 16분 한 칸짜리 외톨이(앞뒤가 비었거나 다른 음)는 잡음일 때가 많아 지움
+  for (const bar of out)
+    for (let i = bar.length - 1; i >= 0; i--) {
+      const n = bar[i];
+      if (n.len === 1 && !(bar[i - 1] && bar[i - 1].step + bar[i - 1].len === n.step) && !(bar[i + 1] && bar[i + 1].step === n.step + 1)) bar.splice(i, 1);
+    }
+  return out;
 }
 
 function median(a) {

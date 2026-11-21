@@ -146,3 +146,27 @@ test('영상(mp4/mov) 소리 → ADTS', async () => {
   // moov 가 없으면 null
   assert.equal(await videoToAac(new Blob([ftyp, mdat])), null);
 });
+
+test('악기 음(Basic Pitch 결과)으로 빈 곳 채우기 · 위쪽 줄', () => {
+  const bpm = 120;
+  const st = 60 / bpm / 4;
+  const fps = 22050 / 256;
+  const dur = 1 + 2 * 16 * st + 1;
+  const frames = Math.floor(dur * fps);
+  const note = new Float32Array(frames * 88);
+  const onset = new Float32Array(frames * 88);
+  // 1마디: 베이스 C3(48) 내내 + 위에 E5(76)·G5(79) 4분음표 번갈아
+  for (let f = 0; f < frames; f++) {
+    const t = f / fps - 1;
+    if (t < 0 || t >= 32 * st) continue;
+    note[f * 88 + (48 - 21)] = 0.8;
+    const beat = Math.floor(t / (4 * st));
+    note[f * 88 + ((beat % 2 ? 79 : 76) - 21)] = 0.6;
+    if (t - beat * 4 * st < 0.03) onset[f * 88 + ((beat % 2 ? 79 : 76) - 21)] = 0.9;
+  }
+  const silent = new Float32Array(Math.ceil(dur * SR));
+  const r = transcribeSong({ mix: [silent, silent], voc: null, sr: SR, firstBeat: 1, bpm, bars: 2, inst: { note, onset, frames, fps } });
+  const pcs = r.bars[0].map((n) => n.midi % 12);
+  assert.deepEqual(pcs.slice(0, 4), [4, 7, 4, 7]); // 베이스가 아니라 위쪽 줄 (E G E G)
+  assert.ok(r.bars[1].length >= 4);
+});

@@ -13,7 +13,7 @@ const H = 1024;
 const F = 1024; // 모델이 보는 주파수 칸 (0 ~ 11kHz)
 const T = 512; // 모델 한 번에 보는 프레임 수 (약 12초)
 
-let sessP = null;
+const sessP = new Map();
 
 function loadScript(src) {
   return new Promise((ok, no) => {
@@ -25,17 +25,17 @@ function loadScript(src) {
   });
 }
 
-/** 모델 준비 (한 번만). onProgress(0~1) = 받는 중 */
-function session(onProgress) {
-  if (!sessP) {
-    sessP = (async () => {
+/** 모델 준비 (모델마다 한 번만). onProgress(0~1) = 받는 중. 악기 음 따기(instnotes.js)도 같이 씀 */
+export function modelSession(url, onProgress = () => {}, sizeGuess = 19.7e6) {
+  if (!sessP.has(url)) {
+    const p = (async () => {
       if (!globalThis.ort) await loadScript(ORT_DIR + 'ort.wasm.min.js');
       const ort = globalThis.ort;
       ort.env.wasm.wasmPaths = ORT_DIR;
       ort.env.wasm.numThreads = 1;
-      const res = await fetch(MODEL);
+      const res = await fetch(url);
       if (!res.ok) throw new Error('model ' + res.status);
-      const total = Number(res.headers.get('content-length')) || 19.7e6;
+      const total = Number(res.headers.get('content-length')) || sizeGuess;
       let bytes;
       if (res.body && res.body.getReader) {
         const rd = res.body.getReader();
@@ -50,16 +50,18 @@ function session(onProgress) {
         }
         bytes = new Uint8Array(got);
         let at = 0;
-        for (const p of parts) bytes.set(p, at), (at += p.length);
+        for (const q of parts) bytes.set(q, at), (at += q.length);
       } else bytes = new Uint8Array(await res.arrayBuffer());
       return ort.InferenceSession.create(bytes, { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });
     })().catch((e) => {
-      sessP = null;
+      sessP.delete(url);
       throw e;
     });
+    sessP.set(url, p);
   }
-  return sessP;
+  return sessP.get(url);
 }
+const session = (onProgress) => modelSession(MODEL, onProgress);
 
 /** 간단한 선형 보간으로 44.1kHz 로 */
 export function resample(x, from) {
