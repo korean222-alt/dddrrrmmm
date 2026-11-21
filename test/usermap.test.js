@@ -75,3 +75,31 @@ test('음 정리: 16분 부스러기 → 8분, 옥타브 실수 고침', async (
   const oct = cleanMelody([[{ step: 0, midi: 67, len: 4 }, { step: 4, midi: 78, len: 4 }, { step: 8, midi: 67, len: 4 }]], { key: false })[0];
   assert.equal(oct[1].midi, 66);
 });
+
+test('음 따기: 스테레오면 가운데(보컬)만 — 좌우로 퍼진 반주 음에 안 속음', () => {
+  const sr = 22050;
+  const bpm = 120;
+  const st = 60 / bpm / 4;
+  const want = [72, 74, 76, 77, 79, 77, 76, 74];
+  const len = Math.ceil((0.5 + 16 * 2 * st + 1) * sr);
+  const L = new Float32Array(len);
+  const R = new Float32Array(len);
+  const hz = (m) => 440 * Math.pow(2, (m - 69) / 12);
+  want.forEach((m, i) => {
+    const a = Math.round((0.5 + i * 4 * st) * sr);
+    const n = Math.round(4 * st * sr);
+    for (let k = 0; k < n; k++) {
+      const e = Math.min(1, k / 100, (n - k) / 200) * 0.3;
+      const v = e * (Math.sin((2 * Math.PI * hz(m) * k) / sr) + 0.5 * Math.sin((4 * Math.PI * hz(m) * k) / sr));
+      L[a + k] += v;
+      R[a + k] += v;
+    }
+  });
+  // 더 센 반주 음(A5)이 왼쪽에만, 다른 음(A4)이 오른쪽에만 계속
+  for (let k = 0; k < len; k++) {
+    L[k] += 0.6 * Math.sin((2 * Math.PI * hz(81) * k) / sr);
+    R[k] += 0.6 * Math.sin((2 * Math.PI * hz(69) * k) / sr);
+  }
+  const r = transcribe([L, R], sr, { firstBeat: 0.5, bpm, bars: 2 });
+  assert.deepEqual(r.bars.flat().map((n) => n.midi), want);
+});

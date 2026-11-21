@@ -2149,73 +2149,131 @@ function fft(re, im) {
 }
 
 /**
- * 노래(모노) → 마디별 멜로디 음표 초안
- * @param {Float32Array} mono
+ * 노래 → 마디별 멜로디 음표 초안
+ *   input = 모노 Float32Array 또는 [왼쪽, 오른쪽]. 스테레오면 '가운데 소리'만 봄:
+ *   보컬은 거의 늘 가운데, 신스·코드·기타는 좌우로 퍼져 있어서 좌우가 다른 소리를 빼면 보컬이 또렷해짐 (K-pop 처럼 반주가 꽉 찬 곡)
+ *   그다음 칸마다 음 후보 점수(배음 더하기)를 매기고, 음이 크게 튀지 않는 길을 고름(비터비)
+ * @param {Float32Array | Float32Array[]} input
  * @param {number} sr
  * @param {{ firstBeat: number, bpm: number, bars: number, lo?: number, hi?: number }} o
  * @returns {{ bars: Array<Array<{step,midi,len}>>, found: number }}
  */
-function transcribe(mono, sr, { firstBeat, bpm, bars, lo = 55, hi = 84 }) {
+function transcribe(input, sr, { firstBeat, bpm, bars, lo = 55, hi = 84 }) {
+  const chans = input instanceof Float32Array ? [input] : input;
+  const L = chans[0];
+  const R = chans[chans.length - 1];
+  const stereo = L !== R;
+  const len = L.length;
+  const mono = stereo ? new Float32Array(len) : L;
+  if (stereo) for (let i = 0; i < len; i++) mono[i] = (L[i] + R[i]) * 0.5;
   const N = 4096;
   const win = new Float32Array(N);
   for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (N - 1));
   const re = new Float64Array(N);
   const im = new Float64Array(N);
+  const reR = new Float64Array(N);
+  const imR = new Float64Array(N);
   const stepSec = 60 / bpm / 4;
   const steps = bars * STEPS_PER_BAR;
   const binHz = sr / N;
-  const cand = [];
-  for (let m = lo; m <= hi; m++) cand.push(m);
-  const pitch = new Int16Array(steps).fill(-1);
-  const sal = new Float32Array(steps);
+  const C = hi - lo + 1;
+  const comp = stereo ? 0.5 : 1; // 세기 눌러 주기 (가운데만 남기면 큰 소리가 덜 몰려서 √ 가 나음)
+  const kMin = Math.floor(100 / binHz);
+  const kMax = Math.min(N / 2 - 2, Math.ceil(5000 / binHz));
+  const sal = new Float32Array(steps * C);
   const energy = new Float32Array(steps);
   const mag = new Float32Array(N / 2);
+  const peak = (k) => Math.max(mag[k - 1], mag[k], mag[k + 1]);
   for (let s = 0; s < steps; s++) {
-    // 칸 시작 조금 뒤(음이 울리는 중)를 가운데로
-    const c = Math.round((firstBeat + s * stepSec + stepSec * 0.4) * sr);
-    const a = c - N / 2;
-    if (a < 0 || a + N > mono.length) continue;
+    // 칸 가운데쯤(음이 울리는 중)
+    const a = Math.round((firstBeat + s * stepSec + stepSec * 0.45) * sr) - N / 2;
+    if (a < 0 || a + N > len) continue;
     let e = 0;
     for (let i = 0; i < N; i++) {
       const v = mono[a + i];
       e += v * v;
-      re[i] = v * win[i];
+      re[i] = L[a + i] * win[i];
       im[i] = 0;
+      if (stereo) (reR[i] = R[a + i] * win[i]), (imR[i] = 0);
     }
     energy[s] = Math.sqrt(e / N);
     fft(re, im);
-    for (let k = 0; k < N / 2; k++) mag[k] = Math.sqrt(re[k] * re[k] + im[k] * im[k]);
-    let best = -1;
-    let bestV = 0;
-    let sum = 0;
-    for (const m of cand) {
-      const f0 = 440 * Math.pow(2, (m - 69) / 12);
-      let v = 0;
-      for (let h = 1; h <= 5; h++) {
-        const k = Math.round((f0 * h) / binHz);
-        if (k + 1 >= N / 2) break;
-        v += Math.pow(0.8, h - 1) * Math.max(mag[k - 1], mag[k], mag[k + 1]);
-      }
-      // 아래 옥타브 배음에 속지 않게: 반 주파수 자리에도 힘이 크면 깎음
-      const kh = Math.round(f0 / 2 / binHz);
-      if (kh > 1) v -= 0.3 * Math.max(mag[kh - 1], mag[kh], mag[kh + 1]);
-      sum += v;
-      if (v > bestV) (bestV = v), (best = m);
+    if (stereo) fft(reR, imR);
+    mag.fill(0);
+    for (let k = kMin; k <= kMax; k++) {
+      let m;
+      if (stereo) {
+        const sr2 = re[k] + reR[k];
+        const si = im[k] + imR[k];
+        const dr = re[k] - reR[k];
+        const di = im[k] - imR[k];
+        const S = sr2 * sr2 + si * si;
+        const D = dr * dr + di * di;
+        // 좌우가 같을수록 1, 다를수록 0
+        const w = S + D > 0 ? Math.max(0, (S - D) / (S + D)) : 0;
+        m = Math.sqrt(S) * 0.5 * w * w * w;
+      } else m = Math.hypot(re[k], im[k]);
+      mag[k] = comp === 1 ? m : Math.pow(m, comp);
     }
-    const mean = sum / cand.length;
-    if (best >= 0 && mean > 0 && bestV / mean > 1.9) {
-      pitch[s] = best;
-      sal[s] = bestV / mean;
+    for (let j = 0; j < C; j++) {
+      const f0 = 440 * Math.pow(2, (lo + j - 69) / 12);
+      let v = 0;
+      for (let h = 1; h <= 8; h++) {
+        const k = Math.round((f0 * h) / binHz);
+        if (k + 1 > kMax) break;
+        v += Math.pow(0.84, h - 1) * peak(k);
+      }
+      // 아래 옥타브 배음에 속지 않게: 반 주파수·1.5배 자리에도 힘이 크면 깎음
+      const kh = Math.round(f0 / 2 / binHz);
+      if (kh > kMin) v -= 0.3 * peak(kh);
+      const k15 = Math.round((f0 * 1.5) / binHz);
+      if (k15 + 1 <= kMax) v -= 0.2 * peak(k15);
+      sal[s * C + j] = Math.max(0, v);
     }
   }
-  // 조용한 칸은 쉼 (가장 큰 소리의 12% 아래)
+  // 칸마다 점수 → 로그 (가장 센 후보 = 0), 쉼 점수는 소리가 작거나 음이 또렷하지 않으면 높게
   let maxE = 0;
   for (let s = 0; s < steps; s++) if (energy[s] > maxE) maxE = energy[s];
-  for (let s = 0; s < steps; s++) if (energy[s] < maxE * 0.12) pitch[s] = -1;
-  // 한 칸짜리 튐 정리: 앞뒤가 같은 음이면 가운데도 그 음 (옥타브 튐도)
-  for (let s = 1; s < steps - 1; s++) {
-    const p = pitch[s - 1];
-    if (p >= 0 && p === pitch[s + 1] && pitch[s] !== p && (pitch[s] < 0 || Math.abs(pitch[s] - p) === 12 || sal[s] < 2.4)) pitch[s] = p;
+  const S1 = C + 1;
+  const emit = new Float32Array(steps * S1);
+  for (let s = 0; s < steps; s++) {
+    let mx = 0;
+    let sum = 0;
+    for (let j = 0; j < C; j++) (mx = Math.max(mx, sal[s * C + j])), (sum += sal[s * C + j]);
+    const voiced = energy[s] >= maxE * 0.12 && mx > 0 && mx / (sum / C) > 1.6;
+    for (let j = 0; j < C; j++) emit[s * S1 + j] = mx > 0 ? Math.log(sal[s * C + j] / mx + 1e-3) : -7;
+    emit[s * S1 + C] = voiced ? -2.5 : 0;
+  }
+  // 비터비: 음이 바뀌거나 멀리 튀면 벌점 (한 옥타브 넘게 튀면 크게)
+  const tr = (x, y) => {
+    if (x === y) return 0;
+    if (x === C || y === C) return -1;
+    const d = Math.abs(x - y);
+    return -0.1 - 0.03 * Math.min(12, d) - (d > 12 ? 2 : 0);
+  };
+  let prev = new Float32Array(S1);
+  let next = new Float32Array(S1);
+  const back = new Int16Array(steps * S1);
+  for (let j = 0; j < S1; j++) prev[j] = emit[j];
+  for (let s = 1; s < steps; s++) {
+    for (let y = 0; y < S1; y++) {
+      let bv = -Infinity;
+      let bi = 0;
+      for (let x = 0; x < S1; x++) {
+        const v = prev[x] + tr(x, y);
+        if (v > bv) (bv = v), (bi = x);
+      }
+      next[y] = bv + emit[s * S1 + y];
+      back[s * S1 + y] = bi;
+    }
+    [prev, next] = [next, prev];
+  }
+  const pitch = new Int16Array(steps).fill(-1);
+  let bi = 0;
+  for (let j = 1; j < S1; j++) if (prev[j] > prev[bi]) bi = j;
+  for (let s = steps - 1; s >= 0; s--) {
+    pitch[s] = bi === C ? -1 : lo + bi;
+    bi = back[s * S1 + bi];
   }
   // 같은 음을 다시 쳤나: 짧은 창(약 23ms)으로 칸 시작 바로 전과 바로 뒤의 그 음 세기를 비교
   const N2 = 1 << Math.round(Math.log2(sr * 0.023)); // 약 23ms (44.1kHz 면 1024)
@@ -2223,17 +2281,37 @@ function transcribe(mono, sr, { firstBeat, bpm, bars, lo = 55, hi = 84 }) {
   for (let i = 0; i < N2; i++) win2[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (N2 - 1));
   const re2 = new Float64Array(N2);
   const im2 = new Float64Array(N2);
+  const re3 = new Float64Array(N2);
+  const im3 = new Float64Array(N2);
   const pitchMag = (sec, m) => {
     const a = Math.round(sec * sr) - N2 / 2;
-    if (a < 0 || a + N2 > mono.length) return 0;
-    for (let i = 0; i < N2; i++) (re2[i] = mono[a + i] * win2[i]), (im2[i] = 0);
+    if (a < 0 || a + N2 > len) return 0;
+    for (let i = 0; i < N2; i++) (re2[i] = L[a + i] * win2[i]), (im2[i] = 0);
     fft(re2, im2);
+    if (stereo) {
+      for (let i = 0; i < N2; i++) (re3[i] = R[a + i] * win2[i]), (im3[i] = 0);
+      fft(re3, im3);
+    }
     const f0 = 440 * Math.pow(2, (m - 69) / 12);
     let v = 0;
     for (let h = 1; h <= 3; h++) {
       const k = Math.round((f0 * h * N2) / sr);
       if (k + 1 >= N2 / 2) break;
-      for (let j = k - 1; j <= k + 1; j++) v += Math.hypot(re2[j], im2[j]);
+      for (let j = k - 1; j <= k + 1; j++) {
+        if (!stereo) {
+          v += Math.hypot(re2[j], im2[j]);
+          continue;
+        }
+        // 가운데 소리만 (좌우로 퍼진 반주가 맥놀이로 '다시 친 것'처럼 보이지 않게)
+        const sr2 = re2[j] + re3[j];
+        const si = im2[j] + im3[j];
+        const dr = re2[j] - re3[j];
+        const di = im2[j] - im3[j];
+        const S = sr2 * sr2 + si * si;
+        const D = dr * dr + di * di;
+        const w = S + D > 0 ? Math.max(0, (S - D) / (S + D)) : 0;
+        v += Math.sqrt(S) * 0.5 * w * w * w;
+      }
     }
     return v;
   };
@@ -9221,7 +9299,7 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-21b',
+    id: '2026-11-21c',
     date: '11월 21일',
     title: '🏆 랭킹전 · 🎭 장거리 네순 도르마',
     items: [
@@ -9229,6 +9307,7 @@ const NEWS = [
       '이기면 점수가 오르고 지면 내려가요. 🥉브론즈 → 🥈실버 → 🥇골드 → 💎다이아 → 👑마스터, 한 달마다 새 시즌',
       '<b>🎭 장거리</b>가 바뀌었어요: 곡 하나를 <b>처음부터 끝까지</b>! 첫 곡은 오페라 <b>네순 도르마</b>',
       '왼쪽 엄지는 <b>쿵</b>, 오른쪽 엄지는 <b>멜로디</b> — 누를 때마다 그 음이 피아노 화음으로 울려요. 놓치면 그 음은 안 들려요!',
+      '<b>🎹 유저 맵</b> 노래 파일 음 따기가 더 정확해졌어요: 반주는 빼고 <b>보컬 멜로디</b>를 골라 들어요',
     ],
   },
   {
@@ -13384,7 +13463,7 @@ async function mkCapture() {
   if (!mkf.url || mkf.busy) return;
   mkf.busy = true;
   audio.unlock();
-  const buf = await captureMediaAudio(mkf.url, (t, d) => ($('#mk-file-status').textContent = capText(t, d)), 180);
+  const buf = await captureMediaAudio(mkf.url, (t, d) => ($('#mk-file-status').textContent = capText(t, d)), 180, true);
   mkf.busy = false;
   mkFileLoaded(buf);
 }
@@ -13420,7 +13499,9 @@ function mkTranscribe() {
   const want = Number($('#mk-file-len').value) || 16;
   const bars = Math.max(2, Math.min(want, MAP_LIMITS.maxBars, Math.floor((buf.duration - first) / (beat * 4))));
   if (bars < 2) return ($('#mk-file-status').textContent = '시작 뒤로 노래가 너무 짧아요');
-  const t = transcribe(mkf.mono, sr, { firstBeat: first, bpm, bars });
+  // 스테레오면 좌우를 따로 줘야 가운데(보컬)만 골라 들을 수 있음
+  const chans = buf.numberOfChannels > 1 ? [buf.getChannelData(0), buf.getChannelData(1)] : mkf.mono;
+  const t = transcribe(chans, sr, { firstBeat: first, bpm, bars });
   // 옥타브 실수·16분 부스러기·조에서 벗어난 음 정리
   t.bars = cleanMelody(t.bars, { grid: $('#mk-file-clean').value === 'fine' ? 1 : 2 });
   t.found = t.bars.reduce((a, b) => a + b.length, 0);
@@ -13753,7 +13834,7 @@ async function syncPick(file) {
  * 영상(.mov 등)을 소리 없이 재생하면서 소리를 그대로 받아 적음 → AudioBuffer (최대 30초)
  *   첫 소리·첫 박의 '간격'만 쓰므로 받아 적기 시작이 조금 늦어도 결과는 같음
  */
-function captureMediaAudio(url, onProgress, maxSec = 60) {
+function captureMediaAudio(url, onProgress, maxSec = 60, stereo = false) {
   return new Promise((resolve) => {
     const ctx = audio.ensure();
     const v = document.createElement('video');
@@ -13776,14 +13857,18 @@ function captureMediaAudio(url, onProgress, maxSec = 60) {
         sp && sp.disconnect();
         mute && mute.disconnect();
       } catch {}
-      const len = chunks.reduce((a, c) => a + c.length, 0);
+      const len = chunks.reduce((a, c) => a + c[0].length, 0);
       if (!ok || len < ctx.sampleRate * 3) return resolve(null);
-      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-      const ch = buf.getChannelData(0);
-      let o = 0;
-      for (const c of chunks) {
-        ch.set(c, o);
-        o += c.length;
+      // 좌우 그대로 (유저 맵 음 따기가 가운데 소리=보컬을 골라 듣는 데 씀)
+      const nch = chunks.some((c) => c[1] !== c[0]) ? 2 : 1;
+      const buf = ctx.createBuffer(nch, len, ctx.sampleRate);
+      for (let k = 0; k < nch; k++) {
+        const ch = buf.getChannelData(k);
+        let o = 0;
+        for (const c of chunks) {
+          ch.set(c[k], o);
+          o += c[k].length;
+        }
       }
       resolve(buf);
     };
@@ -13801,11 +13886,13 @@ function captureMediaAudio(url, onProgress, maxSec = 60) {
     sp.onaudioprocess = (e) => {
       if (done || v.paused) return;
       const ib = e.inputBuffer;
-      const a = ib.getChannelData(0);
-      const b = ib.numberOfChannels > 1 ? ib.getChannelData(1) : a;
-      const m = new Float32Array(a.length);
-      for (let i = 0; i < a.length; i++) m[i] = (a[i] + b[i]) * 0.5;
-      chunks.push(m);
+      const a = new Float32Array(ib.getChannelData(0));
+      if (!stereo || ib.numberOfChannels < 2) {
+        // 모노로 (긴 노래는 폰 메모리 아끼기)
+        const b = ib.numberOfChannels > 1 ? ib.getChannelData(1) : a;
+        for (let i = 0; i < a.length; i++) a[i] = (a[i] + b[i]) * 0.5;
+        chunks.push([a, a]);
+      } else chunks.push([a, new Float32Array(ib.getChannelData(1))]);
     };
     v.ontimeupdate = () => {
       onProgress && onProgress(v.currentTime, Math.min(MAX, v.duration || MAX));

@@ -2831,7 +2831,7 @@ async function mkCapture() {
   if (!mkf.url || mkf.busy) return;
   mkf.busy = true;
   audio.unlock();
-  const buf = await captureMediaAudio(mkf.url, (t, d) => ($('#mk-file-status').textContent = capText(t, d)), 180);
+  const buf = await captureMediaAudio(mkf.url, (t, d) => ($('#mk-file-status').textContent = capText(t, d)), 180, true);
   mkf.busy = false;
   mkFileLoaded(buf);
 }
@@ -2867,7 +2867,9 @@ function mkTranscribe() {
   const want = Number($('#mk-file-len').value) || 16;
   const bars = Math.max(2, Math.min(want, MAP_LIMITS.maxBars, Math.floor((buf.duration - first) / (beat * 4))));
   if (bars < 2) return ($('#mk-file-status').textContent = '시작 뒤로 노래가 너무 짧아요');
-  const t = transcribe(mkf.mono, sr, { firstBeat: first, bpm, bars });
+  // 스테레오면 좌우를 따로 줘야 가운데(보컬)만 골라 들을 수 있음
+  const chans = buf.numberOfChannels > 1 ? [buf.getChannelData(0), buf.getChannelData(1)] : mkf.mono;
+  const t = transcribe(chans, sr, { firstBeat: first, bpm, bars });
   // 옥타브 실수·16분 부스러기·조에서 벗어난 음 정리
   t.bars = cleanMelody(t.bars, { grid: $('#mk-file-clean').value === 'fine' ? 1 : 2 });
   t.found = t.bars.reduce((a, b) => a + b.length, 0);
@@ -3200,7 +3202,7 @@ async function syncPick(file) {
  * 영상(.mov 등)을 소리 없이 재생하면서 소리를 그대로 받아 적음 → AudioBuffer (최대 30초)
  *   첫 소리·첫 박의 '간격'만 쓰므로 받아 적기 시작이 조금 늦어도 결과는 같음
  */
-function captureMediaAudio(url, onProgress, maxSec = 60) {
+function captureMediaAudio(url, onProgress, maxSec = 60, stereo = false) {
   return new Promise((resolve) => {
     const ctx = audio.ensure();
     const v = document.createElement('video');
@@ -3223,14 +3225,18 @@ function captureMediaAudio(url, onProgress, maxSec = 60) {
         sp && sp.disconnect();
         mute && mute.disconnect();
       } catch {}
-      const len = chunks.reduce((a, c) => a + c.length, 0);
+      const len = chunks.reduce((a, c) => a + c[0].length, 0);
       if (!ok || len < ctx.sampleRate * 3) return resolve(null);
-      const buf = ctx.createBuffer(1, len, ctx.sampleRate);
-      const ch = buf.getChannelData(0);
-      let o = 0;
-      for (const c of chunks) {
-        ch.set(c, o);
-        o += c.length;
+      // 좌우 그대로 (유저 맵 음 따기가 가운데 소리=보컬을 골라 듣는 데 씀)
+      const nch = chunks.some((c) => c[1] !== c[0]) ? 2 : 1;
+      const buf = ctx.createBuffer(nch, len, ctx.sampleRate);
+      for (let k = 0; k < nch; k++) {
+        const ch = buf.getChannelData(k);
+        let o = 0;
+        for (const c of chunks) {
+          ch.set(c[k], o);
+          o += c[k].length;
+        }
       }
       resolve(buf);
     };
@@ -3248,11 +3254,13 @@ function captureMediaAudio(url, onProgress, maxSec = 60) {
     sp.onaudioprocess = (e) => {
       if (done || v.paused) return;
       const ib = e.inputBuffer;
-      const a = ib.getChannelData(0);
-      const b = ib.numberOfChannels > 1 ? ib.getChannelData(1) : a;
-      const m = new Float32Array(a.length);
-      for (let i = 0; i < a.length; i++) m[i] = (a[i] + b[i]) * 0.5;
-      chunks.push(m);
+      const a = new Float32Array(ib.getChannelData(0));
+      if (!stereo || ib.numberOfChannels < 2) {
+        // 모노로 (긴 노래는 폰 메모리 아끼기)
+        const b = ib.numberOfChannels > 1 ? ib.getChannelData(1) : a;
+        for (let i = 0; i < a.length; i++) a[i] = (a[i] + b[i]) * 0.5;
+        chunks.push([a, a]);
+      } else chunks.push([a, new Float32Array(ib.getChannelData(1))]);
     };
     v.ontimeupdate = () => {
       onProgress && onProgress(v.currentTime, Math.min(MAX, v.duration || MAX));
