@@ -859,3 +859,9 @@ button.ig-pause:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--i
 .hall-card .pl { font-size: 12px; color: var(--muted); }
 .hall-card .btn-sm { margin-top: 4px; font-size: 12px; padding: 4px 8px; }
 #rank-mode button { font-size: 14px; }
+
+/* ⚡ 자동 드럼 (쉬움·보통·어려움) — 드럼 탭 맨 위 */
+.mk-autobox { background: #fff6e3; border: 2px solid var(--ink); border-radius: 16px; padding: 10px; margin-bottom: 10px; }
+.mk-autobox h5 { margin: 0 0 8px; font-size: 17px; font-weight: 400; }
+.mk-autobox h5 small { display: block; font-size: 12px; color: var(--muted); margin-top: 2px; }
+.mk-or { margin: 6px 0 4px; text-align: center; }

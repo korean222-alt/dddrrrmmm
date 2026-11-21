@@ -2537,7 +2537,177 @@ function cleanMelody(bars, { grid = 2, key = true } = {}) {
   return res;
 }
 
-return { MAP_LIMITS, midiName, SOLFA, barToMelody, melodyToBars, drumCell, cellChar, toggleDrum, guessKey, harmonize, autoDrums, cleanMap, mapDifficulty, isDrumOnly, mapLevel, transcribe, notesToMelody, cleanMelody };
+return { MAP_LIMITS, midiName, SOLFA, barToMelody, melodyToBars, drumCell, cellChar, toggleDrum, guessKey, harmonize, autoDrums, cleanMap, mapDifficulty, isDrumOnly, mapLevel, fft, transcribe, notesToMelody, cleanMelody };
+})();
+
+// ---- vocalsep.js ----
+const __m_vocalsep = (() => {
+// 🎤 노래에서 목소리만 골라내기 (폰 안에서만, 파일은 밖으로 안 나감)
+//   Spleeter 2stems 보컬 모델 (Deezer, MIT) 을 ONNX(fp16, 약 20MB) 로 → onnxruntime-web(wasm) 으로 돌림.
+//   처음 쓸 때만 받음(약 30MB, 그 뒤엔 캐시). '음 따기' 를 누를 때만 받아서 다른 사람·다른 화면엔 영향 없음.
+//   순서: 스테레오 STFT(4096, 홉 1024) 크기 → 모델이 '목소리 크기' 를 냄 → 원래 스펙트럼에 그 비율(마스크)을 곱해 → 역변환
+//   11-21 사용자 노래 2곡(인스타 화면 녹화)으로 시험: 음 따기 정답률 43% → 63% (분리 보컬 pYIN 기준)
+const { fft } = __m_usermap;
+
+const ORT_DIR = '/vendor/ort-1.22.0/';
+const MODEL = '/assets/models/spleeter-vocals-fp16.onnx?v=1';
+const SR = 44100;
+const N = 4096;
+const H = 1024;
+const F = 1024; // 모델이 보는 주파수 칸 (0 ~ 11kHz)
+const T = 512; // 모델 한 번에 보는 프레임 수 (약 12초)
+
+let sessP = null;
+
+function loadScript(src) {
+  return new Promise((ok, no) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = ok;
+    s.onerror = () => no(new Error('script'));
+    document.head.appendChild(s);
+  });
+}
+
+/** 모델 준비 (한 번만). onProgress(0~1) = 받는 중 */
+function session(onProgress) {
+  if (!sessP) {
+    sessP = (async () => {
+      if (!globalThis.ort) await loadScript(ORT_DIR + 'ort.wasm.min.js');
+      const ort = globalThis.ort;
+      ort.env.wasm.wasmPaths = ORT_DIR;
+      ort.env.wasm.numThreads = 1;
+      const res = await fetch(MODEL);
+      if (!res.ok) throw new Error('model ' + res.status);
+      const total = Number(res.headers.get('content-length')) || 19.7e6;
+      let bytes;
+      if (res.body && res.body.getReader) {
+        const rd = res.body.getReader();
+        const parts = [];
+        let got = 0;
+        for (;;) {
+          const { done, value } = await rd.read();
+          if (done) break;
+          parts.push(value);
+          got += value.length;
+          onProgress(Math.min(1, got / total));
+        }
+        bytes = new Uint8Array(got);
+        let at = 0;
+        for (const p of parts) bytes.set(p, at), (at += p.length);
+      } else bytes = new Uint8Array(await res.arrayBuffer());
+      return ort.InferenceSession.create(bytes, { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });
+    })().catch((e) => {
+      sessP = null;
+      throw e;
+    });
+  }
+  return sessP;
+}
+
+/** 간단한 선형 보간으로 44.1kHz 로 */
+function resample(x, from) {
+  const n = Math.floor((x.length * SR) / from);
+  const y = new Float32Array(n);
+  const r = from / SR;
+  for (let i = 0; i < n; i++) {
+    const p = i * r;
+    const a = Math.floor(p);
+    const f = p - a;
+    y[i] = (x[a] || 0) * (1 - f) + (x[a + 1] || 0) * f;
+  }
+  return y;
+}
+
+const nextFrame = () => new Promise((r) => setTimeout(r, 0));
+
+/**
+ * 목소리만 남긴 스테레오 소리
+ * @param {Float32Array} L @param {Float32Array} R @param {number} sr
+ * @param {(stage: 'model'|'sep', p: number) => void} onProgress
+ * @returns {Promise<{ L: Float32Array, R: Float32Array, sr: number }>}
+ */
+async function separateVocals(L, R, sr, onProgress = () => {}) {
+  if (sr !== SR) {
+    L = resample(L, sr);
+    R = resample(R, sr);
+  }
+  const sess = await session((p) => onProgress('model', p));
+  const ort = globalThis.ort;
+  const n = L.length;
+  const nfr = Math.max(0, Math.floor((n - N) / H) + 1);
+  const outL = new Float32Array(n);
+  const outR = new Float32Array(n);
+  const wsum = new Float32Array(n);
+  const win = new Float32Array(N);
+  for (let i = 0; i < N; i++) win[i] = 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / N); // periodic hann
+  const chans = [L, R];
+  const outs = [outL, outR];
+  const splits = Math.ceil(nfr / T);
+  const re = new Float64Array(N);
+  const im = new Float64Array(N);
+  const inName = sess.inputNames[0];
+  const outName = sess.outputNames[0];
+  for (let sp = 0; sp < splits; sp++) {
+    const f0 = sp * T;
+    const cnt = Math.min(T, nfr - f0);
+    // 이 조각의 스펙트럼 (0 ~ F 칸만 보관)
+    const specRe = [new Float32Array(T * F), new Float32Array(T * F)];
+    const specIm = [new Float32Array(T * F), new Float32Array(T * F)];
+    const x = new Float32Array(2 * T * F);
+    for (let c = 0; c < 2; c++) {
+      const s = chans[c];
+      for (let t = 0; t < cnt; t++) {
+        const a = (f0 + t) * H;
+        for (let i = 0; i < N; i++) (re[i] = s[a + i] * win[i]), (im[i] = 0);
+        fft(re, im);
+        const o = t * F;
+        for (let k = 0; k < F; k++) {
+          specRe[c][o + k] = re[k];
+          specIm[c][o + k] = im[k];
+          x[c * T * F + o + k] = Math.hypot(re[k], im[k]);
+        }
+      }
+    }
+    await nextFrame();
+    const r = await sess.run({ [inName]: new ort.Tensor('float32', x, [2, 1, T, F]) });
+    const y = r[outName].data;
+    for (let c = 0; c < 2; c++) {
+      const out = outs[c];
+      for (let t = 0; t < cnt; t++) {
+        const o = t * F;
+        re.fill(0);
+        im.fill(0);
+        for (let k = 0; k < F; k++) {
+          const mag = x[c * T * F + o + k];
+          const m = mag > 1e-8 ? Math.min(1, Math.max(0, y[c * T * F + o + k] / mag)) : 0;
+          re[k] = specRe[c][o + k] * m;
+          im[k] = specIm[c][o + k] * m;
+          // 역변환은 켤레 대칭으로
+          if (k > 0) (re[N - k] = re[k]), (im[N - k] = -im[k]);
+        }
+        // ifft = conj(fft(conj(X))) / N
+        for (let i = 0; i < N; i++) im[i] = -im[i];
+        fft(re, im);
+        const a = (f0 + t) * H;
+        for (let i = 0; i < N; i++) {
+          out[a + i] += (re[i] / N) * win[i];
+          if (c === 0) wsum[a + i] += win[i] * win[i];
+        }
+      }
+    }
+    onProgress('sep', (sp + 1) / splits);
+    await nextFrame();
+  }
+  for (let i = 0; i < n; i++) {
+    const w = wsum[i] > 1e-3 ? wsum[i] : 1;
+    outL[i] /= w;
+    outR[i] /= w;
+  }
+  return { L: outL, R: outR, sr: SR };
+}
+
+return { separateVocals };
 })();
 
 // ---- audio.js ----
@@ -9405,7 +9575,7 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-21g',
+    id: '2026-11-21h',
     date: '11월 21일',
     title: '🏛 명예의 전당 · 시즌 1 · 🎭 장거리 · 🥁 드럼 맵',
     items: [
@@ -9413,7 +9583,8 @@ const NEWS = [
       '<b>시즌 1은 11월 26일 밤 12시에 끝나요.</b> 1·2·3등은 명예의 전당에 영원히 기록되고, 프로필 사진도 올릴 수 있어요',
       '<b>🎭 장거리</b>가 바뀌었어요: 곡 하나를 <b>처음부터 끝까지</b>! 첫 곡은 오페라 <b>네순 도르마</b>',
       '왼쪽 엄지는 <b>쿵</b>, 오른쪽 엄지는 <b>멜로디</b> — 누를 때마다 그 음이 피아노 화음으로 울려요. 놓치면 그 음은 안 들려요!',
-      '<b>🎹 유저 맵</b> 노래 파일 음 따기가 훨씬 정확해졌어요: 반주는 빼고 <b>보컬 멜로디</b>만, <b>남자 목소리</b> 낮은 음도 잘 따요',
+      '<b>🎹 유저 맵</b> 노래 파일 음 따기가 훨씬 정확해졌어요: 폰 안에서 <b>반주를 빼고 목소리만 골라내서</b> 따요 (처음 한 번 약 30MB 받아요)',
+      '드럼 탭 맨 위 <b>⚡ 자동 드럼</b>(쉬움·보통·어려움)으로 직접 안 쳐도 바로 드럼이 생겨요',
       '<b>🎹 맵 만들기</b>가 탭으로 바뀌었어요: <b>🥁 드럼</b>은 진짜 드럼 세트처럼 쳐서 녹음(겹쳐 치기 가능), <b>🎹 멜로디</b>에서 그 위에 피아노를 얹어요. 드럼만 올려도 돼요!'
     ],
   },
@@ -10747,6 +10918,7 @@ const __m_main = (() => {
 // 오케이스트라 — 화면 전환, 잠금(팔로우 인증), 랭킹, 설정을 묶는 앱 본체
 
 const { LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES, ENDLESS_ID, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo, ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId, STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase, COUNT_IN_BARS, ROUND_BARS, BEAT_ID, makeBeatReel, beatOpts, beatSeconds, BEAT_MAX_ROUNDS, BEAT_STYLES, BEAT_DIFFS, beatStyleName, QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds, STEPS_PER_BAR, CHAR_LANES, KICK, SNARE, HAT, CRASH, parseChord } = __m_charts;
+const { separateVocals } = __m_vocalsep;
 const { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmonize, autoDrums, cleanMap, mapLevel, transcribe, cleanMelody } = __m_usermap;
 const { AudioEngine, playMetronome } = __m_audio;
 const { Renderer } = __m_render;
@@ -13071,7 +13243,7 @@ function mkRender() {
   $('#mk-way-play').hidden = mk.way !== 'play';
   $$('#mk-len button').forEach((b) => b.setAttribute('aria-pressed', Number(b.dataset.len) === mk.len));
   $$('#mk-auto button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.diff === mk.drumsAuto));
-  $('#mk-drum-state').textContent = mk.drumsAuto ? '(지금: 자동)' : '(지금: 내가 친 드럼)';
+  $('#mk-drum-state').textContent = mk.drumsAuto ? `· 지금: 자동 ${{ easy: '쉬움', normal: '보통', hard: '어려움' }[mk.drumsAuto] || ''}` : '· 지금: 내가 친 드럼';
   $('#mk-octlabel').textContent = `${midiName(12 * (mk.oct + 1))} ~ ${midiName(12 * (mk.oct + 1) + 23)}`;
   mkKeys();
   mkRoll();
@@ -13794,9 +13966,9 @@ function mkFileLoaded(buf) {
   $('#mk-file-status').innerHTML = `<b>${escapeHtml(mkf.name)}</b> · ${Math.floor(buf.duration / 60)}:${String(Math.floor(buf.duration % 60)).padStart(2, '0')}`;
   $('#mk-file-opts').hidden = false;
 }
-function mkTranscribe() {
+async function mkTranscribe() {
   const buf = mkf.buf;
-  if (!buf) return;
+  if (!buf || mkf.busy) return;
   const sr = buf.sampleRate;
   const s0 = soundStart(mkf.mono, sr);
   const pick = parseTime($('#mk-file-start').value);
@@ -13816,9 +13988,33 @@ function mkTranscribe() {
   const want = Number($('#mk-file-len').value) || 16;
   const bars = Math.max(2, Math.min(want, MAP_LIMITS.maxBars, Math.floor((buf.duration - first) / (beat * 4))));
   if (bars < 2) return ($('#mk-file-status').textContent = '시작 뒤로 노래가 너무 짧아요');
-  // 스테레오면 좌우를 따로 줘야 가운데(보컬)만 골라 들을 수 있음
-  const chans = buf.numberOfChannels > 1 ? [buf.getChannelData(0), buf.getChannelData(1)] : mkf.mono;
-  const t = transcribe(chans, sr, { firstBeat: first, bpm, bars });
+  // 🎤 먼저 목소리만 골라냄 (vocalsep.js, 폰 안에서). 고른 구간 앞뒤 1초만. 안 되면(옛 폰 등) 그냥 원래 소리로
+  const a0 = Math.max(0, Math.floor((first - 1) * sr));
+  const a1 = Math.min(buf.length, Math.ceil((first + bars * 4 * beat + 1) * sr));
+  const Lc = (buf.numberOfChannels > 1 ? buf.getChannelData(0) : mkf.mono).subarray(a0, a1);
+  const Rc = (buf.numberOfChannels > 1 ? buf.getChannelData(1) : mkf.mono).subarray(a0, a1);
+  let chans = buf.numberOfChannels > 1 ? [Lc, Rc] : Lc;
+  let sr2 = sr;
+  const st = $('#mk-file-status');
+  const btn = $('#mk-transcribe');
+  mkf.busy = true;
+  btn.disabled = true;
+  try {
+    const v = await separateVocals(Lc, Rc, sr, (stage, p) => {
+      st.textContent = stage === 'model' ? `목소리 골라내는 준비… ${Math.round(p * 100)}% (처음 한 번만 받아요, 약 30MB)` : `목소리만 골라내는 중… ${Math.round(p * 100)}%`;
+    });
+    chans = [v.L, v.R];
+    sr2 = v.sr;
+  } catch (e) {
+    console.warn('vocalsep', e);
+    toast('이 폰에선 목소리 골라내기가 안 돼서 그냥 따요', 2200);
+  } finally {
+    mkf.busy = false;
+    btn.disabled = false;
+  }
+  st.textContent = '음 따는 중…';
+  await new Promise((r) => setTimeout(r, 30));
+  const t = transcribe(chans, sr2, { firstBeat: first - a0 / sr, bpm, bars });
   // 옥타브 실수·16분 부스러기·조에서 벗어난 음 정리
   t.bars = cleanMelody(t.bars, { grid: $('#mk-file-clean').value === 'fine' ? 1 : 2 });
   t.found = t.bars.reduce((a, b) => a + b.length, 0);

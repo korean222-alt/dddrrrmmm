@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=b1f50bb725" />
+  <link rel="stylesheet" href="css/style.css?v=bd8463af76" />
 </head>
 <body>
   <div id="app">
@@ -197,7 +197,16 @@
 
         <!-- 🥁 드럼 -->
         <div class="studio-block mk-pane" id="mk-pane-drum">
-          <p class="hint" id="mk-drum-hint">진짜 드럼처럼 쳐 보세요. 「녹음」을 누르면 똑딱 소리 한 마디 뒤부터 친 게 그대로 곡이 돼요. 칠수록 마디가 늘어나요.</p>
+          <div class="mk-autobox">
+            <h5>⚡ 자동 드럼 <small>직접 치기 귀찮으면 골라요 · 멜로디에 맞춰 만들어요 <span id="mk-drum-state"></span></small></h5>
+            <div class="seg seg3" id="mk-auto">
+              <button type="button" data-diff="easy"><b>쉬움</b><small>쿵 짝</small></button>
+              <button type="button" data-diff="normal"><b>보통</b><small>엇박 조금</small></button>
+              <button type="button" data-diff="hard"><b>어려움</b><small>하이햇까지</small></button>
+            </div>
+          </div>
+          <p class="hint mk-or">또는 아래 드럼을 직접 쳐서 만들어요</p>
+          <p class="hint" id="mk-drum-hint">「녹음」을 누르면 똑딱 소리 한 마디 뒤부터 친 게 그대로 곡이 돼요. 칠수록 마디가 늘어나요.</p>
           <div class="kit" id="mk-pads">
             <button type="button" class="kpad cym pad-c" data-inst="C" aria-label="크래시"><img src="/assets/kit/crash.webp?v=1" alt="" draggable="false" /><span>크래시</span></button>
             <button type="button" class="kpad cym pad-h" data-inst="H" aria-label="하이햇"><img src="/assets/kit/hihat.webp?v=1" alt="" draggable="false" /><span>하이햇</span></button>
@@ -218,13 +227,7 @@
           <label class="field mk-drec-q"><span>박자 맞춤</span><select id="mk-drec-q"><option value="2" selected>8분음표 (쉬움)</option><option value="1">16분음표 (빠른 연타까지)</option></select></label>
           <p class="hint mk-rec-msg" id="mk-drec-msg"></p>
           <details class="mk-detail" id="mk-drum-more">
-            <summary>기본 박자로 채우기 · 한 칸씩 고치기</summary>
-            <p class="hint">멜로디에 맞춰 드럼을 자동으로 채워요 (지금 드럼은 지워져요). <span id="mk-drum-state"></span></p>
-            <div class="seg seg3" id="mk-auto">
-              <button type="button" data-diff="easy"><b>쉬움</b><small>쿵 짝</small></button>
-              <button type="button" data-diff="normal"><b>보통</b><small>엇박 조금</small></button>
-              <button type="button" data-diff="hard"><b>어려움</b><small>하이햇까지</small></button>
-            </div>
+            <summary>한 칸씩 고치기</summary>
             <div class="mk-grid" id="mk-grid"></div>
             <p class="hint">칸을 눌러 켜고 꺼요. 같은 엄지(킥·크래시 / 스네어·하이햇)는 한 칸에 하나만 돼요.</p>
             <div class="mk-baredit">
@@ -245,7 +248,7 @@
           </div>
 
           <div id="mk-way-file" class="mk-way" hidden>
-            <p class="hint">폰에 있는 노래(mp3)나 화면 녹화 영상을 넣으면 멜로디를 피아노 음으로 따요. 노래 한 줄이 또렷할수록 잘 나와요. 파일은 이 폰 밖으로 안 나가요.</p>
+            <p class="hint">폰에 있는 노래(mp3)나 화면 녹화 영상을 넣으면 반주를 빼고 <b>목소리만 골라내서</b> 멜로디를 피아노 음으로 따요. 파일은 이 폰 밖으로 안 나가요. (처음 한 번 약 30MB 받아요 — 와이파이 추천)</p>
             <label class="btn btn-ghost mk-file"><input type="file" accept="audio/*,video/*" id="mk-file" hidden />노래 파일 고르기</label>
             <p class="hint" id="mk-file-status"></p>
             <div id="mk-file-opts" hidden>
@@ -892,6 +895,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=bcfac33dfe" defer></script>
+  <script src="js/app.js?v=ec94a7c7da" defer></script>
 </body>
 </html>

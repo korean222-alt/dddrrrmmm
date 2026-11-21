@@ -256,7 +256,7 @@ export function mapLevel(map, { id = 'um', by = '', mapId = null } = {}) {
 //   반주가 꽉 찬 노래는 지저분하게 나와서, 만든 뒤 손으로 다듬는 용도
 
 /** 제자리 FFT (re, im 길이 2의 거듭제곱) */
-function fft(re, im) {
+export function fft(re, im) {
   const n = re.length;
   for (let i = 1, j = 0; i < n; i++) {
     let bit = n >> 1;

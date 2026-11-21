@@ -8,6 +8,7 @@ import {
   BEAT_ID, makeBeatReel, beatOpts, beatSeconds, BEAT_MAX_ROUNDS, BEAT_STYLES, BEAT_DIFFS, beatStyleName,
   QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds, STEPS_PER_BAR, CHAR_LANES, KICK, SNARE, HAT, CRASH, parseChord,
 } from './charts.js';
+import { separateVocals } from './vocalsep.js';
 import { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmonize, autoDrums, cleanMap, mapLevel, transcribe, cleanMelody } from './usermap.js';
 import { AudioEngine, playMetronome } from './audio.js';
 import { Renderer } from './render.js';
@@ -2332,7 +2333,7 @@ function mkRender() {
   $('#mk-way-play').hidden = mk.way !== 'play';
   $$('#mk-len button').forEach((b) => b.setAttribute('aria-pressed', Number(b.dataset.len) === mk.len));
   $$('#mk-auto button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.diff === mk.drumsAuto));
-  $('#mk-drum-state').textContent = mk.drumsAuto ? '(지금: 자동)' : '(지금: 내가 친 드럼)';
+  $('#mk-drum-state').textContent = mk.drumsAuto ? `· 지금: 자동 ${{ easy: '쉬움', normal: '보통', hard: '어려움' }[mk.drumsAuto] || ''}` : '· 지금: 내가 친 드럼';
   $('#mk-octlabel').textContent = `${midiName(12 * (mk.oct + 1))} ~ ${midiName(12 * (mk.oct + 1) + 23)}`;
   mkKeys();
   mkRoll();
@@ -3055,9 +3056,9 @@ function mkFileLoaded(buf) {
   $('#mk-file-status').innerHTML = `<b>${escapeHtml(mkf.name)}</b> · ${Math.floor(buf.duration / 60)}:${String(Math.floor(buf.duration % 60)).padStart(2, '0')}`;
   $('#mk-file-opts').hidden = false;
 }
-function mkTranscribe() {
+async function mkTranscribe() {
   const buf = mkf.buf;
-  if (!buf) return;
+  if (!buf || mkf.busy) return;
   const sr = buf.sampleRate;
   const s0 = soundStart(mkf.mono, sr);
   const pick = parseTime($('#mk-file-start').value);
@@ -3077,9 +3078,33 @@ function mkTranscribe() {
   const want = Number($('#mk-file-len').value) || 16;
   const bars = Math.max(2, Math.min(want, MAP_LIMITS.maxBars, Math.floor((buf.duration - first) / (beat * 4))));
   if (bars < 2) return ($('#mk-file-status').textContent = '시작 뒤로 노래가 너무 짧아요');
-  // 스테레오면 좌우를 따로 줘야 가운데(보컬)만 골라 들을 수 있음
-  const chans = buf.numberOfChannels > 1 ? [buf.getChannelData(0), buf.getChannelData(1)] : mkf.mono;
-  const t = transcribe(chans, sr, { firstBeat: first, bpm, bars });
+  // 🎤 먼저 목소리만 골라냄 (vocalsep.js, 폰 안에서). 고른 구간 앞뒤 1초만. 안 되면(옛 폰 등) 그냥 원래 소리로
+  const a0 = Math.max(0, Math.floor((first - 1) * sr));
+  const a1 = Math.min(buf.length, Math.ceil((first + bars * 4 * beat + 1) * sr));
+  const Lc = (buf.numberOfChannels > 1 ? buf.getChannelData(0) : mkf.mono).subarray(a0, a1);
+  const Rc = (buf.numberOfChannels > 1 ? buf.getChannelData(1) : mkf.mono).subarray(a0, a1);
+  let chans = buf.numberOfChannels > 1 ? [Lc, Rc] : Lc;
+  let sr2 = sr;
+  const st = $('#mk-file-status');
+  const btn = $('#mk-transcribe');
+  mkf.busy = true;
+  btn.disabled = true;
+  try {
+    const v = await separateVocals(Lc, Rc, sr, (stage, p) => {
+      st.textContent = stage === 'model' ? `목소리 골라내는 준비… ${Math.round(p * 100)}% (처음 한 번만 받아요, 약 30MB)` : `목소리만 골라내는 중… ${Math.round(p * 100)}%`;
+    });
+    chans = [v.L, v.R];
+    sr2 = v.sr;
+  } catch (e) {
+    console.warn('vocalsep', e);
+    toast('이 폰에선 목소리 골라내기가 안 돼서 그냥 따요', 2200);
+  } finally {
+    mkf.busy = false;
+    btn.disabled = false;
+  }
+  st.textContent = '음 따는 중…';
+  await new Promise((r) => setTimeout(r, 30));
+  const t = transcribe(chans, sr2, { firstBeat: first - a0 / sr, bpm, bars });
   // 옥타브 실수·16분 부스러기·조에서 벗어난 음 정리
   t.bars = cleanMelody(t.bars, { grid: $('#mk-file-clean').value === 'fine' ? 1 : 2 });
   t.found = t.bars.reduce((a, b) => a + b.length, 0);
