@@ -549,9 +549,11 @@ function renderLevels() {
       : b
         ? `${starsHTML(b.stars || 0, 'sm')}<span>${fmt(b.score)}</span>`
         : `${starsHTML(0, 'sm')}<span>NEW</span>`;
-    return `${groupHeadHTML(lv.id)}<button class="level-card ${locked ? 'locked' : ''} ${lv.boss ? 'boss' : ''} ${lv.xmas ? 'xmas' : ''}" data-level="${lv.id}">
+    const fresh = lv.newUntil && Date.now() < Date.parse(`${lv.newUntil}T23:59:59+09:00`);
+    return `${groupHeadHTML(lv.id)}<button class="level-card ${locked ? 'locked' : ''} ${lv.boss ? 'boss' : ''} ${lv.xmas ? 'xmas' : ''} ${lv.extreme ? 'extreme' : ''}" data-level="${lv.id}">
+      ${fresh ? '<span class="newtag">NEW</span>' : ''}
       <div class="lv">${lv.xmas ? `<span class="ev">${icon('tree', true)}<small>이벤트</small></span>` : `<span>${lv.id}<small>단계</small></span>`}</div>
-      <div class="info"><h4>${lv.name} <small>${lv.composer}</small></h4><p>${lv.tagline}</p>${diffHTML(lv.difficulty)}</div>
+      <div class="info"><h4>${lv.name} <small>${lv.composer}</small></h4><p>${lv.tagline}</p>${diffHTML(lv.difficulty)}${lv.extreme ? '<span class="extreme-chip">☠ 게임에서 제일 어려움</span>' : ''}</div>
       <div class="meta">${meta}</div>
     </button>`;
   });

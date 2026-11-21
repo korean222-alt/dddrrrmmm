@@ -788,9 +788,12 @@ const LEVELS = [
     id: 18,
     name: '엘리제를 위하여',
     composer: '베토벤',
-    tagline: '진짜 최종 보스 · 미레미레미시레도 질주 · 하이햇 트릴 연타',
+    tagline: '운영진은 포기했어요 · 미레미레미시레도 질주 · 하이햇 트릴 연타',
     difficulty: 5,
     bpm: 144,
+    // 단계 카드: NEW 딱지(이 날까지, 한국 시간) · ☠ 게임에서 제일 어려운 곡 표시
+    newUntil: '2026-11-28',
+    extreme: true,
     song: {
       // 원곡은 3/8박자 → 원곡 한 마디를 우리 반 마디(8칸)로 옮김. A(미레#미레#…) · B(도·솔·파·미) · A 로 끝
       //   (18번은 하루 들어갔다 뺀 찬송가 번호였음 — 그때 점수는 pgstore 'reset-level-18-v1' 로 지움)
@@ -11685,9 +11688,11 @@ function renderLevels() {
       : b
         ? `${starsHTML(b.stars || 0, 'sm')}<span>${fmt(b.score)}</span>`
         : `${starsHTML(0, 'sm')}<span>NEW</span>`;
-    return `${groupHeadHTML(lv.id)}<button class="level-card ${locked ? 'locked' : ''} ${lv.boss ? 'boss' : ''} ${lv.xmas ? 'xmas' : ''}" data-level="${lv.id}">
+    const fresh = lv.newUntil && Date.now() < Date.parse(`${lv.newUntil}T23:59:59+09:00`);
+    return `${groupHeadHTML(lv.id)}<button class="level-card ${locked ? 'locked' : ''} ${lv.boss ? 'boss' : ''} ${lv.xmas ? 'xmas' : ''} ${lv.extreme ? 'extreme' : ''}" data-level="${lv.id}">
+      ${fresh ? '<span class="newtag">NEW</span>' : ''}
       <div class="lv">${lv.xmas ? `<span class="ev">${icon('tree', true)}<small>이벤트</small></span>` : `<span>${lv.id}<small>단계</small></span>`}</div>
-      <div class="info"><h4>${lv.name} <small>${lv.composer}</small></h4><p>${lv.tagline}</p>${diffHTML(lv.difficulty)}</div>
+      <div class="info"><h4>${lv.name} <small>${lv.composer}</small></h4><p>${lv.tagline}</p>${diffHTML(lv.difficulty)}${lv.extreme ? '<span class="extreme-chip">☠ 게임에서 제일 어려움</span>' : ''}</div>
       <div class="meta">${meta}</div>
     </button>`;
   });
