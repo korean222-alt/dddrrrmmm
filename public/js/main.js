@@ -5195,7 +5195,7 @@ async function boot() {
     else toast('도전장 링크가 깨졌어요. 다시 받아 주세요!', 3000);
   }
   document.documentElement.dataset.api = state.api.mode;
-  if (devParam('debug') === '1') window.__kk = { state, audio, renderer };
+  if (devParam('debug') === '1') window.__kk = { state, audio, renderer, startLevel };
 }
 
 boot();
