@@ -234,3 +234,29 @@ test('🎄 데크 더 홀즈(19) 랭킹 초기화: 새 곡으로 바뀌기 전 �
   assert.equal(store.data.players.g_b.bests[19].score, 800);
   fs.rmSync(dir, { recursive: true, force: true });
 });
+
+test('18단계 엘리제를 위하여: 그 전 18번(빼 버린 찬송가) 점수만 한 번 지움 (Postgres + JSON)', async () => {
+  const { ELISE_FROM } = await import('../server/pgstore.js');
+  const old = ELISE_FROM - 1000;
+  const fresh = ELISE_FROM + 1000;
+  const db = new PGlite();
+  const q = async (text, params) => (await db.query(text, params)).rows;
+  await q(`CREATE TABLE players (igsid TEXT PRIMARY KEY, username TEXT, follow_verified_at BIGINT)`);
+  await q(`CREATE TABLE scores (igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, grade TEXT, max_combo INTEGER, at BIGINT NOT NULL, PRIMARY KEY (igsid, level))`);
+  await q(`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
+  await q(`INSERT INTO players VALUES ('g_a', 'a', NULL), ('g_b', 'b', NULL)`);
+  await q(`INSERT INTO scores VALUES ('g_a', 18, 900, 'A', 10, ${old}), ('g_a', -18, 900, 'A', 10, ${old}), ('g_b', 18, 800, 'B', 9, ${fresh}), ('g_a', 17, 700, 'C', 8, ${old})`);
+  await new PgStore(q).init();
+  const left = (await q('SELECT igsid, level FROM scores ORDER BY igsid, level')).map((r) => `${r.igsid}:${r.level}`).join();
+  assert.equal(left, 'g_a:17,g_b:18');
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kk-mig-'));
+  const file = path.join(dir, 'db.json');
+  fs.writeFileSync(file, JSON.stringify({ settings: { 'migration:insert-level-8-v1': '1', 'migration:reset-level-19-v1': '1' }, players: {
+    g_a: { igsid: 'g_a', username: 'a', bests: { 18: { score: 900, at: old }, 17: { score: 700, at: old } } },
+    g_b: { igsid: 'g_b', username: 'b', bests: { 18: { score: 800, at: fresh } } },
+  } }));
+  const store = new JsonStore(file).init();
+  assert.deepEqual(Object.keys(store.data.players.g_a.bests), ['17']);
+  assert.equal(store.data.players.g_b.bests[18].score, 800);
+  fs.rmSync(dir, { recursive: true, force: true });
+});

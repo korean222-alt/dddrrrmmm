@@ -784,9 +784,64 @@ const LEVELS = [
       'X...B...X.......',
     ],
   },
+  {
+    id: 18,
+    name: '엘리제를 위하여',
+    composer: '베토벤',
+    tagline: '지옥 마지막 곡 · 미레미레미시레도 · 하이햇 트릴 연타',
+    difficulty: 5,
+    bpm: 126,
+    song: {
+      // 원곡은 3/8박자 → 원곡 한 마디를 우리 반 마디(8칸)로 옮김. A(미레#미레#…) · B(도·솔·파·미) · A 로 끝
+      //   (18번은 하루 들어갔다 뺀 찬송가 번호였음 — 그때 점수는 pgstore 'reset-level-18-v1' 로 지움)
+      prog: ['Am', 'E Am', 'Am', 'E Am', 'Am', 'E Am', 'Am', 'E Am', 'C G', 'Am E', 'E', 'Am', 'E Am', 'Am', 'E Am', 'Am'],
+      hat: '................',
+      bass: 'x.....x.x.....x.',
+      chord: '..x.x.....x.x...',
+      melody: [
+        'E5:1 D#5:1 E5:1 D#5:1 E5:1 B4:1 D5:1 C5:1 A4:3 C4:1 E4:1 A4:3',
+        'B4:3 E4:1 G#4:1 B4:3 C5:3 E4:1 E5:2 D#5:2',
+        'E5:1 D#5:1 E5:1 D#5:1 E5:1 B4:1 D5:1 C5:1 A4:3 C4:1 E4:1 A4:3',
+        'B4:3 E4:1 C5:1 B4:3 A4:8',
+        'E5:1 D#5:1 E5:1 D#5:1 E5:1 B4:1 D5:1 C5:1 A4:3 C4:1 E4:1 A4:3',
+        'B4:3 E4:1 G#4:1 B4:3 C5:3 E4:1 E5:2 D#5:2',
+        'E5:1 D#5:1 E5:1 D#5:1 E5:1 B4:1 D5:1 C5:1 A4:3 C4:1 E4:1 A4:3',
+        'B4:3 E4:1 C5:1 B4:3 A4:2 B4:2 C5:2 D5:2',
+        'E5:5 G4:1 F5:1 E5:1 D5:5 F4:1 E5:1 D5:1',
+        'C5:5 E4:1 D5:1 C5:1 B4:3 E4:1 E5:2 E5:1 E6:1',
+        'D#5:1 E5:1 D#5:1 E5:1 D#5:1 E5:1 D#5:1 E5:1 D#5:1 E5:1 D#5:1 E5:1 D#5:1 E5:1 D#5:1 E5:1',
+        'E5:1 D#5:1 E5:1 D#5:1 E5:1 B4:1 D5:1 C5:1 A4:3 C4:1 E4:1 A4:3',
+        'B4:3 E4:1 G#4:1 B4:3 C5:3 E4:1 E5:2 D#5:2',
+        'E5:1 D#5:1 E5:1 D#5:1 E5:1 B4:1 D5:1 C5:1 A4:3 C4:1 E4:1 A4:3',
+        'B4:3 E4:1 C5:1 B4:3 A4:8',
+        'A4:4 C5:2 E5:2 A5:8',
+      ],
+    },
+    // 💥 연타 구간: 미레#미레# 트릴 동안 하이햇
+    rolls: [{ bar: 10, from: 4, len: 10, lane: HAT }],
+    bars: [
+      // 멜로디 16분음표 질주는 엄지 번갈아 KSKS. 같은 엄지 16분음표 연타 없음 (마디 넘어갈 때도)
+      'C.H.KSKSK..SKS..',
+      'J..SK.S.X..SK.S.',
+      'X.H.KSKSK..SKSK.',
+      'J..SK.S.X...TST.',
+      'J.H.KSKSK..SKS..',
+      'J..SK.S.X..SK.S.',
+      'X.H.KSKSK..SKSK.',
+      'J..SK.S.B.B.B.B.',
+      'X...HKSKS...HKS.',
+      'Y...HKSKS..KSKS.',
+      'X...............', // 💥 하이햇 연타 (rolls)
+      'C.H.KSKSK..SKS..',
+      'J..SK.S.X..SK.S.',
+      'X.H.KSKSK..SKSK.',
+      'J..SK.S.X...TST.',
+      'B...K.S.X.......',
+    ],
+  },
   // ---------------------------------------------------------------
   // 🎄 크리스마스 이벤트 곡 (번호 단계가 아님. 화면엔 '크리스마스 이벤트'로, 크리스마스 마을 맵).
-  //   id 19·21·22 는 내부 번호 (랭킹·점수 저장용, 18·20 은 빼 버린 찬송가 자리라 비워 둠 — 다시 쓰지 말 것)
+  //   id 19·21·22 는 내부 번호 (랭킹·점수 저장용. 20 은 빼 버린 찬송가 자리라 비워 둠 — 다시 쓰지 말 것. 18 은 2026-11-21 엘리제를 위하여 본편 단계로)
   //   xmas: 앞 단계를 안 깼어도 바로 칠 수 있음 (잠금은 4단계부터와 같음: 팔로워 인증). 본편 순서·총 등수·무제한엔 안 들어감
   //   song.bells = 썰매 방울 박자, song.glock = 멜로디 위에 글로켄슈필, song.choir = 합창 목소리(합성)
   //   song.audio = { src, offset } 녹음된 노래 파일을 틂 (offset = 채보 첫 마디가 시작하는 파일 시각, 초)
@@ -5192,7 +5247,7 @@ const THEME_GROUPS = [
   { from: 7, to: 9, key: 'hall' },
   { from: 10, to: 12, key: 'void' },
   { from: 13, to: 15, key: 'lava' },
-  { from: 16, to: 17, key: 'aurora' },
+  { from: 16, to: 18, key: 'aurora' },
   { from: 19, to: 22, key: 'xmas' }, // 🎄 크리스마스 이벤트 곡 (19·21·22)
   { from: 23, to: 23, key: 'hall' }, // 🎭 장거리 (네순 도르마)
 ];
@@ -9224,6 +9279,23 @@ function saveBest(result) {
   return { isNew: false, prev };
 }
 
+/** 18단계 = 엘리제를 위하여 (2026-11-21). 이 브라우저에 남은 그 전 18번(빼 버린 찬송가) 기록은 한 번 지움 */
+const ELISE_FROM = Date.parse('2026-11-21T06:15:00Z');
+function resetOldLevel18() {
+  if (load('level18V2', false)) return;
+  for (const key of ['bests', 'mockBoard']) {
+    const old = load(key, null);
+    if (!old || typeof old !== 'object') continue;
+    let changed = false;
+    for (const k of ['18', 'e18']) {
+      const v = old[k];
+      if (v && !(v.at >= ELISE_FROM)) { delete old[k]; changed = true; }
+    }
+    if (changed) save(key, old);
+  }
+  save('level18V2', true);
+}
+
 /** 8단계에 새 곡이 끼면서 예전 8~14단계가 9~15단계로 밀림 → 이 브라우저에 쌓인 기록·설정을 한 번만 옮김 */
 function migrateLevelOrder() {
   if (load('levelOrderV2', false)) return;
@@ -9241,7 +9313,7 @@ function migrateLevelOrder() {
   save('levelOrderV2', true);
 }
 
-return { load, save, remove, DEFAULT_SETTINGS, loadSettings, saveSettings, loadBests, saveBest, migrateLevelOrder };
+return { load, save, remove, DEFAULT_SETTINGS, loadSettings, saveSettings, loadBests, saveBest, resetOldLevel18, migrateLevelOrder };
 })();
 
 // ---- track.js ----
@@ -9711,10 +9783,11 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-21i',
+    id: '2026-11-21j',
     date: '11월 21일',
-    title: '🏛 명예의 전당 · 시즌 1 · 🎭 장거리 · 🥁 드럼 맵',
+    title: '🎹 18단계 엘리제를 위하여 · 🏛 명예의 전당 · 🎭 장거리',
     items: [
+      '<b>18단계 엘리제를 위하여</b>(베토벤 · 지옥)가 새로 생겼어요! 미레미레미시레도~ 하이햇 트릴 연타까지',
       '<b>🏛 명예의 전당</b>이 생겼어요! 🏆 랭킹 → 🎵 단계 총합 / 💎 무제한 총합',
       '<b>시즌 1은 11월 26일 밤 12시에 끝나요.</b> 1·2·3등은 명예의 전당에 영원히 기록되고, 프로필 사진도 올릴 수 있어요',
       '<b>🎭 장거리</b>가 바뀌었어요: 곡 하나를 <b>처음부터 끝까지</b>! 첫 곡은 오페라 <b>네순 도르마</b>',
@@ -11070,8 +11143,9 @@ const { RoomClient, roomOutcome, survivalOutcome } = __m_room;
 const { makeReelCover } = __m_cover;
 const { detectBeat, monoOf, songChart } = __m_beatsync;
 const { seasonLeftText, BOARD_LABEL } = __m_season;
-const { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder } = __m_storage;
+const { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder, resetOldLevel18 } = __m_storage;
 
+resetOldLevel18(); // 18번 = 엘리제를 위하여 (그 전 찬송가 기록 지움)
 migrateLevelOrder(); // 8단계에 새 곡이 끼면서 밀린 번호를 이 브라우저 기록에도 반영 (아래 state 보다 먼저)
 const { makeShareCard, gradeColor } = __m_sharecard;
 const { icon, watchEmoji } = __m_icons;

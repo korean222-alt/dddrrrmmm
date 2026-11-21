@@ -12,7 +12,7 @@ export const RANKED_START = 1000;
 export const RANKED_DAILY = 30;
 export const PLACEMENT_GAMES = 10;
 export const GHOST_TTL_MS = 20 * 60 * 1000;
-/** 랭킹전 곡: 본편 1~17단계 (캐롤·장거리 빼고) */
+/** 랭킹전 곡: 본편 1~18단계 (캐롤·장거리 빼고) */
 export const RANKED_POOL = LEVELS.filter((l) => typeof l.id === 'number' && l.id >= 1 && l.id <= LAST_LEVEL_ID && !l.xmas && !l.long).map((l) => l.id);
 
 /** 점수에 맞는 곡: 브론즈는 쉬움·보통(난이도 3까지), 실버는 4까지, 골드부터 전부 */
