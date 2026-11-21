@@ -101,6 +101,8 @@ export function initTracker({ enabled }) {
     if (!document.hidden && Date.now() - lastInput < IDLE_MS) activeMs += TICK_MS;
   }, TICK_MS);
   setInterval(() => {
+    // 판 시작·점수 요청에 얹어서 방금(5분 안) 보냈으면 건너뜀 → 계속 치는 사람은 따로 안 보냄
+    if (Date.now() - lastSentAt < FLUSH_MS - TICK_MS) return;
     if (!document.hidden && (queue.length || Math.round(activeMs / 1000) !== lastSent)) send();
   }, FLUSH_MS);
   const leave = () => {

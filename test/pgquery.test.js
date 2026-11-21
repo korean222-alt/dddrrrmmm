@@ -60,3 +60,45 @@ test('trackPlays: 같은 판의 시작+끝이 한 번에 와도 합쳐서 한 �
   assert.equal(r2[0].result, 'fail');
   await store.trackPlays([]);
 });
+
+test('init: 표 만들기는 한 번에 (Cloudflare 무료 = 요청당 바깥 연결 50번) · 두 번째부턴 1번', async () => {
+  const db = new PGlite();
+  let n = 0;
+  const q = async (text, params) => (n++, (await db.query(text, params)).rows);
+  await new PgStore(q).init();
+  assert.ok(n <= 35, `처음(빈 DB, 옛 기록 옮기기 전부) init 쿼리 ${n}번`);
+  // 표가 다 생겼는지
+  for (const t of ['players', 'scores', 'used_runs', 'rooms', 'maps', 'season_scores', 'hall', 'ranked_runs'])
+    assert.ok((await q(`SELECT to_regclass('public.${t}') AS t`))[0].t, t);
+  // 표 설계가 바뀐 척(표시 지움) → 다시 돌아도 문제없고 쿼리 수 적음
+  await q(`DELETE FROM settings WHERE key LIKE 'schema:%'`);
+  n = 0;
+  await new PgStore(q).init();
+  assert.ok(n <= 15, `다시 init 쿼리 ${n}번`);
+  n = 0;
+  await new PgStore(q).init();
+  assert.equal(n, 1);
+});
+
+test('cleanup: 지난 판 토큰·끝난 방·지난 옮기기 코드·1년 넘은 통계만 지움', async () => {
+  const { q, store } = await fresh();
+  const now = Date.now();
+  await store.useRun('old', now - 1000);
+  await store.useRun('new', now + 1000);
+  await store.createRoom('1111', { a: 1 }, now - 10_000, now - 1);
+  await store.createRoom('2222', { a: 1 }, now, now + 10_000);
+  await store.putTransfer('111111', { x: 1 }, now - 10_000, now - 1);
+  await store.putTransfer('222222', { x: 1 }, now, now + 10_000);
+  await store.trackSession({ sid: 'oldsess1', vid: 'v', now: now - 500 * 86400000, activeSec: 1 });
+  await store.trackSession({ sid: 'newsess1', vid: 'v', now, activeSec: 1 });
+  await store.trackPlays([{ id: 'oldplay1', sid: 'oldsess1', vid: 'v', level: '1', startedAt: now - 500 * 86400000 }, { id: 'newplay1', sid: 'newsess1', vid: 'v', level: '1', startedAt: now }]);
+  await store.cleanup(now);
+  const col = async (sql) => (await q(sql)).map((r) => Object.values(r)[0]).join();
+  assert.equal(await col('SELECT nonce FROM used_runs'), 'new');
+  assert.equal(await col('SELECT code FROM rooms'), '2222');
+  assert.equal(await col('SELECT code FROM transfers'), '222222');
+  assert.equal(await col('SELECT sid FROM sessions'), 'newsess1');
+  assert.equal(await col('SELECT id FROM plays'), 'newplay1');
+  // 다 쓴 토큰을 지운 뒤에도 살아 있는 토큰은 여전히 한 번만
+  assert.equal(await store.useRun('new', now + 1000), false);
+});

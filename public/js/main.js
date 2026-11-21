@@ -133,15 +133,22 @@ const isLocalDev = () => /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.host
  */
 let reconnecting = null;
 let reconnectTriedAt = 0;
+let reconnectFails = 0;
 function reconnectServer({ force = false } = {}) {
   if (state.api && state.api.mode === 'server') return Promise.resolve(true);
   if (CONFIG.apiMode === 'mock') return Promise.resolve(false);
-  if (!force && Date.now() - reconnectTriedAt < 30 * 1000) return Promise.resolve(false);
+  // 계속 안 되면 30초 → 1분 → 2분 … 10분 간격으로만 다시 해 봄 (하루 한도를 넘겨 서버가 막혔을 때 헛요청 줄이기)
+  const gap = Math.min(600, 30 * 2 ** reconnectFails) * 1000;
+  if (!force && Date.now() - reconnectTriedAt < gap) return Promise.resolve(false);
   reconnectTriedAt = Date.now();
   reconnecting ??= (async () => {
     try {
       const api = await createApi({ ...CONFIG, apiMode: 'auto' });
-      if (api.mode !== 'server') return false;
+      if (api.mode !== 'server') {
+        reconnectFails = Math.min(reconnectFails + 1, 5);
+        return false;
+      }
+      reconnectFails = 0;
       state.api = api;
       if (state.roomClient) state.roomClient.api = api;
       initTracker({ enabled: true });

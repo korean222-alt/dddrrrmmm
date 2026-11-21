@@ -10804,6 +10804,8 @@ function initTracker({ enabled }) {
     if (!document.hidden && Date.now() - lastInput < IDLE_MS) activeMs += TICK_MS;
   }, TICK_MS);
   setInterval(() => {
+    // 판 시작·점수 요청에 얹어서 방금(5분 안) 보냈으면 건너뜀 → 계속 치는 사람은 따로 안 보냄
+    if (Date.now() - lastSentAt < FLUSH_MS - TICK_MS) return;
     if (!document.hidden && (queue.length || Math.round(activeMs / 1000) !== lastSent)) send();
   }, FLUSH_MS);
   const leave = () => {
@@ -11253,6 +11255,26 @@ const ROOM_POLL_LOBBY_MS = 3000;
 const ROOM_POLL_PLAY_MS = 5000;
 const ROOM_POLL_RT_MS = 15000; // 실시간 연결됐을 때 치는 중
 const ROOM_POLL_WAIT_MS = 5000; // 빠른 대결 상대 기다리는 중
+// 대기실에서 한동안 아무 변화가 없으면 천천히 (창을 켜 둔 채 놔두면 3초마다 계속 → 하루 무료 요청을 많이 먹음)
+//   자리 비움 판정(1분)보다 짧게. 누가 준비·곡 바꾸기를 하거나 내가 뭘 누르면 바로 원래 간격
+const ROOM_IDLE_SLOW_AFTER_MS = 3 * 60_000;
+const ROOM_IDLE_SLOWER_AFTER_MS = 15 * 60_000;
+const ROOM_POLL_IDLE_MS = 10_000;
+const ROOM_POLL_IDLER_MS = 30_000;
+/** 방 모양에서 매번 바뀌는 값(ago)만 빼고 비교용 글자로 */
+function roomSig(room) {
+  if (!room) return '';
+  const players = {};
+  for (const [k, p] of Object.entries(room.players || {})) {
+    const { ago, ...rest } = p || {};
+    players[k] = rest;
+  }
+  return JSON.stringify({ ...room, players });
+}
+/** 대기실 주고받기 간격: 변화 없이 idleMs 지났으면 천천히 */
+function lobbyPollMs(idleMs) {
+  return idleMs > ROOM_IDLE_SLOWER_AFTER_MS ? ROOM_POLL_IDLER_MS : idleMs > ROOM_IDLE_SLOW_AFTER_MS ? ROOM_POLL_IDLE_MS : ROOM_POLL_LOBBY_MS;
+}
 const LIVE_EVERY_MS = 200;
 const LINK_GIVEUP_MS = 20000;
 const ICE_SERVERS = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun.cloudflare.com:3478'] }];
@@ -11355,6 +11377,16 @@ class RoomClient {
     this._timer = null;
     this._busy = false;
     this._fails = 0;
+    this._sig = '';
+    this._changedAt = Date.now();
+    // 화면으로 돌아오면 대기실은 바로 한 번 받고 빠른 간격으로 (천천히 받던 중이었어도 바로 보이게)
+    if (typeof document !== 'undefined')
+      document.addEventListener('visibilitychange', () => {
+        if (document.hidden || !this.code || (this.room && this.room.status === 'playing')) return;
+        if (Date.now() - this._changedAt <= ROOM_IDLE_SLOW_AFTER_MS) return;
+        this._changedAt = Date.now();
+        this.poll();
+      });
     this.link = null;
     this.peerLive = null;
     this.peerFinal = null;
@@ -11417,6 +11449,8 @@ class RoomClient {
     this.key = r.key;
     this.room = r.room;
     this.bestRtt = Infinity;
+    this._sig = roomSig(r.room);
+    this._changedAt = Date.now();
     this._update();
     this._schedule();
   }
@@ -11485,10 +11519,17 @@ class RoomClient {
     this._busy = true;
     clearTimeout(this._timer); // 주기 타이머는 끝나고 다시 잡음 (겹쳐서 두 번 보내지 않게)
     const body = { action: 'sync', code: this.code, slot: this.slot, key: this.key, ...this.pending };
+    // 내가 뭘 보냄(준비·곡 바꾸기…) = 변화
+    if (Object.keys(this.pending).length) this._changedAt = Date.now();
     this.pending = {};
     try {
       const r = await this._call(body);
       this._fails = 0;
+      const sig = roomSig(r.room);
+      if (sig !== this._sig) {
+        this._sig = sig;
+        this._changedAt = Date.now();
+      }
       this.room = r.room;
       this._update();
     } catch (e) {
@@ -11520,7 +11561,7 @@ class RoomClient {
     // 🎲 랜덤 대결: 내 곡이 끝났으면 다음 곡 시작을 빨리 알아채게 (결과 화면에서 기다리는 중)
     const mf = this.me && this.me.final;
     const rushWait = playing && this.room.pub === 'rush' && mf && mf.round === this.room.round;
-    const ms = rushWait ? ROOM_POLL_LOBBY_MS : playing ? (this.realtime ? ROOM_POLL_RT_MS : ROOM_POLL_PLAY_MS) : this.waiting ? ROOM_POLL_WAIT_MS : linking ? 1500 : ROOM_POLL_LOBBY_MS;
+    const ms = rushWait ? ROOM_POLL_LOBBY_MS : playing ? (this.realtime ? ROOM_POLL_RT_MS : ROOM_POLL_PLAY_MS) : this.waiting ? ROOM_POLL_WAIT_MS : linking ? 1500 : lobbyPollMs(Date.now() - this._changedAt);
     this._timer = setTimeout(() => {
       if (typeof document !== 'undefined' && document.hidden) this._schedule();
       else this.poll();
@@ -11610,6 +11651,8 @@ class RoomClient {
     try {
       const r = await this._call({ action: 'again', code: this.code, slot: this.slot, key: this.key });
       this.room = r.room;
+      this._sig = roomSig(r.room);
+      this._changedAt = Date.now();
       this._update();
     } catch {}
     // 치는 중엔 15초 간격이었으니 대기실 간격(3초)으로 다시 잡음 (상대 준비·규칙 바뀐 게 늦게 보이던 것)
@@ -11653,7 +11696,7 @@ function roomOutcome(mode, mine, theirs) {
   return { result: mine > theirs ? 'win' : 'lose' };
 }
 
-return { ROOM_POLL_LOBBY_MS, ROOM_POLL_PLAY_MS, ROOM_POLL_RT_MS, ROOM_POLL_WAIT_MS, RoomClient, survivalOutcome, roomOutcome };
+return { ROOM_POLL_LOBBY_MS, ROOM_POLL_PLAY_MS, ROOM_POLL_RT_MS, ROOM_POLL_WAIT_MS, ROOM_IDLE_SLOW_AFTER_MS, ROOM_IDLE_SLOWER_AFTER_MS, ROOM_POLL_IDLE_MS, ROOM_POLL_IDLER_MS, roomSig, lobbyPollMs, RoomClient, survivalOutcome, roomOutcome };
 })();
 
 // ---- cover.js ----
@@ -12347,15 +12390,22 @@ const isLocalDev = () => /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.host
  */
 let reconnecting = null;
 let reconnectTriedAt = 0;
+let reconnectFails = 0;
 function reconnectServer({ force = false } = {}) {
   if (state.api && state.api.mode === 'server') return Promise.resolve(true);
   if (CONFIG.apiMode === 'mock') return Promise.resolve(false);
-  if (!force && Date.now() - reconnectTriedAt < 30 * 1000) return Promise.resolve(false);
+  // 계속 안 되면 30초 → 1분 → 2분 … 10분 간격으로만 다시 해 봄 (하루 한도를 넘겨 서버가 막혔을 때 헛요청 줄이기)
+  const gap = Math.min(600, 30 * 2 ** reconnectFails) * 1000;
+  if (!force && Date.now() - reconnectTriedAt < gap) return Promise.resolve(false);
   reconnectTriedAt = Date.now();
   reconnecting ??= (async () => {
     try {
       const api = await createApi({ ...CONFIG, apiMode: 'auto' });
-      if (api.mode !== 'server') return false;
+      if (api.mode !== 'server') {
+        reconnectFails = Math.min(reconnectFails + 1, 5);
+        return false;
+      }
+      reconnectFails = 0;
       state.api = api;
       if (state.roomClient) state.roomClient.api = api;
       initTracker({ enabled: true });

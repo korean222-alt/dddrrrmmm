@@ -165,6 +165,17 @@ export class JsonStore {
     if (n) this._save();
     return n;
   }
+  /** 다 쓴 것 지우기 (pgstore 와 같음): 지난 판 토큰·끝난 방·지난 옮기기 코드·1년 넘은 이용 통계 */
+  cleanup(now = Date.now()) {
+    const d = this.data;
+    for (const [k, exp] of Object.entries(d.usedRuns)) if (exp < now) delete d.usedRuns[k];
+    for (const [k, r] of Object.entries(d.rooms)) if (r.expiresAt < now) delete d.rooms[k];
+    for (const [k, t] of Object.entries(d.transfers)) if (t.expiresAt < now) delete d.transfers[k];
+    const old = now - STATS_KEEP_MS;
+    for (const [k, s] of Object.entries(d.sessions)) if (s && s.startedAt < old) delete d.sessions[k];
+    for (const [k, p] of Object.entries(d.plays)) if (p && p.startedAt < old) delete d.plays[k];
+    this._save();
+  }
   /** on: true(인증 완료) / 'temp'(암호 없이 임시 인증 = 음수 시각) / false(풀기) */
   setChecked(igsid, on) {
     const p = this.data.players[igsid];

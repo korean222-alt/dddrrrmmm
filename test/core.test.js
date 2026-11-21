@@ -499,3 +499,13 @@ test('👍 같은 엄지 줄: 4줄 맵에서 챙 줄을 눌러도 그때 쿵 노
     assert.equal(g.counts.wrong, w + 1);
   }
 });
+
+test('방 대기실: 변화 없으면 천천히 주고받기 (자리 비움 1분보다 짧게) · ago 만 바뀐 건 변화 아님', async () => {
+  const { lobbyPollMs, roomSig, ROOM_POLL_LOBBY_MS } = await import('../public/js/room.js');
+  assert.equal(lobbyPollMs(0), ROOM_POLL_LOBBY_MS);
+  assert.ok(lobbyPollMs(5 * 60_000) > ROOM_POLL_LOBBY_MS);
+  assert.ok(lobbyPollMs(60 * 60_000) < 60_000);
+  const a = { status: 'lobby', players: { a: { name: 'x', ready: false, ago: 10 } } };
+  assert.equal(roomSig(a), roomSig({ ...a, players: { a: { ...a.players.a, ago: 3000 } } }));
+  assert.notEqual(roomSig(a), roomSig({ ...a, players: { a: { ...a.players.a, ready: true } } }));
+});
