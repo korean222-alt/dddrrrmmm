@@ -14,7 +14,9 @@
     "run_worker_first": ["/api/*"],
     "not_found_handling": "none"
   },
-  // 서버 코드를 DB(Neon) 가까이에서 돌림 → DB 왕복이 짧아짐 (무료)
+  // D1 (2026-11-21 Neon 에서 옮김). 실제로 D1 을 쓸지는 비밀값 DB_MODE (d1 / 없거나 neon = Neon) — worker/index.js
+  "d1_databases": [{ "binding": "DB", "database_name": "okaystra", "database_id": "3b6401ad-5020-40ea-b03e-82abe5384536" }],
+  // 서버 코드를 DB 가까이에서 돌림 → DB 왕복이 짧아짐 (무료)
   "placement": { "mode": "smart" },
   "observability": { "enabled": true }
 }
