@@ -13293,11 +13293,35 @@ function bindGameInput() {
     (e) => {
       e.preventDefault();
       if (!state.game) return;
-      for (const t of e.changedTouches) tapAt(t.clientX, t.clientY, e.timeStamp);
+      for (const t of e.changedTouches) {
+        held.set(t.identifier, { at: e.timeStamp, x: t.clientX, y: t.clientY });
+        tapAt(t.clientX, t.clientY, e.timeStamp);
+      }
     },
     { passive: false }
   );
-  ['touchmove', 'gesturestart', 'dblclick', 'contextmenu'].forEach((ev) =>
+  // 아이폰: 손가락 하나의 '뗌'(touchend)을 놓치면 사파리가 그 손가락이 아직 붙어 있다고 여겨,
+  //   그 근처를 새로 눌러도 touchstart 대신 그 '유령 손가락'의 touchmove 로만 보냄 → 그 줄(주로 왼쪽 엄지 쿵)만 안 눌리고 새로고침해야 풀림.
+  //   한동안 조용하던 손가락이 다른 자리에서 갑자기 움직이면 새로 누른 것으로 봄
+  const held = new Map();
+  canvas.addEventListener(
+    'touchmove',
+    (e) => {
+      e.preventDefault();
+      for (const t of e.changedTouches) {
+        const h = held.get(t.identifier);
+        const revived = !h || (e.timeStamp - h.at > 250 && Math.hypot(t.clientX - h.x, t.clientY - h.y) > 10);
+        held.set(t.identifier, { at: e.timeStamp, x: t.clientX, y: t.clientY });
+        if (revived && state.game) tapAt(t.clientX, t.clientY, e.timeStamp);
+      }
+    },
+    { passive: false }
+  );
+  for (const ev of ['touchend', 'touchcancel'])
+    canvas.addEventListener(ev, (e) => {
+      for (const t of e.changedTouches) held.delete(t.identifier);
+    });
+  ['gesturestart', 'dblclick', 'contextmenu'].forEach((ev) =>
     canvas.addEventListener(ev, (e) => e.preventDefault(), { passive: false })
   );
   window.addEventListener('keydown', (e) => {
