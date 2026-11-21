@@ -4,7 +4,7 @@ import {
   STEPS_PER_BAR, tempoOf, ROUND_BARS, roundInfo, diamondsFor,
   buildNotes, JUDGE, pointsFor, accuracy, gradeFor, starsFor,
   COUNT_IN_BARS, OUTRO_BARS, maxScore, levelLanes, INSTRUMENTS, KICK, SNARE, HAT, CRASH,
-  buildRolls, markGoldNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, parseMelody,
+  buildRolls, markGoldNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, parseMelody, pianoHarmony,
 } from './charts.js';
 import { SongPlayer } from './audio.js';
 
@@ -149,6 +149,8 @@ export class Game {
       n.midi = m.midi;
       n.dur = this.tempo.stepTime(n.step + m.len) - this.tempo.stepTime(n.step);
       n.sol = SOL[m.midi % 12];
+      // 🎹 오른손 화음 (멜로디 아래 화음 음, 긴 음은 하나 더)
+      n.harm = pianoHarmony(this.level.song, m.bar, m.step, m.midi, m.len >= 4);
     }
   }
 
@@ -163,7 +165,10 @@ export class Game {
     }
     if (!best || best.midi == null || Math.abs(best.time - t) > JUDGE.early) return;
     const a = this.audio;
-    a.pianoOr('lead', a.ctx.currentTime, best.midi, Math.max(0.25, best.dur * 0.95), a.sfxBus, 1.25);
+    const t0 = a.ctx.currentTime;
+    const d = Math.max(0.25, best.dur * 0.95);
+    a.pianoOr('lead', t0, best.midi, d, a.sfxBus, 1.25);
+    for (const h of best.harm || []) a.pianoOr('lead', t0, h, d, a.sfxBus, 0.6);
   }
 
   /** 끝나는 시각: 무제한 모드는 끝없음 (목숨이 다 떨어질 때까지) */

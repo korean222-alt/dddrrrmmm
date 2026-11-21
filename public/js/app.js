@@ -996,8 +996,10 @@ const LEVELS = [
         'D A', 'G', 'A7', 'A D', 'D', 'D', 'Bm', 'A7', 'D A', 'G', 'D',
       ],
       hat: '................',
-      bass: 'x.......x.......',
-      chord: 'x.......x.......',
+      // 🎹 반주 피아노는 왼손(베이스 + 펼친 화음)으로만 (pianoLH) — 기본 베이스·화음 찍기는 끔
+      bass: '................',
+      chord: '................',
+      pianoLH: true,
       melody: [
         '_:12 D5:3 D5:1', // Nes-sun
         'D5 D5 _ D4:3 D4:1', // dor-ma! nes-sun
@@ -1151,6 +1153,27 @@ function chordAt(song, mb, s) {
   const parts = entry.trim().split(/\s+/);
   const idx = Math.min(parts.length - 1, Math.floor((s * parts.length) / STEPS_PER_BAR));
   return parseChord(parts[idx]);
+}
+
+/** 🎹 두 손 피아노 — 오른손: 멜로디 음 아래 3~12반음 안에서 같이 누를 화음 음 (긴 음은 하나 더) */
+function pianoHarmony(song, mb, s, midi, long = false) {
+  const pcs = chordAt(song, mb, s).notes.map((m) => ((m % 12) + 12) % 12);
+  const out = [];
+  for (let m = midi - 3; m >= midi - 12 && m >= 50 && out.length < (long ? 2 : 1); m--) {
+    if (pcs.includes(((m % 12) + 12) % 12) && (!out.length || out.at(-1) - m >= 3)) out.push(m);
+  }
+  return out;
+}
+/** 🎹 두 손 피아노 — 왼손: 8분음표마다 베이스 → 5도 → 옥타브 → 3도 (반 마디마다 되풀이). 8분 자리가 아니면 null */
+function pianoLeftHand(song, mb, s) {
+  if (s % 2) return null;
+  const ch = chordAt(song, mb, s);
+  let b = ch.notes[0] - 24;
+  while (b < 36) b += 12;
+  while (b > 47) b -= 12;
+  const third = ch.notes[1] - ch.notes[0];
+  const k = (s % 8) / 2;
+  return { midi: [b, b + 7, b + 12, b + 12 + third][k], vel: k === 0 ? 0.55 : 0.32, steps: 8 - (s % 8) };
 }
 
 /** melody 문자열 → [{ bar, step, midi, len }] (bar 는 melody 안에서의 마디 번호) */
@@ -1833,7 +1856,7 @@ function makeLevelEndless(base, { intro = false } = {}) {
   return run;
 }
 
-return { STEPS_PER_BAR, KICK, SNARE, HAT, CRASH, TOM, INSTRUMENTS, CHAR_LANES, isLeftThumb, COUNT_IN_BARS, OUTRO_BARS, JUDGE, POINTS, ACC_WEIGHT, STAR_RULES, DIFFICULTY_WORDS, LEVELS, tapBars, STUDIO_LEVELS, getStudioLevel, FREE_UPTO, VERIFY_LEVELS, needsVerify, CLOSED_LEVELS, SKIP_LEVELS, isClosed, prevOpenId, nextOpenId, noteToMidi, parseChord, chordAt, parseMelody, getLevel, beatDur, stepDur, barDur, levelDuration, TempoMap, tempoOf, levelLanes, buildNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, GOLD_SPOTS, buildRolls, markGoldNotes, noteCount, comboMultiplier, pointsFor, maxScore, accuracy, gradeFor, starsFor, scoreBounds, isClearBest, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, shiftOldLevelKey, ENDLESS_FROM, FREE_LEVELS, isUnlocked, tierOf, unlockHint, nextChallenge, ENDLESS_ID, ROUND_BARS, ENDLESS_BASE_BPM, ENDLESS_BPM_STEP, DIAMOND_RULES, diamondsFor, roundBpm, roundInfo, roundBars, makeEndless, BEAT_ID, BEAT_MIN_BPM, BEAT_MAX_BPM, BEAT_MAX_ROUNDS, beatOpts, BEAT_STYLES, BEAT_DIFFS, beatStyleName, makeBeatReel, beatSeconds, QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds, LEVEL_ENDLESS_STEP, levelEndlessId, levelEndlessBase, levelSurvivalId, levelSurvivalBase, makeLevelEndless };
+return { STEPS_PER_BAR, KICK, SNARE, HAT, CRASH, TOM, INSTRUMENTS, CHAR_LANES, isLeftThumb, COUNT_IN_BARS, OUTRO_BARS, JUDGE, POINTS, ACC_WEIGHT, STAR_RULES, DIFFICULTY_WORDS, LEVELS, tapBars, STUDIO_LEVELS, getStudioLevel, FREE_UPTO, VERIFY_LEVELS, needsVerify, CLOSED_LEVELS, SKIP_LEVELS, isClosed, prevOpenId, nextOpenId, noteToMidi, parseChord, chordAt, pianoHarmony, pianoLeftHand, parseMelody, getLevel, beatDur, stepDur, barDur, levelDuration, TempoMap, tempoOf, levelLanes, buildNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, GOLD_SPOTS, buildRolls, markGoldNotes, noteCount, comboMultiplier, pointsFor, maxScore, accuracy, gradeFor, starsFor, scoreBounds, isClearBest, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, shiftOldLevelKey, ENDLESS_FROM, FREE_LEVELS, isUnlocked, tierOf, unlockHint, nextChallenge, ENDLESS_ID, ROUND_BARS, ENDLESS_BASE_BPM, ENDLESS_BPM_STEP, DIAMOND_RULES, diamondsFor, roundBpm, roundInfo, roundBars, makeEndless, BEAT_ID, BEAT_MIN_BPM, BEAT_MAX_BPM, BEAT_MAX_ROUNDS, beatOpts, BEAT_STYLES, BEAT_DIFFS, beatStyleName, makeBeatReel, beatSeconds, QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds, LEVEL_ENDLESS_STEP, levelEndlessId, levelEndlessBase, levelSurvivalId, levelSurvivalBase, makeLevelEndless };
 })();
 
 // ---- usermap.js ----
@@ -2411,7 +2434,7 @@ const __m_audio = (() => {
 // - 모든 박자 판정은 AudioContext 시계 기준 (setTimeout 보다 훨씬 정확)
 // - heardTime(): "지금 스피커에서 나오고 있는 소리"의 시각. 출력 지연까지 반영.
 
-const { STEPS_PER_BAR, COUNT_IN_BARS, OUTRO_BARS, tempoOf, parseMelody, chordAt, levelLanes, CHAR_LANES, KICK, SNARE, HAT, CRASH, TOM } = __m_charts;
+const { STEPS_PER_BAR, COUNT_IN_BARS, OUTRO_BARS, tempoOf, parseMelody, chordAt, levelLanes, CHAR_LANES, KICK, SNARE, HAT, CRASH, TOM, pianoHarmony, pianoLeftHand } = __m_charts;
 
 const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -3431,6 +3454,11 @@ class SongPlayer {
     }
     // 화음
     if (song.chord[s] === 'x') a.pluck(t, ch.notes, sd * 3, this.bus, orch ? 0.6 : 1);
+    // 🎹 두 손 피아노 왼손: 베이스 + 펼친 화음 (pianoLH 곡)
+    if (song.pianoLH) {
+      const lh = pianoLeftHand(song, mb, s);
+      if (lh) a.pianoOr('lead', t, lh.midi, lh.steps * sd * 0.98, this.bus, lh.vel);
+    }
     // 멜로디 (클래식 곡 주제 선율). 🎭 tapMelody 곡은 내가 칠 때만 남 (자동 연주·영상 찍기 땐 반주가 침)
     if (this.melodyBars && (!this.level.tapMelody || this.autoChart)) {
       const mbar = mb % this.melodyBars;
@@ -3441,6 +3469,12 @@ class SongPlayer {
         if (song.glock && n.len >= 2) a.glock(t, n.midi + 12, this.bus, 0.6 + 0.4 * heat);
         // 🎤 합창이 멜로디를 같이 부름 (짧은 음은 조금 작게)
         if (song.choir) a.choir(t, n.midi, n.len * sd * 0.95, this.bus, (n.len >= 2 ? 1 : 0.7) * (0.75 + 0.25 * heat));
+        // 🎹 tapMelody 곡(자동 연주): 오른손 화음까지 피아노로 (내가 칠 때와 같은 소리)
+        if (this.level.tapMelody) {
+          a.pianoOr('lead', t, n.midi, Math.max(0.25, dur), this.drumBus, 1.25);
+          for (const h of pianoHarmony(song, mb, s, n.midi, n.len >= 4)) a.pianoOr('lead', t, h, Math.max(0.25, dur), this.drumBus, 0.6);
+          continue;
+        }
         if (!orch) {
           a.lead(t, n.midi, dur, this.bus);
           continue;
@@ -7721,7 +7755,7 @@ return { LANE, JUDGE_STYLE, Renderer };
 const __m_game = (() => {
 // 한 판의 게임 진행: 시간 관리, 입력 판정, 점수/콤보.
 
-const { STEPS_PER_BAR, tempoOf, ROUND_BARS, roundInfo, diamondsFor, buildNotes, JUDGE, pointsFor, accuracy, gradeFor, starsFor, COUNT_IN_BARS, OUTRO_BARS, maxScore, levelLanes, INSTRUMENTS, KICK, SNARE, HAT, CRASH, buildRolls, markGoldNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, parseMelody } = __m_charts;
+const { STEPS_PER_BAR, tempoOf, ROUND_BARS, roundInfo, diamondsFor, buildNotes, JUDGE, pointsFor, accuracy, gradeFor, starsFor, COUNT_IN_BARS, OUTRO_BARS, maxScore, levelLanes, INSTRUMENTS, KICK, SNARE, HAT, CRASH, buildRolls, markGoldNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, parseMelody, pianoHarmony } = __m_charts;
 const { SongPlayer } = __m_audio;
 
 const COUNT_LABELS = ['1', '2', '3', '4!'];
@@ -7865,6 +7899,8 @@ class Game {
       n.midi = m.midi;
       n.dur = this.tempo.stepTime(n.step + m.len) - this.tempo.stepTime(n.step);
       n.sol = SOL[m.midi % 12];
+      // 🎹 오른손 화음 (멜로디 아래 화음 음, 긴 음은 하나 더)
+      n.harm = pianoHarmony(this.level.song, m.bar, m.step, m.midi, m.len >= 4);
     }
   }
 
@@ -7879,7 +7915,10 @@ class Game {
     }
     if (!best || best.midi == null || Math.abs(best.time - t) > JUDGE.early) return;
     const a = this.audio;
-    a.pianoOr('lead', a.ctx.currentTime, best.midi, Math.max(0.25, best.dur * 0.95), a.sfxBus, 1.25);
+    const t0 = a.ctx.currentTime;
+    const d = Math.max(0.25, best.dur * 0.95);
+    a.pianoOr('lead', t0, best.midi, d, a.sfxBus, 1.25);
+    for (const h of best.harm || []) a.pianoOr('lead', t0, h, d, a.sfxBus, 0.6);
   }
 
   /** 끝나는 시각: 무제한 모드는 끝없음 (목숨이 다 떨어질 때까지) */
@@ -9163,11 +9202,19 @@ const __m_news = (() => {
 
 const NEWS = [
   {
+    id: '2026-11-21a',
+    date: '11월 21일',
+    title: '🎭 장거리: 네순 도르마 곡 전체를 피아노로',
+    items: [
+      '<b>🎭 장거리</b>가 바뀌었어요: 곡 하나를 <b>처음부터 끝까지</b>! 첫 곡은 오페라 <b>네순 도르마</b>',
+      '왼쪽 엄지는 <b>쿵</b>, 오른쪽 엄지는 <b>멜로디</b> — 누를 때마다 그 음이 피아노 화음으로 울려요. 놓치면 그 음은 안 들려요!',
+    ],
+  },
+  {
     id: '2026-11-20r',
     date: '11월 20일',
     title: '🎭 장거리 · 🎹 유저 맵 · 🎵 내 노래로 치기 · 🥁 쿵콩이·짝콩이',
     items: [
-      '<b>🎭 장거리</b> 새 탭: 드럼 대신 멜로디를 따라가요. 톡 누르고 손을 떼지 말고 띠를 따라 밀기! 첫 곡은 오페라 <b>네순 도르마</b>',
       '<b>🎹 유저 맵</b>: 똑딱 소리에 맞춰 건반을 쳐서 녹음하거나, 노래 파일에서 멜로디를 따서 내 맵을 만들어요',
       '드럼은 쉬움·보통·어려움 자동, 또는 노래에 맞춰 패드를 쳐서 직접 만들어요. 다른 사람 맵을 치고 ❤ 좋아요도 눌러요',
       '유저 맵은 <b>🛡 무적</b> / <b>❤ 하트 5개</b> 중에 골라 쳐요. 모드마다 🥇🥈🥉 랭킹이 따로 있어요',

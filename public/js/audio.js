@@ -6,7 +6,7 @@
 // - 모든 박자 판정은 AudioContext 시계 기준 (setTimeout 보다 훨씬 정확)
 // - heardTime(): "지금 스피커에서 나오고 있는 소리"의 시각. 출력 지연까지 반영.
 
-import { STEPS_PER_BAR, COUNT_IN_BARS, OUTRO_BARS, tempoOf, parseMelody, chordAt, levelLanes, CHAR_LANES, KICK, SNARE, HAT, CRASH, TOM } from './charts.js';
+import { STEPS_PER_BAR, COUNT_IN_BARS, OUTRO_BARS, tempoOf, parseMelody, chordAt, levelLanes, CHAR_LANES, KICK, SNARE, HAT, CRASH, TOM, pianoHarmony, pianoLeftHand } from './charts.js';
 
 const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -1026,6 +1026,11 @@ export class SongPlayer {
     }
     // 화음
     if (song.chord[s] === 'x') a.pluck(t, ch.notes, sd * 3, this.bus, orch ? 0.6 : 1);
+    // 🎹 두 손 피아노 왼손: 베이스 + 펼친 화음 (pianoLH 곡)
+    if (song.pianoLH) {
+      const lh = pianoLeftHand(song, mb, s);
+      if (lh) a.pianoOr('lead', t, lh.midi, lh.steps * sd * 0.98, this.bus, lh.vel);
+    }
     // 멜로디 (클래식 곡 주제 선율). 🎭 tapMelody 곡은 내가 칠 때만 남 (자동 연주·영상 찍기 땐 반주가 침)
     if (this.melodyBars && (!this.level.tapMelody || this.autoChart)) {
       const mbar = mb % this.melodyBars;
@@ -1036,6 +1041,12 @@ export class SongPlayer {
         if (song.glock && n.len >= 2) a.glock(t, n.midi + 12, this.bus, 0.6 + 0.4 * heat);
         // 🎤 합창이 멜로디를 같이 부름 (짧은 음은 조금 작게)
         if (song.choir) a.choir(t, n.midi, n.len * sd * 0.95, this.bus, (n.len >= 2 ? 1 : 0.7) * (0.75 + 0.25 * heat));
+        // 🎹 tapMelody 곡(자동 연주): 오른손 화음까지 피아노로 (내가 칠 때와 같은 소리)
+        if (this.level.tapMelody) {
+          a.pianoOr('lead', t, n.midi, Math.max(0.25, dur), this.drumBus, 1.25);
+          for (const h of pianoHarmony(song, mb, s, n.midi, n.len >= 4)) a.pianoOr('lead', t, h, Math.max(0.25, dur), this.drumBus, 0.6);
+          continue;
+        }
         if (!orch) {
           a.lead(t, n.midi, dur, this.bus);
           continue;

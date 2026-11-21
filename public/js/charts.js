@@ -992,8 +992,10 @@ export const LEVELS = [
         'D A', 'G', 'A7', 'A D', 'D', 'D', 'Bm', 'A7', 'D A', 'G', 'D',
       ],
       hat: '................',
-      bass: 'x.......x.......',
-      chord: 'x.......x.......',
+      // 🎹 반주 피아노는 왼손(베이스 + 펼친 화음)으로만 (pianoLH) — 기본 베이스·화음 찍기는 끔
+      bass: '................',
+      chord: '................',
+      pianoLH: true,
       melody: [
         '_:12 D5:3 D5:1', // Nes-sun
         'D5 D5 _ D4:3 D4:1', // dor-ma! nes-sun
@@ -1147,6 +1149,27 @@ export function chordAt(song, mb, s) {
   const parts = entry.trim().split(/\s+/);
   const idx = Math.min(parts.length - 1, Math.floor((s * parts.length) / STEPS_PER_BAR));
   return parseChord(parts[idx]);
+}
+
+/** 🎹 두 손 피아노 — 오른손: 멜로디 음 아래 3~12반음 안에서 같이 누를 화음 음 (긴 음은 하나 더) */
+export function pianoHarmony(song, mb, s, midi, long = false) {
+  const pcs = chordAt(song, mb, s).notes.map((m) => ((m % 12) + 12) % 12);
+  const out = [];
+  for (let m = midi - 3; m >= midi - 12 && m >= 50 && out.length < (long ? 2 : 1); m--) {
+    if (pcs.includes(((m % 12) + 12) % 12) && (!out.length || out.at(-1) - m >= 3)) out.push(m);
+  }
+  return out;
+}
+/** 🎹 두 손 피아노 — 왼손: 8분음표마다 베이스 → 5도 → 옥타브 → 3도 (반 마디마다 되풀이). 8분 자리가 아니면 null */
+export function pianoLeftHand(song, mb, s) {
+  if (s % 2) return null;
+  const ch = chordAt(song, mb, s);
+  let b = ch.notes[0] - 24;
+  while (b < 36) b += 12;
+  while (b > 47) b -= 12;
+  const third = ch.notes[1] - ch.notes[0];
+  const k = (s % 8) / 2;
+  return { midi: [b, b + 7, b + 12, b + 12 + third][k], vel: k === 0 ? 0.55 : 0.32, steps: 8 - (s % 8) };
 }
 
 /** melody 문자열 → [{ bar, step, midi, len }] (bar 는 melody 안에서의 마디 번호) */
