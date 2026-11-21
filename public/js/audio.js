@@ -366,6 +366,9 @@ export class AudioEngine {
     this.ctx = null;
     this._streamDest = null;
     this._clock = null;
+    // 옛 엔진에 붙어 있던 노드는 새 엔진에 못 이음 (잇는 순간 오류 → 쿵만 안 눌리던 것)
+    this._sat = null;
+    this._tickBus = null;
     this.frozen = false;
     try {
       if (old) old.close().catch(() => {});
@@ -437,7 +440,7 @@ export class AudioEngine {
     o.connect(g).connect(dest);
     o.start(t);
     o.stop(t + 0.52);
-    if (!this._sat) {
+    if (!this._sat || this._sat.context !== ctx) {
       this._sat = ctx.createWaveShaper();
       const c = new Float32Array(1024);
       for (let i = 0; i < 1024; i++) c[i] = Math.tanh((i / 512 - 1) * 2.2);
@@ -706,7 +709,7 @@ export class AudioEngine {
   /** 점수 올라가는 '따라라라' 한 알. p = 0~1 (갈수록 높아짐) */
   tick(t, p = 0) {
     const ctx = this.ctx;
-    if (!this._tickBus) {
+    if (!this._tickBus || this._tickBus.context !== ctx) {
       this._tickBus = ctx.createGain();
       this._tickBus.connect(this.sfxBus);
     }

@@ -5297,6 +5297,9 @@ class AudioEngine {
     this.ctx = null;
     this._streamDest = null;
     this._clock = null;
+    // 옛 엔진에 붙어 있던 노드는 새 엔진에 못 이음 (잇는 순간 오류 → 쿵만 안 눌리던 것)
+    this._sat = null;
+    this._tickBus = null;
     this.frozen = false;
     try {
       if (old) old.close().catch(() => {});
@@ -5368,7 +5371,7 @@ class AudioEngine {
     o.connect(g).connect(dest);
     o.start(t);
     o.stop(t + 0.52);
-    if (!this._sat) {
+    if (!this._sat || this._sat.context !== ctx) {
       this._sat = ctx.createWaveShaper();
       const c = new Float32Array(1024);
       for (let i = 0; i < 1024; i++) c[i] = Math.tanh((i / 512 - 1) * 2.2);
@@ -5637,7 +5640,7 @@ class AudioEngine {
   /** 점수 올라가는 '따라라라' 한 알. p = 0~1 (갈수록 높아짐) */
   tick(t, p = 0) {
     const ctx = this.ctx;
-    if (!this._tickBus) {
+    if (!this._tickBus || this._tickBus.context !== ctx) {
       this._tickBus = ctx.createGain();
       this._tickBus.connect(this.sfxBus);
     }
@@ -10725,9 +10728,12 @@ class Game {
     const t = playing ? this.songTime(perfMs) : 0;
     const touched = lane;
     if (playing && near && near.length) lane = this._pickLane(lane, t, near, pos);
-    if (this.level.tapMelody && lane === SNARE) {
-      if (playing) this._playMelodyTap(t);
-    } else if (!this.auto) this.audio.playLane(lane);
+    // 소리가 오류 나도 판정은 꼭 함 (예전에 소리 엔진을 새로 만든 뒤 쿵 소리만 오류 나서 쿵 판정이 통째로 빠졌음)
+    try {
+      if (this.level.tapMelody && lane === SNARE) {
+        if (playing) this._playMelodyTap(t);
+      } else if (!this.auto) this.audio.playLane(lane);
+    } catch {}
     this.r.onTap(lane, rt);
     if (!playing) return;
     this._tapAt[lane] = t;
@@ -11988,10 +11994,11 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-21s',
+    id: '2026-11-21t',
     date: '11월 21일',
     title: '🎲 랜덤 대결 · 🎹 18단계 엘리제를 위하여 · 🏛 명예의 전당 · 🎭 장거리 · 🎼 악보로 맵',
     items: [
+      '<b>🥁 쿵이 가끔 안 눌리던 것 고쳤어요!</b> 다른 앱에 갔다 오거나 소리가 끊긴 뒤 쿵만 안 쳐지던 문제예요',
       '<b>🎹 유저 맵: 악보 파일(MIDI·MusicXML)로 바로 만들 수 있어요!</b> 🎹 멜로디 탭 → 🎼 악보 파일로 — 악보의 음·박자 그대로, 드럼 트랙이 있으면 드럼도 그대로. 멜로디 트랙·시작 마디는 <b>자동으로 추천</b>해 주고, 악보 <b>왼손(아래 줄)</b>도 그대로 피아노로 쳐요',
       '<b>⚔️ 멀티 → 🎲 랜덤 대결</b>이 생겼어요! 모르는 사람과 바로 붙어서 4~18단계 무작위 곡 — 둘 다 깨면 다른 곡이 바로 이어지고(<b>한 곡마다 점점 빨라져요 ⚡</b>), <b>먼저 쓰러지는 쪽이 져요</b>',
       '<b>18단계 엘리제를 위하여</b>(베토벤 · 지옥)가 새로 생겼어요! 게임에서 <b>가장 어려운 곡</b> — 미레미레미시레도 질주에 하이햇 트릴 연타까지',
