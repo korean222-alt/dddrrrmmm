@@ -248,6 +248,7 @@
           }).join('')
         : `<li class="empty">${old ? '미인증 참가자가 없어요.' : '아직 인증한 사람이 없어요.'}</li>`;
       lastList = ps;
+      filterPlayers();
     }
     let lastList = [];
     $('#players-purge').addEventListener('click', async () => {
@@ -281,10 +282,11 @@
       loadPlayers();
     });
     $('#players-reload').addEventListener('click', loadPlayers);
-    $('#players-q').addEventListener('input', () => {
+    const filterPlayers = () => {
       const q = $('#players-q').value.trim().toLowerCase();
-      for (const li of document.querySelectorAll('#players li[data-igsid]')) li.hidden = !!q && !li.textContent.toLowerCase().includes(q);
-    });
+      for (const li of document.querySelectorAll('#players li[data-igsid]')) li.style.display = q && !li.textContent.toLowerCase().includes(q) ? 'none' : '';
+    };
+    $('#players-q').addEventListener('input', filterPlayers);
     async function loadFollowPass() {
       const r = await call('GET', '/api/admin/follow-password');
       if (r.status !== 200) return;
@@ -334,7 +336,7 @@
             .map((h) => `<li><b>시즌 ${h.season} · ${BOARD[h.board] || esc(h.board)} · ${h.rank}등</b> ${esc(h.username)} (${Number(h.score).toLocaleString('ko-KR')})
               ${h.image ? `<br><img src="${esc(h.image)}" alt="" style="width:64px;height:64px;border-radius:50%;object-fit:cover;vertical-align:middle"> <button type="button" class="ghost" data-hall-del="${h.season}|${esc(h.board)}|${h.rank}">사진 지우기</button>` : ' · 사진 없음'}</li>`)
             .join('')
-        : '<li>아직 끝난 시즌이 없어요. 시즌 1은 11월 26일 밤 12시에 끝나요.</li>';
+        : '<li>아직 끝난 시즌이 없어요. 시즌 1은 11월 26일 밤 11시 59분에 끝나요.</li>';
     }
     $('#hall-reload').addEventListener('click', loadHall);
     $('#hall-list').addEventListener('click', async (e) => {

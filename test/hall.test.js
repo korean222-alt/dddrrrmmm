@@ -31,7 +31,7 @@ test('시즌: 시즌 1 은 11/26 23:59:59(한국) 까지, 그 뒤는 시즌 2 ·
   assert.deepEqual(endedSeasons(kst(26, 23)), []);
   assert.deepEqual(endedSeasons(kst(27, 0)), [1]);
   assert.equal(seasonLeftText(kst(21)), '🏆 5일 뒤 시즌 1이 종료돼요');
-  assert.match(seasonLeftText(kst(26, 20)), /오늘 밤 12시에 시즌 1/);
+  assert.match(seasonLeftText(kst(26, 20)), /오늘 밤 11시 59분에 시즌 1/);
   assert.match(seasonLeftText(kst(28)), /시즌 2 진행 중/);
   assert.ok(cleanHallImage('data:image/jpeg;base64,AAAA'));
   assert.equal(cleanHallImage('data:text/html;base64,AAAA'), null);
