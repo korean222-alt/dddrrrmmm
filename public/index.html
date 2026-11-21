@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=588c7be411" />
+  <link rel="stylesheet" href="css/style.css?v=1ffd82a078" />
 </head>
 <body>
   <div id="app">
@@ -203,7 +203,7 @@
               <button type="button" data-diff="easy"><b>쉬움</b><small>쿵 짝</small></button>
               <button type="button" data-diff="normal"><b>보통</b><small>엇박 조금</small></button>
               <button type="button" data-diff="hard"><b>어려움</b><small>하이햇까지</small></button>
-              <button type="button" data-diff="song" id="mk-auto-song" class="mk-auto-song" hidden><b>🎵 노래 드럼 그대로</b><small>넣은 노래의 쿵·짝 자리</small></button>
+              <button type="button" data-diff="song" id="mk-auto-song" class="mk-auto-song" hidden><b>🎵 노래 드럼 그대로</b><small>넣은 노래·악보의 쿵·짝 자리</small></button>
             </div>
           </div>
           <p class="hint mk-or">또는 아래 드럼을 직접 쳐서 만들어요</p>
@@ -243,9 +243,23 @@
         <!-- 🎹 멜로디 -->
         <div class="studio-block mk-pane" id="mk-pane-mel" hidden>
           <p class="hint">건반으로 멜로디를 만들어요. 🥁 드럼 탭에서 드럼을 먼저 쳐 두면 녹음할 때 같이 나와요. 멜로디 없이 드럼만 올려도 돼요.</p>
-          <div class="seg" id="mk-way">
+          <div class="seg seg3 mk-ways" id="mk-way">
             <button type="button" data-way="play"><b>🎹 건반 치기</b><small>쳐서 녹음해요</small></button>
             <button type="button" data-way="file"><b>🎵 노래 파일로</b><small>음을 자동으로 따요</small></button>
+            <button type="button" data-way="score"><b>🎼 악보 파일로</b><small>MIDI·MusicXML 그대로</small></button>
+          </div>
+
+          <div id="mk-way-score" class="mk-way" hidden>
+            <p class="hint">MIDI(.mid)나 MusicXML(.musicxml·.mxl) 악보 파일을 넣으면 <b>악보의 음·박자 그대로</b> 멜로디·코드·드럼을 만들어요. 파일은 이 폰 밖으로 안 나가요.</p>
+            <label class="btn btn-ghost mk-file"><input type="file" id="mk-score-file" hidden />악보 파일 고르기</label>
+            <p class="hint" id="mk-score-status"></p>
+            <div id="mk-score-opts" hidden>
+              <label class="field"><span>멜로디 트랙</span><select id="mk-score-mel"></select></label>
+              <label class="field"><span>시작 마디</span><select id="mk-score-start"></select></label>
+              <label class="field"><span>길이</span><select id="mk-score-len"><option value="all" selected>끝까지 (최대 64마디)</option><option value="8">8마디</option><option value="16">16마디</option><option value="32">32마디</option></select></label>
+              <button class="btn btn-primary" type="button" data-action="mk-score-make" id="mk-score-make">악보로 맵 만들기</button>
+            </div>
+            <p class="hint mk-copy">올린 맵의 저작권 책임은 만든 사람에게 있어요. 권리자 요청이 오면 내려가요.</p>
           </div>
 
           <div id="mk-way-file" class="mk-way" hidden>
@@ -312,6 +326,7 @@
         <!-- 📤 올리기 -->
         <div class="studio-block mk-pane mk-player" id="mk-pane-done" hidden>
           <p class="mk-sum" id="mk-sum"></p>
+          <p class="hint mk-copy">올린 맵의 저작권 책임은 만든 사람에게 있어요. 권리자 요청이 오면 내려가요.</p>
           <div class="stack mk-actions">
             <button class="btn btn-ghost" data-action="mk-try"><span data-icon="drum" data-e></span> 직접 쳐 보기</button>
             <button class="btn btn-hot btn-big" data-action="mk-upload"><span data-icon="share"></span> 맵 올리기</button>
@@ -901,6 +916,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=f916c8ea5b" defer></script>
+  <script src="js/app.js?v=b701287d52" defer></script>
 </body>
 </html>

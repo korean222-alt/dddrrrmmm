@@ -11,6 +11,7 @@ import {
 import { separateVocals, resample } from './vocalsep.js';
 import { transcribeSong } from './songmap.js';
 import { instrumentNotes } from './instnotes.js';
+import { readScoreFile, scoreInfo, scoreToMap } from './scorefile.js';
 import { videoToAac } from './mp4audio.js';
 import { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmonize, autoDrums, cleanMap, mapLevel } from './usermap.js';
 import { AudioEngine, playMetronome } from './audio.js';
@@ -2096,7 +2097,7 @@ const newDraft = () => ({ name: '', bpm: 100, mel: [[], [], [], []], drums: auto
 let mk = load('mapDraft', null);
 if (!mk || !Array.isArray(mk.mel) || !Array.isArray(mk.drums) || mk.mel.length !== mk.drums.length || mk.mel.length < 2) mk = newDraft();
 if (!['drum', 'mel', 'done'].includes(mk.tab)) mk.tab = 'mel';
-if (!['play', 'file'].includes(mk.way)) mk.way = 'play';
+if (!['play', 'file', 'score'].includes(mk.way)) mk.way = 'play';
 const mkSave = () => save('mapDraft', mk);
 /** ↩ 되돌리기: 녹음·자동 채우기 직전 모습 하나 (폰에 저장 안 함) */
 let mkUndo = null;
@@ -2353,6 +2354,7 @@ function mkRender() {
   $$('#mk-way button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.way === mk.way));
   $('#mk-way-file').hidden = mk.way !== 'file';
   $('#mk-way-play').hidden = mk.way !== 'play';
+  $('#mk-way-score').hidden = mk.way !== 'score';
   $$('#mk-len button').forEach((b) => b.setAttribute('aria-pressed', Number(b.dataset.len) === mk.len));
   $$('#mk-auto button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.diff === mk.drumsAuto));
   $('#mk-auto-song').hidden = !(Array.isArray(mk.songDrums) && mk.songDrums.length === mk.mel.length);
@@ -3197,6 +3199,102 @@ async function mkTranscribe() {
     ([mk.prog && '코드', mk.drumsAuto === 'song' && '드럼'].filter(Boolean).join('·') ? `<br>${[mk.prog && '코드', mk.drumsAuto === 'song' && '드럼'].filter(Boolean).join('·')}도 노래에서 땄어요` : '') +
     (lenSel !== 'all' && want > bars ? `<br>노래가 짧아서 ${bars}마디까지만 땄어요` : '') +
     '<br>「처음부터 듣기」로 들어 보고, 틀린 음은 손으로 고쳐 주세요';
+}
+
+// ----- 🎼 악보 파일(MIDI·MusicXML)로 만들기 (scorefile.js, 폰 안에서만 읽음 · 요청 없음) -----
+const mks = { score: null, info: null, name: '' };
+async function mkPickScore(file) {
+  const st = $('#mk-score-status');
+  $('#mk-score-opts').hidden = true;
+  mks.score = mks.info = null;
+  if (file.size > 8 * 1024 * 1024) {
+    st.textContent = '파일이 너무 커요 (8MB 까지). 악보 파일(.mid·.musicxml·.mxl)이 맞는지 봐 주세요';
+    return;
+  }
+  st.textContent = '악보 읽는 중…';
+  let sc;
+  try {
+    sc = await readScoreFile(new Uint8Array(await file.arrayBuffer()), file.name);
+  } catch (e) {
+    console.warn('score', e);
+    st.textContent = `악보를 못 읽었어요${e && /[가-힣]/.test(e.message) ? ` (${e.message})` : ''}. MIDI(.mid)·MusicXML(.musicxml·.mxl) 파일로 해 주세요`;
+    return;
+  }
+  const info = scoreInfo(sc);
+  if (!info.melodyTracks.length && !info.hasDrums) {
+    st.textContent = '악보에 음이 없어요';
+    return;
+  }
+  mks.score = sc;
+  mks.info = info;
+  mks.name = (sc.title || file.name.replace(/\.[^.]+$/, '')).slice(0, 30);
+  const sel = $('#mk-score-mel');
+  sel.innerHTML =
+    info.melodyTracks
+      .map((t) => {
+        const label = `${t.name || `트랙 ${t.index + 1}`} · 음 ${t.count}개 · ${midiName(t.lo)}~${midiName(t.hi)}`;
+        return `<option value="${t.index}"${t.index === info.guess ? ' selected' : ''}>${escapeHtml(label)}</option>`;
+      })
+      .join('') + '<option value="-1">멜로디 없이 (드럼만)</option>';
+  if (info.guess < 0) sel.value = '-1';
+  const ss = $('#mk-score-start');
+  const opts = [];
+  for (let b = 0; b < info.totalBars - 1; b++) opts.push(`<option value="${b}"${b === info.firstBar ? ' selected' : ''}>${b + 1}마디${b === info.firstBar ? ' (첫 음)' : ''}</option>`);
+  ss.innerHTML = opts.join('') || '<option value="0">1마디</option>';
+  ss.closest('label').hidden = info.totalBars - info.firstBar <= MAP_LIMITS.maxBars && info.totalBars <= 8;
+  $('#mk-score-opts').hidden = false;
+  const sec = Math.round((info.totalBars * 4 * 60) / info.bpm);
+  st.innerHTML =
+    `<b>${escapeHtml(mks.name)}</b> · ${info.totalBars}마디 · ${Math.round(info.bpm)} BPM (약 ${mmss(sec)})` +
+    `<br>${info.hasDrums ? '🥁 드럼 트랙도 있어요 — 그대로 넣어요' : '드럼 트랙이 없어서 드럼은 자동으로 만들어요'}` +
+    (Math.round(info.bpm) !== Math.round(sc.bpm) ? `<br>원래 ${Math.round(sc.bpm)} BPM 이라 ${Math.round(info.bpm)} BPM 으로 맞췄어요 (박자는 그대로)` : '') +
+    (sc.tempoChanges ? '<br>중간에 빠르기가 바뀌는 곡이라 처음 빠르기로 해요' : '') +
+    (sc.timeSig && (sc.timeSig[0] !== 4 || sc.timeSig[1] !== 4) && !(sc.timeSig[0] === 2 && sc.timeSig[1] === 4) ? `<br>${sc.timeSig[0]}/${sc.timeSig[1]}박자 곡이라 4박씩 묶어요` : '') +
+    (info.totalBars - info.firstBar > MAP_LIMITS.maxBars ? `<br>${MAP_LIMITS.maxBars}마디가 넘어서 시작 마디를 골라 주세요` : '');
+}
+function mkScoreMake() {
+  const sc = mks.score;
+  if (!sc) return;
+  const st = $('#mk-score-status');
+  const lenSel = $('#mk-score-len').value;
+  const r = scoreToMap(sc, {
+    melody: Number($('#mk-score-mel').value),
+    start: Number($('#mk-score-start').value) || 0,
+    bars: lenSel === 'all' ? MAP_LIMITS.maxBars : Number(lenSel) || 16,
+  });
+  // 맵은 2마디부터 (1마디짜리 곡은 한 마디 쉼을 붙임)
+  while (r.mel.length < MAP_LIMITS.minBars) {
+    r.mel.push([]);
+    if (r.drums) r.drums.push('................');
+    if (r.prog) r.prog.push(r.prog.at(-1));
+  }
+  if (!r.found && !r.drums) {
+    st.textContent = '그 구간엔 음이 없어요. 시작 마디나 멜로디 트랙을 바꿔 보세요';
+    return;
+  }
+  if ((mk.mel.some((b) => b.length) || mk.drumsAuto !== 'easy') && !confirm('지금 만든 멜로디·드럼을 악보로 바꿀까요?')) return;
+  mkSnap();
+  mk.mel = r.mel;
+  mk.bpm = Math.max(MAP_LIMITS.minBpm, Math.min(MAP_LIMITS.maxBpm, r.bpm));
+  mk.prog = r.prog;
+  if (r.drums) {
+    mk.songDrums = r.drums;
+    mk.drumsAuto = 'song';
+  } else {
+    mk.songDrums = null;
+    mk.drumsAuto = 'normal';
+  }
+  mk.bar = 0;
+  mk.cur = 0;
+  if (!$('#mk-name').value.trim()) $('#mk-name').value = mks.name;
+  mk.name = $('#mk-name').value.trim();
+  mkFixBars();
+  mkRender();
+  st.innerHTML =
+    `<b>${r.mel.length}마디</b>(${r.start + 1}마디부터)로 만들었어요 · 멜로디 음 <b>${r.found}개</b> · ${mk.bpm} BPM` +
+    `<br>${[r.prog ? '코드는 반주 트랙에서' : '코드는 멜로디로 짐작', r.drums ? '드럼은 악보 드럼 그대로' : '드럼은 자동'].join(' · ')}` +
+    '<br>위 「처음부터 듣기」로 들어 보고, 고칠 곳은 「자세히 고치기」에서 손봐요';
+  $('#mk-play').scrollIntoView({ block: 'center', behavior: 'smooth' });
 }
 
 // ---------------- 영상 찍기 ----------------
@@ -4795,6 +4893,7 @@ const ACTIONS = {
   'mk-new': () => mkNew(),
   'mk-capture': () => mkCapture(),
   'mk-transcribe': () => mkTranscribe(),
+  'mk-score-make': () => mkScoreMake(),
   'mysong-open': () => openMysong(),
   'mysong-start': () => myStart(),
   'mysong-save': () => mySave(),
@@ -5139,6 +5238,10 @@ function bindActions() {
     if (card) mapAct(card.dataset.id, b.dataset.mapAct, b);
   });
   $('#mk-file').addEventListener('change', (e) => e.target.files[0] && mkPickFile(e.target.files[0]));
+  $('#mk-score-file').addEventListener('change', (e) => {
+    if (e.target.files[0]) mkPickScore(e.target.files[0]);
+    e.target.value = '';
+  });
   $('#hall-photo-file').addEventListener('change', (e) => hallPhotoPicked(e.target.files[0]));
   $('#mk-name').addEventListener('change', () => {
     mk.name = $('#mk-name').value.trim();
