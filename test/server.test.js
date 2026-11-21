@@ -631,6 +631,65 @@ test('⚡ 빠른 대결: 같은 묶음에서 기다리는 사람과 바로 붙�
   await C('POST', '/api/rooms', { action: 'leave', code: c.json.code, slot: 'a', key: c.json.key });
 });
 
+test('🏆 랭킹전: 실시간으로 붙으면 바로 시작 · 결과로 엘로 · 안 잡히면 고스트(처음엔 봇) · 다음 사람 고스트로', async () => {
+  const { getLevel: gl, maxScore: ms } = await import('../public/js/charts.js');
+  assert.equal((await client()('POST', '/api/ranked', { action: 'ghost' })).json.error, 'confirm_required');
+  assert.equal((await client()('POST', '/api/rooms', { action: 'quick', name: '셋째', bracket: 'ranked' })).json.error, 'confirm_required');
+  const A = await verifiedClient('랭커에이', 'rk.a');
+  const B = await verifiedClient('랭커비', 'rk.b');
+  const info = await A('POST', '/api/ranked', { action: 'info' });
+  assert.equal(info.json.me.rating, 1000);
+  assert.equal(info.json.me.placement, 10);
+  // 실시간: A 기다림 → B 가 붙으면 바로 시작(준비 없이)
+  const a = await A('POST', '/api/rooms', { action: 'quick', name: '랭커에이', bracket: 'ranked' });
+  assert.equal(a.json.waiting, true);
+  // 나 자신과는 안 붙음
+  const self = await A('POST', '/api/rooms', { action: 'quick', name: '랭커에이', bracket: 'ranked' });
+  assert.notEqual(self.json.code, a.json.code);
+  await A('POST', '/api/rooms', { action: 'leave', code: self.json.code, slot: 'a', key: self.json.key });
+  const b = await B('POST', '/api/rooms', { action: 'quick', name: '랭커비', bracket: 'ranked' });
+  assert.equal(b.json.code, a.json.code);
+  assert.equal(b.json.room.status, 'playing', '붙자마자 시작');
+  assert.equal(b.json.room.players.a.rt, 1000);
+  assert.equal(b.json.room.players.a.uid, undefined, '계정 번호는 안 보임');
+  const lv = gl(b.json.room.level);
+  const tl = (score) => lv.bars.map((_, i) => (i === lv.bars.length - 1 ? score : Math.floor((score * i) / lv.bars.length)));
+  const ka = { code: a.json.code, slot: 'a', key: a.json.key };
+  const kb = { code: b.json.code, slot: 'b', key: b.json.key };
+  await A('POST', '/api/rooms', { action: 'sync', ...ka, final: { score: 5000 } });
+  // B 가 아직 안 끝났으면 기다림
+  let r = await A('POST', '/api/ranked', { action: 'result', kind: 'live', ...ka, levelId: lv.id, score: 5000, timeline: tl(5000) });
+  assert.equal(r.status, 202);
+  await B('POST', '/api/rooms', { action: 'sync', ...kb, final: { score: 3000 } });
+  r = await A('POST', '/api/ranked', { action: 'result', kind: 'live', ...ka, levelId: lv.id, score: 5000, timeline: tl(5000) });
+  assert.equal(r.status, 200);
+  assert.equal(r.json.result, 1);
+  assert.equal(r.json.delta, 32, '배치: K 64, 같은 점수끼리 이기면 +32');
+  assert.equal(r.json.rating, 1032);
+  assert.equal((await A('POST', '/api/ranked', { action: 'result', kind: 'live', ...ka, levelId: lv.id, score: 5000, timeline: tl(5000) })).status, 409, '한 판에 한 번');
+  r = await B('POST', '/api/ranked', { action: 'result', kind: 'live', ...kb, levelId: lv.id, score: 3000, timeline: tl(3000) });
+  assert.equal(r.json.result, 0);
+  assert.equal(r.json.rating, 968);
+  // 만점 넘는 점수·이상한 기록은 거절
+  assert.equal((await B('POST', '/api/ranked', { action: 'result', kind: 'live', ...kb, levelId: lv.id, score: ms(lv) + 1, timeline: tl(ms(lv) + 1) })).status, 400);
+  // 고스트: B 에게는 A 의 판이 고스트로
+  const C = await verifiedClient('랭커씨', 'rk.c');
+  let g = await C('POST', '/api/ranked', { action: 'ghost' });
+  assert.equal(g.status, 200);
+  assert.ok(['랭커에이', '랭커비'].includes(g.json.ghost.name));
+  assert.equal(g.json.ghost.levelId, lv.id);
+  const glv = gl(g.json.ghost.levelId);
+  const gtl = (score) => glv.bars.map((_, i) => (i === glv.bars.length - 1 ? score : 0));
+  assert.equal((await C('POST', '/api/ranked', { action: 'result', kind: 'ghost', gid: 'nope', levelId: glv.id, score: 1, timeline: gtl(1) })).status, 409);
+  r = await C('POST', '/api/ranked', { action: 'result', kind: 'ghost', gid: g.json.gid, levelId: glv.id, score: g.json.ghost.score + 1, timeline: gtl(g.json.ghost.score + 1) });
+  assert.equal(r.json.result, 1);
+  assert.ok(r.json.delta > 0);
+  assert.equal((await C('POST', '/api/ranked', { action: 'result', kind: 'ghost', gid: g.json.gid, levelId: glv.id, score: 1, timeline: gtl(1) })).status, 409, '고스트 한 번만');
+  const top = (await client()('POST', '/api/ranked', { action: 'info' })).json.top;
+  assert.ok(top.some((x) => x.nick === '랭커씨'));
+  assert.equal(top.length, 3);
+});
+
 test('📱 기기 옮기기: 코드 만들기 → 새 기기에서 넣으면 기록 + 랭킹 계정(인증 포함) · 한 번만 · 틀린 코드 거부', async () => {
   const old = client();
   const ok = await old('POST', '/api/verify/password', { name: '옮기는사람', ig: 'move.me', password: '시험1234' });

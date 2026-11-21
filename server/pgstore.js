@@ -65,6 +65,9 @@ const SCHEMA = [
   // 🏆 유저 맵 점수: 맵·모드(free 무적 / hearts 하트 5개)·사람마다 최고 점수 하나
   `CREATE TABLE IF NOT EXISTS map_scores (map_id TEXT NOT NULL, mode TEXT NOT NULL, igsid TEXT NOT NULL, nick TEXT, score INTEGER NOT NULL, at BIGINT NOT NULL, PRIMARY KEY (map_id, mode, igsid))`,
   `CREATE INDEX IF NOT EXISTS map_scores_top ON map_scores (map_id, mode, score DESC)`,
+  `CREATE TABLE IF NOT EXISTS ranked (season TEXT NOT NULL, igsid TEXT NOT NULL, rating INTEGER NOT NULL, games INTEGER NOT NULL, at BIGINT NOT NULL, data JSONB NOT NULL, PRIMARY KEY (season, igsid))`,
+  `CREATE INDEX IF NOT EXISTS ranked_top ON ranked (season, rating DESC)`,
+  `CREATE TABLE IF NOT EXISTS ranked_runs (igsid TEXT NOT NULL, level INTEGER NOT NULL, rating INTEGER NOT NULL, at BIGINT NOT NULL, data JSONB NOT NULL, PRIMARY KEY (igsid, level))`,
 ];
 
 /** init 에서 도는 옛 기록 옮기기 목록 — 새로 추가하면 여기에도 이름을 붙임 (SCHEMA_FLAG 가 바뀌어 다시 돎) */
@@ -591,6 +594,40 @@ END $$`);
     const out = { free: [], hearts: [] };
     for (const r of rows) if (out[r.mode]) out[r.mode].push({ nick: r.nick, score: Number(r.score) });
     return out;
+  }
+
+  // ----- 🏆 랭킹전 -----
+  _json(v) {
+    return typeof v === 'string' ? JSON.parse(v) : v;
+  }
+  async getRanked(igsid, season) {
+    const r = await this.one('SELECT data FROM ranked WHERE season = $1 AND igsid = $2', [season, igsid]);
+    return r ? this._json(r.data) : null;
+  }
+  async putRanked(row) {
+    await this.q(
+      `INSERT INTO ranked (season, igsid, rating, games, at, data) VALUES ($1, $2, $3, $4, $5, $6::jsonb)
+       ON CONFLICT (season, igsid) DO UPDATE SET rating = EXCLUDED.rating, games = EXCLUDED.games, at = EXCLUDED.at, data = EXCLUDED.data`,
+      [row.season, row.igsid, row.rating, row.games, row.at, JSON.stringify(row)]
+    );
+  }
+  async topRanked(season, n = 20) {
+    const rows = await this.q('SELECT data FROM ranked WHERE season = $1 AND games > 0 ORDER BY rating DESC, at ASC LIMIT $2', [season, n]);
+    return rows.map((r) => this._json(r.data));
+  }
+  async putRankedRun(run) {
+    await this.q(
+      `INSERT INTO ranked_runs (igsid, level, rating, at, data) VALUES ($1, $2, $3, $4, $5::jsonb)
+       ON CONFLICT (igsid, level) DO UPDATE SET rating = EXCLUDED.rating, at = EXCLUDED.at, data = EXCLUDED.data`,
+      [run.igsid, run.level, run.rating, run.at, JSON.stringify(run)]
+    );
+  }
+  async pickRankedRuns(notIgsid, rating, levels, since, n = 8) {
+    const rows = await this.q(
+      'SELECT data FROM ranked_runs WHERE igsid <> $1 AND level IN (SELECT (jsonb_array_elements_text($2::jsonb))::int) AND at >= $3 ORDER BY ABS(rating - $4::int) ASC, at DESC LIMIT $5',
+      [notIgsid, JSON.stringify(levels), since, rating, n]
+    );
+    return rows.map((r) => this._json(r.data));
   }
 
   // ----- 친구 대결 방 -----

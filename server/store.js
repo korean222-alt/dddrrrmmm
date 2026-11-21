@@ -24,7 +24,7 @@ export const sortPlayers = (rows) => rows.sort((a, b) => !!a.hiddenAt - !!b.hidd
 export class JsonStore {
   constructor(file) {
     this.file = file;
-    this.data = { players: {}, usedRuns: {}, sessions: {}, plays: {}, settings: {}, suggestions: [], rooms: {}, transfers: {}, recoverRequests: [], maps: {}, mapVotes: {}, mapScores: {} };
+    this.data = { players: {}, usedRuns: {}, sessions: {}, plays: {}, settings: {}, suggestions: [], rooms: {}, transfers: {}, recoverRequests: [], maps: {}, mapVotes: {}, mapScores: {}, ranked: {}, rankedRuns: {} };
     this._timer = null;
   }
 
@@ -32,7 +32,7 @@ export class JsonStore {
     try {
       const raw = fs.readFileSync(this.file, 'utf8');
       const d = JSON.parse(raw);
-      this.data = { players: d.players || {}, usedRuns: d.usedRuns || {}, sessions: d.sessions || {}, plays: d.plays || {}, settings: d.settings || {}, suggestions: d.suggestions || [], rooms: d.rooms || {}, transfers: d.transfers || {}, recoverRequests: d.recoverRequests || [], maps: d.maps || {}, mapVotes: d.mapVotes || {}, mapScores: d.mapScores || {} };
+      this.data = { players: d.players || {}, usedRuns: d.usedRuns || {}, sessions: d.sessions || {}, plays: d.plays || {}, settings: d.settings || {}, suggestions: d.suggestions || [], rooms: d.rooms || {}, transfers: d.transfers || {}, recoverRequests: d.recoverRequests || [], maps: d.maps || {}, mapVotes: d.mapVotes || {}, mapScores: d.mapScores || {}, ranked: d.ranked || {}, rankedRuns: d.rankedRuns || {} };
       // 인스타 아이디 등록 기능을 없앴으므로, 예전에 인증된 인스타 계정 기록과 인증 코드는 지움
       for (const [k, p] of Object.entries(this.data.players)) if (p.followVerifiedAt) delete this.data.players[k];
       // 무제한 기록(level <= 0): 예전 방식(깬 단계 × 100만 + 점수) → 새 방식(× 10억)
@@ -398,6 +398,37 @@ export class JsonStore {
     }
     for (const mode of Object.keys(out)) out[mode] = out[mode].sort((a, b) => b.score - a.score || a.at - b.at).slice(0, n).map(({ nick, score }) => ({ nick, score }));
     return out;
+  }
+
+  // ----- 🏆 랭킹전 -----
+  getRanked(igsid, season) {
+    const r = this.data.ranked[`${season}|${igsid}`];
+    return r ? structuredClone(r) : null;
+  }
+  putRanked(row) {
+    this.data.ranked[`${row.season}|${row.igsid}`] = structuredClone(row);
+    this._save();
+  }
+  /** 이번 시즌 점수 순 (한 판이라도 친 사람만) */
+  topRanked(season, n = 20) {
+    return Object.values(this.data.ranked)
+      .filter((r) => r.season === season && r.games > 0)
+      .sort((a, b) => b.rating - a.rating || a.at - b.at)
+      .slice(0, n)
+      .map((r) => structuredClone(r));
+  }
+  /** 고스트: 사람마다 곡마다 마지막 판 하나 */
+  putRankedRun(run) {
+    this.data.rankedRuns[`${run.igsid}|${run.level}`] = structuredClone(run);
+    this._save();
+  }
+  /** 나 말고, 점수가 가까운 고스트 n 개 */
+  pickRankedRuns(notIgsid, rating, levels, since, n = 8) {
+    return Object.values(this.data.rankedRuns)
+      .filter((r) => r.igsid !== notIgsid && levels.includes(r.level) && r.at >= since)
+      .sort((a, b) => Math.abs(a.rating - rating) - Math.abs(b.rating - rating) || b.at - a.at)
+      .slice(0, n)
+      .map((r) => structuredClone(r));
   }
 
   // ----- 친구 대결 방 -----

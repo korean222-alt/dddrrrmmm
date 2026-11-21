@@ -7,6 +7,7 @@ import crypto from 'node:crypto';
 import { sign, unsign, parseCookies, cookie, newId } from './session.js';
 import { buildStats } from './stats.js';
 import { createRoomHandler } from './rooms.js';
+import { createRankedHandler } from './ranked.js';
 import { cleanMap, mapDifficulty, mapLevel } from '../public/js/usermap.js';
 import { LEVELS, LAST_LEVEL_ID, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur, ENDLESS_ID, ROUND_BARS, roundBpm, pointsFor, levelEndlessBase, LEVEL_ENDLESS_STEP, needsVerify, isClosed, diamondsFor } from '../public/js/charts.js';
 
@@ -244,8 +245,10 @@ export function createHandler(cfg, { store }) {
   });
 
   // 대결 방: 4단계부터는 혼자 칠 때와 같은 잠금 (팔로워 인증 완료한 사람만)
+  const ranked = createRankedHandler({ store, getPlayer: (request) => getPlayer(request), isConfirmed: (pl) => !!pl && (cfg.gateMode === 'open' || isConfirmed(pl)) });
   const handleRoom = createRoomHandler({
     store,
+    ranked,
     getPlayer: (request) => getPlayer(request),
     isConfirmed: (pl) => cfg.gateMode === 'open' || isConfirmed(pl),
     canPlay: async (levelId, pl) => (cfg.gateMode !== 'open' && isClosed(levelId) && !isConfirmed(pl) ? (isVerified(pl) ? 'confirm_pending' : 'confirm_required') : null),
@@ -624,6 +627,14 @@ export function createHandler(cfg, { store }) {
         count: rows.length,
         suggestions: rows.map((r) => ({ id: r.id, at: kst(r.at) + ' KST', kind: r.kind, text: r.body, nick: r.nick, contact: r.contact || null, done: !!r.doneAt })),
       });
+    }
+
+    // 🏆 랭킹전: info(내 점수·순위) · ghost(실시간 상대가 없을 때 고스트 받기) · result(판 결과)
+    if (p === '/api/ranked' && m === 'POST') {
+      const b = await readJson(request);
+      if (!limitRoom(ip)) return json(429, { error: 'rate_limited' });
+      const [status, data] = await ranked.handle(request, b);
+      return json(status, data);
     }
 
     // 친구 대결 방 (만들기·들어가기·주고받기·나가기)

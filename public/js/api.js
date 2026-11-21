@@ -71,6 +71,7 @@ function serverApi(boot = null) {
     logout: () => http('POST', '/api/logout'),
     suggest: (kind, text, contact) => http('POST', '/api/suggestions', { kind, text, contact }),
     room: (body) => http('POST', '/api/rooms', body),
+    ranked: (body) => http('POST', '/api/ranked', body),
     transfer: (body) => http('POST', '/api/transfer', body),
     recoverRequest: (body) => http('POST', '/api/recover-request', body),
     recoverStatus: (token) => http('POST', '/api/recover-request/status', { token }),
@@ -174,6 +175,11 @@ function mockApi(cfg) {
       return { ok: true, mock: true };
     },
     async room() {
+      const e = new Error('no_server');
+      e.status = 503;
+      throw e;
+    },
+    async ranked() {
       const e = new Error('no_server');
       e.status = 503;
       throw e;

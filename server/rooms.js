@@ -10,6 +10,7 @@
 
 import { newId } from './session.js';
 import { LEVELS, getLevel, levelDuration, FREE_UPTO } from '../public/js/charts.js';
+import { RANKED_POOL, rankedPoolFor } from './ranked.js';
 
 export const ROOM_TTL_MS = 2 * 3600 * 1000;
 export const ROOM_START_DELAY_MS = 4500;
@@ -24,7 +25,11 @@ export const BRACKETS = {
   // 🎄 캐롤(18~20단계)은 빠른 대결엔 안 넣음 (친구 방에선 고를 수 있음)
   easy: LEVELS.filter((l) => !l.xmas && !l.long && l.difficulty <= 3).map((l) => l.id),
   hard: LEVELS.filter((l) => !l.xmas && !l.long && l.difficulty >= 4).map((l) => l.id),
+  // 🏆 랭킹전 (server/ranked.js): 상대가 붙으면 준비 없이 바로 시작
+  ranked: RANKED_POOL,
 };
+/** 랭킹전: 상대가 붙고 나서 시작까지 (기다리던 쪽이 5초마다 물어봐서 알아채도록 넉넉히) */
+export const RANKED_START_DELAY_MS = 8000;
 /** 기다리는 방은 이 시간 안에 주고받은 적이 있어야 '살아 있음' (창을 닫고 나간 방은 안 잡힘) */
 export const QUICK_FRESH_MS = 15_000;
 const pidOf = () => newId().replace(/[^A-Za-z0-9]/g, '').slice(0, 10);
@@ -55,6 +60,8 @@ export function publicRoom(d, now) {
       pid: p.pid || null,
       sig: p.sig || null,
       name: p.name,
+      rt: Number.isFinite(p.rt) ? p.rt : null,
+      left: !!p.left,
       part: p.part || 'drum',
       ready: p.ready === readyTag(d),
       ago: Math.max(0, now - (p.seenAt || 0)),
@@ -62,7 +69,7 @@ export function publicRoom(d, now) {
       final: p.final && p.final.round === d.round ? p.final : null,
     };
   }
-  return { code: d.code, mode: d.mode, endless: !!d.endless, level: d.level, status: d.status, round: d.round || 0, startAt: d.startAt || null, host: d.host, pub: d.pub || null, players };
+  return { code: d.code, mode: d.mode, void: !!d.void, endless: !!d.endless, level: d.level, status: d.status, round: d.round || 0, startAt: d.startAt || null, host: d.host, pub: d.pub || null, players };
 }
 
 const readyTag = (d) => `${d.cfgVer || 0}.${d.round || 0}`;
@@ -70,7 +77,7 @@ const readyTag = (d) => `${d.cfgVer || 0}.${d.round || 0}`;
 /**
  * @param {{ store, getPlayer, canPlay(level, player) → string|null(에러 코드) }} deps
  */
-export function createRoomHandler({ store, getPlayer, canPlay, isConfirmed = () => false }) {
+export function createRoomHandler({ store, getPlayer, canPlay, isConfirmed = () => false, ranked = null }) {
   const exp = (now) => now + ROOM_TTL_MS;
 
   async function newCode(data, now) {
@@ -143,7 +150,7 @@ export function createRoomHandler({ store, getPlayer, canPlay, isConfirmed = () 
     if (action === 'quick') {
       const name = cleanRoomName(body.name);
       if (!name) return [400, { error: 'bad_name' }];
-      const bracket = body.bracket === 'hard' ? 'hard' : 'easy';
+      const bracket = body.bracket === 'hard' ? 'hard' : body.bracket === 'ranked' ? 'ranked' : 'easy';
       const pl = await getPlayer(request);
       const ok = !!isConfirmed(pl);
       // 어려움·극악 묶음은 전부 4단계 이상 → 팔로워 인증한 사람만
@@ -151,14 +158,31 @@ export function createRoomHandler({ store, getPlayer, canPlay, isConfirmed = () 
         const err = await canPlay(BRACKETS.hard[0], pl);
         if (err) return [403, { error: err }];
       }
+      let rt = null;
+      if (bracket === 'ranked') {
+        if (!ranked) return [404, { error: 'not_found' }];
+        const err = await ranked.canStart(pl, now);
+        if (err) return [err === 'daily_limit' ? 429 : 403, { error: err }];
+        rt = await ranked.ratingOf(pl, now);
+      }
       const key = newId();
       const me = { name, pid: pidOf(), part: 'drum', key, ready: null, seenAt: now, live: null, final: null, sig: null, ok };
+      if (bracket === 'ranked') Object.assign(me, { uid: pl.igsid, rt });
       for (const code of await store.findOpenRooms(bracket, now - QUICK_FRESH_MS, now)) {
         const d = await store.getRoom(code, now);
         if (!d || !d.players || !d.players.a || d.players.b) continue;
-        const joined = await store.patchRoom(code, { slot: 'b', player: me, cond: { slotFree: 'b', status: 'lobby', round: d.round || 0 } }, now, exp(now));
+        if (bracket === 'ranked' && d.players.a.uid === pl.igsid) continue; // 나 자신(다른 창)과는 안 붙음
+        const top = {};
+        if (bracket === 'ranked') {
+          // 랭킹전은 대기실 없이 바로: 곡은 무작위, 몇 초 뒤 같이 시작
+          const pool = rankedPoolFor(Math.min(rt ?? 1000, d.players.a.rt ?? 1000)); // 둘 중 낮은 점수에 맞춰
+          const level = pool[Math.floor(Math.random() * pool.length)];
+          const lv = getLevel(level);
+          Object.assign(top, { level, status: 'playing', round: 1, startAt: now + RANKED_START_DELAY_MS, endBy: now + RANKED_START_DELAY_MS + levelDuration(lv) * 1000 + 120_000 });
+        }
+        const joined = await store.patchRoom(code, { top, slot: 'b', player: me, cond: { slotFree: 'b', status: 'lobby', round: d.round || 0 } }, now, exp(now));
         if (!joined) continue;
-        // 바로 시작하지 않고 대기실로: 둘 다 '준비!'를 누르면 시작 (곡은 그때 무작위)
+        // 빠른 대결은 바로 시작하지 않고 대기실로: 둘 다 '준비!'를 누르면 시작 (곡은 그때 무작위)
         return [200, { code, slot: 'b', key, room: publicRoom(joined, now), now }];
       }
       const data = { mode: 'versus', level: BRACKETS[bracket][0], status: 'lobby', round: 0, cfgVer: 1, host: 'a', createdAt: now, pub: bracket, players: { a: me } };
@@ -171,6 +195,15 @@ export function createRoomHandler({ store, getPlayer, canPlay, isConfirmed = () 
       const { code, d, slot } = await auth(body, now);
 
       if (action === 'leave') {
+        // 🏆 랭킹전 치는 중에 나가면 자리는 남겨 둠 (상대 결과 계산에 내 점수가 필요) → 소식 끊김 = 나간 것
+        const other = d.players[slot === 'a' ? 'b' : 'a'];
+        if (d.pub === 'ranked' && d.status === 'playing' && other) {
+          // 시작하기 전에 나가면 이 판은 없던 걸로 (점수 변화 없음)
+          const before = now < (d.startAt || 0);
+          if (ranked && !before) await ranked.forfeit(request, d, slot, now);
+          await store.patchRoom(code, { top: before ? { void: true } : {}, slot, player: { seenAt: 0, left: true } }, now, exp(now));
+          return [200, { ok: true }];
+        }
         const players = { ...d.players };
         delete players[slot];
         const left = SLOTS.filter((s) => players[s]);
@@ -181,6 +214,7 @@ export function createRoomHandler({ store, getPlayer, canPlay, isConfirmed = () 
 
       // 한 판 더: 대기실로 (준비는 판 번호가 바뀌어서 저절로 풀림)
       if (action === 'again') {
+        if (d.pub === 'ranked') return [400, { error: 'bad_action' }];
         const out = (await store.patchRoom(code, { top: { status: 'lobby' }, cond: { status: 'playing', round: d.round || 0 } }, now, exp(now))) || (await store.getRoom(code, now));
         return [200, { room: publicRoom(out, now), now }];
       }
