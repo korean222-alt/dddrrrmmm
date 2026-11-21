@@ -4895,7 +4895,7 @@ function bindActions() {
     void b.offsetWidth;
     b.classList.add('on');
     clearTimeout(b._t);
-    b._t = setTimeout(() => b.classList.remove('on'), 110);
+    b._t = setTimeout(() => b.classList.remove('on'), 450);
     padHit(b.dataset.inst);
   });
   $('#mk-pads').addEventListener('contextmenu', (e) => e.preventDefault());

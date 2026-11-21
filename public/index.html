@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=8c305bedd4" />
+  <link rel="stylesheet" href="css/style.css?v=b1f50bb725" />
 </head>
 <body>
   <div id="app">
@@ -199,10 +199,10 @@
         <div class="studio-block mk-pane" id="mk-pane-drum">
           <p class="hint" id="mk-drum-hint">진짜 드럼처럼 쳐 보세요. 「녹음」을 누르면 똑딱 소리 한 마디 뒤부터 친 게 그대로 곡이 돼요. 칠수록 마디가 늘어나요.</p>
           <div class="kit" id="mk-pads">
-            <button type="button" class="kpad cym pad-c" data-inst="C"><span>크래시</span></button>
-            <button type="button" class="kpad cym pad-h" data-inst="H"><span>하이햇</span></button>
-            <button type="button" class="kpad drum pad-s" data-inst="S"><span>짝<small>스네어</small></span></button>
-            <button type="button" class="kpad drum pad-k" data-inst="K"><span>쿵<small>베이스 드럼</small></span></button>
+            <button type="button" class="kpad cym pad-c" data-inst="C" aria-label="크래시"><img src="/assets/kit/crash.webp?v=1" alt="" draggable="false" /><span>크래시</span></button>
+            <button type="button" class="kpad cym pad-h" data-inst="H" aria-label="하이햇"><img src="/assets/kit/hihat.webp?v=1" alt="" draggable="false" /><span>하이햇</span></button>
+            <button type="button" class="kpad drum pad-s" data-inst="S" aria-label="짝 (스네어)"><img src="/assets/kit/snare.webp?v=1" alt="" draggable="false" /><span>짝</span></button>
+            <button type="button" class="kpad drum pad-k" data-inst="K" aria-label="쿵 (베이스 드럼)"><img src="/assets/kit/kick.webp?v=1" alt="" draggable="false" /><span>쿵</span></button>
           </div>
           <canvas id="mk-droll" class="mk-droll" height="88"></canvas>
           <div class="mk-barnav">
@@ -892,6 +892,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=bc7f6e0d18" defer></script>
+  <script src="js/app.js?v=a555f1ebef" defer></script>
 </body>
 </html>

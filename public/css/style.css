@@ -778,21 +778,26 @@ button.ig-pause:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--i
 .mk-pane > .hint:first-child { margin-top: 0; }
 .mk-sum { font-size: 16px; line-height: 1.6; margin: 0 0 12px; }
 
-/* 🥁 드럼 세트 (진짜 드럼 자리: 왼쪽 하이햇 · 오른쪽 위 크래시 · 가운데 스네어 · 앞 베이스 드럼) */
-.kit { position: relative; width: 100%; max-width: 440px; margin: 4px auto 8px; aspect-ratio: 1 / 0.95; border-radius: 22px; background: radial-gradient(ellipse at 50% 110%, #5a3f74 0%, #2b1e3a 70%); box-shadow: inset 0 0 0 3px var(--ink); touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; overflow: hidden; }
-.kpad { position: absolute; aspect-ratio: 1; border-radius: 50%; border: 3px solid var(--ink); padding: 0; color: #fff; font-size: 20px; line-height: 1.1; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.35); touch-action: none; transition: transform 0.06s, filter 0.06s; -webkit-tap-highlight-color: transparent; }
-.kpad span { pointer-events: none; display: grid; gap: 2px; justify-items: center; }
-.kpad small { font-size: 11px; opacity: 0.9; }
-.kpad.cym { background: repeating-radial-gradient(circle, #f9d65c 0 3px, #e7b52c 3px 6px); box-shadow: 0 6px 0 rgba(0, 0, 0, 0.35), inset 0 0 0 10px rgba(255, 255, 255, 0.12); color: #4a3200; text-shadow: 0 1px 0 rgba(255, 255, 255, 0.6); }
-.kpad.cym::after { content: ''; position: absolute; left: 50%; top: 50%; width: 14%; height: 14%; transform: translate(-50%, -50%); border-radius: 50%; background: #b08415; border: 2px solid var(--ink); }
-.kpad.cym span { position: relative; top: 18%; }
-.kpad.drum { box-shadow: 0 6px 0 rgba(0, 0, 0, 0.35); }
-.kpad.pad-c { left: 53%; top: 2%; width: 43%; }
-.kpad.pad-h { left: 3%; top: 8%; width: 40%; }
-.kpad.pad-s { left: 3%; top: 52%; width: 44%; background: radial-gradient(circle, #ffffff 0 52%, #e9eef5 53% 60%, #3d9bff 61% 100%); color: #1d4f8c; text-shadow: none; font-size: 24px; }
-.kpad.pad-k { left: 49%; top: 43%; width: 49%; background: radial-gradient(circle, #ffe9d6 0 34%, #ff8a4c 35% 62%, #e04a2a 63% 100%); color: #a3290f; text-shadow: none; font-size: 30px; }
-.kpad.on { transform: scale(0.93); filter: brightness(1.2); }
-.kpad.cym.on { transform: scale(0.95) rotate(6deg); }
+/* 🥁 드럼 세트 (진짜 드럼 자리: 왼쪽 하이햇 · 오른쪽 위 크래시 · 왼쪽 아래 스네어 · 오른쪽 앞 베이스 드럼)
+   그림 = 3D 렌더 (assets/kit/*.webp, ElevenLabs). 치면 북은 눌리고, 심벌은 흔들림 */
+.kit { position: relative; width: 100%; max-width: 440px; margin: 4px auto 8px; aspect-ratio: 1 / 0.95; border-radius: 22px; overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; perspective: 700px;
+  background: radial-gradient(ellipse at 50% 35%, rgba(255, 190, 120, 0.22), transparent 60%), radial-gradient(ellipse at 50% 120%, #3a2418 0%, #1a1110 60%, #0c0808 100%);
+  box-shadow: inset 0 0 0 3px var(--ink), inset 0 -30px 60px rgba(0, 0, 0, 0.6); }
+.kpad { position: absolute; aspect-ratio: 1; border-radius: 50%; border: 0; padding: 0; background: none; touch-action: none; -webkit-tap-highlight-color: transparent; transform-style: preserve-3d; }
+.kpad img { display: block; width: 100%; height: 100%; pointer-events: none; -webkit-user-drag: none; filter: drop-shadow(0 10px 10px rgba(0, 0, 0, 0.65)); }
+.kpad span { position: absolute; left: 50%; bottom: 6%; transform: translateX(-50%); pointer-events: none; padding: 2px 10px; border-radius: 999px; background: rgba(20, 12, 8, 0.62); color: #fff; font-size: 14px; white-space: nowrap; backdrop-filter: blur(2px); }
+.kpad.pad-s span, .kpad.pad-k span { font-size: 18px; }
+.kpad::after { content: ''; position: absolute; inset: 0; border-radius: 50%; pointer-events: none; opacity: 0; background: radial-gradient(circle, rgba(255, 255, 255, 0.55), rgba(255, 220, 160, 0.15) 55%, transparent 70%); }
+.kpad.pad-c { left: 52%; top: 1%; width: 45%; }
+.kpad.pad-h { left: 3%; top: 7%; width: 41%; }
+.kpad.pad-s { left: 3%; top: 51%; width: 45%; }
+.kpad.pad-k { left: 48%; top: 44%; width: 50%; }
+.kpad.drum.on { animation: kpad-drum 0.16s ease-out; }
+.kpad.cym.on { animation: kpad-cym 0.42s ease-out; }
+.kpad.on::after { animation: kpad-flash 0.22s ease-out; }
+@keyframes kpad-drum { 0% { transform: scale(0.94); } 100% { transform: scale(1); } }
+@keyframes kpad-cym { 0% { transform: rotateX(16deg) rotateY(-10deg) scale(0.97); } 35% { transform: rotateX(-9deg) rotateY(6deg); } 70% { transform: rotateX(4deg) rotateY(-2deg); } 100% { transform: none; } }
+@keyframes kpad-flash { 0% { opacity: 1; } 100% { opacity: 0; } }
 .mk-droll { display: block; width: 100%; height: 88px; border: 2px solid var(--ink); border-radius: 12px; }
 .mapmake .mk-droll + .mk-barnav { margin-top: 8px; }
 
