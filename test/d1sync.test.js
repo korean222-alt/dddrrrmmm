@@ -126,3 +126,24 @@ test('lit: 따옴표·숫자·JSON · 표 정의에 D1 표 열이 다 있음', a
     assert.deepEqual(cols.sort(), Object.keys(t.cols).sort(), t.name);
   }
 });
+
+test('createSchema: 비어 있는 예전 모양(보통 표) 통계·토큰 표는 WITHOUT ROWID 로 다시 만듦, 줄이 있으면 그대로', async () => {
+  const { createSchema } = await import('../scripts/d1-sync.mjs');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kk-d1schema-'));
+  const d1 = await localSqlite(path.join(tmp, 'x.sqlite'));
+  await d1.q('CREATE TABLE used_runs (nonce TEXT PRIMARY KEY, expires_at INTEGER NOT NULL)');
+  await d1.q('CREATE TABLE plays (id TEXT PRIMARY KEY, sid TEXT NOT NULL, vid TEXT NOT NULL, level TEXT NOT NULL, mode TEXT, started_at INTEGER NOT NULL, ended_at INTEGER, result TEXT, score INTEGER, stars INTEGER, sec INTEGER)');
+  await d1.q("INSERT INTO plays (id, sid, vid, level, started_at) VALUES ('p', 's', 'v', '1', 1)");
+  await createSchema(d1);
+  const sqlOf = async (t) => (await d1.q(`SELECT sql FROM sqlite_master WHERE name = '${t}'`))[0].sql;
+  assert.match(await sqlOf('used_runs'), /WITHOUT ROWID/);
+  assert.doesNotMatch(await sqlOf('plays'), /WITHOUT ROWID/);
+  assert.match(await sqlOf('sessions'), /WITHOUT ROWID/);
+  assert.equal((await d1.q('SELECT COUNT(*) AS n FROM plays'))[0].n, 1);
+  // D1 저장소: 판 토큰은 cleanup 에서 안 지움 (쓰기 아끼기), 한 번만 쓸 수 있는 건 그대로
+  const store = await new D1Store(d1Local(new DatabaseSync(path.join(tmp, 'x.sqlite')))).init();
+  assert.equal(await store.useRun('n1', 1), true);
+  await store.cleanup(Date.now());
+  assert.equal(await store.useRun('n1', 1), false);
+  fs.rmSync(tmp, { recursive: true, force: true });
+});

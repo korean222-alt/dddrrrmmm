@@ -306,7 +306,17 @@ export async function sameSessionSecret(a, b) {
 }
 
 // ---------------------------------------------------------------- 명령
+/** WITHOUT ROWID 로 바꾼 표가 예전(보통 표) 모양으로 비어 있으면 지우고 다시 만듦 (11-21 미리 복사 때 만든 빈 표) */
+const ROWLESS = ['used_runs', 'sessions', 'plays', 'rooms', 'transfers', 'season_scores', 'hall'];
+
 export async function createSchema(d1) {
+  for (const t of ROWLESS) {
+    const row = (await d1.q(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ${lit(t, 't')}`))[0];
+    if (!row || /WITHOUT ROWID/i.test(row.sql)) continue;
+    const n = Number((await d1.q(`SELECT COUNT(*) AS n FROM ${t}`))[0].n);
+    if (n === 0) await d1.q(`DROP TABLE ${t}`);
+    else console.log(`  ⚠ ${t}: 보통 표인데 ${n}줄 있어서 그대로 둠`);
+  }
   for (const s of D1_SCHEMA) await d1.q(s);
 }
 
