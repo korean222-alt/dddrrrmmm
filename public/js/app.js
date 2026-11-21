@@ -15337,7 +15337,7 @@ async function playMap(id) {
 }
 /** 🛡 무적 / ❤ 하트 5개 고르기 + 모드별 1~3등 (맵 받을 때 같이 온 것) */
 function mapTopHTML(list) {
-  if (!list || !list.length) return '<li class="mm-empty">아직 기록 없음 · 1등 해 보세요!</li>';
+  if (!list || !list.length) return '<li class="mm-empty">아직 기록 없음</li>';
   const medal = ['🥇', '🥈', '🥉'];
   return list.map((r, i) => `<li><span>${medal[i]}</span><em>${escapeHtml(r.nick || '익명')}</em><b>${fmt(r.score)}</b></li>`).join('');
 }
