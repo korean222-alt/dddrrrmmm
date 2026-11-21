@@ -614,6 +614,10 @@ async function fontsReady(extra = '') {
 // 먼저 만든 쪽이 카운트인 중에 이미 진행되던 버그가 있었음 → 마지막 호출만 살리고 앞선 호출은 중단
 let startSeq = 0;
 /** 🐢 느리게 연습: 같은 채보를 rate 배 빠르기로 (목숨·기록·랭킹 없음) */
+/** 🎲 랜덤 대결 N곡째 빠르기: 1곡째 그대로, 한 곡마다 +7%, 최대 1.5배 */
+function rushSpeed(round) {
+  return Math.min(1.5, 1 + 0.07 * Math.max(0, (round | 0) - 1));
+}
 function practiceLevel(lv, rate) {
   return { ...lv, bpm: Math.round(lv.bpm * rate * 10) / 10, practice: rate };
 }
@@ -625,7 +629,9 @@ async function startLevel(id, opts = {}) {
   if (!base) return;
   const practice = !opts.room && opts.practice && canPractice(base) ? opts.practice : 0;
   state.practice = practice;
-  const lv = practice ? practiceLevel(base, practice) : base;
+  // 🎲 랜덤 대결: 곡이 넘어갈수록 빨라짐 (두 사람 다 round 로 같은 빠르기)
+  const rushRate = opts.room && opts.room.rush ? rushSpeed(opts.room.round) : 1;
+  const lv = practice ? practiceLevel(base, practice) : rushRate > 1 ? { ...base, bpm: Math.round(base.bpm * rushRate * 10) / 10 } : base;
   // 친구 대결 방 판: { startAt(내 시계 ms), mode } — 같은 시각에 시작, 랭킹엔 안 올림
   // 🏆 랭킹전 판: 실시간 { startAt(내 시계 ms), mode, round } / 고스트 { ghost, gid } — 랭킹엔 안 올림
   const room = opts.room || null;
@@ -648,7 +654,7 @@ async function startLevel(id, opts = {}) {
   show('screen-game');
   $('#hud-lv').textContent = practice ? `🐢 연습 ${Math.round(practice * 100)}%` : lv.userMap ? '🎹 유저 맵' : lv.custom ? '🎵 내 노래' : lv.survival ? '⚔️ 서바이벌' : lv.challenge ? (lv.endless ? '무제한' : '챌린지') : lv.studioOnly ? '🎬 릴스용' : levelLabel(lv);
   $('#hud-name').textContent = lv.challenge ? `${lv.songName} · ${lv.composer}` : `${lv.name} · ${lv.composer}`;
-  if (room && room.rush) $('#hud-lv').textContent = `🎲 ${room.round}곡째`;
+  if (room && room.rush) $('#hud-lv').textContent = `🎲 ${room.round}곡째${rushRate > 1 ? ` · ⚡${rushRate.toFixed(2).replace(/0$/, '')}배` : ''}`;
   $('#hud-score').textContent = '0';
   $('#hud-progress').style.width = '0%';
   closeModal('modal-continue');
@@ -712,7 +718,17 @@ async function startLevel(id, opts = {}) {
         toast('판을 시작하지 못했어요. 다시 해 보세요', 2600);
       }
     });
-  const last = { score: -1, p: -1, op: -1, lives: MAX_LIVES, stars: -1 };
+  const last = { score: -1, p: -1, op: -1, lives: MAX_LIVES, stars: -1, shown: -1 };
+  // 실시간 대결: 상대 점수는 몇 초 늦게 옴 → 내 점수도 '상대가 보낸 진행 위치' 때의 점수로 보여 줘야 같은 지점끼리 비교됨
+  const myHist = []; // [진행, 점수] (진행 순)
+  const myScoreAt = (p) => {
+    let lo = 0, hi = myHist.length - 1, ans = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (myHist[mid][0] <= p) { ans = myHist[mid][1]; lo = mid + 1; } else hi = mid - 1;
+    }
+    return ans;
+  };
   const starBox = $('#hud-stars');
   starBox.hidden = !!lv.endless;
   starBox.innerHTML = starsHTML(0);
@@ -743,12 +759,18 @@ async function startLevel(id, opts = {}) {
           $('#vs-name').textContent = (rtNow ? '⚡' : '') + roomOtherName();
           last.rt = rtNow;
         }
-        if (op !== last.op || h.score !== last.score) {
-          $('#vs-me').textContent = fmt(h.score);
+        const seq = !lv.endless && !lv.roundProgress;
+        if (seq && (!myHist.length || h.progress > myHist[myHist.length - 1][0])) myHist.push([h.progress, h.score]);
+        else if (seq && myHist.length) myHist[myHist.length - 1][1] = h.score;
+        // 상대가 끝냈으면(final) 지금 내 점수, 아니면 상대가 보낸 진행 위치 때의 내 점수
+        const me = seq && o && !o.final && o.live && o.live.progress < h.progress ? myScoreAt(o.live.progress) : h.score;
+        if (op !== last.op || me !== last.shown) {
+          $('#vs-me').textContent = fmt(me);
           const ol = o && o.live && o.live.lives != null ? ` ♥${o.live.lives}` : '';
           $('#vs-op').textContent = room.mode === 'team' ? `${fmt(op)} · 팀 ${fmt(h.score + op)}` : fmt(op) + ol;
-          const tot = h.score + op;
-          $('#vs-fill').style.width = (tot ? (h.score / tot) * 100 : 50).toFixed(1) + '%';
+          const tot = me + op;
+          $('#vs-fill').style.width = (tot ? (me / tot) * 100 : 50).toFixed(1) + '%';
+          last.shown = me;
         }
         last.op = op;
       } else if (vs) {
@@ -800,7 +822,7 @@ async function startLevel(id, opts = {}) {
     // 상대와 같은 시각에 시작: 남은 시간 카운트다운 (Game.start 가 0.35초 뒤에 첫 박을 놓음)
     const box = $('#studio-count');
     box.hidden = false;
-    $('#studio-count-msg').textContent = room.rush ? `🎲 ${room.round}곡째! ${roomOtherName()} 님과 대결` : room.ranked ? `🏆 ${roomOtherName()} 님과 랭킹전!` : room.mode === 'team' ? '🤝 팀전! 둘이 같이 깨 봐요' : `⚔️ ${roomOtherName()} 님과 대결!`;
+    $('#studio-count-msg').textContent = room.rush ? `🎲 ${room.round}곡째${rushSpeed(room.round) > 1 ? ` (⚡${Math.round(rushSpeed(room.round) * 100)}% 빠르기)` : ''}! ${roomOtherName()} 님과 대결` : room.ranked ? `🏆 ${roomOtherName()} 님과 랭킹전!` : room.mode === 'team' ? '🤝 팀전! 둘이 같이 깨 봐요' : `⚔️ ${roomOtherName()} 님과 대결!`;
     const g = state.game;
     // 기다리는 동안 무대(맵)를 그려 둠
     renderer.draw({ now: -1, notes: g.notes, approach: g.approach, beatDur: g.beat, combo: 0, score: 0, playing: false }, performance.now() / 1000);
