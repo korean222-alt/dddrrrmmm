@@ -11,7 +11,7 @@ import {
 import { separateVocals, resample } from './vocalsep.js';
 import { transcribeSong } from './songmap.js';
 import { instrumentNotes } from './instnotes.js';
-import { readScoreFile, scoreInfo, scoreToMap } from './scorefile.js';
+import { readScoreFile, scoreInfo, scoreToMap, recommendStart } from './scorefile.js';
 import { videoToAac } from './mp4audio.js';
 import { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmonize, autoDrums, cleanMap, mapLevel } from './usermap.js';
 import { AudioEngine, playMetronome } from './audio.js';
@@ -3193,10 +3193,7 @@ async function mkTranscribe() {
     st.textContent = '음을 거의 못 땄어요. 멜로디가 또렷한 구간으로 해 보세요';
     return;
   }
-  if (mk.mel.some((b) => b.length) && !confirm('지금 만든 멜로디·드럼을 노래에서 딴 걸로 바꿀까요?')) {
-    st.textContent = '그대로 뒀어요';
-    return;
-  }
+  // confirm() 은 앱 안 브라우저에서 안 뜰 수 있어서 묻지 않음 (↩ 되돌리기 가능)
   mkSnap();
   mk.mel = t.bars;
   mk.bpm = Math.round(bpm);
@@ -3256,16 +3253,14 @@ async function mkPickScore(file) {
   sel.innerHTML =
     info.melodyTracks
       .map((t) => {
-        const label = `${t.name || `트랙 ${t.index + 1}`} · 음 ${t.count}개 · ${midiName(t.lo)}~${midiName(t.hi)}`;
+        const label = `${t.name || `트랙 ${t.index + 1}`} · 음 ${t.count}개 · ${midiName(t.lo)}~${midiName(t.hi)}${t.index === info.guess ? ' (추천)' : ''}`;
         return `<option value="${t.index}"${t.index === info.guess ? ' selected' : ''}>${escapeHtml(label)}</option>`;
       })
       .join('') + '<option value="-1">멜로디 없이 (드럼만)</option>';
   if (info.guess < 0) sel.value = '-1';
-  const ss = $('#mk-score-start');
-  const opts = [];
-  for (let b = 0; b < info.totalBars - 1; b++) opts.push(`<option value="${b}"${b === info.firstBar ? ' selected' : ''}>${b + 1}마디${b === info.firstBar ? ' (첫 음)' : ''}</option>`);
-  ss.innerHTML = opts.join('') || '<option value="0">1마디</option>';
-  ss.closest('label').hidden = info.totalBars - info.firstBar <= MAP_LIMITS.maxBars && info.totalBars <= 8;
+  $('#mk-score-len').value = 'all';
+  mks.startTouched = false;
+  mkScoreStartOpts();
   $('#mk-score-opts').hidden = false;
   const sec = Math.round((info.totalBars * 4 * 60) / info.bpm);
   st.innerHTML =
@@ -3274,29 +3269,67 @@ async function mkPickScore(file) {
     (Math.round(info.bpm) !== Math.round(sc.bpm) ? `<br>원래 ${Math.round(sc.bpm)} BPM 이라 ${Math.round(info.bpm)} BPM 으로 맞췄어요 (박자는 그대로)` : '') +
     (sc.tempoChanges ? '<br>중간에 빠르기가 바뀌는 곡이라 처음 빠르기로 해요' : '') +
     (sc.timeSig && (sc.timeSig[0] !== 4 || sc.timeSig[1] !== 4) && !(sc.timeSig[0] === 2 && sc.timeSig[1] === 4) ? `<br>${sc.timeSig[0]}/${sc.timeSig[1]}박자 곡이라 4박씩 묶어요` : '') +
-    (info.totalBars - info.firstBar > MAP_LIMITS.maxBars ? `<br>${MAP_LIMITS.maxBars}마디가 넘어서 시작 마디를 골라 주세요` : '');
+    '';
+}
+/** 시작 마디 목록 + 추천 (멜로디 트랙이 바뀌면 추천도 바뀜, 손으로 고른 뒤엔 그대로) */
+function mkScoreStartOpts() {
+  const info = mks.info;
+  if (!info) return;
+  const melIdx = Number($('#mk-score-mel').value);
+  const rec = recommendStart(info, melIdx);
+  const ss = $('#mk-score-start');
+  const keep = mks.startTouched ? Number(ss.value) : rec;
+  const opts = [];
+  for (let b = 0; b < Math.max(1, info.totalBars - 1); b++) opts.push(`<option value="${b}"${b === keep ? ' selected' : ''}>${b + 1}마디${b === rec ? ' (추천 · 멜로디 시작)' : ''}</option>`);
+  ss.innerHTML = opts.join('');
+  mkScoreRec();
+}
+function mkScoreRec() {
+  const info = mks.info;
+  if (!info) return;
+  const melIdx = Number($('#mk-score-mel').value);
+  const t = info.melodyTracks.find((m) => m.index === melIdx);
+  const start = Number($('#mk-score-start').value) || 0;
+  const lenSel = $('#mk-score-len').value;
+  const bars = Math.min(lenSel === 'all' ? MAP_LIMITS.maxBars : Number(lenSel) || 16, info.totalBars - start);
+  const rec = recommendStart(info, melIdx);
+  $('#mk-score-rec').innerHTML =
+    `👉 이렇게 만들어요: 멜로디 <b>${t ? escapeHtml(t.name || `트랙 ${t.index + 1}`) : '없이 (드럼만)'}</b> · <b>${start + 1}마디부터 ${bars}마디</b>` +
+    (start === rec && rec > 0 ? ` (앞 ${rec}마디 전주는 건너뛰어요)` : '') +
+    (start + bars < info.totalBars ? `<br>곡이 길어서 ${start + bars}마디까지만 들어가요` : '') +
+    '<br>모르면 그대로 「악보로 맵 만들기」만 누르세요';
 }
 function mkScoreMake() {
   const sc = mks.score;
   if (!sc) return;
   const st = $('#mk-score-status');
   const lenSel = $('#mk-score-len').value;
-  const r = scoreToMap(sc, {
-    melody: Number($('#mk-score-mel').value),
-    start: Number($('#mk-score-start').value) || 0,
-    bars: lenSel === 'all' ? MAP_LIMITS.maxBars : Number(lenSel) || 16,
-  });
+  let r;
+  try {
+    r = scoreToMap(sc, {
+      melody: Number($('#mk-score-mel').value),
+      start: Number($('#mk-score-start').value) || 0,
+      bars: lenSel === 'all' ? MAP_LIMITS.maxBars : Number(lenSel) || 16,
+    });
+  } catch (e) {
+    console.warn('scoreToMap', e);
+    st.textContent = '맵으로 바꾸다 문제가 생겼어요. 「직접 고르기」에서 멜로디 트랙이나 시작 마디를 바꿔 보세요';
+    toast('악보를 맵으로 못 바꿨어요');
+    return;
+  }
   // 맵은 2마디부터 (1마디짜리 곡은 한 마디 쉼을 붙임)
   while (r.mel.length < MAP_LIMITS.minBars) {
     r.mel.push([]);
     if (r.drums) r.drums.push('................');
-    if (r.prog) r.prog.push(r.prog.at(-1));
+    if (r.prog) r.prog.push(r.prog[r.prog.length - 1]);
   }
   if (!r.found && !r.drums) {
-    st.textContent = '그 구간엔 음이 없어요. 시작 마디나 멜로디 트랙을 바꿔 보세요';
+    st.textContent = '그 구간엔 음이 없어요. 「직접 고르기」에서 시작 마디나 멜로디 트랙을 바꿔 보세요';
+    toast('그 구간엔 음이 없어요');
     return;
   }
-  if ((mk.mel.some((b) => b.length) || mk.drumsAuto !== 'easy') && !confirm('지금 만든 멜로디·드럼을 악보로 바꿀까요?')) return;
+  // confirm() 은 인스타 앱 안 브라우저 등에서 안 뜨고 '아니오'로 돌아와서 아무 일도 안 일어났음 → 묻지 않고 바꾸고 ↩ 되돌리기로
+  const hadDraft = mk.mel.some((b) => b.length) || mk.drumsAuto !== 'easy';
   mkSnap();
   mk.mel = r.mel;
   mk.bpm = Math.max(MAP_LIMITS.minBpm, Math.min(MAP_LIMITS.maxBpm, r.bpm));
@@ -3317,7 +3350,9 @@ function mkScoreMake() {
   st.innerHTML =
     `<b>${r.mel.length}마디</b>(${r.start + 1}마디부터)로 만들었어요 · 멜로디 음 <b>${r.found}개</b> · ${mk.bpm} BPM` +
     `<br>${[r.prog ? '코드는 반주 트랙에서' : '코드는 멜로디로 짐작', r.drums ? '드럼은 악보 드럼 그대로' : '드럼은 자동'].join(' · ')}` +
-    '<br>위 「처음부터 듣기」로 들어 보고, 고칠 곳은 「자세히 고치기」에서 손봐요';
+    '<br>위 「처음부터 듣기」로 들어 보고, 고칠 곳은 「자세히 고치기」에서 손봐요' +
+    (hadDraft ? '<br>전에 만들던 건 위 「↩ 되돌리기」로 되돌릴 수 있어요' : '');
+  toast('🎼 악보로 맵을 만들었어요');
   $('#mk-play').scrollIntoView({ block: 'center', behavior: 'smooth' });
 }
 
@@ -5266,6 +5301,12 @@ function bindActions() {
     if (e.target.files[0]) mkPickScore(e.target.files[0]);
     e.target.value = '';
   });
+  $('#mk-score-mel').addEventListener('change', mkScoreStartOpts);
+  $('#mk-score-start').addEventListener('change', () => {
+    mks.startTouched = true;
+    mkScoreRec();
+  });
+  $('#mk-score-len').addEventListener('change', mkScoreRec);
   $('#hall-photo-file').addEventListener('change', (e) => hallPhotoPicked(e.target.files[0]));
   $('#mk-name').addEventListener('change', () => {
     mk.name = $('#mk-name').value.trim();

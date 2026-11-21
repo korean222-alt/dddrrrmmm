@@ -255,10 +255,14 @@
             <p class="hint mk-copy">사진·PDF 악보는 악보 스캔 앱(PlayScore 2, MuseScore 의 PDF 가져오기 등)으로 <b>MusicXML</b> 로 바꿔서 넣어요.</p>
             <p class="hint" id="mk-score-status"></p>
             <div id="mk-score-opts" hidden>
-              <label class="field"><span>멜로디 트랙</span><select id="mk-score-mel"></select></label>
-              <label class="field"><span>시작 마디</span><select id="mk-score-start"></select></label>
-              <label class="field"><span>길이</span><select id="mk-score-len"><option value="all" selected>끝까지 (최대 64마디)</option><option value="8">8마디</option><option value="16">16마디</option><option value="32">32마디</option></select></label>
+              <p class="hint" id="mk-score-rec"></p>
               <button class="btn btn-primary" type="button" data-action="mk-score-make" id="mk-score-make">악보로 맵 만들기</button>
+              <details class="mk-detail mk-score-more">
+                <summary>직접 고르기 (모르면 그냥 두세요)</summary>
+                <label class="field"><span>멜로디 트랙</span><select id="mk-score-mel"></select></label>
+                <label class="field"><span>시작 마디</span><select id="mk-score-start"></select></label>
+                <label class="field"><span>길이</span><select id="mk-score-len"><option value="all" selected>끝까지 (최대 64마디)</option><option value="8">8마디</option><option value="16">16마디</option><option value="32">32마디</option></select></label>
+              </details>
             </div>
             <p class="hint mk-copy">올린 맵의 저작권 책임은 만든 사람에게 있어요. 권리자 요청이 오면 내려가요.</p>
           </div>
@@ -917,6 +921,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=6202d1c2a2" defer></script>
+  <script src="js/app.js?v=6918fa2f80" defer></script>
 </body>
 </html>
