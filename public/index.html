@@ -203,6 +203,7 @@
               <button type="button" data-diff="easy"><b>쉬움</b><small>쿵 짝</small></button>
               <button type="button" data-diff="normal"><b>보통</b><small>엇박 조금</small></button>
               <button type="button" data-diff="hard"><b>어려움</b><small>하이햇까지</small></button>
+              <button type="button" data-diff="song" id="mk-auto-song" class="mk-auto-song" hidden><b>🎵 노래 드럼 그대로</b><small>넣은 노래의 쿵·짝 자리</small></button>
             </div>
           </div>
           <p class="hint mk-or">또는 아래 드럼을 직접 쳐서 만들어요</p>
@@ -248,12 +249,12 @@
           </div>
 
           <div id="mk-way-file" class="mk-way" hidden>
-            <p class="hint">폰에 있는 노래(mp3)나 화면 녹화 영상을 넣으면 반주를 빼고 <b>목소리만 골라내서</b> 멜로디를 피아노 음으로 따요. 파일은 이 폰 밖으로 안 나가요. (처음 한 번 약 30MB 받아요 — 와이파이 추천)</p>
+            <p class="hint">폰에 있는 노래(mp3)나 화면 녹화 영상을 넣으면 <b>목소리 멜로디</b>(목소리가 없는 곳은 악기 멜로디)와 <b>코드·드럼</b>까지 노래에서 따요. 파일은 이 폰 밖으로 안 나가요. (처음 한 번 약 30MB 받아요 — 와이파이 추천)</p>
             <label class="btn btn-ghost mk-file"><input type="file" accept="audio/*,video/*" id="mk-file" hidden />노래 파일 고르기</label>
             <p class="hint" id="mk-file-status"></p>
             <div id="mk-file-opts" hidden>
               <label class="field"><span>시작 <small class="muted">예) 0:30 (비우면 처음부터)</small></span><input type="text" id="mk-file-start" inputmode="decimal" placeholder="0:00" /></label>
-              <label class="field"><span>길이</span><select id="mk-file-len"><option value="8">8마디</option><option value="16" selected>16마디</option><option value="32">32마디</option><option value="64">64마디 (최대)</option></select></label>
+              <label class="field"><span>길이</span><select id="mk-file-len"><option value="all" selected>노래 끝까지 (최대 64마디)</option><option value="8">8마디</option><option value="16">16마디</option><option value="32">32마디</option></select></label>
               <label class="field"><span>음 정리</span><select id="mk-file-clean"><option value="easy" selected>깔끔하게 (8분음표, 추천)</option><option value="fine">자세히 (16분음표까지)</option></select></label>
               <button class="btn btn-primary" type="button" data-action="mk-transcribe" id="mk-transcribe">음 따기</button>
             </div>
