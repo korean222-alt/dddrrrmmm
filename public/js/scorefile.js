@@ -404,12 +404,14 @@ function tempoFit(bpm) {
 export function scoreInfo(score) {
   const { f, bpm } = tempoFit(score.bpm);
   const step = (score.ppq * f) / 4;
+  const barTicks = step * STEPS_PER_BAR;
   const mel = [];
   score.tracks.forEach((t, i) => {
-    if (t.isDrum) return;
+    if (t.isDrum || !t.notes.length) return;
     const ps = t.notes.map((n) => n.midi).sort((a, b) => a - b);
     const starts = new Set(t.notes.map((n) => Math.round(n.tick / step)));
-    mel.push({ index: i, name: t.name, count: t.notes.length, lo: ps[0], hi: ps[ps.length - 1], median: ps[Math.floor(ps.length / 2)], mono: starts.size / t.notes.length });
+    const first = Math.min(...t.notes.map((n) => n.tick));
+    mel.push({ index: i, name: t.name, count: t.notes.length, lo: ps[0], hi: ps[ps.length - 1], median: ps[Math.floor(ps.length / 2)], mono: starts.size / t.notes.length, firstBar: Math.floor(first / barTicks + 0.01) });
   });
   const maxCount = Math.max(1, ...mel.map((m) => m.count));
   let guess = -1;
@@ -428,7 +430,6 @@ export function scoreInfo(score) {
       last = Math.max(last, n.tick + n.dur);
       firstTick = Math.min(firstTick, n.tick);
     }
-  const barTicks = step * STEPS_PER_BAR;
   return {
     melodyTracks: mel,
     guess,
@@ -593,4 +594,11 @@ export function scoreToMap(score, { melody = null, start = null, bars = MAP_LIMI
     if (hits >= 4) drums = Array.from({ length: n }, (_, b) => cells.slice(b * STEPS_PER_BAR, (b + 1) * STEPS_PER_BAR).join(''));
   }
   return { bpm: Math.round(info.bpm), mel, prog, drums, found, bars: n, start: s0, melodyIndex: mIdx };
+}
+
+/** 추천 시작 마디: 고른 멜로디가 처음 나오는 마디 (멜로디 없는 전주는 건너뜀) */
+export function recommendStart(info, melody) {
+  const t = info.melodyTracks.find((m) => m.index === melody);
+  const b = t ? t.firstBar : info.firstBar;
+  return Math.max(0, Math.min(b, info.totalBars - 1));
 }
