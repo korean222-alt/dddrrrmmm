@@ -95,7 +95,7 @@ test('무제한 기록: 예전 방식(깬 단계 × 100만, 점수 999,999 에�
   const pg = await new PgStore(q).init();
   await new PgStore(q).init(); // 두 번 돌려도 그대로
   const rows = Object.fromEntries((await q('SELECT igsid, level, score FROM scores')).map((r) => [`${r.igsid}:${r.level}`, Number(r.score)]));
-  assert.equal(rows['g_a:0'], 24_000_999_999);
+  assert.equal(rows['g_a:0'], 24_001_507_200, '999,999 로 잘린 점수는 깬 단계로 어림');
   assert.equal(rows['g_a:7'], 650000, '일반 단계 점수는 안 건드림');
   assert.equal(rows['g_b:-5'], 3_000_041_000);
   // 이제 100만 점이 넘어도 그대로 저장
@@ -110,7 +110,7 @@ test('무제한 기록: 예전 방식(깬 단계 × 100만, 점수 999,999 에�
   fs.writeFileSync(file, JSON.stringify({ players: { g_a: { igsid: 'g_a', username: '그리그왕', bests: { 0: { score: 24999999 }, 7: { score: 650000 }, '-5': { score: 3041000 } } } } }));
   const js = new JsonStore(file).init();
   const b = js.data.players.g_a.bests;
-  assert.equal(b[0].score, 24_000_999_999);
+  assert.equal(b[0].score, 24_001_507_200);
   assert.equal(b[7].score, 650000);
   assert.equal(b[-5].score, 3_000_041_000);
   fs.rmSync(dir, { recursive: true, force: true });

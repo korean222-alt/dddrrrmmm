@@ -11955,15 +11955,7 @@ async function loadRank() {
     const endless = isEndlessRank(state.rankLevel);
     if (!data.entries.length) list.innerHTML = '<div class="rank-empty">아직 아무도 없어요. 첫 1위의 주인공이 되어보세요!</div>';
     else if (total) list.innerHTML = totalRankHtml(data);
-    else if (endless)
-      list.innerHTML = data.entries
-        .slice(0, 50)
-        .map(
-          (e) => `<div class="rank-row ${e.rank <= 3 ? 'top' + e.rank : ''} ${e.me ? 'me' : ''}">
-          <span class="r">${e.rank}</span><span class="u">${escapeHtml(e.username)}</span>
-          <span class="s">${fmt(e.score)}</span><span class="g endless">Lv.${e.rounds}</span></div>`
-        )
-        .join('');
+    else if (endless) list.innerHTML = endlessRankHtml(data);
     else
       list.innerHTML = data.entries
         .slice(0, 50)
@@ -11987,6 +11979,28 @@ async function loadRank() {
   } catch {
     list.innerHTML = '<div class="rank-empty">랭킹을 불러오지 못했어요.</div>';
   }
+}
+
+/** 무제한: 총 등수처럼 1·2·3등 시상대(깬 단계 Lv.) + 4등부터 목록 */
+function endlessRankHtml(data) {
+  const top = data.entries.slice(0, 3);
+  const podium = [1, 0, 2]
+    .filter((i) => top[i])
+    .map((i) => {
+      const e = top[i];
+      return `<div class="pod pod${i + 1} ${e.me ? 'me' : ''}"><span class="medal m${i + 1}">${icon('medal')}</span>
+        <span class="pn">${escapeHtml(e.username)}</span><span class="ps">${fmt(e.score)}</span>
+        <span class="pl">Lv.${e.rounds}</span><span class="step">${i + 1}등</span></div>`;
+    })
+    .join('');
+  const rest = data.entries
+    .slice(3, 50)
+    .map(
+      (e) => `<div class="rank-row ${e.me ? 'me' : ''}"><span class="r">${e.rank}</span><span class="u">${escapeHtml(e.username)}</span>
+        <span class="s">${fmt(e.score)}</span><span class="g endless">Lv.${e.rounds}</span></div>`
+    )
+    .join('');
+  return `<div class="podium">${podium}</div>${rest}`;
 }
 
 /** 총 등수: 1·2·3등 시상대 + 4등부터 목록 */

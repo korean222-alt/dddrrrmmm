@@ -38,6 +38,13 @@ export class JsonStore {
       // 무제한 기록(level <= 0): 예전 방식(깬 단계 × 100만 + 점수) → 새 방식(× 10억)
       for (const p of Object.values(this.data.players))
         for (const [lv, b] of Object.entries(p.bests || {})) if (Number(lv) <= 0 && b && b.score < 1e9) b.score = Math.floor(b.score / 1e6) * 1e9 + (b.score % 1e6);
+      // 999,999 로 잘렸던 무제한 점수 → 깬 단계로 어림한 점수 (pgstore 와 같은 식)
+      for (const p of Object.values(this.data.players))
+        for (const [lv, b] of Object.entries(p.bests || {}))
+          if (Number(lv) <= 0 && b && b.score >= 1e9 && b.score % 1e9 === 999999) {
+            const r = Math.floor(b.score / 1e9);
+            b.score = r * 1e9 + r * (52000 + 450 * r);
+          }
       // 8단계에 새 곡이 끼면서 예전 8~14단계가 9~15단계로 밀림 → 기록 키를 한 번만 옮김
       if (!this.data.settings['migration:insert-level-8-v1']) {
         for (const p of Object.values(this.data.players)) {

@@ -24,6 +24,8 @@ const SCHEMA = [
    END $$`,
   // 예전 방식(깬 단계 × 100만 + 점수, 999,999 에서 잘림) → 새 방식. 깬 단계는 1 이상이라 새 방식 값은 항상 10억 이상 → 여러 번 돌려도 안전
   `UPDATE scores SET score = (score / 1000000) * 1000000000 + score % 1000000 WHERE level <= 0 AND score < 1000000000`,
+  // 예전 방식에서 999,999 로 잘린 무제한 점수 → 깬 단계로 어림한 점수 (2026-11-21 사용자 결정: 대충 예상치로). 어림값은 999,999 가 아니라 한 번만 바뀜
+  `UPDATE scores SET score = (score / 1000000000) * 1000000000 + (score / 1000000000) * (52000 + 450 * (score / 1000000000)) WHERE level <= 0 AND score >= 1000000000 AND score % 1000000000 = 999999`,
   `CREATE TABLE IF NOT EXISTS used_runs (nonce TEXT PRIMARY KEY, expires_at BIGINT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
   // 이용 통계 (익명): 접속 1회 / 곡 한 판. vid = 브라우저마다 붙는 무작위 번호
