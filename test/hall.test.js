@@ -31,7 +31,7 @@ test('시즌: 시즌 1 은 11/26 23:59:59(한국) 까지, 그 뒤는 시즌 2 ·
   assert.deepEqual(endedSeasons(kst(26, 23)), []);
   assert.deepEqual(endedSeasons(kst(27, 0)), [1]);
   assert.equal(seasonLeftText(kst(21)), '🏆 5일 뒤 시즌 1이 종료돼요');
-  assert.match(seasonLeftText(kst(26, 20)), /오늘 밤 12시에 시즌 1/);
+  assert.match(seasonLeftText(kst(26, 20)), /오늘 밤 11시 59분에 시즌 1/);
   assert.match(seasonLeftText(kst(28)), /시즌 2 진행 중/);
   assert.ok(cleanHallImage('data:image/jpeg;base64,AAAA'));
   assert.equal(cleanHallImage('data:text/html;base64,AAAA'), null);
@@ -86,4 +86,42 @@ test('시즌 총합 랭킹(단계·무제한) · 시즌 2 는 그 시즌 기록�
     await s.moveScores('c', 'a');
     assert.deepEqual((await s.seasonBoard(2, 'stage', 50)).rows.map((r) => [r.username, r.score]), [['쿵왕', 500]], name);
   }
+});
+
+test('🕵 핵 의심 지표: 겹친 판·고단계 만점 잡고, 평범한 기록은 안 잡음', async () => {
+  const { findSuspects, suspectReport } = await import('../server/suspect.js');
+  const { getLevel, maxScore } = await import('../public/js/charts.js');
+  const T = Date.UTC(2026, 10, 21);
+  const ps = [{ igsid: 'a', username: 'a' }, { igsid: 'b', username: 'b' }];
+  const rows = [
+    { igsid: 'a', level: 10, score: maxScore(getLevel(10)), at: T },
+    { igsid: 'a', level: 11, score: 1000, at: T + 5000 },
+    { igsid: 'a', level: 12, score: 1000, at: T + 9000 },
+    { igsid: 'b', level: 4, score: 1000, at: T },
+    { igsid: 'b', level: 5, score: 1000, at: T + 3600e3 },
+  ];
+  // c: 평범하게 연달아 침 (1시간 안에 8단계, 간격은 곡 길이 이상) → 예전엔 잡혔는데 이제 안 잡힘
+  // d: 기록 옮기기로 한꺼번에 들어옴 (같은 시각) → 겹친 판 아님
+  ps.push({ igsid: 'c', username: 'c' }, { igsid: 'd', username: 'd' });
+  for (let i = 0; i < 8; i++) rows.push({ igsid: 'c', level: i + 1, score: 1000, at: T + i * 6 * 60e3 });
+  for (let i = 0; i < 8; i++) rows.push({ igsid: 'd', level: i + 1, score: 1000, at: T });
+  // e: 잘하는 사람 — 10~18단계 전부 만점, 간격은 정상 → 목록에 안 뜸
+  ps.push({ igsid: 'e', username: 'e' });
+  for (let id = 10; id <= 18; id++) rows.push({ igsid: 'e', level: id, score: maxScore(getLevel(id)), grade: 'SS', at: T + id * 600e3 });
+  const r = findSuspects(ps, rows);
+  assert.deepEqual(r.map((x) => x.igsid), ['a']);
+  const re = suspectReport(ps[4], rows);
+  assert.equal(re.risk, 0);
+  assert.equal(re.items.filter((x) => x.near).length, 9);
+  assert.ok(r[0].reasons.length >= 2);
+  const rep = suspectReport(ps[0], rows);
+  assert.equal(rep.items.length, 3);
+  assert.equal(rep.items.filter((x) => x.overlap).length, 2);
+  assert.ok(rep.items[0].near && rep.items[0].rare && rep.items[0].rank === 1);
+  const rc = suspectReport(ps[2], rows);
+  assert.equal(rc.risk, 0);
+  assert.ok(rc.items.every((x) => !x.overlap));
+  const rd = suspectReport(ps[3], rows);
+  assert.equal(rd.risk, 0);
+  assert.equal(rd.items.filter((x) => x.copied).length, 7);
 });

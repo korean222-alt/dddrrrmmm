@@ -32,8 +32,8 @@ export const TABLES = [
       created_at = COALESCE(players.created_at, excluded.created_at), checked_at = COALESCE(players.checked_at, excluded.checked_at)`,
   },
   {
-    name: 'scores', cols: { igsid: 't', level: 'i', score: 'i', grade: 't', max_combo: 'i', at: 'i' }, pk: ['igsid', 'level'], ts: 'at >= $S',
-    merge: 'score = excluded.score, grade = excluded.grade, max_combo = excluded.max_combo, at = excluded.at WHERE excluded.score > scores.score',
+    name: 'scores', cols: { igsid: 't', level: 'i', score: 'i', grade: 't', max_combo: 'i', at: 'i', chk: 't' }, pk: ['igsid', 'level'], ts: 'at >= $S',
+    merge: 'score = excluded.score, grade = excluded.grade, max_combo = excluded.max_combo, at = excluded.at, chk = excluded.chk WHERE excluded.score > scores.score',
   },
   {
     name: 'season_scores', cols: { season: 'i', igsid: 't', level: 'i', score: 'i', at: 'i' }, pk: ['season', 'igsid', 'level'], ts: 'at >= $S',
@@ -306,7 +306,17 @@ export async function sameSessionSecret(a, b) {
 }
 
 // ---------------------------------------------------------------- 명령
+/** WITHOUT ROWID 로 바꾼 표가 예전(보통 표) 모양으로 비어 있으면 지우고 다시 만듦 (11-21 미리 복사 때 만든 빈 표) */
+const ROWLESS = ['used_runs', 'sessions', 'plays', 'rooms', 'transfers', 'season_scores', 'hall'];
+
 export async function createSchema(d1) {
+  for (const t of ROWLESS) {
+    const row = (await d1.q(`SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ${lit(t, 't')}`))[0];
+    if (!row || /WITHOUT ROWID/i.test(row.sql)) continue;
+    const n = Number((await d1.q(`SELECT COUNT(*) AS n FROM ${t}`))[0].n);
+    if (n === 0) await d1.q(`DROP TABLE ${t}`);
+    else console.log(`  ⚠ ${t}: 보통 표인데 ${n}줄 있어서 그대로 둠`);
+  }
   for (const s of D1_SCHEMA) await d1.q(s);
 }
 
@@ -480,6 +490,8 @@ async function main() {
     process.exit(2);
   }
   const neonDbConn = env.NEON_DATABASE_URL ? await neonDb(env.NEON_DATABASE_URL) : null;
+  // 11-21 scores.chk(핵 의심 확인용) 추가 — Neon 을 오래 안 깨웠으면 열이 없을 수 있음
+  if (neonDbConn) await neonDbConn.q('ALTER TABLE scores ADD COLUMN IF NOT EXISTS chk TEXT');
 
   if (cmd === 'prepare') {
     let db = await d1.find();

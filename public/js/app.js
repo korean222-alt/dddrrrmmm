@@ -10481,6 +10481,8 @@ class Game {
     this.maxCombo = 0;
     this.counts = { perfect: 0, great: 0, good: 0, miss: 0, wrong: 0 };
     this.offsets = [];
+    /** 프로그램이 만든 가짜 입력 수 (브라우저가 isTrusted=false 로 표시) — 핵 의심 확인용으로 점수와 같이 보냄 */
+    this.fakeTaps = 0;
     /** 줄마다 마지막으로 누른 시각(곡 시간) — 엄지가 옆 줄로 넘어왔는지 볼 때 */
     this._tapAt = {};
     /** 줄마다 마지막으로 누른 자리 (render.laneHit 의 u, 줄 너비 단위) */
@@ -11202,6 +11204,7 @@ class Game {
       continued: this.continues,
       progress: failed || stopped ? Math.max(0, Math.min(1, (failed ? this.diedAt ?? 0 : this.songTime()) / this.endTime)) : 1,
       avgOffsetMs,
+      check: this._check(),
       auto: this.auto,
       practice: this.level.practice || 0,
       timeline: this.timeline.slice(),
@@ -11209,6 +11212,15 @@ class Game {
       goldHits: this.goldHits,
       goldTotal: this.goldTotal,
     });
+  }
+
+  /** 핵 의심 확인용: 박자 오차 퍼짐(표준편차)·평균(ms), 친 수, 가짜 입력 수. 사람은 손가락이라 오차가 들쭉날쭉, 자동 입력은 너무 일정 */
+  _check() {
+    const o = this.offsets;
+    const n = o.length;
+    const mean = n ? o.reduce((a, b) => a + b, 0) / n : 0;
+    const sd = n > 1 ? Math.sqrt(o.reduce((a, b) => a + (b - mean) * (b - mean), 0) / (n - 1)) : 0;
+    return { sd: Math.round(sd * 1000), mean: Math.round(mean * 1000), n, fake: this.fakeTaps };
   }
 
   /** 무제한 모드 / 레벨업 챌린지 결과: 몇 단계까지 깼나 + 다이아몬드 */
@@ -11691,8 +11703,8 @@ function seasonLeftText(t = Date.now()) {
   if (s.end == null) return `🏆 시즌 ${s.n} 진행 중`;
   const day = (ms) => Math.floor((ms + 9 * 3600e3) / 86400e3); // 한국 날짜 번호
   const d = day(s.end) - day(t);
-  if (d <= 0) return `⏰ 오늘 밤 12시에 시즌 ${s.n}이 끝나요!`;
-  if (d === 1) return `⏰ 내일 밤 12시에 시즌 ${s.n}이 끝나요!`;
+  if (d <= 0) return `⏰ 오늘 밤 11시 59분에 시즌 ${s.n}이 끝나요!`;
+  if (d === 1) return `⏰ 내일 밤 11시 59분에 시즌 ${s.n}이 끝나요!`;
   return `🏆 ${d}일 뒤 시즌 ${s.n}이 종료돼요`;
 }
 
@@ -11984,7 +11996,7 @@ const NEWS = [
       '<b>⚔️ 멀티 → 🎲 랜덤 대결</b>이 생겼어요! 모르는 사람과 바로 붙어서 4~18단계 무작위 곡 — 둘 다 깨면 다른 곡이 바로 이어지고, <b>먼저 쓰러지는 쪽이 져요</b>',
       '<b>18단계 엘리제를 위하여</b>(베토벤 · 지옥)가 새로 생겼어요! 게임에서 <b>가장 어려운 곡</b> — 미레미레미시레도 질주에 하이햇 트릴 연타까지',
       '<b>🏛 명예의 전당</b>이 생겼어요! 🏆 랭킹 → 🎵 단계 총합 / 💎 무제한 총합',
-      '<b>시즌 1은 11월 26일 밤 12시에 끝나요.</b> 1·2·3등은 명예의 전당에 영원히 기록되고, 프로필 사진도 올릴 수 있어요',
+      '<b>시즌 1은 11월 26일 밤 11시 59분에 끝나요.</b> 1·2·3등은 명예의 전당에 영원히 기록되고, 프로필 사진도 올릴 수 있어요',
       '<b>🎭 장거리</b>가 바뀌었어요: 곡 하나를 <b>처음부터 끝까지</b>! 첫 곡은 오페라 <b>네순 도르마</b>',
       '왼쪽 엄지는 <b>쿵</b>, 오른쪽은 <b>🎹 피아노</b> — 누르면 그 음의 건반이 눌리며 피아노 화음이 울려요. 놓치면 그 음은 안 들려요!',
       '<b>🎹 유저 맵 노래 파일 음 따기</b>가 훨씬 좋아졌어요: 목소리 멜로디에, 목소리 없는 곳·반주만 있는 곡은 <b>악기 음을 듣는 AI</b>로 악기 멜로디를, <b>코드·드럼까지 노래에서</b> 따고, <b>노래 끝까지</b>(최대 64마디) 따요. 아이폰 화면 녹화 영상도 끝까지 바로 읽어요',
@@ -13949,6 +13961,7 @@ function bindGameInput() {
     (e) => {
       e.preventDefault();
       if (!state.game || (touchEvents && e.pointerType === 'touch')) return;
+      if (!e.isTrusted) state.game.fakeTaps++;
       tapAt(e.clientX, e.clientY, e.timeStamp);
     },
     { passive: false }
@@ -13958,6 +13971,7 @@ function bindGameInput() {
     (e) => {
       e.preventDefault();
       if (!state.game) return;
+      if (!e.isTrusted) state.game.fakeTaps += e.changedTouches.length;
       for (const t of e.changedTouches) {
         held.set(t.identifier, { at: e.timeStamp, x: t.clientX, y: t.clientY });
         tapAt(t.clientX, t.clientY, e.timeStamp);
@@ -13998,6 +14012,7 @@ function bindGameInput() {
       return;
     }
     if (e.repeat) return;
+    if (!e.isTrusted) state.game.fakeTaps++;
     const order = state.game.laneOrder;
     const idx = (KEYMAP[order.length] || KEYMAP[2]).findIndex((keys) => keys.includes(e.code));
     if (idx >= 0) state.game.input(order[idx], e.timeStamp);
@@ -14393,7 +14408,7 @@ async function submitRank(r = state.lastResult) {
     const out = await state.api.submitScore(
       endless
         ? { runToken: r.runToken, level: r.levelId, rounds: r.roundsCleared, score: r.score }
-        : { runToken: r.runToken, level: r.levelId, score: r.score, maxCombo: r.maxCombo, counts: r.counts }
+        : { runToken: r.runToken, level: r.levelId, score: r.score, maxCombo: r.maxCombo, counts: r.counts, check: r.check }
     );
     r.submitted = true;
     if (out.rank == null) toast('팔로우 확인이 안 돼서 지금은 랭킹에 안 보여요. 위 ⚠️ 버튼을 눌러 주세요', 3200);
@@ -17899,8 +17914,8 @@ function openSuggest() {
   $('#suggest-text').value = load('suggestDraft', '');
   $('#suggest-contact').value = load('suggestContact', '');
   $('#suggest-count').textContent = `${[...$('#suggest-text').value].length} / 500`;
+  // 자주 묻는 질문이 먼저 보이게 입력칸에 바로 포커스 주지 않음(폰 자판이 가림)
   openModal('modal-suggest');
-  setTimeout(() => $('#suggest-text').focus(), 50);
 }
 async function sendSuggest() {
   const text = $('#suggest-text').value.trim();

@@ -21,19 +21,21 @@ const val = (v) => (v === undefined ? null : v === true ? 1 : v === false ? 0 : 
 /**
  * SQLite 표 (Neon 의 SCHEMA 를 다 돈 뒤 모양과 같은 열)
  *   ⚠ D1 무료 쓰기 = 하루 10만 줄, 색인도 한 줄씩 셈 → 통계 표(sessions·plays)엔 색인을 안 둠 (관리자 통계는 가끔이라 읽기로 충분)
+ *   ⚠ 글자·여러 칸 주 키는 SQLite 가 숨은 색인을 하나 더 만들어 쓰기가 2배 → 자주 쓰는 표는 WITHOUT ROWID(주 키가 곧 표, 한 줄 = 1번)
+ *     (players·scores·maps 등은 11-21 미리 복사 때 이미 보통 표로 만들어져 그대로 둠 — 바꾸려면 다시 써야 해서 쓰기 한도를 또 씀)
  */
 export const D1_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS players (igsid TEXT PRIMARY KEY, username TEXT, follow_verified_at INTEGER, ig TEXT, created_at INTEGER, checked_at INTEGER, hidden_at INTEGER)`,
-  `CREATE TABLE IF NOT EXISTS scores (igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, grade TEXT, max_combo INTEGER, at INTEGER NOT NULL, PRIMARY KEY (igsid, level))`,
+  `CREATE TABLE IF NOT EXISTS scores (igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, grade TEXT, max_combo INTEGER, at INTEGER NOT NULL, chk TEXT, PRIMARY KEY (igsid, level))`,
   `CREATE INDEX IF NOT EXISTS scores_rank ON scores (level, score DESC, at)`,
-  `CREATE TABLE IF NOT EXISTS used_runs (nonce TEXT PRIMARY KEY, expires_at INTEGER NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS used_runs (nonce TEXT PRIMARY KEY, expires_at INTEGER NOT NULL) WITHOUT ROWID`,
   `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
-  `CREATE TABLE IF NOT EXISTS sessions (sid TEXT PRIMARY KEY, vid TEXT NOT NULL, started_at INTEGER NOT NULL, last_at INTEGER NOT NULL, active_sec INTEGER NOT NULL DEFAULT 0, ref TEXT, device TEXT)`,
-  `CREATE TABLE IF NOT EXISTS plays (id TEXT PRIMARY KEY, sid TEXT NOT NULL, vid TEXT NOT NULL, level TEXT NOT NULL, mode TEXT, started_at INTEGER NOT NULL, ended_at INTEGER, result TEXT, score INTEGER, stars INTEGER, sec INTEGER)`,
+  `CREATE TABLE IF NOT EXISTS sessions (sid TEXT PRIMARY KEY, vid TEXT NOT NULL, started_at INTEGER NOT NULL, last_at INTEGER NOT NULL, active_sec INTEGER NOT NULL DEFAULT 0, ref TEXT, device TEXT) WITHOUT ROWID`,
+  `CREATE TABLE IF NOT EXISTS plays (id TEXT PRIMARY KEY, sid TEXT NOT NULL, vid TEXT NOT NULL, level TEXT NOT NULL, mode TEXT, started_at INTEGER NOT NULL, ended_at INTEGER, result TEXT, score INTEGER, stars INTEGER, sec INTEGER) WITHOUT ROWID`,
   `CREATE TABLE IF NOT EXISTS suggestions (id INTEGER PRIMARY KEY, at INTEGER NOT NULL, kind TEXT, body TEXT NOT NULL, nick TEXT, vid TEXT, done_at INTEGER, contact TEXT)`,
   `CREATE INDEX IF NOT EXISTS suggestions_at ON suggestions (at)`,
-  `CREATE TABLE IF NOT EXISTS rooms (code TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at INTEGER NOT NULL, expires_at INTEGER NOT NULL)`,
-  `CREATE TABLE IF NOT EXISTS transfers (code TEXT PRIMARY KEY, data TEXT NOT NULL, expires_at INTEGER NOT NULL)`,
+  `CREATE TABLE IF NOT EXISTS rooms (code TEXT PRIMARY KEY, data TEXT NOT NULL, updated_at INTEGER NOT NULL, expires_at INTEGER NOT NULL) WITHOUT ROWID`,
+  `CREATE TABLE IF NOT EXISTS transfers (code TEXT PRIMARY KEY, data TEXT NOT NULL, expires_at INTEGER NOT NULL) WITHOUT ROWID`,
   `CREATE TABLE IF NOT EXISTS recover_requests (id INTEGER PRIMARY KEY, token TEXT UNIQUE NOT NULL, at INTEGER NOT NULL, nick TEXT, old_ig TEXT, now_ig TEXT, memo TEXT, status TEXT NOT NULL DEFAULT 'wait', igsid TEXT, done_at INTEGER, from_igsid TEXT)`,
   `CREATE INDEX IF NOT EXISTS recover_requests_at ON recover_requests (at)`,
   `CREATE TABLE IF NOT EXISTS maps (id TEXT PRIMARY KEY, igsid TEXT NOT NULL, nick TEXT, name TEXT NOT NULL, bpm REAL NOT NULL, bars INTEGER NOT NULL, diff INTEGER NOT NULL, data TEXT NOT NULL, at INTEGER NOT NULL, plays INTEGER NOT NULL DEFAULT 0, likes INTEGER NOT NULL DEFAULT 0, reports INTEGER NOT NULL DEFAULT 0, hidden_at INTEGER)`,
@@ -44,9 +46,15 @@ export const D1_SCHEMA = [
   `CREATE INDEX IF NOT EXISTS map_scores_top ON map_scores (map_id, mode, score DESC)`,
   `CREATE TABLE IF NOT EXISTS ranked (season TEXT NOT NULL, igsid TEXT NOT NULL, rating INTEGER NOT NULL, games INTEGER NOT NULL, at INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (season, igsid))`,
   `CREATE INDEX IF NOT EXISTS ranked_top ON ranked (season, rating DESC)`,
-  `CREATE TABLE IF NOT EXISTS season_scores (season INTEGER NOT NULL, igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (season, igsid, level))`,
-  `CREATE TABLE IF NOT EXISTS hall (season INTEGER NOT NULL, board TEXT NOT NULL, rank INTEGER NOT NULL, igsid TEXT NOT NULL, username TEXT, score INTEGER NOT NULL, n INTEGER, rounds INTEGER, at INTEGER NOT NULL, image TEXT, PRIMARY KEY (season, board, rank))`,
+  `CREATE TABLE IF NOT EXISTS season_scores (season INTEGER NOT NULL, igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (season, igsid, level)) WITHOUT ROWID`,
+  `CREATE TABLE IF NOT EXISTS hall (season INTEGER NOT NULL, board TEXT NOT NULL, rank INTEGER NOT NULL, igsid TEXT NOT NULL, username TEXT, score INTEGER NOT NULL, n INTEGER, rounds INTEGER, at INTEGER NOT NULL, image TEXT, PRIMARY KEY (season, board, rank)) WITHOUT ROWID`,
   `CREATE TABLE IF NOT EXISTS ranked_runs (igsid TEXT NOT NULL, level INTEGER NOT NULL, rating INTEGER NOT NULL, at INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (igsid, level))`,
+];
+
+/** 이미 있는 표에 열 더하기 — SQLite 엔 'IF NOT EXISTS' 가 없어서 하나씩 해 보고, 이미 있으면 오류를 그냥 넘김 */
+const D1_ALTERS = [
+  // 핵 의심 확인용 JSON (2026-11-21, pgstore SCHEMA 와 같음)
+  'ALTER TABLE scores ADD COLUMN chk TEXT',
 ];
 
 /** Neon 에서 이미 끝난 옛 기록 옮기기들 — D1 은 그 뒤 데이터를 받으므로 '했음' 으로만 표시 */
@@ -61,7 +69,7 @@ const DONE_MIGRATIONS = [
 
 const D1_FLAG = (() => {
   let h = 2166136261;
-  for (const ch of D1_SCHEMA.join('\n') + '|' + DONE_MIGRATIONS.join(',')) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+  for (const ch of D1_SCHEMA.join('\n') + '|' + D1_ALTERS.join(';') + '|' + DONE_MIGRATIONS.join(',')) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
   return 'd1schema:' + h.toString(36);
 })();
 
@@ -112,8 +120,9 @@ export class D1Store extends PgStore {
       if (await this.one('SELECT 1 AS ok FROM settings WHERE key = $1', [D1_FLAG])) return this;
     } catch {}
     const now = String(Date.now());
+    await this.batch(D1_SCHEMA.map((s) => [s]));
+    for (const a of D1_ALTERS) await this.db.q(a, []).catch(() => {});
     await this.batch([
-      ...D1_SCHEMA.map((s) => [s]),
       [`INSERT INTO settings (key, value) VALUES ${[...DONE_MIGRATIONS, D1_FLAG].map((_, i) => `($${i + 1}, '${now}')`).join(', ')} ON CONFLICT (key) DO NOTHING`, [...DONE_MIGRATIONS, D1_FLAG]],
     ]);
     return this;
@@ -129,7 +138,7 @@ export class D1Store extends PgStore {
   async cleanup(now = Date.now()) {
     const old = now - 400 * 24 * 3600 * 1000;
     await this.batch([
-      ['DELETE FROM used_runs WHERE expires_at < $1', [now]],
+      // 판 토큰(하루 약 1.1만)은 지우지 않음: 지우는 것도 한 줄씩 쓰기로 셈 → 하루 쓰기 1.1만 줄 아낌 (1년 약 400만 줄·200MB, D1 무료 저장 5GB)
       ['DELETE FROM rooms WHERE expires_at < $1', [now]],
       ['DELETE FROM transfers WHERE expires_at < $1', [now]],
       ['DELETE FROM plays WHERE started_at < $1', [old]],
@@ -142,12 +151,12 @@ export class D1Store extends PgStore {
     const [[pre], up] = await this.batch([
       ['SELECT EXISTS (SELECT 1 FROM players WHERE igsid = $1) AS ok, (SELECT score FROM scores WHERE igsid = $1 AND level = $2) AS prev', [igsid, level]],
       [
-        `INSERT INTO scores (igsid, level, score, grade, max_combo, at)
-         SELECT $1, $2, $3, $4, $5, $6 WHERE EXISTS (SELECT 1 FROM players WHERE igsid = $1)
+        `INSERT INTO scores (igsid, level, score, grade, max_combo, at, chk)
+         SELECT $1, $2, $3, $4, $5, $6, $7 WHERE EXISTS (SELECT 1 FROM players WHERE igsid = $1)
          ON CONFLICT (igsid, level) DO UPDATE SET score = excluded.score, grade = excluded.grade,
-           max_combo = excluded.max_combo, at = excluded.at WHERE excluded.score > scores.score
+           max_combo = excluded.max_combo, at = excluded.at, chk = excluded.chk WHERE excluded.score > scores.score
          RETURNING score`,
-        [igsid, level, entry.score, entry.grade ?? null, entry.maxCombo ?? 0, Date.now()],
+        [igsid, level, entry.score, entry.grade ?? null, entry.maxCombo ?? 0, Date.now(), entry.chk ?? null],
       ],
     ]);
     if (!pre || !pre.ok) return null;

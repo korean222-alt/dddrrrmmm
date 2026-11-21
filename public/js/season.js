@@ -32,8 +32,8 @@ export function seasonLeftText(t = Date.now()) {
   if (s.end == null) return `🏆 시즌 ${s.n} 진행 중`;
   const day = (ms) => Math.floor((ms + 9 * 3600e3) / 86400e3); // 한국 날짜 번호
   const d = day(s.end) - day(t);
-  if (d <= 0) return `⏰ 오늘 밤 12시에 시즌 ${s.n}이 끝나요!`;
-  if (d === 1) return `⏰ 내일 밤 12시에 시즌 ${s.n}이 끝나요!`;
+  if (d <= 0) return `⏰ 오늘 밤 11시 59분에 시즌 ${s.n}이 끝나요!`;
+  if (d === 1) return `⏰ 내일 밤 11시 59분에 시즌 ${s.n}이 끝나요!`;
   return `🏆 ${d}일 뒤 시즌 ${s.n}이 종료돼요`;
 }
 

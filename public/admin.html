@@ -74,7 +74,18 @@
         <button type="button" data-tab="suggest">건의함</button>
         <button type="button" data-tab="recover">되찾기 요청</button>
         <button type="button" data-tab="hall">명예의 전당</button>
+        <button type="button" data-tab="sus">🕵 핵 의심</button>
       </div>
+      <section id="tab-sus" hidden>
+        <div class="card"><div class="head"><b>🔎 한 사람 지표 보기</b></div>
+          <p class="muted" style="margin:6px 0">의심받는 사람이 생기면 닉네임이나 인스타 아이디로 찾아서 기록을 자세히 보세요. (랭킹 참여자 탭의 <b>🕵 지표</b> 버튼으로도 열려요)</p>
+          <input type="search" id="sus-q" placeholder="닉네임 또는 인스타 아이디" style="width:100%">
+          <ul id="sus-found"></ul>
+          <div id="sus-report"></div></div>
+        <div class="card"><div class="head"><b id="sus-count"></b><span><button type="button" class="ghost" id="sus-reload">새로고침</button></span></div>
+          <p class="muted" style="margin:6px 0">목록엔 <b>사람이 한 폰으로는 못 내는 기록</b>만 떠요: <b>⏱ 겹친 판</b>(곡 치는 시간의 절반도 안 돼서 다음 단계 기록이 찍힘) 2번 이상, <b>🤖 가짜 입력</b>(손가락이 아니라 프로그램이 누름 — 브라우저가 표시해 줌), <b>🎯 기계처럼 일정한 박자</b>(박자 오차 퍼짐 8ms 이하). <b>💯 만점 근처</b>는 잘하는 사람도 나와서 목록엔 안 넣고, 위 <b>한 사람 지표 보기</b>에서 참고로만 보여요.</p>
+          <ul id="sus"></ul></div>
+      </section>
       <section id="tab-hall" hidden>
         <p>끝난 시즌의 1·2·3등(단계 총합·무제한 총합)이에요. 본인이 프로필 사진을 올릴 수 있어요. <b>이상한 사진이면 '사진 지우기'</b>.</p>
         <div class="card"><div class="head"><b>🏛 명예의 전당</b><span><button type="button" class="ghost" id="hall-reload">새로고침</button></span></div><ul id="hall-list"></ul></div>
@@ -244,10 +255,11 @@
               : '<span class="meta">인스타 아이디 없음</span>';
             return `<li data-igsid="${esc(p.igsid)}"><div><div><b>${esc(p.username)}</b> ${id}</div>
               <div class="meta">${old ? '미인증' : p.checkedAt < 0 ? '🆓 임시 인증' : '인증'} · ${ago(p.createdAt)} · 총 ${fmtN(p.total)}점 (${p.levels}단계)${p.endless != null ? ' · 무제한 Lv.' + Math.floor(p.endless / 1000000000) : ''}</div></div>
-              <div class="acts"><button type="button" class="ghost" data-do="recover">되찾기 코드</button> <button type="button" class="ghost" data-do="delete" style="color:var(--bad)">삭제</button></div></li>`;
+              <div class="acts"><button type="button" class="ghost" data-do="sus">🕵 지표</button> <button type="button" class="ghost" data-do="recover">되찾기 코드</button> <button type="button" class="ghost" data-do="delete" style="color:var(--bad)">삭제</button></div></li>`;
           }).join('')
         : `<li class="empty">${old ? '미인증 참가자가 없어요.' : '아직 인증한 사람이 없어요.'}</li>`;
       lastList = ps;
+      filterPlayers();
     }
     let lastList = [];
     $('#players-purge').addEventListener('click', async () => {
@@ -264,6 +276,10 @@
       const li = b.closest('li');
       const igsid = li.dataset.igsid;
       const name = li.querySelector('b').textContent;
+      if (b.dataset.do === 'sus') {
+        document.querySelector('[data-tab="sus"]').click();
+        return showReport(igsid);
+      }
       if (b.dataset.do === 'recover') {
         // 인스타 DM 으로 본인인지 확인한 뒤에만! 이 코드를 넣은 폰이 이 계정(인증·랭킹)이 됨
         if (!confirm(`"${name}" 님 계정의 되찾기 코드를 만들까요?\n\n인스타 DM 으로 본인인지 먼저 확인하세요. 코드를 넣은 폰이 이 계정이 돼요. (24시간 · 한 번만)`)) return;
@@ -281,10 +297,84 @@
       loadPlayers();
     });
     $('#players-reload').addEventListener('click', loadPlayers);
-    $('#players-q').addEventListener('input', () => {
-      const q = $('#players-q').value.trim().toLowerCase();
-      for (const li of document.querySelectorAll('#players li[data-igsid]')) li.hidden = !!q && !li.textContent.toLowerCase().includes(q);
+    async function loadSuspects() {
+      const r = await call('GET', '/api/admin/suspects');
+      if (r.status === 401) return logout('비밀번호가 맞지 않아요.');
+      if (r.status !== 200) { $('#sus').innerHTML = '<li class="empty">불러오지 못했어요.</li>'; return; }
+      const ss = r.data.suspects || [];
+      $('#sus-count').textContent = `강한 의심 ${ss.length}명 (${fmtN(r.data.checked || 0)}명 중)`;
+      document.querySelector('[data-tab="sus"]').textContent = `🕵 핵 의심 ${ss.length}`;
+      $('#sus').innerHTML = ss.length
+        ? ss.map((p) => `<li data-igsid="${esc(p.igsid)}"><div><div><b>${esc(p.username)}</b> ${p.ig ? '@' + esc(p.ig) : ''} <span class="meta">의심 점수 ${p.risk}</span></div>
+            <div class="meta">${p.reasons.map(esc).join('<br>')}</div></div>
+            <div class="acts"><button type="button" class="ghost" data-do="report">자세히</button> <button type="button" class="ghost" data-do="delete" style="color:var(--bad)">삭제</button></div></li>`).join('')
+        : '<li class="empty">강한 신호가 있는 사람이 없어요. 👍</li>';
+    }
+    const fmtAt = (t) => (t ? new Date(t).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-');
+    const susSec = (s) => (s == null ? '-' : s < 90 ? `${s}초` : s < 5400 ? `${Math.round(s / 60)}분` : s < 172800 ? `${Math.round(s / 3600)}시간` : `${Math.round(s / 86400)}일`);
+    async function showReport(igsid) {
+      $('#sus-report').innerHTML = '<p class="muted">불러오는 중…</p>';
+      $('#tab-sus').scrollIntoView({ block: 'start' });
+      const r = await call('GET', '/api/admin/suspects?igsid=' + encodeURIComponent(igsid));
+      if (r.status !== 200) { $('#sus-report').innerHTML = '<p class="muted">불러오지 못했어요.</p>'; return; }
+      const p = r.data.report;
+      const its = p.items;
+      const ok = (cond, good, bad) => `<div>${cond ? '⚠️ ' + bad : '✅ ' + good}</div>`;
+      const ov = its.filter((x) => x.overlap).length;
+      const nr = its.filter((x) => x.near);
+      const rows = its.map((x) => {
+        const flag = x.overlap || x.bot || x.fake >= 5 ? ' style="background:rgba(255,80,80,.18)"' : x.near ? ' style="background:rgba(255,200,0,.15)"' : '';
+        return `<tr${flag}><td>${esc(x.label)}</td><td>${fmtN(x.score)}<div class="meta">${x.pct}%${x.near ? ' 💯' : ''}</div></td>
+          <td>${esc(x.grade || '-')}<div class="meta">콤보 ${x.maxCombo}/${x.notes}</div></td>
+          <td>${x.rank}위<div class="meta">${x.players}명 중${x.near ? ` · 만점근처 ${x.nearCount}명${x.rare ? ' (드묾)' : ''}` : ''}</div></td>
+          <td>${x.realSec != null ? susSec(x.realSec) : '-'}<div class="meta">곡 ${susSec(x.playSec)}</div></td>
+          <td>${x.sd != null ? `±${x.sd}ms${x.bot ? ' 🎯' : ''}` : '-'}<div class="meta">${x.sd != null ? `보통 ${x.sdMid != null ? '±' + x.sdMid + 'ms' : '-'}` : ''}${x.fake ? ` · 🤖 가짜 ${x.fake}` : ''}</div></td>
+          <td>${fmtAt(x.at)}<div class="meta">${x.copied ? '한꺼번에 들어옴(옮기기·합치기)' : x.gapSec == null ? '첫 기록' : `직전과 ${susSec(x.gapSec)}${x.overlap ? ` ⏱ 곡은 ${susSec(x.playSec)}` : ''}`}</div></td></tr>`;
+      }).join('');
+      $('#sus-report').innerHTML = `<div style="margin-top:10px"><div><b>${esc(p.username)}</b> ${p.ig ? '@' + esc(p.ig) : ''} <span class="meta">의심 점수 ${p.risk}${p.listed ? ' · 강한 의심 목록에 있음' : ''}</span></div>
+        <div class="meta" style="margin:6px 0">
+          ${ok(ov, '겹친 판 없음 (단계마다 곡 시간 이상 간격)', `겹친 판 ${ov}번 — 빨간 줄`)}
+          ${ok(its.some((x) => x.fake >= 5), '가짜 입력 없음', `프로그램이 누른 가짜 입력 있음 (${its.filter((x) => x.fake).map((x) => x.level + '단계 ' + x.fake + '번').join(', ')})`)}
+          ${ok(its.some((x) => x.bot), '박자 오차가 사람 손가락다움', '박자가 기계처럼 일정한 단계 있음 🎯')}
+          ${ok(nr.length, `${10}단계 이상 만점 근처 없음`, `10단계 이상 만점 근처 ${nr.length}개 — 노란 줄 (드문 기록 ${nr.filter((x) => x.rare).length}개)`)}
+          <div>기록 ${its.length}단계 · 처음 ${fmtAt(its[0] && its[0].at)} · 마지막 ${fmtAt(its.length && its[its.length - 1].at)}</div>
+          <div class="muted">단계마다 '최고 기록'을 찍은 판만 남아요. 점수 %는 전부 PERFECT 대비. <b>친 시간</b> = 판 시작부터 점수 올릴 때까지 실제 걸린 시간(곡 길이보다 길면 정상, 멈춤 포함). <b>박자 오차</b> = 칠 때마다 박자에서 벗어난 정도의 퍼짐 — 사람 손가락은 보통 ±20~50ms, 자동 입력은 거의 0. '보통' 은 그 단계 다른 사람들 가운데값. 친 시간·박자 오차는 11/21 밤부터 새로 세운 최고 기록에만 있어요.</div></div>
+        ${its.length ? `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th>단계</th><th>점수</th><th>등급</th><th>등수</th><th>친 시간</th><th>박자 오차</th><th>기록 시각</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="muted">기록이 없어요.</p>'}</div>`;
+    }
+    let susPlayers = null;
+    $('#sus-q').addEventListener('input', async () => {
+      const q = $('#sus-q').value.trim().toLowerCase().replace(/^@/, '');
+      if (!q) { $('#sus-found').innerHTML = ''; return; }
+      if (!susPlayers) {
+        const r = await call('GET', '/api/admin/players');
+        susPlayers = r.status === 200 ? r.data.players || [] : [];
+      }
+      const hit = susPlayers.filter((p) => (p.username || '').toLowerCase().includes(q) || (p.ig || '').toLowerCase().includes(q)).slice(0, 20);
+      $('#sus-found').innerHTML = hit.length
+        ? hit.map((p) => `<li data-igsid="${esc(p.igsid)}"><div><b>${esc(p.username)}</b> ${p.ig ? '@' + esc(p.ig) : ''} <span class="meta">${p.levels}단계 · 총 ${fmtN(p.total)}점</span></div>
+            <div class="acts"><button type="button" class="ghost" data-do="report">지표 보기</button></div></li>`).join('')
+        : '<li class="empty">못 찾았어요.</li>';
     });
+    $('#sus-found').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-do="report"]');
+      if (b) { $('#sus-found').innerHTML = ''; showReport(b.closest('li').dataset.igsid); }
+    });
+    $('#sus-reload').addEventListener('click', () => { susPlayers = null; loadSuspects(); });
+    $('#sus').addEventListener('click', async (e) => {
+      const rb = e.target.closest('[data-do="report"]');
+      if (rb) return showReport(rb.closest('li').dataset.igsid);
+      const b = e.target.closest('[data-do="delete"]');
+      if (!b) return;
+      const li = b.closest('li');
+      if (!confirm(`"${li.querySelector('b').textContent}" 님을 삭제할까요?\n닉네임과 모든 랭킹 기록이 지워져요.`)) return;
+      await call('POST', '/api/admin/players/delete', { igsid: li.dataset.igsid });
+      loadSuspects();
+    });
+    const filterPlayers = () => {
+      const q = $('#players-q').value.trim().toLowerCase();
+      for (const li of document.querySelectorAll('#players li[data-igsid]')) li.style.display = q && !li.textContent.toLowerCase().includes(q) ? 'none' : '';
+    };
+    $('#players-q').addEventListener('input', filterPlayers);
     async function loadFollowPass() {
       const r = await call('GET', '/api/admin/follow-password');
       if (r.status !== 200) return;
@@ -334,7 +424,7 @@
             .map((h) => `<li><b>시즌 ${h.season} · ${BOARD[h.board] || esc(h.board)} · ${h.rank}등</b> ${esc(h.username)} (${Number(h.score).toLocaleString('ko-KR')})
               ${h.image ? `<br><img src="${esc(h.image)}" alt="" style="width:64px;height:64px;border-radius:50%;object-fit:cover;vertical-align:middle"> <button type="button" class="ghost" data-hall-del="${h.season}|${esc(h.board)}|${h.rank}">사진 지우기</button>` : ' · 사진 없음'}</li>`)
             .join('')
-        : '<li>아직 끝난 시즌이 없어요. 시즌 1은 11월 26일 밤 12시에 끝나요.</li>';
+        : '<li>아직 끝난 시즌이 없어요. 시즌 1은 11월 26일 밤 11시 59분에 끝나요.</li>';
     }
     $('#hall-reload').addEventListener('click', loadHall);
     $('#hall-list').addEventListener('click', async (e) => {
@@ -353,7 +443,9 @@
       $('#tab-suggest').hidden = b.dataset.tab !== 'suggest';
       $('#tab-recover').hidden = b.dataset.tab !== 'recover';
       $('#tab-hall').hidden = b.dataset.tab !== 'hall';
-      if (b.dataset.tab === 'hall') loadHall();
+      $('#tab-sus').hidden = b.dataset.tab !== 'sus';
+      if (b.dataset.tab === 'sus') loadSuspects();
+      else if (b.dataset.tab === 'hall') loadHall();
       else if (b.dataset.tab === 'suggest') loadSuggestions();
       else if (b.dataset.tab === 'recover') loadRecovers();
       else if (b.dataset.tab !== 'stats') {

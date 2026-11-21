@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=1ffd82a078" />
+  <link rel="stylesheet" href="css/style.css?v=36a630b2dc" />
 </head>
 <body>
   <div id="app">
@@ -902,6 +902,19 @@
     <div class="sheet small">
       <button class="icon-btn close" data-action="close-suggest" aria-label="닫기"><span data-icon="close"></span></button>
       <h3><span data-icon="chat" data-e></span> 건의하기</h3>
+      <div class="faq">
+        <p class="faq-head">❓ 자주 묻는 질문 <small class="muted">누르면 답이 보여요</small></p>
+        <details>
+          <summary>드럼(콩)을 눌러도 안 눌려요</summary>
+          <p><b>새로고침 한 번</b> 하면 대부분 풀려요. (화면을 아래로 당기거나, 앱을 껐다 다시 열어 주세요)</p>
+        </details>
+        <details>
+          <summary>게임이 시작이 안 되거나 카운트 '1'에서 멈춰요</summary>
+          <p>다른 앱이나 다른 사이트에서 <b>소리가 나오고 있으면</b>(유튜브·음악·영상 등) 꺼 주세요. 소리가 켜진 다른 탭·사이트도 닫아 주세요.</p>
+          <p>그래도 안 되면 <b>새로고침 한 번</b> 해 주세요.</p>
+        </details>
+        <p class="muted small">그래도 안 되면 아래 <b>버그</b>로 알려 주세요 (폰 종류를 같이 적어 주면 빨리 고칠 수 있어요)</p>
+      </div>
       <p class="muted">넣었으면 하는 곡, 불편한 점, 버그 무엇이든! 운영자가 매일 읽어요.</p>
       <div class="chips" id="suggest-kind" role="radiogroup">
         <button data-kind="song" aria-pressed="true"><span data-icon="note" data-e></span> 곡 추천</button>
@@ -921,6 +934,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=9656f69dfa" defer></script>
+  <script src="js/app.js?v=d7dfb3f8f3" defer></script>
 </body>
 </html>

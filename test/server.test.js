@@ -220,6 +220,7 @@ test('닉네임 → 판 시작 → 점수 등록(조작 거부) → 랭킹', asy
   // 같은 판 재사용 불가
   assert.equal((await c('POST', '/api/scores', { runToken: run, level: 4, ...pr })).status, 409);
 
+
   const lb = (await c('GET', '/api/leaderboard?level=4')).json;
   assert.equal(lb.entries[0].score, pr.score);
   assert.equal(lb.entries[0].username, '쿵짝왕');
@@ -246,6 +247,17 @@ test('닉네임 → 판 시작 → 점수 등록(조작 거부) → 랭킹', asy
   assert.equal(t2.entries[0].score, pr.score + pr2.score);
   assert.equal(t2.entries[0].levels, 2);
   assert.equal(t2.me.score, pr.score + pr2.score);
+  // 🕵 핵 의심 확인용: 점수와 같이 보낸 박자 오차·가짜 입력이 저장되고 관리자 지표에 보임
+  const run5 = (await c('POST', '/api/runs', { level: 5 })).json.runToken;
+  assert.equal((await c('POST', '/api/scores', { runToken: run5, level: 5, ...perfectRun(5), check: { sd: 3, mean: -2, n: 400, fake: 120 } })).status, 200);
+  const me = (await c('GET', '/api/admin/players', null, adm)).json.players.find((x) => x.ig === 'kong_jjak');
+  const rep = (await c('GET', '/api/admin/suspects?igsid=' + me.igsid, null, adm)).json.report;
+  const l5 = rep.items.find((x) => x.level === 5);
+  assert.equal(l5.sd, 3);
+  assert.equal(l5.fake, 120);
+  assert.ok(l5.bot && l5.realSec >= 0);
+  assert.equal(rep.items.find((x) => x.level === 4).sd, null);
+  assert.ok((await c('GET', '/api/admin/suspects', null, adm)).json.suspects.some((x) => x.igsid === me.igsid));
 });
 
 test('무제한 모드: 따로 랭킹 (깬 단계 먼저, 같으면 점수) · 총 등수엔 안 들어감', async () => {

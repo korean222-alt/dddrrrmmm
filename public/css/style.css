@@ -594,6 +594,12 @@ body.room-game #modal-pause [data-action='retry'], body.room-game #modal-continu
 @keyframes waitbob { 50% { transform: translateY(-8px) rotate(-8deg); } }
 .room-link { text-align: center; font-size: 13px; margin: -2px 0 10px; }
 .room-link.on { color: var(--grass-dark, #2f9a4a); }
+.faq { background: #f3f8ff; border: 2px solid #b9d4f5; border-radius: 12px; padding: 8px 10px; margin: 0 0 12px; text-align: left; }
+.faq-head { margin: 0 0 4px; font-weight: 700; font-size: 15px; }
+.faq details { border-top: 1px dashed #b9d4f5; padding: 6px 0; }
+.faq summary { cursor: pointer; font-size: 14px; font-weight: 700; color: var(--grass-dark); padding: 2px 0; }
+.faq details p { font-size: 13px; line-height: 1.5; margin: 6px 0 2px; }
+.faq > p.small { margin: 6px 0 0; text-align: left; }
 .suggest-note { font-size: 13px; line-height: 1.5; background: #fff7e0; border: 2px dashed #e8b84a; border-radius: 12px; padding: 8px 10px; margin: 0 0 10px; }
 .room-join input { min-width: 0; width: 100%; }
 .room-sec > .btn { width: 100%; margin-bottom: 4px; }

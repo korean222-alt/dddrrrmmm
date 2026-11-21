@@ -6,6 +6,7 @@
 import crypto from 'node:crypto';
 import { sign, unsign, parseCookies, cookie, newId } from './session.js';
 import { buildStats } from './stats.js';
+import { findSuspects, suspectReport } from './suspect.js';
 import { createRoomHandler } from './rooms.js';
 import { createRankedHandler } from './ranked.js';
 import { cleanMap, mapDifficulty, mapLevel } from '../public/js/usermap.js';
@@ -701,6 +702,18 @@ export function createHandler(cfg, { store }) {
         return json(200, { players: await store.listPlayers(), keepDays: HIDE_KEEP_MS / 86400000 });
       }
       // 랭킹에서 내리기 (5일 뒤 자동 삭제, 그 사이 다시 들어와 아이디를 넣으면 돌아옴) / 되돌리기
+      // 🕵 핵 의심 지표 (쿼리 2번: 참여자 목록 + 전체 기록)
+      if (p === '/api/admin/suspects' && m === 'GET') {
+        // ?igsid= 이면 그 사람 자세히, 없으면 강한 신호만 목록 (쿼리 2번)
+        const players = await store.listPlayers();
+        const rows = await store.allScores();
+        const id = url.searchParams.get('igsid');
+        if (id) {
+          const pl = players.find((x) => x.igsid === id);
+          return pl ? json(200, { report: suspectReport(pl, rows) }) : json(404, { error: 'not_found' });
+        }
+        return json(200, { checked: players.length, suspects: findSuspects(players, rows) });
+      }
       if (p === '/api/admin/players/hide' && m === 'POST') {
         const b = await readJson(request);
         if (typeof b.igsid !== 'string' || !b.igsid) return json(400, { error: 'bad_igsid' });
@@ -877,7 +890,7 @@ export function createHandler(cfg, { store }) {
       if (!v.ok) return json(400, { error: v.error });
       if (!(await store.useRun(v.nonce, Date.now() + 2 * 24 * 3600 * 1000))) return json(409, { error: 'run_used' });
       await ensureHall();
-      const out = await store.recordScore(pl.igsid, v.level.id, { score: v.score, grade: v.grade, maxCombo: v.maxCombo });
+      const out = await store.recordScore(pl.igsid, v.level.id, { score: v.score, grade: v.grade, maxCombo: v.maxCombo, chk: v.chk });
       if (seasonAt().n > 1 && v.level.id > 0 && v.level.id <= LAST_LEVEL_ID) await store.recordSeasonScore(seasonAt().n, pl.igsid, v.level.id, v.score);
       const mine = await store.rankOf(v.level.id, pl.igsid);
       return json(200, { ...out, rank: mine ? mine.rank : null });
@@ -1052,5 +1065,22 @@ export function validateScore(body, cfg, now = Date.now()) {
   if (score < b.min || score > b.max) return { ok: false, error: 'bad_score' };
   const hits = total - counts.miss;
   const maxCombo = Number.isInteger(body.maxCombo) ? Math.min(Math.max(0, body.maxCombo), hits) : 0;
-  return { ok: true, level, score, counts, grade: gradeFor(counts), maxCombo, nonce: run.n };
+  return { ok: true, level, score, counts, grade: gradeFor(counts), maxCombo, nonce: run.n, chk: runCheck(body.check, now - run.t) };
+}
+
+/**
+ * 🕵 핵 의심 확인용 (2026-11-21): 실제로 친 시간(판 토큰 받은 때 → 점수 올린 때) + 폰이 잰 박자 오차 퍼짐·평균, 가짜 입력 수
+ *   점수 올릴 때 얹어 와서 scores.chk 에 JSON 으로 (요청·줄 추가 없음). 예전 앱은 check 가 없어 ms 만
+ */
+export function runCheck(c, elapsedMs) {
+  const out = { ms: Math.max(0, Math.round(elapsedMs)) };
+  if (c && typeof c === 'object') {
+    const int = (v, lo, hi) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, Math.round(v))) : null);
+    const sd = int(c.sd, 0, 1000), mean = int(c.mean, -1000, 1000), n = int(c.n, 0, 100000), fake = int(c.fake, 0, 100000);
+    if (sd != null) out.sd = sd;
+    if (mean != null) out.mean = mean;
+    if (n != null) out.n = n;
+    if (fake != null) out.fake = fake;
+  }
+  return JSON.stringify(out);
 }
