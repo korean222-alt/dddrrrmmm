@@ -271,12 +271,14 @@ export async function compare(src, dst, { late = Infinity, tables = MAIN(TABLES)
     const sub = (r) => (t.light ? t.pk.map((c) => norm(r[c], t.cols[c])).join('\u0001') : rowOf(t, r));
     let missing = 0, diff = 0, notLate = 0, missingLate = 0;
     const samples = [];
+    const fix = []; // src 에서 다르거나 빠진 줄 (light 표 빼고) → 고쳐 넣기용
     for (const r of a) {
       const k = keyOf(t, r);
       const o = bm.get(k);
       if (!o || sub(o) !== sub(r)) {
         if (!o) missing++;
         else diff++;
+        if (!t.light && fix.length < 20000) fix.push(r);
         if (tsOf(r) < late) {
           notLate++;
           if (samples.length < 3) samples.push(t.pk.map((c) => r[c]).join('/'));
@@ -284,7 +286,7 @@ export async function compare(src, dst, { late = Infinity, tables = MAIN(TABLES)
       }
       bm.delete(k);
     }
-    report.push({ table: t.name, src: a.length, dst: b.length, missing, diff, extra: bm.size, notLate, missingLate, samples });
+    report.push({ table: t.name, src: a.length, dst: b.length, missing, diff, extra: bm.size, notLate, missingLate, samples, fix });
   }
   return report;
 }
@@ -319,31 +321,44 @@ export async function copyAll(neonDb, d1, { since = 0, mode = 'replace', log = c
 const setFlag = (db, key, value) => db.q(`INSERT INTO settings (key, value) VALUES (${lit(key, 't')}, ${lit(String(value), 't')}) ON CONFLICT (key) DO UPDATE SET value = excluded.value`);
 const getFlag = async (db, key) => ((await db.q(`SELECT value FROM settings WHERE key = ${lit(key, 't')}`))[0] || {}).value || null;
 
-/** copy: 전체 복사 → 맞춰 보기(빠진 줄은 따라잡기) → 안 맞으면 throw. 돌려주는 값 = 복사 시작 시각 */
+/**
+ * copy: (처음) 전체 복사 / (미리 복사해 둔 게 있으면) 그 뒤 바뀐 줄만 → 맞춰 보기(다르거나 빠진 줄은 그 줄만 다시 넣음) → 안 맞으면 throw
+ *   사이트는 아직 Neon 이라 Neon 값이 이김. 끝나면 d1:copied_at = 이번 시작 시각 (catchup 이 그 뒤부터 따라잡음)
+ */
 export async function runCopy(neonDb, d1, { log = console.log } = {}) {
   await createSchema(d1);
   if (await getFlag(d1, 'd1:switched_at')) throw new Error('D1 이 이미 쓰이는 중(d1:switched_at 있음) — 전체 복사로 덮으면 D1 기록이 사라짐. catchup 을 쓰세요');
-  const t0 = Date.now() - 60_000;
-  log(`전체 복사 시작 (기준 시각 ${new Date(t0).toISOString()})`);
-  await copyAll(neonDb, d1, { log });
+  const start = Date.now() - 60_000;
+  const prev = Number(await getFlag(d1, 'd1:copied_at'));
+  if (prev) {
+    log(`미리 복사해 둔 것 있음 → ${new Date(prev).toISOString()} 뒤 바뀐 줄만`);
+    await copyAll(neonDb, d1, { since: prev - 10 * 60_000, log });
+  } else {
+    log(`전체 복사 시작 (기준 시각 ${new Date(start).toISOString()})`);
+    await copyAll(neonDb, d1, { log });
+  }
   let report;
-  for (let round = 1; round <= 3; round++) {
+  for (let round = 1; round <= 4; round++) {
     const late = Date.now();
     report = await compare(neonDb, d1, { late });
     printReport(`맞춰 보기 ${round}`, report);
     const bad = report.filter((r) => r.missing || r.diff);
     if (!bad.length) break;
-    log(`  복사 중에 바뀐 줄 따라잡기 (${bad.map((r) => r.table).join(', ')})`);
-    await copyAll(neonDb, d1, { since: t0, mode: 'replace', log });
+    // 다르거나 빠진 줄만 다시 (복사 중에 바뀐 것, 시각이 안 바뀌는 고침(아이디 변경 등))
+    for (const r of bad) {
+      const t = TABLES.find((x) => x.name === r.table);
+      const n = await writeRows(d1, t, r.fix, 'replace');
+      log(`  ${r.table}: ${n}줄 다시 넣음`);
+    }
   }
   const secret = await sameSessionSecret(neonDb, d1);
   log(`secret:session (로그인 쿠키 키): Neon ${secret.neon ? '있음' : '없음'} · D1 ${secret.d1 ? '있음' : '없음'} · ${secret.same ? '같음 ✅' : '다름 ❌'}`);
   const stuck = report.filter((r) => r.notLate);
-  if (!secret.same || (secret.neon === false)) throw new Error('secret:session 이 안 맞음 — 바꾸면 모두 로그아웃됨');
+  if (!secret.same) throw new Error('secret:session 이 안 맞음 — 바꾸면 모두 로그아웃됨');
   if (stuck.length) throw new Error(`안 맞는 표: ${stuck.map((r) => r.table).join(', ')}`);
-  await setFlag(d1, 'd1:copied_at', t0);
+  await setFlag(d1, 'd1:copied_at', start);
   log('✅ 복사·맞춰 보기 통과');
-  return t0;
+  return start;
 }
 
 /** catchup: D1 로 바꾼 뒤, 복사 시작 뒤 Neon 에서 생긴/바뀐 줄을 합침 + 최종 보고 */

@@ -48,6 +48,11 @@ test('Neon → D1 전체 복사 · 따라잡기 · 되돌리기', async () => {
   await runCopy(neon, d1, { log: quiet });
   for (const r of await compare(neon, d1)) assert.deepEqual([r.table, r.missing, r.diff, r.extra], [r.table, 0, 0, r.table === 'settings' ? 1 : 0]); // settings 의 d1:copied_at
 
+  // 미리 복사해 둔 뒤 다시 copy: 바뀐 줄만 + 시각이 안 바뀌는 고침(닉네임 변경)도 맞춰 보기에서 잡아 고침
+  await neonStore.upsertPlayer('ob', { username: '새닉', ig: null });
+  await runCopy(neon, d1, { log: quiet });
+  assert.equal((await d1.q("SELECT username FROM players WHERE igsid = 'ob'"))[0].username, '새닉');
+
   // D1 저장소로 읽어도 똑같이 보임 (랭킹·맵·명예의 전당·로그인 키)
   const d1Store = await new D1Store(d1Local(new DatabaseSync(file))).init();
   assert.equal(await d1Store.secret('session'), secret);
