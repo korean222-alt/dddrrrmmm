@@ -12784,10 +12784,10 @@ async function mySave() {
 //   올라가는 건 음표 데이터뿐 (몇 KB). 요청: 목록 볼 때(1분 캐시) · 맵 받을 때 · 올리기/좋아요/신고 누를 때만
 const UM_ID = 'um';
 const um = { level: null, from: 'list', sort: 'new', mapId: null, list: null, wasAuto: false, mode: load('mapMode', 'free') === 'hearts' ? 'hearts' : 'free', top: null };
-const newDraft = () => ({ name: '', bpm: 100, mel: [[], [], [], []], drums: autoDrums([[], [], [], []], 'easy'), drumsAuto: 'easy', bar: 0, cur: 0, len: 2, oct: 4, way: 'play', step: false, tab: 'drum' });
+const newDraft = () => ({ name: '', bpm: 100, mel: [[], [], [], []], drums: autoDrums([[], [], [], []], 'easy'), drumsAuto: 'easy', bar: 0, cur: 0, len: 2, oct: 4, way: 'play', step: false, tab: 'mel' });
 let mk = load('mapDraft', null);
 if (!mk || !Array.isArray(mk.mel) || !Array.isArray(mk.drums) || mk.mel.length !== mk.drums.length || mk.mel.length < 2) mk = newDraft();
-if (!['drum', 'mel', 'done'].includes(mk.tab)) mk.tab = 'drum';
+if (!['drum', 'mel', 'done'].includes(mk.tab)) mk.tab = 'mel';
 if (!['play', 'file'].includes(mk.way)) mk.way = 'play';
 const mkSave = () => save('mapDraft', mk);
 /** ↩ 되돌리기: 녹음·자동 채우기 직전 모습 하나 (폰에 저장 안 함) */
@@ -13002,6 +13002,8 @@ function openMapMake() {
   if (state.game) state.game.stop();
   audio.loadPiano();
   show('screen-mapmake');
+  // 처음 뜨는 탭은 늘 🎹 멜로디 (사용자 요청 11-21)
+  mk.tab = 'mel';
   $('#mk-name').value = mk.name;
   $('#mk-step').checked = !!mk.step;
   mkRender();
