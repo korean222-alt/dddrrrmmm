@@ -6,10 +6,9 @@ import { getLevel, levelDuration, barDur, COUNT_IN_BARS, maxScore, noteCount, le
 
 export const NEAR_PERFECT = 0.995; // 최대 점수의 99.5% 이상 = 거의 전부 PERFECT
 export const HIGH_LEVEL = 10; // 이 단계부터 만점 근처를 셈
-const HELL_LEVEL = 15;
 const OVERLAP_RATIO = 0.5; // 직전 기록과의 간격이 이 곡 치는 시간의 절반도 안 되면 '겹친 판' (한 폰으로는 불가능)
 const COPY_GAP_MS = 2000; // 이보다 가까운 건 기록 옮기기·계정 합치기로 한꺼번에 들어간 것 → 안 셈
-export const LIST_MIN_RISK = 60; // 목록엔 이 점수 이상만 (겹친 판 2번, 또는 드문 지옥 만점 2개 정도)
+export const LIST_MIN_RISK = 60; // 목록엔 이 점수 이상만 = 겹친 판 2번 이상 (한 폰으로는 불가능한 것만 목록에)
 const LIST_MAX = 100;
 
 /** 곡을 끝까지 치는 데 걸리는 시간(초, 카운트인 뺌) — 서버 점수 검사와 같은 기준 */
@@ -76,12 +75,11 @@ function analyze(list, st) {
     risk += Math.min(overlaps, 4) * 30;
     reasons.push(`⏱ 겹친 판 ${overlaps}번 — 곡 치는 시간의 절반도 안 돼서 다음 단계 기록이 찍힘 (${olv.join('·')}단계). 여러 창·기기로 동시에 돌렸거나 자동 프로그램일 수 있음`);
   }
-  // 2) 높은 단계 만점 근처 — 그 단계에서 만점 근처가 드물수록, 지옥 단계일수록 무겁게
+  // 2) 높은 단계 만점 근처 — 잘하는 사람도 나와서 의심 점수엔 안 넣음 (11-21 사용자: '잘하는 사람은 다 뜸'). 자세히 보기에서 참고로만
   const near = items.filter((it) => it.near);
   for (const it of near) {
     const s = st.get(it.level);
     it.rare = isRare(s);
-    risk += 10 + (it.rare ? 15 : 0) + (it.level >= HELL_LEVEL ? 15 : 0) + (it.grade === 'SS' ? 5 : 0);
   }
   if (near.length) {
     const rare = near.filter((it) => it.rare).length;

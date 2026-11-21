@@ -105,8 +105,14 @@ test('🕵 핵 의심 지표: 겹친 판·고단계 만점 잡고, 평범한 기
   ps.push({ igsid: 'c', username: 'c' }, { igsid: 'd', username: 'd' });
   for (let i = 0; i < 8; i++) rows.push({ igsid: 'c', level: i + 1, score: 1000, at: T + i * 6 * 60e3 });
   for (let i = 0; i < 8; i++) rows.push({ igsid: 'd', level: i + 1, score: 1000, at: T });
+  // e: 잘하는 사람 — 10~18단계 전부 만점, 간격은 정상 → 목록에 안 뜸
+  ps.push({ igsid: 'e', username: 'e' });
+  for (let id = 10; id <= 18; id++) rows.push({ igsid: 'e', level: id, score: maxScore(getLevel(id)), grade: 'SS', at: T + id * 600e3 });
   const r = findSuspects(ps, rows);
   assert.deepEqual(r.map((x) => x.igsid), ['a']);
+  const re = suspectReport(ps[4], rows);
+  assert.equal(re.risk, 0);
+  assert.equal(re.items.filter((x) => x.near).length, 9);
   assert.ok(r[0].reasons.length >= 2);
   const rep = suspectReport(ps[0], rows);
   assert.equal(rep.items.length, 3);
