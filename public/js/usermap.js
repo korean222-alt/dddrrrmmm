@@ -217,6 +217,11 @@ export function mapDifficulty(map) {
   return nps < 1.6 ? 1 : nps < 2.4 ? 2 : nps < 3.4 ? 3 : nps < 4.6 ? 4 : 5;
 }
 
+/** 멜로디 없이 드럼만 있는 맵인지 */
+export function isDrumOnly(map) {
+  return map.melody.every((m) => !/[A-G]/.test(m));
+}
+
 const THEME_KEYS = ['sunset', 'city', 'hall', 'aurora', 'void', 'space', 'lava'];
 /** 맵 → 게임 단계 */
 export function mapLevel(map, { id = 'um', by = '', mapId = null } = {}) {
@@ -239,8 +244,9 @@ export function mapLevel(map, { id = 'um', by = '', mapId = null } = {}) {
       prog: map.prog,
       melody: map.melody,
       hat: '................',
-      bass: 'x.......x.......',
-      chord: 'x.......x.......',
+      // 🥁 드럼만 맵(멜로디가 다 쉼)은 베이스·화음도 안 깔고 드럼만
+      bass: isDrumOnly(map) ? '................' : 'x.......x.......',
+      chord: isDrumOnly(map) ? '................' : 'x.......x.......',
     },
   };
 }

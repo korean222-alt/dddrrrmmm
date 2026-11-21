@@ -103,3 +103,14 @@ test('음 따기: 스테레오면 가운데(보컬)만 — 좌우로 퍼진 반�
   const r = transcribe([L, R], sr, { firstBeat: 0.5, bpm, bars: 2 });
   assert.deepEqual(r.bars.flat().map((n) => n.midi), want);
 });
+
+test('🥁 드럼만 맵: 멜로디가 다 쉼이어도 올라가고, 반주 없이 드럼만', () => {
+  const bars = ['K...S...K.K.S...', 'K...S...K...S.S.', 'C...S...K...S...'];
+  const map = cleanMap({ name: '드럼 곡', bpm: 110, bars, melody: bars.map(() => '_:16'), prog: harmonize(bars.map(() => [])) });
+  assert.ok(map);
+  const lv = mapLevel(map, { mapId: 'drum1' });
+  assert.equal(lv.song.bass, '................');
+  assert.equal(lv.song.chord, '................');
+  const withMel = mapLevel({ ...map, melody: ['C5:16', '_:16', '_:16'] }, { mapId: 'x' });
+  assert.equal(withMel.song.bass, 'x.......x.......');
+});

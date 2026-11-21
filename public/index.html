@@ -162,7 +162,7 @@
           <button type="button" data-sort="top"><b>❤ 인기</b><small>좋아요 많은 것</small></button>
         </div>
         <div id="maps-list" class="maps-list"></div>
-        <p class="hint maps-foot">누구나 피아노로 곡을 만들어 올릴 수 있어요. 이상한 맵은 「신고」를 눌러 주세요.</p>
+        <p class="hint maps-foot">누구나 피아노나 드럼으로 곡을 만들어 올릴 수 있어요. 이상한 맵은 「신고」를 눌러 주세요.</p>
       </div>
     </section>
 
@@ -186,9 +186,14 @@
 
         <div class="studio-block">
           <h4>① 멜로디 만들기</h4>
-          <div class="seg" id="mk-way">
+          <div class="seg seg3" id="mk-way">
             <button type="button" data-way="file"><b>🎵 노래 파일로</b><small>음을 자동으로 따요</small></button>
             <button type="button" data-way="play"><b>🎹 건반 치기</b><small>쳐서 녹음해요</small></button>
+            <button type="button" data-way="drum"><b>🥁 드럼으로</b><small>멜로디 없이 쳐요</small></button>
+          </div>
+
+          <div id="mk-way-drum" class="mk-way" hidden>
+            <p class="hint">멜로디 없이 드럼만으로 곡을 만들어요. 「드럼 녹음」을 누르면 똑딱 소리가 나요. 박자에 맞춰 패드를 치면 그대로 노트가 되고, 칠수록 마디가 늘어나요 (최대 64마디). 다 치면 「멈춤」.</p>
           </div>
 
           <div id="mk-way-file" class="mk-way" hidden>
@@ -260,10 +265,10 @@
           </div>
           <button class="btn btn-ghost mk-drec-open" type="button" data-action="mk-drec-open" id="mk-drec-open" aria-pressed="false"><span data-icon="drum" data-e></span> 직접 쳐서 만들기</button>
           <div id="mk-drec" hidden>
-            <p class="hint">「드럼 녹음」을 누르면 멜로디가 나와요. 노래에 맞춰 아래 패드를 치면 그대로 드럼 노트가 돼요. 박자는 알아서 맞춰 줘요.</p>
+            <p class="hint" id="mk-drec-hint">「드럼 녹음」을 누르면 멜로디가 나와요. 노래에 맞춰 아래 패드를 치면 그대로 드럼 노트가 돼요. 박자는 알아서 맞춰 줘요.</p>
             <div class="mk-rec-row">
               <button class="btn btn-hot" type="button" data-action="mk-drec" id="mk-drec-btn"><span class="mk-dot"></span> <span id="mk-drec-label">드럼 녹음</span></button>
-              <label class="field mk-rec-from"><select id="mk-drec-from"><option value="0">처음부터</option><option value="bar">지금 마디부터</option></select></label>
+              <label class="field mk-rec-from"><select id="mk-drec-from"><option value="0">처음부터</option><option value="end">이어서 (끝에 붙이기)</option><option value="bar">지금 마디부터</option></select></label>
             </div>
             <label class="field mk-drec-q"><span>박자 맞춤</span><select id="mk-drec-q"><option value="2" selected>8분음표 (쉬움)</option><option value="1">16분음표 (빠른 연타까지)</option></select></label>
             <p class="hint mk-rec-msg" id="mk-drec-msg"></p>
@@ -868,6 +873,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=a144c91740" defer></script>
+  <script src="js/app.js?v=0e291b0ee1" defer></script>
 </body>
 </html>

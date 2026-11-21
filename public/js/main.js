@@ -2306,10 +2306,20 @@ function mkRender() {
   $$('#mk-way button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.way === mk.way));
   $('#mk-way-file').hidden = mk.way !== 'file';
   $('#mk-way-play').hidden = mk.way !== 'play';
+  $('#mk-way-drum').hidden = mk.way !== 'drum';
+  // 🥁 드럼으로 만들기: 드럼 녹음 칸을 ① 안으로 옮기고 건반은 숨김
+  const drumWay = mk.way === 'drum';
+  const dbox = $('#mk-drec');
+  if (drumWay && dbox.parentElement.id !== 'mk-way-drum') $('#mk-way-drum').append(dbox);
+  if (!drumWay && dbox.parentElement.id === 'mk-way-drum') $('#mk-drec-open').after(dbox);
+  $('.mk-keys-wrap').hidden = drumWay;
+  $('#mk-detail').hidden = drumWay;
+  $('#mk-drec-open').hidden = drumWay;
+  $('#mk-drec-hint').hidden = drumWay;
   $$('#mk-len button').forEach((b) => b.setAttribute('aria-pressed', Number(b.dataset.len) === mk.len));
   $$('#mk-auto button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.diff === mk.drumsAuto));
-  $('#mk-drum-state').textContent = mk.drumsAuto ? '멜로디에 맞춰 자동' : '내가 만든 드럼';
-  $('#mk-drec').hidden = !mk.drec;
+  $('#mk-drum-state').textContent = mk.drumsAuto ? (drumWay ? '기본 박자' : '멜로디에 맞춰 자동') : '내가 만든 드럼';
+  $('#mk-drec').hidden = !mk.drec && !drumWay;
   $('#mk-drec-open').setAttribute('aria-pressed', String(!!mk.drec));
   $('#mk-octlabel').textContent = `${midiName(12 * (mk.oct + 1))} ~ ${midiName(12 * (mk.oct + 1) + 23)}`;
   mkKeys();
@@ -2597,6 +2607,11 @@ function mkPlayStep(i, t, bus, prog, sd, drums) {
   const b = Math.floor(i / STEPS_PER_BAR);
   const s = i % STEPS_PER_BAR;
   for (const n of mk.mel[b] || []) if (n.step === s) audio.lead(t, n.midi, n.len * sd * 0.92, bus);
+  if (mkDrumOnly()) {
+    // 🥁 드럼만: 반주 없이 드럼만 (녹음 중엔 똑딱 소리만)
+    if (drums) for (const l of CHAR_LANES[(mk.drums[b] || '')[s]] || []) audio.playLane(l, t, bus);
+    return;
+  }
   const parts = (prog[b] || 'C').split(' ');
   const partLen = STEPS_PER_BAR / parts.length;
   if (s % partLen === 0) {
@@ -2608,15 +2623,39 @@ function mkPlayStep(i, t, bus, prog, sd, drums) {
 }
 
 // ----- 🥁 드럼 직접 쳐서 만들기 (멜로디를 틀어 주고 패드를 치면 그 자리에 노트) -----
-const drec = { on: false, bus: null, t0: 0, sd: 0, startBar: 0, next: 0, raf: 0, prog: null, q: 2, bar: -1 };
+//   「🥁 드럼으로」(멜로디 없이)나 「이어서」면 치는 동안 마디가 늘어남 (grow)
+const drec = { on: false, bus: null, t0: 0, sd: 0, startBar: 0, next: 0, raf: 0, prog: null, q: 2, bar: -1, grow: false, from: '0' };
+const mkDrumOnly = () => !mk.mel.some((b) => b.length);
+/** 녹음 중 bar 마디가 있게 (grow 면 늘림). 못 넣으면 false */
+function drecHasBar(bar) {
+  if (bar < mk.mel.length) return true;
+  if (!drec.grow || bar >= MAP_LIMITS.maxBars) return false;
+  while (mk.mel.length <= bar) {
+    mk.mel.push([]);
+    mk.drums.push('................');
+  }
+  return true;
+}
 function drecToggle() {
   if (drec.on) return drecStop();
   mkStopPlay();
   recStop();
-  if (!mk.mel.some((b) => b.length) && !confirm('멜로디가 비어 있어요. 똑딱 소리만 들으면서 칠까요?')) return;
+  if (mk.way !== 'drum' && mkDrumOnly() && !confirm('멜로디가 비어 있어요. 똑딱 소리만 들으면서 칠까요?')) return;
   mkSound(() => {
     const ctx = audio.ctx;
-    drec.startBar = $('#mk-drec-from').value === 'bar' ? mk.bar : 0;
+    drec.from = $('#mk-drec-from').value;
+    drec.grow = mk.way === 'drum' || drec.from === 'end';
+    if (drec.from === 'end') {
+      // 드럼이 마지막으로 들어 있는 마디 뒤부터 (자동 드럼이면 맨 끝 뒤)
+      const last = mk.drums.reduce((m, d, i) => (/[^.]/.test(d) ? i : m), -1);
+      drec.startBar = mk.drumsAuto ? mk.mel.length : last + 1;
+      if (drec.startBar >= MAP_LIMITS.maxBars) return toast(`최대 ${MAP_LIMITS.maxBars}마디까지예요`, 1600);
+    } else drec.startBar = drec.from === 'bar' ? mk.bar : 0;
+    // 「🥁 드럼으로」 처음부터면 새로 쳐서 마디 수도 친 만큼
+    if (mk.way === 'drum' && drec.from === '0' && mkDrumOnly()) {
+      mk.mel = [[], []];
+      mk.drums = ['................', '................'];
+    }
     drec.q = Number($('#mk-drec-q').value) || 2;
     drec.bus = ctx.createGain();
     drec.bus.connect(audio.musicBus);
@@ -2638,7 +2677,7 @@ function drecToggle() {
       while (drec.t0 + drec.next * drec.sd < now + 0.25) {
         const t = drec.t0 + drec.next * drec.sd;
         const at = drec.startBar * STEPS_PER_BAR + drec.next;
-        if (drec.next % 4 === 0) audio.click(t, drec.next % STEPS_PER_BAR === 0, drec.bus);
+        if (drec.next % 4 === 0 && (drec.grow || at < end)) audio.click(t, drec.next % STEPS_PER_BAR === 0, drec.bus);
         if (drec.next >= 0 && at < end) mkPlayStep(at, t, drec.bus, drec.prog, drec.sd, false);
         drec.next++;
       }
@@ -2646,7 +2685,7 @@ function drecToggle() {
       if (pos < 0) $('#mk-drec-msg').textContent = `준비… ${Math.ceil(-pos / 4)}`;
       else {
         const bar = drec.startBar + Math.floor(pos / STEPS_PER_BAR);
-        if (bar >= mk.mel.length) return drecStop();
+        if (!drecHasBar(bar)) return drecStop();
         if (bar > drec.bar) {
           // 지나가는 마디는 새로 침 (예전 드럼 지움)
           drec.bar = bar;
@@ -2675,7 +2714,7 @@ function padHit(inst) {
   if (q < 0) return;
   const at = drec.startBar * STEPS_PER_BAR + q;
   const bar = Math.floor(at / STEPS_PER_BAR);
-  if (bar >= mk.mel.length) return;
+  if (!drecHasBar(bar)) return;
   // 다음 마디 첫 칸으로 반올림됐는데 그 마디가 아직 안 지워졌으면 지금 지움
   if (bar > drec.bar) {
     drec.bar = bar;
@@ -2698,6 +2737,19 @@ function drecStop() {
   } catch {}
   $('#mk-drec-btn').classList.remove('on');
   $('#mk-drec-label').textContent = '드럼 녹음';
+  if (drec.grow) {
+    // 늘린 마디 중 끝에 빈 마디(드럼·멜로디 다 없음)는 뺌
+    while (mk.mel.length > MAP_LIMITS.minBars && !mk.mel[mk.mel.length - 1].length && !/[^.]/.test(mk.drums[mk.drums.length - 1])) {
+      mk.mel.pop();
+      mk.drums.pop();
+    }
+    // 「🥁 드럼으로」 처음부터 쳤으면 앞쪽 빈 마디(치기 전에 기다린 것)도 뺌
+    while (mk.way === 'drum' && drec.from === '0' && mkDrumOnly() && mk.drums.length > MAP_LIMITS.minBars && !/[^.]/.test(mk.drums[0])) {
+      mk.mel.shift();
+      mk.drums.shift();
+    }
+    mk.bar = Math.min(mk.bar, mk.mel.length - 1);
+  }
   let n = 0;
   for (const b of mk.drums) for (const c of b) n += (CHAR_LANES[c] || []).length;
   $('#mk-drec-msg').textContent = n >= MAP_LIMITS.minNotes ? `드럼 노트 ${n}개를 넣었어요! 「처음부터 듣기」로 들어 보세요` : '노트가 너무 적어요. 노래에 맞춰 패드를 더 쳐 주세요';
@@ -2856,7 +2908,7 @@ async function mkUpload() {
     if (!mk.name) $('#mk-name').focus();
     return;
   }
-  if (!mk.mel.some((b) => b.length)) return toast('멜로디가 비어 있어요. ① 에서 만들어 주세요', 2200);
+  if (mkDrumOnly() && mk.way !== 'drum' && !confirm('멜로디가 비어 있어요. 드럼만 있는 맵으로 올릴까요?')) return;
   if (!state.api.mapUpload) return toast('지금은 서버에 연결이 안 돼서 못 올려요', 2200);
   if (!confirm(`「${map.name}」 맵을 올릴까요? 올리면 누구나 칠 수 있어요`)) return;
   try {
