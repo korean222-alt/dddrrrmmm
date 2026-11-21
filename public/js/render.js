@@ -860,6 +860,20 @@ export class Renderer {
       const img = gold ? this.kit.notes.gold[n.lane] : sp;
       ctx.globalAlpha = a;
       ctx.drawImage(img.img, -img.ax, -img.ay, img.w, img.h);
+      // 🎭 멜로디 콩: 계이름 (도·레·미)
+      if (n.sol && !n.judged) {
+        const fs = Math.max(12, Math.round(img.h * 0.5));
+        ctx.font = `${fs}px Jua, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        const cx = -img.ax + img.w / 2;
+        const cy = -img.ay + img.h * 0.42;
+        ctx.lineWidth = Math.max(3, fs * 0.22);
+        ctx.strokeStyle = 'rgba(40,20,70,0.9)';
+        ctx.strokeText(n.sol, cx, cy);
+        ctx.fillStyle = '#fff';
+        ctx.fillText(n.sol, cx, cy);
+      }
       ctx.restore();
     }
   }
@@ -1003,9 +1017,9 @@ export class Renderer {
       ctx.lineWidth = fs * 0.28;
       ctx.strokeStyle = INK;
       const ly = Math.min(L.H - fs * 1.1, L.strikeY + L.instR * 1.55);
-      ctx.strokeText(LANE[lane].short, x, ly);
+      ctx.strokeText(this.melodyMode && lane === SNARE ? '멜로디' : LANE[lane].short, x, ly);
       ctx.fillStyle = LANE[lane].light;
-      ctx.fillText(LANE[lane].short, x, ly);
+      ctx.fillText(this.melodyMode && lane === SNARE ? '멜로디' : LANE[lane].short, x, ly);
       // 컴퓨터(키보드) 쓰는 사람용: 줄마다 어떤 키인지 키캡으로
       const kc = this.keyLabels && this.keyLabels[lane];
       if (kc) {
@@ -1225,7 +1239,7 @@ export class Renderer {
       const fs = Math.min(L.laneW * 0.15, L.GW * 0.042);
       ctx.font = `${Math.round(fs)}px ${FONT}`;
       const t1 = LANE[i].thumb;
-      const t2 = LANE[i].word;
+      const t2 = this.melodyMode && i === SNARE ? '멜로디 (피아노)' : LANE[i].word;
       const tw = Math.min(L.laneW - 6, Math.max(ctx.measureText(t1).width, ctx.measureText(t2).width) + fs * 1.2);
       const bh = fs * 2.8;
       const y = L.strikeY - L.instR * 1.45 - bh - fs * 0.6;

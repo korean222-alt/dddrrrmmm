@@ -6,8 +6,9 @@ import { sign, unsign } from '../server/session.js';
 
 test('채보: 모든 마디가 16칸, 허용 문자만', () => {
   // 본편은 1번부터 빈틈없이. 🎄 이벤트 곡은 본편 뒤 번호 (18·20 은 뺀 찬송가 자리라 안 씀)
-  LEVELS.filter((l) => !l.xmas).forEach((lv, i) => assert.equal(lv.id, i + 1));
-  for (const ev of LEVELS.filter((l) => l.xmas)) assert.ok(ev.id > LEVELS.filter((l) => !l.xmas).length && ![18, 20].includes(ev.id), `이벤트 곡 번호 ${ev.id}`);
+  // 🎭 장거리 곡도 본편 밖 (본편 뒤 번호)
+  LEVELS.filter((l) => !l.xmas && !l.long).forEach((lv, i) => assert.equal(lv.id, i + 1));
+  for (const ev of LEVELS.filter((l) => l.xmas || l.long)) assert.ok(ev.id > LEVELS.filter((l) => !l.xmas && !l.long).length && ![18, 20].includes(ev.id), `이벤트 곡 번호 ${ev.id}`);
   LEVELS.forEach((lv) => {
     for (const bar of lv.bars) assert.match(bar, /^[KSHCTBJXY.]{16}$/, `Lv.${lv.id} ${bar}`);
     for (const k of ['hat', 'bass', 'chord']) assert.equal(lv.song[k].length, 16, `Lv.${lv.id} song.${k}`);
@@ -38,7 +39,7 @@ test('악기: 1~9단계 킥·스네어, 10단계 +하이햇, 13단계 +크래시
   assert.equal(LEVELS[12].newInstrument, CRASH);
   // 난이도는 단계가 올라갈수록 같거나 높아짐
   // (🎄 캐롤 단계는 본편 순서 밖이라 뺌)
-  const main = LEVELS.filter((l) => !l.xmas);
+  const main = LEVELS.filter((l) => !l.xmas && !l.long);
   for (let i = 1; i < main.length; i++) assert.ok(main[i].difficulty >= main[i - 1].difficulty, `Lv.${i + 1} 난이도`);
   // 같은 엄지 레인(킥/크래시, 스네어/하이햇)에 동시 노트가 없어야 함
   for (const lv of LEVELS) {
@@ -58,7 +59,7 @@ test('🎄 이벤트 곡: 깨도 같은 난이도 본편 단계가 열리지 않
   for (const lv of ev) {
     assert.ok(isUnlocked(lv.id, {}), `이벤트 ${lv.id} 바로 열림`);
     const bests = { [lv.id]: { stars: 3 } };
-    for (const m of LEVELS.filter((l) => !l.xmas && l.id > 3 && l.difficulty === lv.difficulty)) assert.ok(!isUnlocked(m.id, bests), `이벤트 ${lv.id} → ${m.id}단계`);
+    for (const m of LEVELS.filter((l) => !l.xmas && !l.long && l.id > 3 && l.difficulty === lv.difficulty)) assert.ok(!isUnlocked(m.id, bests), `이벤트 ${lv.id} → ${m.id}단계`);
     assert.ok(!tierOf(lv.id).some((id) => getLevelXmas(id)), '난이도 묶음에 이벤트 곡 없음');
   }
   function getLevelXmas(id) {
@@ -444,4 +445,23 @@ test('광고·일시정지 중에 소리 시계가 흘러 버려도 이어하면
   } finally {
     g.stop();
   }
+});
+
+test('🎭 장거리(tapMelody): 오른쪽 멜로디 콩 = 악보 음 하나하나, 왼쪽은 쿵만 · 본편·총 등수 밖', async () => {
+  const { tapBars, MAIN_LEVELS, LAST_LEVEL_ID, COUNT_IN_BARS, STEPS_PER_BAR, KICK, SNARE } = await import('../public/js/charts.js');
+  const longs = LEVELS.filter((l) => l.long);
+  assert.ok(longs.length >= 1);
+  for (const lv of longs) {
+    assert.ok(!MAIN_LEVELS.includes(lv) && lv.id > LAST_LEVEL_ID);
+    assert.deepEqual(levelLanes(lv), [KICK, SNARE]);
+    assert.deepEqual(lv.bars, tapBars(lv.song.melody, lv.kick));
+    const onsets = new Set(parseMelody(lv.song.melody).map((m) => (COUNT_IN_BARS + m.bar) * STEPS_PER_BAR + m.step));
+    const right = buildNotes(lv).filter((n) => n.lane === SNARE);
+    assert.equal(right.length, onsets.size);
+    for (const n of right) assert.ok(onsets.has(n.step), `멜로디 없는 자리 ${n.step}`);
+  }
+  // 네순 도르마: 마지막은 높은 라(A5) 온음표, 그 앞 '빈-체-' 는 레(D5)·높은 시(B5)
+  const nd = longs.find((l) => l.name === '네순 도르마');
+  assert.equal(nd.song.melody.at(-1), 'A5:16');
+  assert.equal(nd.song.melody.at(-2), 'A5:12 D5:3 B5:1');
 });

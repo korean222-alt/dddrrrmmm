@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=52b69b9fc5" />
+  <link rel="stylesheet" href="css/style.css?v=4b488b40bc" />
 </head>
 <body>
   <div id="app">
@@ -416,36 +416,6 @@
       </div>
       <button class="studio-stop" data-action="studio-stop" aria-label="녹화 그만"><span data-icon="close"></span></button>
       <div class="studio-count" id="studio-count" hidden><b id="studio-count-num">3</b><span id="studio-count-msg"></span></div>
-    </section>
-
-    <!-- 🎭 장거리: 멜로디를 톡 누르고 길게 밀기 -->
-    <section id="screen-long" class="screen" aria-label="장거리">
-      <canvas id="long-canvas"></canvas>
-      <div class="hud">
-        <div class="hud-progress"><i id="long-progress"></i></div>
-        <div class="hud-row">
-          <button class="icon-btn" data-action="long-pause" aria-label="일시정지"><span data-icon="pause"></span></button>
-          <div class="hud-level"><b>🎭 장거리</b><span id="long-name"></span></div>
-          <div class="hud-score"><small>따라가기 <i id="long-keep">100%</i></small><b id="long-score">0</b></div>
-        </div>
-      </div>
-      <div class="long-box" id="long-pause-box" hidden>
-        <h3>잠깐 멈춤</h3>
-        <div class="stack">
-          <button class="btn btn-primary" data-action="long-pause"><span data-icon="play"></span> 이어서</button>
-          <button class="btn btn-ghost" data-action="long-again"><span data-icon="retry"></span> 처음부터</button>
-          <button class="btn btn-ghost" data-action="long-back">그만하기</button>
-        </div>
-      </div>
-      <div class="long-box" id="long-res" hidden>
-        <div class="res-stars" id="long-res-stars"></div>
-        <h3 id="long-res-score">0점</h3>
-        <p class="muted small" id="long-res-detail"></p>
-        <div class="stack">
-          <button class="btn btn-primary" data-action="long-again"><span data-icon="retry"></span> 다시 하기</button>
-          <button class="btn btn-ghost" data-action="long-back">목록으로</button>
-        </div>
-      </div>
     </section>
 
     <!-- 결과 -->
@@ -902,6 +872,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=60d35acc98" defer></script>
+  <script src="js/app.js?v=2ca0467ba7" defer></script>
 </body>
 </html>

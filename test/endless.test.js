@@ -204,7 +204,8 @@ test('단계별 무제한: 그 단계를 깨면 열림, 그 곡 채보를 4마�
   assert.ok(!isUnlocked('e5', { 5: { stars: 0 } }));
   assert.ok(isUnlocked('e5', { 5: { stars: 1 } }));
   assert.ok(!isUnlocked('e1', { 3: { stars: 2 } }), '그 단계를 깨야 열림');
-  for (const base of LEVELS) {
+  // 🎭 장거리 곡은 단계별 무제한이 없음 (멜로디 리듬 그대로라 16분 연타가 있음)
+  for (const base of LEVELS.filter((l) => !l.long)) {
     const run = makeLevelEndless(base);
     assert.equal(run.endless, true);
     assert.equal(run.id, `e${base.id}`);

@@ -969,7 +969,88 @@ export const LEVELS = [
       'X.......B.......',
     ],
   },
+  {
+    // 🎭 장거리 (2026-11-21): 곡 하나를 처음부터 끝까지. 왼쪽 엄지 = 쿵(킥), 오른쪽 엄지 = 멜로디 (누르면 그 음이 피아노로 남)
+    //   tapMelody: 반주가 멜로디를 대신 쳐 주지 않음 → 놓친 음은 안 들림
+    //   멜로디: 1926년 리코르디 보컬 스코어(IMSLP #869125, 퍼블릭 도메인)의 테너 줄을 그대로 옮김 (악보 표기 = 테너가 부르는 소리보다 한 옥타브 위)
+    //   2/4 마디(me, sa-prà)는 16칸 마디에 맞추느라 뒤에 반 마디 쉼을 붙임 · 셋잇단음은 2+1+1칸으로
+    id: 23,
+    long: true,
+    tapMelody: true,
+    theme: 'hall',
+    name: '네순 도르마',
+    composer: '푸치니',
+    sub: '공주는 잠 못 이루고 · 오페라 투란도트',
+    tagline: '곡 전체 · 왼손 쿵 + 오른손 피아노 멜로디',
+    difficulty: 3,
+    bpm: 66,
+    lanes: [KICK, SNARE],
+    song: {
+      prog: [
+        'G Gm', 'G Gm', 'G', 'G Gm', 'G Gm', 'G Em', 'Em A', 'G Gm', 'G',
+        'D A', 'G', 'D', 'A D', 'D', 'Bm', 'A7', 'D', 'G', 'G Bm', 'G Gm', 'G',
+        'D A', 'G', 'A7', 'A D', 'D', 'D', 'Bm', 'A7', 'D A', 'G', 'D',
+      ],
+      hat: '................',
+      bass: 'x.......x.......',
+      chord: 'x.......x.......',
+      melody: [
+        '_:12 D5:3 D5:1', // Nes-sun
+        'D5 D5 _ D4:3 D4:1', // dor-ma! nes-sun
+        'D4 D4 _:8', // dor-ma!
+        '_:6 D5:2 D5:2 D5:2 D5:3 C5:1', // Tu pu-re, o Prin-ci-
+        'B4 B4 B4:2 B4:1 B4:1 Bb4:3 F#4:1', // pes-sa, nel-la tua fred-da
+        'G4 G4 F#5 G5:3 E5:1', // stan-za guar-di le
+        'E5 E5:2 E5:2 E5:2 E5:2 E5:3 D5:1', // stel-le che tre-ma-no d'a-
+        'B4 B4:6 B4:2 Bb4:3 F#4:1', // mo-re e di spe-
+        'G4 G4:6 _:6', // ran-za!
+        '_:2 D5:2 E5:2 F#5:2 E5:2 D5:2 E5:3 C#5:1', // Ma il mio mi-ste-ro è chiu-so in
+        'B4:8 _:8', // me, (2/4)
+        '_:2 E5:2 F#5:2 G5:2 F#5:2 E5:2 F#5:3 D5:1', // il no-me mio nes-sun sa-
+        'C#5 D5 E5:2 E5:2 F#5:2 G5:2', // prà! No, no, sul-la tua
+        'A5:8 A5 A5:3 F#5:1', // boc-ca lo di-
+        'F#5:10 F#5:2 F#5:3 D5:1', // rò, quan-do la
+        'A4:8 G4 E5:3 C#5:1', // lu-ce splen-de-
+        'D5:6 _:10', // rà!
+        '_:10 D5:2 D5:3 C5:1', // Ed il mio
+        'B4:2 B4:2 B4:2 D5:2 F#5:6 E5:2', // ba-cio scio-glie-rà il
+        'D5 D5 D5:2 B4:2 Bb4:3 F#4:1', // si-len-zio che ti fa
+        'G4 G4 _:8', // mi-a!
+        '_:2 D5:2 E5:2 F#5:2 E5:2 D5:2 E5:3 C#5:1', // (여자 합창) Il no-me suo nes-sun sa-
+        'B4:8 _:8', // prà… (2/4)
+        '_:2 E5:2 F#5:2 G5:2 F#5:2 E5:2 F#5:3 D5:1', // E noi do-vrem, a-hi-mè, mo-
+        'C#5 D5 E5 _', // rir, mo-rir!
+        '_:10 E5:2 F#5:2 G5:2', // (테너) Di-le-gua, o
+        'A5 A5 A5:2 A5:2 A5:3 F#5:1', // not-te! tra-mon-ta-te,
+        'F#5 F#5 F#5:2 F#5:2 F#5:3 D5:1', // stel-le! tra-mon-ta-te,
+        'A4 A4:2 A4:2 A4:2 A4:2 E5:3 C#5:1', // stel-le! Al-l'al-ba vin-ce-
+        'D5:12 C#5:3 E5:1', // rò! Vin-ce-
+        'A5:12 D5:3 B5:1', // rò! Vin-ce-
+        'A5:16', // rò!
+      ],
+    },
+    // 왼쪽 쿵 (마디별): 0 = 마디에 두 번(1·3박) / 1 = 박마다. 'Ma il mio mistero'부터 박마다
+    kick: [0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+    bars: null, // 아래 LEVELS 다음에 멜로디로 만듦 (tapBars)
+  },
 ];
+
+/** 🎭 tapMelody 곡의 채보: 멜로디 음마다 S(오른쪽 = 멜로디), kick 에 따라 K(왼쪽 쿵), 겹치면 B */
+export function tapBars(melody, kick = []) {
+  return melody.map((line, b) => {
+    const cells = Array(STEPS_PER_BAR).fill('.');
+    let step = 0;
+    for (const tok of line.trim().split(/\s+/)) {
+      const [name, l] = tok.split(':');
+      if (name !== '_') cells[step] = 'S';
+      step += l === undefined ? 4 : Number(l);
+    }
+    const ks = (kick[b] ?? 0) >= 1 ? [0, 4, 8, 12] : [0, 8];
+    for (const k of ks) cells[k] = cells[k] === 'S' ? 'B' : 'K';
+    return cells.join('');
+  });
+}
+for (const l of LEVELS) if (l.tapMelody && !l.bars) l.bars = tapBars(l.song.melody, l.kick);
 
 // ---------------------------------------------------------------
 // 🎬 영상 찍기 전용 (릴스용): 단계 목록·랭킹·진행엔 안 나옴. '영상 찍기' 화면에서만.
@@ -1310,13 +1391,14 @@ export function isClearBest(best) {
   return !!best && (best.stars || 0) >= 1;
 }
 /** 본편 마지막 단계 (🎄 이벤트 곡은 본편 순서 밖). 총 등수는 1~이 단계까지만 합침 */
-export const LAST_LEVEL_ID = LEVELS.filter((l) => !l.xmas).at(-1).id;
+export const LAST_LEVEL_ID = LEVELS.filter((l) => !l.xmas && !l.long).at(-1).id;
 /** 본편 단계 (총 등수·무제한·빠른 대결) */
-export const MAIN_LEVELS = LEVELS.filter((l) => !l.xmas);
+export const MAIN_LEVELS = LEVELS.filter((l) => !l.xmas && !l.long);
 /** 화면에 보일 단계 이름: '5단계' / 이벤트 곡은 '🎄 크리스마스 이벤트' */
 export function levelLabel(lv) {
   const l = typeof lv === 'object' && lv ? lv : getLevel(lv);
   if (l && l.xmas) return '🎄 크리스마스 이벤트';
+  if (l && l.long) return '🎭 장거리';
   return `${l ? l.id : lv}단계`;
 }
 
@@ -1342,7 +1424,7 @@ export function isUnlocked(levelId, bests) {
   if (base) return isClearBest(bests[base.id]);
   if (levelId >= 1 && levelId <= FREE_LEVELS) return true;
   // 🎄 캐롤 단계는 앞 단계를 안 깼어도 바로 (잠금은 isClosed: 팔로워 인증)
-  if (getLevel(levelId)?.xmas) return true;
+  if (getLevel(levelId)?.xmas || getLevel(levelId)?.long) return true;
   const prev = prevOpenId(levelId);
   if (prev === null || isClearBest(bests[prev])) return true;
   const lv = getLevel(levelId);
@@ -1367,7 +1449,7 @@ export function unlockHint(levelId, bests) {
 }
 /** 아직 안 깬 첫 단계 (잠긴 단계는 건너뜀. 다 깼으면 무제한 모드) */
 export function nextChallenge(bests) {
-  const lv = LEVELS.find((l) => !SKIP_LEVELS.includes(l.id) && !isClearBest(bests[l.id]));
+  const lv = MAIN_LEVELS.find((l) => !SKIP_LEVELS.includes(l.id) && !isClearBest(bests[l.id]));
   return lv ? lv.id : ENDLESS_ID;
 }
 

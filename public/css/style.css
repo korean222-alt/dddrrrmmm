@@ -790,10 +790,4 @@ button.ig-pause:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--i
 .map-rank small { color: var(--muted); }
 
 /* 🎭 장거리 */
-#screen-long { padding: 0; overflow: hidden; touch-action: none; background: #0b0820; }
-#long-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-#screen-long .hud-score small i { font-style: normal; color: var(--grass-dark); }
-.long-box { position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(320px, calc(100% - 32px)); background: #fff; border: 3px solid var(--ink); border-radius: 22px; padding: 18px 16px; text-align: center; box-shadow: 0 6px 0 var(--ink); z-index: 3; }
-.long-box h3 { margin: 6px 0; }
-.long-box .res-stars { justify-content: center; min-height: 48px; }
 .long-card .lv .ev { font-size: 26px; }

@@ -1026,8 +1026,8 @@ export class SongPlayer {
     }
     // 화음
     if (song.chord[s] === 'x') a.pluck(t, ch.notes, sd * 3, this.bus, orch ? 0.6 : 1);
-    // 멜로디 (클래식 곡 주제 선율)
-    if (this.melodyBars) {
+    // 멜로디 (클래식 곡 주제 선율). 🎭 tapMelody 곡은 내가 칠 때만 남 (자동 연주·영상 찍기 땐 반주가 침)
+    if (this.melodyBars && (!this.level.tapMelody || this.autoChart)) {
       const mbar = mb % this.melodyBars;
       for (const n of this.melody) {
         if (n.bar !== mbar || n.step !== s) continue;
@@ -1056,7 +1056,7 @@ export class SongPlayer {
     if (s === 0 && mb > 0 && mb % 8 === 0 && !this.mineCrash) a.crash(t, this.bus);
     // 자동 연주(데모/릴스 녹화용)
     if (this.autoChart) {
-      for (const lane of CHAR_LANES[this.level.bars[mb][s]] || []) a.playLane(lane, t, this.drumBus);
+      for (const lane of CHAR_LANES[this.level.bars[mb][s]] || []) if (!(this.level.tapMelody && lane === SNARE)) a.playLane(lane, t, this.drumBus);
     }
   }
 

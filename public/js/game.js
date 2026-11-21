@@ -4,7 +4,7 @@ import {
   STEPS_PER_BAR, tempoOf, ROUND_BARS, roundInfo, diamondsFor,
   buildNotes, JUDGE, pointsFor, accuracy, gradeFor, starsFor,
   COUNT_IN_BARS, OUTRO_BARS, maxScore, levelLanes, INSTRUMENTS, KICK, SNARE, HAT, CRASH,
-  buildRolls, markGoldNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS,
+  buildRolls, markGoldNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, parseMelody,
 } from './charts.js';
 import { SongPlayer } from './audio.js';
 
@@ -67,6 +67,7 @@ export class Game {
     this.builtBars = 0;
     this._pair = 0;
     this._addNotes();
+    if (level.tapMelody) this._attachMelody();
     /** 레벨업 챌린지(무제한 모드): 지금 단계 */
     this.round = 0;
     this.ptr = INSTRUMENTS.map(() => 0);
@@ -137,6 +138,34 @@ export class Game {
     return true;
   }
 
+  /** 🎭 tapMelody: 멜로디 줄(SNARE) 노트마다 그 자리의 멜로디 음(midi·길이·계이름)을 붙임 → 누르면 피아노로 그 음 */
+  _attachMelody() {
+    const SOL = ['도', '도#', '레', '레#', '미', '파', '파#', '솔', '솔#', '라', '라#', '시'];
+    const at = new Map();
+    for (const m of parseMelody(this.level.song.melody)) at.set((COUNT_IN_BARS + m.bar) * STEPS_PER_BAR + m.step, m);
+    for (const n of this.lanes[SNARE]) {
+      const m = at.get(n.step);
+      if (!m) continue;
+      n.midi = m.midi;
+      n.dur = this.tempo.stepTime(n.step + m.len) - this.tempo.stepTime(n.step);
+      n.sol = SOL[m.midi % 12];
+    }
+  }
+
+  /** 🎭 멜로디 줄을 누름 → 칠 노트(없으면 바로 앞뒤로 가장 가까운 노트)의 음을 피아노로 */
+  _playMelodyTap(t) {
+    const list = this.lanes[SNARE];
+    let best = null;
+    for (let i = Math.max(0, this.ptr[SNARE] - 2); i < list.length; i++) {
+      const n = list[i];
+      if (n.time - t > JUDGE.early) break;
+      if (!best || Math.abs(n.time - t) < Math.abs(best.time - t)) best = n;
+    }
+    if (!best || best.midi == null || Math.abs(best.time - t) > JUDGE.early) return;
+    const a = this.audio;
+    a.pianoOr('lead', a.ctx.currentTime, best.midi, Math.max(0.25, best.dur * 0.95), a.sfxBus, 1.25);
+  }
+
   /** 끝나는 시각: 무제한 모드는 끝없음 (목숨이 다 떨어질 때까지) */
   _setEnd() {
     const lv = this.level;
@@ -175,6 +204,7 @@ export class Game {
     this.audio.resetClock();
     this.r.reset();
     this.r.laneOrder = this.laneOrder;
+    this.r.melodyMode = !!this.level.tapMelody;
     let at = ctx.currentTime + 0.35;
     // 🎵 내 노래: 노래를 처음부터 틀고, 채보(카운트인)는 leadIn 초 뒤에 시작
     if (this.level.leadIn > 0) at += this.level.leadIn;
@@ -271,7 +301,9 @@ export class Game {
     const t = playing ? this.songTime(perfMs) : 0;
     const touched = lane;
     if (playing && near && near.length) lane = this._pickLane(lane, t, near, pos);
-    if (!this.auto) this.audio.playLane(lane);
+    if (this.level.tapMelody && lane === SNARE) {
+      if (playing) this._playMelodyTap(t);
+    } else if (!this.auto) this.audio.playLane(lane);
     this.r.onTap(lane, rt);
     if (!playing) return;
     this._tapAt[lane] = t;
