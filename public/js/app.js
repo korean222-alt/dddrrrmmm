@@ -784,9 +784,67 @@ const LEVELS = [
       'X...B...X.......',
     ],
   },
+  {
+    id: 18,
+    name: '엘리제를 위하여',
+    composer: '베토벤',
+    tagline: '운영진은 포기했어요 · 미레미레미시레도 질주 · 하이햇 트릴 연타',
+    difficulty: 5,
+    bpm: 144,
+    // 단계 카드: NEW 딱지(이 날까지, 한국 시간) · ☠ 게임에서 제일 어려운 곡 표시
+    newUntil: '2026-11-28',
+    extreme: true,
+    song: {
+      // 원곡은 3/8박자 → 원곡 한 마디를 우리 반 마디(8칸)로 옮김. A(미레#미레#…) · B(도·솔·파·미) · A 로 끝
+      //   (18번은 하루 들어갔다 뺀 찬송가 번호였음 — 그때 점수는 pgstore 'reset-level-18-v1' 로 지움)
+      prog: ['Am', 'E Am', 'Am', 'E Am', 'Am', 'E Am', 'Am', 'E Am', 'C G', 'Am E', 'E', 'Am', 'E Am', 'Am', 'E Am', 'Am'],
+      hat: '................',
+      bass: 'x.....x.x.....x.',
+      chord: '..x.x.....x.x...',
+      melody: [
+        'E5:1 D#5:1 E5:1 D#5:1 E5:1 B4:1 D5:1 C5:1 A4:3 C4:1 E4:1 A4:3',
+        'B4:3 E4:1 G#4:1 B4:3 C5:3 E4:1 E5:2 D#5:2',
+        'E5:1 D#5:1 E5:1 D#5:1 E5:1 B4:1 D5:1 C5:1 A4:3 C4:1 E4:1 A4:3',
+        'B4:3 E4:1 C5:1 B4:3 A4:8',
+        'E5:1 D#5:1 E5:1 D#5:1 E5:1 B4:1 D5:1 C5:1 A4:3 C4:1 E4:1 A4:3',
+        'B4:3 E4:1 G#4:1 B4:3 C5:3 E4:1 E5:2 D#5:2',
+        'E5:1 D#5:1 E5:1 D#5:1 E5:1 B4:1 D5:1 C5:1 A4:3 C4:1 E4:1 A4:3',
+        'B4:3 E4:1 C5:1 B4:3 A4:2 B4:2 C5:2 D5:2',
+        'E5:5 G4:1 F5:1 E5:1 D5:5 F4:1 E5:1 D5:1',
+        'C5:5 E4:1 D5:1 C5:1 B4:3 E4:1 E5:2 E5:1 E6:1',
+        'D#5:1 E5:1 D#5:1 E5:1 D#5:1 E5:1 D#5:1 E5:1 D#5:1 E5:1 D#5:1 E5:1 D#5:1 E5:1 D#5:1 E5:1',
+        'E5:1 D#5:1 E5:1 D#5:1 E5:1 B4:1 D5:1 C5:1 A4:3 C4:1 E4:1 A4:3',
+        'B4:3 E4:1 G#4:1 B4:3 C5:3 E4:1 E5:2 D#5:2',
+        'E5:1 D#5:1 E5:1 D#5:1 E5:1 B4:1 D5:1 C5:1 A4:3 C4:1 E4:1 A4:3',
+        'B4:3 E4:1 C5:1 B4:3 A4:8',
+        'A4:4 C5:2 E5:2 A5:8',
+      ],
+    },
+    // 💥 연타 구간: 미레#미레# 트릴 동안 하이햇
+    rolls: [{ bar: 10, from: 4, len: 10, lane: HAT }],
+    bars: [
+      // 진짜 최종 보스: 엄지 번갈아 거의 16분음표 내내 + 겹치기·탐탐. 같은 엄지 16분음표 연타 없음 (마디 넘어갈 때도)
+      'X.KSKSK.B.TSKSKS',
+      'C.S.J.KSK.Y.KSKS',
+      'T.KSKSK.B.TSKSTS',
+      'C.J.J.B.X.TST.B.',
+      'X.KSKSK.B.TSKSKS',
+      'C.S.J.KSK.Y.KSKS',
+      'T.KSKSK.B.TSKSTS',
+      'C.J.J.B.B.B.B.B.',
+      'X.H.HKSKS.H.HKSK',
+      'S.H.HKSKS.TSKSK.',
+      'X...............', // 💥 하이햇 연타 (rolls)
+      'X.KSKSK.B.TSKSKS',
+      'C.S.J.KSK.Y.KSKS',
+      'T.KSKSK.B.TSKSTS',
+      'C.J.J.B.X.TSKSK.',
+      'X.B.Y.B.X.......',
+    ],
+  },
   // ---------------------------------------------------------------
   // 🎄 크리스마스 이벤트 곡 (번호 단계가 아님. 화면엔 '크리스마스 이벤트'로, 크리스마스 마을 맵).
-  //   id 19·21·22 는 내부 번호 (랭킹·점수 저장용, 18·20 은 빼 버린 찬송가 자리라 비워 둠 — 다시 쓰지 말 것)
+  //   id 19·21·22 는 내부 번호 (랭킹·점수 저장용. 20 은 빼 버린 찬송가 자리라 비워 둠 — 다시 쓰지 말 것. 18 은 2026-11-21 엘리제를 위하여 본편 단계로)
   //   xmas: 앞 단계를 안 깼어도 바로 칠 수 있음 (잠금은 4단계부터와 같음: 팔로워 인증). 본편 순서·총 등수·무제한엔 안 들어감
   //   song.bells = 썰매 방울 박자, song.glock = 멜로디 위에 글로켄슈필, song.choir = 합창 목소리(합성)
   //   song.audio = { src, offset } 녹음된 노래 파일을 틂 (offset = 채보 첫 마디가 시작하는 파일 시각, 초)
@@ -6555,7 +6613,7 @@ const THEME_GROUPS = [
   { from: 7, to: 9, key: 'hall' },
   { from: 10, to: 12, key: 'void' },
   { from: 13, to: 15, key: 'lava' },
-  { from: 16, to: 17, key: 'aurora' },
+  { from: 16, to: 18, key: 'aurora' },
   { from: 19, to: 22, key: 'xmas' }, // 🎄 크리스마스 이벤트 곡 (19·21·22)
   { from: 23, to: 23, key: 'hall' }, // 🎭 장거리 (네순 도르마)
 ];
@@ -7786,6 +7844,7 @@ class Renderer {
   reset() {
     this.fx = { judges: [], sparks: [], bursts: [], booms: [], banners: [] };
     this.hitAt = [-9, -9, -9, -9, -9];
+    this.piano = new Map(); // 🎹 midi → { t0, d } 눌린 건반
     this.missAt = [-9, -9, -9, -9, -9];
     this.punchAt = -9;
     this.punchPow = 0;
@@ -8121,6 +8180,11 @@ class Renderer {
     } else if (lane === SNARE) this.crackAt = rt;
   }
 
+  /** 🎹 장거리 곡: 오른쪽 피아노에서 이 음들의 건반이 눌림 */
+  onPiano(midis, rt, d) {
+    for (const m of midis) this.piano.set(m, { t0: rt, d });
+  }
+
   onJudge(lane, judge, rt, early) {
     const L = this.L;
     const style = JUDGE_STYLE[judge];
@@ -8378,6 +8442,23 @@ class Renderer {
       const x = L.laneX[lane];
       const lit = rt - this.hitAt[lane] < 0.1;
       const c = LANE[lane].rgb;
+      if (this.melodyMode && lane === SNARE) {
+        // 🎹 피아노 줄: 흰 건반 위에선 흰 선이 안 보여서 진한 테두리 + 금색 판정선
+        const w = Math.min(L.laneW * 0.94, L.GW * 0.46);
+        ctx.save();
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = 'rgba(43,29,58,0.85)';
+        ctx.lineWidth = 9;
+        ctx.beginPath();
+        ctx.moveTo(x - w / 2, L.strikeY);
+        ctx.lineTo(x + w / 2, L.strikeY);
+        ctx.stroke();
+        ctx.strokeStyle = lit ? '#FFFFFF' : `rgba(255,205,70,${0.85 + 0.15 * pulse})`;
+        ctx.lineWidth = 4.5;
+        ctx.stroke();
+        ctx.restore();
+        continue;
+      }
       ctx.beginPath();
       if (lane === KICK) rr(ctx, x - (L.barW * k) / 2, L.strikeY - (L.barH * k) / 2, L.barW * k, L.barH * k, (L.barH * k) / 2);
       else if (lane === SNARE || lane === TOM) ctx.ellipse(x, L.strikeY, L.padR * 1.1 * k, L.padR * 1.1 * k * 0.62, 0, 0, Math.PI * 2);
@@ -8599,6 +8680,13 @@ class Renderer {
         rr(ctx, x - w / 2, L.strikeY - h / 2, w, h, h / 2);
         ctx.fillStyle = 'rgba(255,170,100,0.8)';
         ctx.fill();
+      } else if (this.melodyMode && b.lane === SNARE) {
+        // 🎹 피아노: 건반 위로 얇게 금빛만 (건반이 가려지지 않게)
+        const w = Math.min(L.laneW * 0.94, L.GW * 0.46) * (1 + e * 0.08);
+        const h = L.instR * 0.35 * (1 + e);
+        rr(ctx, x - w / 2, L.strikeY - L.instR * 0.45 - h, w, h, h / 2);
+        ctx.fillStyle = 'rgba(255,215,120,0.45)';
+        ctx.fill();
       } else if (b.lane === SNARE || b.lane === TOM) {
         ctx.beginPath();
         ctx.ellipse(x, L.strikeY, L.padR * (1 + e * 1.3), L.padR * (1 + e * 1.3) * 0.62, 0, 0, Math.PI * 2);
@@ -8681,6 +8769,8 @@ class Renderer {
           ctx.fill();
         }
         ctx.restore();
+      } else if (this.melodyMode && lane === SNARE) {
+        this._drawPiano(x, y, rt);
       } else if (lane === SNARE || lane === TOM) {
         // 3D 스네어·탐탐: 칠 때 헤드가 눌렸다 튀어오름 (탐탐은 더 깊은 통 + 다리, 드럼 세트와 같은 마감)
         const sq = age < 0.25 ? Math.exp(-age * (lane === TOM ? 18 : 25)) * (lane === TOM ? 0.07 : 0.05) : 0;
@@ -8720,10 +8810,10 @@ class Renderer {
       ctx.lineJoin = 'round';
       ctx.lineWidth = fs * 0.28;
       ctx.strokeStyle = INK;
-      const ly = Math.min(L.H - fs * 1.1, L.strikeY + L.instR * 1.55);
-      ctx.strokeText(this.melodyMode && lane === SNARE ? '멜로디' : LANE[lane].short, x, ly);
+      const ly = Math.min(L.H - fs * 1.1, L.strikeY + L.instR * (this.melodyMode && lane === SNARE ? 1.95 : 1.55));
+      ctx.strokeText(this.melodyMode && lane === SNARE ? '피아노' : LANE[lane].short, x, ly);
       ctx.fillStyle = LANE[lane].light;
-      ctx.fillText(this.melodyMode && lane === SNARE ? '멜로디' : LANE[lane].short, x, ly);
+      ctx.fillText(this.melodyMode && lane === SNARE ? '피아노' : LANE[lane].short, x, ly);
       // 컴퓨터(키보드) 쓰는 사람용: 줄마다 어떤 키인지 키캡으로
       const kc = this.keyLabels && this.keyLabels[lane];
       if (kc) {
@@ -8742,6 +8832,114 @@ class Renderer {
       }
       ctx.restore();
     }
+  }
+
+  /**
+   * 🎹 장거리 곡 오른쪽 줄: 스네어 대신 피아노 (검은 몸통 + 건반 1~2옥타브).
+   *   멜로디 노트를 치면 그 음(+ 오른손 화음)의 건반이 쑥 들어가고 금빛으로 → 진짜 치는 것처럼
+   */
+  _drawPiano(x, y, rt) {
+    const ctx = this.ctx;
+    const L = this.L;
+    const R = this.pianoRange || { base: 60, oct: 2 };
+    const nW = 7 * R.oct;
+    const w = Math.min(L.laneW * 0.94, L.GW * 0.46);
+    const kw = w / nW;
+    const kh = Math.min(kw * 5.2, L.instR * 1.5);
+    // 판정선이 건반 윗부분에 오게 피아노를 아래로 → 선·과녁이 잘 보임 (퍼펙트 맞추기 쉽게)
+    const top = y - kh * 0.2;
+    const x0 = x - w / 2;
+    const pad = kw * 0.45;
+    const lidH = kh * 0.55;
+    // 눌린 건반 (오래된 건 지움). 몇 번째 건반인지는 옥타브를 접어서
+    const down = new Map();
+    for (const [m, p] of this.piano) {
+      const a = rt - p.t0;
+      if (a > p.d + 0.15) {
+        this.piano.delete(m);
+        continue;
+      }
+      const k = (((m - R.base) % (12 * R.oct)) + 12 * R.oct) % (12 * R.oct);
+      const v = a < p.d ? 1 : 1 - (a - p.d) / 0.15;
+      down.set(k, Math.max(down.get(k) || 0, v));
+    }
+    ctx.save();
+    // 그림자
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath();
+    ctx.ellipse(x, top + kh + pad * 1.4, w * 0.58, kh * 0.18, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // 몸통 (윗판 + 앞판), 검은 광택
+    const body = ctx.createLinearGradient(0, top - lidH, 0, top + kh + pad);
+    body.addColorStop(0, '#3A3346');
+    body.addColorStop(0.35, '#15121B');
+    body.addColorStop(1, '#07060A');
+    ctx.fillStyle = body;
+    ctx.beginPath();
+    ctx.roundRect(x0 - pad, top - lidH, w + pad * 2, lidH + kh + pad * 1.2, pad * 0.9);
+    ctx.fill();
+    ctx.strokeStyle = INK;
+    ctx.lineWidth = 3;
+    ctx.stroke();
+    // 윗판 하이라이트 + 금색 글씨
+    ctx.fillStyle = 'rgba(255,255,255,0.16)';
+    ctx.beginPath();
+    ctx.roundRect(x0 - pad * 0.6, top - lidH + pad * 0.35, w + pad * 1.2, lidH * 0.18, lidH * 0.09);
+    ctx.fill();
+    ctx.fillStyle = '#E9C46A';
+    ctx.font = `${Math.round(lidH * 0.38)}px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('KONG', x, top - lidH * 0.42);
+    // 건반 칸 (빨간 펠트 띠)
+    ctx.fillStyle = '#7A1E2C';
+    ctx.fillRect(x0 - 1, top - kh * 0.06, w + 2, kh * 0.08);
+    // 흰 건반
+    const WHITE = [0, 2, 4, 5, 7, 9, 11];
+    for (let i = 0; i < nW; i++) {
+      const k = Math.floor(i / 7) * 12 + WHITE[i % 7];
+      const v = down.get(k) || 0;
+      const kx = x0 + i * kw;
+      const dy = v * kh * 0.05;
+      const g = ctx.createLinearGradient(0, top, 0, top + kh);
+      if (v > 0) {
+        g.addColorStop(0, '#FFF1B8');
+        g.addColorStop(1, '#F2B93B');
+      } else {
+        g.addColorStop(0, '#FFFFFF');
+        g.addColorStop(1, '#E6E1EC');
+      }
+      ctx.fillStyle = g;
+      ctx.fillRect(kx + 0.75, top + dy, kw - 1.5, kh - dy);
+      // 건반 앞면 두께 (눌리면 얇아짐)
+      ctx.fillStyle = v > 0 ? '#C98A1E' : '#B9B2C4';
+      ctx.fillRect(kx + 0.75, top + kh, kw - 1.5, kh * 0.09 * (1 - v * 0.7));
+      if (v > 0) {
+        ctx.fillStyle = `rgba(255,236,150,${0.45 * v})`;
+        ctx.fillRect(kx - kw * 0.15, top - kh * 0.25, kw * 1.3, kh * 0.25);
+      }
+    }
+    // 검은 건반
+    const BLACK = [[0, 1], [1, 3], [3, 6], [4, 8], [5, 10]];
+    for (let o = 0; o < R.oct; o++) {
+      for (const [wi, semi] of BLACK) {
+        const k = o * 12 + semi;
+        const v = down.get(k) || 0;
+        const bw = kw * 0.6;
+        const bx = x0 + (o * 7 + wi + 1) * kw - bw / 2;
+        const bh = kh * 0.6 - v * kh * 0.04;
+        const g = ctx.createLinearGradient(0, top, 0, top + bh);
+        g.addColorStop(0, v > 0 ? '#D99A26' : '#3B3542');
+        g.addColorStop(1, v > 0 ? '#8A5A0C' : '#0B0A0E');
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.roundRect(bx, top + v * kh * 0.03, bw, bh, [0, 0, bw * 0.18, bw * 0.18]);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.22)';
+        ctx.fillRect(bx + bw * 0.18, top + bh * 0.5, bw * 0.16, bh * 0.4);
+      }
+    }
+    ctx.restore();
   }
 
   _drawSparks(rt) {
@@ -9551,6 +9749,17 @@ class Game {
       // 🎹 오른손 화음 (멜로디 아래 화음 음, 긴 음은 하나 더)
       n.harm = pianoHarmony(this.level.song, m.bar, m.step, m.midi, m.len >= 4);
     }
+    // 🎹 오른쪽 줄 피아노 건반 범위: 멜로디 가장 낮은 음의 도부터 1~2옥타브
+    const ms = [...at.values()].map((m) => m.midi);
+    if (ms.length) {
+      const base = Math.floor(Math.min(...ms) / 12) * 12;
+      this.r.pianoRange = { base, oct: Math.max(...ms) - base >= 12 ? 2 : 1 };
+    }
+  }
+
+  /** 🎹 멜로디 노트를 쳤을 때 오른쪽 피아노 건반이 눌림 */
+  _pianoKeys(n, rt) {
+    if (n && n.midi != null) this.r.onPiano([n.midi, ...(n.harm || [])], rt, Math.max(0.18, Math.min(0.6, (n.dur || 0.3) * 0.8)));
   }
 
   /** 🎭 멜로디 줄을 누름 → 칠 노트(없으면 바로 앞뒤로 가장 가까운 노트)의 음을 피아노로 */
@@ -9568,6 +9777,7 @@ class Game {
     const d = Math.max(0.25, best.dur * 0.95);
     a.pianoOr('lead', t0, best.midi, d, a.sfxBus, 1.25);
     for (const h of best.harm || []) a.pianoOr('lead', t0, h, d, a.sfxBus, 0.6);
+    this._pianoKeys(best, performance.now() / 1000);
   }
 
   /** 끝나는 시각: 무제한 모드는 끝없음 (목숨이 다 떨어질 때까지) */
@@ -9981,6 +10191,7 @@ class Game {
         while (this.ptr[lane] < list.length && list[this.ptr[lane]].time <= now) {
           const n = list[this.ptr[lane]];
           this.r.onTap(lane, rt);
+          if (lane === SNARE && this.level.tapMelody) this._pianoKeys(n, rt);
           this._judge(n, 0, rt);
           this.ptr[lane]++;
         }
@@ -10451,6 +10662,23 @@ function saveBest(result) {
   return { isNew: false, prev };
 }
 
+/** 18단계 = 엘리제를 위하여 (2026-11-21). 이 브라우저에 남은 그 전 18번(빼 버린 찬송가) 기록은 한 번 지움 */
+const ELISE_FROM = Date.parse('2026-11-21T06:15:00Z');
+function resetOldLevel18() {
+  if (load('level18V2', false)) return;
+  for (const key of ['bests', 'mockBoard']) {
+    const old = load(key, null);
+    if (!old || typeof old !== 'object') continue;
+    let changed = false;
+    for (const k of ['18', 'e18']) {
+      const v = old[k];
+      if (v && !(v.at >= ELISE_FROM)) { delete old[k]; changed = true; }
+    }
+    if (changed) save(key, old);
+  }
+  save('level18V2', true);
+}
+
 /** 8단계에 새 곡이 끼면서 예전 8~14단계가 9~15단계로 밀림 → 이 브라우저에 쌓인 기록·설정을 한 번만 옮김 */
 function migrateLevelOrder() {
   if (load('levelOrderV2', false)) return;
@@ -10468,7 +10696,7 @@ function migrateLevelOrder() {
   save('levelOrderV2', true);
 }
 
-return { load, save, remove, DEFAULT_SETTINGS, loadSettings, saveSettings, loadBests, saveBest, migrateLevelOrder };
+return { load, save, remove, DEFAULT_SETTINGS, loadSettings, saveSettings, loadBests, saveBest, resetOldLevel18, migrateLevelOrder };
 })();
 
 // ---- track.js ----
@@ -10938,14 +11166,16 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-21i',
+    id: '2026-11-21n',
     date: '11월 21일',
-    title: '🏛 명예의 전당 · 시즌 1 · 🎭 장거리 · 🥁 드럼 맵',
+    title: '🎲 랜덤 대결 · 🎹 18단계 엘리제를 위하여 · 🏛 명예의 전당 · 🎭 장거리',
     items: [
+      '<b>⚔️ 멀티 → 🎲 랜덤 대결</b>이 생겼어요! 모르는 사람과 바로 붙어서 4~18단계 무작위 곡 — 둘 다 깨면 다른 곡이 바로 이어지고, <b>먼저 쓰러지는 쪽이 져요</b>',
+      '<b>18단계 엘리제를 위하여</b>(베토벤 · 지옥)가 새로 생겼어요! 게임에서 <b>가장 어려운 곡</b> — 미레미레미시레도 질주에 하이햇 트릴 연타까지',
       '<b>🏛 명예의 전당</b>이 생겼어요! 🏆 랭킹 → 🎵 단계 총합 / 💎 무제한 총합',
       '<b>시즌 1은 11월 26일 밤 12시에 끝나요.</b> 1·2·3등은 명예의 전당에 영원히 기록되고, 프로필 사진도 올릴 수 있어요',
       '<b>🎭 장거리</b>가 바뀌었어요: 곡 하나를 <b>처음부터 끝까지</b>! 첫 곡은 오페라 <b>네순 도르마</b>',
-      '왼쪽 엄지는 <b>쿵</b>, 오른쪽 엄지는 <b>멜로디</b> — 누를 때마다 그 음이 피아노 화음으로 울려요. 놓치면 그 음은 안 들려요!',
+      '왼쪽 엄지는 <b>쿵</b>, 오른쪽은 <b>🎹 피아노</b> — 누르면 그 음의 건반이 눌리며 피아노 화음이 울려요. 놓치면 그 음은 안 들려요!',
       '<b>🎹 유저 맵 노래 파일 음 따기</b>가 훨씬 좋아졌어요: 목소리 멜로디(목소리 없는 곳은 악기 멜로디)에 <b>코드·드럼까지 노래에서</b> 따고, <b>노래 끝까지</b>(최대 64마디) 따요. 아이폰 화면 녹화 영상도 끝까지 바로 읽어요',
       '드럼 탭 맨 위 <b>⚡ 자동 드럼</b>(쉬움·보통·어려움)으로 직접 안 쳐도 바로 드럼이 생겨요',
       '<b>🎹 맵 만들기</b>가 탭으로 바뀌었어요: <b>🥁 드럼</b>은 진짜 드럼 세트처럼 쳐서 녹음(겹쳐 치기 가능), <b>🎹 멜로디</b>에서 그 위에 피아노를 얹어요. 드럼만 올려도 돼요!'
@@ -11287,7 +11517,10 @@ class RoomClient {
     if (!this.code) return;
     const playing = this.room && this.room.status === 'playing';
     const linking = this.link && !this.link.open; // 연결 신호 주고받는 중엔 빨리
-    const ms = playing ? (this.realtime ? ROOM_POLL_RT_MS : ROOM_POLL_PLAY_MS) : this.waiting ? ROOM_POLL_WAIT_MS : linking ? 1500 : ROOM_POLL_LOBBY_MS;
+    // 🎲 랜덤 대결: 내 곡이 끝났으면 다음 곡 시작을 빨리 알아채게 (결과 화면에서 기다리는 중)
+    const mf = this.me && this.me.final;
+    const rushWait = playing && this.room.pub === 'rush' && mf && mf.round === this.room.round;
+    const ms = rushWait ? ROOM_POLL_LOBBY_MS : playing ? (this.realtime ? ROOM_POLL_RT_MS : ROOM_POLL_PLAY_MS) : this.waiting ? ROOM_POLL_WAIT_MS : linking ? 1500 : ROOM_POLL_LOBBY_MS;
     this._timer = setTimeout(() => {
       if (typeof document !== 'undefined' && document.hidden) this._schedule();
       else this.poll();
@@ -11303,6 +11536,8 @@ class RoomClient {
       else if (m.t === 'final') {
         this.peerFinal = { round: m.round, score: m.score | 0, stars: m.stars | 0, grade: String(m.grade || ''), failed: !!m.failed, maxCombo: m.maxCombo | 0, accuracy: +m.accuracy || 0, died: !!m.died, survived: +m.survived || 0, lv: m.lv | 0 };
         this.onUpdate(this.room);
+        // 🎲 랜덤 대결: 상대도 끝남 → 서버가 다음 곡을 정했을 테니 바로 물어봄
+        if (this.room && this.room.pub === 'rush' && !m.died) setTimeout(() => this.poll(), 400);
       }
     };
     link.onOpen = () => {
@@ -12005,8 +12240,9 @@ const { RoomClient, roomOutcome, survivalOutcome } = __m_room;
 const { makeReelCover } = __m_cover;
 const { detectBeat, monoOf, songChart } = __m_beatsync;
 const { seasonLeftText, BOARD_LABEL } = __m_season;
-const { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder } = __m_storage;
+const { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder, resetOldLevel18 } = __m_storage;
 
+resetOldLevel18(); // 18번 = 엘리제를 위하여 (그 전 찬송가 기록 지움)
 migrateLevelOrder(); // 8단계에 새 곡이 끼면서 밀린 번호를 이 브라우저 기록에도 반영 (아래 state 보다 먼저)
 const { makeShareCard, gradeColor } = __m_sharecard;
 const { icon, watchEmoji } = __m_icons;
@@ -12529,9 +12765,11 @@ function renderLevels() {
       : b
         ? `${starsHTML(b.stars || 0, 'sm')}<span>${fmt(b.score)}</span>`
         : `${starsHTML(0, 'sm')}<span>NEW</span>`;
-    return `${groupHeadHTML(lv.id)}<button class="level-card ${locked ? 'locked' : ''} ${lv.boss ? 'boss' : ''} ${lv.xmas ? 'xmas' : ''}" data-level="${lv.id}">
+    const fresh = lv.newUntil && Date.now() < Date.parse(`${lv.newUntil}T23:59:59+09:00`);
+    return `${groupHeadHTML(lv.id)}<button class="level-card ${locked ? 'locked' : ''} ${lv.boss ? 'boss' : ''} ${lv.xmas ? 'xmas' : ''} ${lv.extreme ? 'extreme' : ''}" data-level="${lv.id}">
+      ${fresh ? '<span class="newtag">NEW</span>' : ''}
       <div class="lv">${lv.xmas ? `<span class="ev">${icon('tree', true)}<small>이벤트</small></span>` : `<span>${lv.id}<small>단계</small></span>`}</div>
-      <div class="info"><h4>${lv.name} <small>${lv.composer}</small></h4><p>${lv.tagline}</p>${diffHTML(lv.difficulty)}</div>
+      <div class="info"><h4>${lv.name} <small>${lv.composer}</small></h4><p>${lv.tagline}</p>${diffHTML(lv.difficulty)}${lv.extreme ? '<span class="extreme-chip">☠ 게임에서 제일 어려움</span>' : ''}</div>
       <div class="meta">${meta}</div>
     </button>`;
   });
@@ -12615,6 +12853,7 @@ async function startLevel(id, opts = {}) {
   show('screen-game');
   $('#hud-lv').textContent = practice ? `🐢 연습 ${Math.round(practice * 100)}%` : lv.userMap ? '🎹 유저 맵' : lv.custom ? '🎵 내 노래' : lv.survival ? '⚔️ 서바이벌' : lv.challenge ? (lv.endless ? '무제한' : '챌린지') : lv.studioOnly ? '🎬 릴스용' : levelLabel(lv);
   $('#hud-name').textContent = lv.challenge ? `${lv.songName} · ${lv.composer}` : `${lv.name} · ${lv.composer}`;
+  if (room && room.rush) $('#hud-lv').textContent = `🎲 ${room.round}곡째`;
   $('#hud-score').textContent = '0';
   $('#hud-progress').style.width = '0%';
   closeModal('modal-continue');
@@ -12750,7 +12989,7 @@ async function startLevel(id, opts = {}) {
       if (!state.studio.active && !res.auto && !res.practice) trackPlayEnd({ result: res.failed || res.died ? 'fail' : 'clear', score: res.score, stars: res.stars });
       if (room && room.ghost) res.room = { mode: 'versus', ghost: room.ghost, gid: room.gid };
       if (live && state.roomClient.active) {
-        res.room = { mode: room.mode, round: room.round, ranked: !!room.ranked };
+        res.room = { mode: room.mode, round: room.round, ranked: !!room.ranked, rush: !!room.rush };
         state.roomClient.send(
           { final: { score: res.score, stars: res.stars, grade: res.grade, failed: !!res.failed, maxCombo: res.maxCombo, accuracy: res.accuracy, died: !!(res.died || res.failed), survived: res.survived || 0, lv: res.roundReached || 0 } },
           true
@@ -12766,7 +13005,7 @@ async function startLevel(id, opts = {}) {
     // 상대와 같은 시각에 시작: 남은 시간 카운트다운 (Game.start 가 0.35초 뒤에 첫 박을 놓음)
     const box = $('#studio-count');
     box.hidden = false;
-    $('#studio-count-msg').textContent = room.ranked ? `🏆 ${roomOtherName()} 님과 랭킹전!` : room.mode === 'team' ? '🤝 팀전! 둘이 같이 깨 봐요' : `⚔️ ${roomOtherName()} 님과 대결!`;
+    $('#studio-count-msg').textContent = room.rush ? `🎲 ${room.round}곡째! ${roomOtherName()} 님과 대결` : room.ranked ? `🏆 ${roomOtherName()} 님과 랭킹전!` : room.mode === 'team' ? '🤝 팀전! 둘이 같이 깨 봐요' : `⚔️ ${roomOtherName()} 님과 대결!`;
     const g = state.game;
     // 기다리는 동안 무대(맵)를 그려 둠
     renderer.draw({ now: -1, notes: g.notes, approach: g.approach, beatDur: g.beat, combo: 0, score: 0, playing: false }, performance.now() / 1000);
@@ -15996,7 +16235,7 @@ function openRoom(code) {
     return;
   }
   const c = state.roomClient;
-  const friend = c.active && c.room && c.room.pub !== 'ranked';
+  const friend = c.active && c.room && !c.room.pub;
   roomPanel(friend ? 'lobby' : c.active && c.waiting ? 'wait' : 'entry');
   if (friend) renderFriendRoom(c.room);
   else {
@@ -16118,6 +16357,7 @@ function renderRoomResult() {
   const res = state.lastResult;
   if (!res || !res.room) return;
   if (res.room.ranked || res.room.ghost) renderRankedResult();
+  else if (res.room.rush) renderRushResult();
   else renderFriendResult();
 }
 /** 결과 화면: 랭킹전 결과 (승패 · 점수 변화) */
@@ -16171,6 +16411,110 @@ function renderRankedResult() {
   // 결과가 정해지면 서버로 (실시간은 서버가 상대 점수를 확인)
   if (sub.state === 'idle' && (res.room.ghost || result != null)) submitRanked(res);
 }
+// ----- 🎲 랜덤 대결 (4~18단계 무작위 · 둘 다 깨면 다음 곡 · 먼저 쓰러지면 짐) -----
+const RUSH_WAIT_MAX_MS = 3 * 60_000; // 이만큼 기다려도 안 잡히면 그만 (서버 요청 아끼기)
+const rush = { over: null }; // 끝난 판 결과 (방을 나간 뒤에도 결과 화면에 그대로)
+async function rushGo() {
+  if (followGated()) {
+    openVerify(null, { label: '🎲 랜덤 대결은 팔로워만', then: rushGo });
+    return;
+  }
+  if (needsCalibration()) {
+    closeModal('modal-room');
+    openCalibration({ required: true, after: rushGo });
+    return;
+  }
+  // 소리는 사용자가 누를 때만 켤 수 있어서 지금 켜 둠 (상대를 찾으면 타이머로 시작)
+  await audio.unlock();
+  roomUi.round = 0;
+  rush.over = null;
+  const c = state.roomClient;
+  try {
+    if (c.active) await c.leave();
+    const waiting = await c.quick(myRoomName(), 'rush');
+    if (!waiting) return; // 바로 붙음 → renderRoom 이 시작
+  } catch (e) {
+    toast(roomErrText(e), 3000);
+    return;
+  }
+  openModal('modal-room');
+  roomPanel('wait');
+  const t0 = Date.now();
+  const tick = async () => {
+    if (!c.active || !c.waiting) return stopWaitTimer();
+    const sec = Math.floor((Date.now() - t0) / 1000);
+    $('#room-wait-title').textContent = `🎲 상대 찾는 중… ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+    $('#room-wait-sub').textContent = '누가 들어오면 바로 시작해요 · 친구에게 랜덤 대결 들어오라고 해 보세요!';
+    if (Date.now() - t0 < RUSH_WAIT_MAX_MS) return;
+    stopWaitTimer();
+    await c.poll();
+    if (!c.active || !c.waiting) return;
+    await c.leave();
+    roomPanel('entry');
+    toast('지금은 상대가 없어요. 조금 뒤에 다시 해 보세요', 3200);
+  };
+  stopWaitTimer();
+  tick();
+  roomUi.waitTimer = setInterval(tick, 1000);
+}
+/** 결과 화면: 랜덤 대결 (둘 다 깼으면 다음 곡 기다림 / 누가 쓰러졌으면 승패) */
+function renderRushResult() {
+  const c = state.roomClient;
+  const box = $('#res-room');
+  const res = state.lastResult;
+  if (!res || !res.room) return;
+  box.hidden = false;
+  const acts = '<div class="room-acts"><button class="btn btn-hot" data-action="rush-next">🎲 새 상대 찾기</button><button class="btn btn-ghost" data-action="room-leave">나가기</button></div>';
+  if (rush.over && rush.over.res === res) {
+    box.innerHTML = rush.over.html + acts;
+    return;
+  }
+  const round = res.room.round || 1;
+  const o = c.active && c.room && c.room.round === round ? c.other : c.active && c.room && c.room.round > round ? { next: true } : null;
+  const iDied = !!(res.failed || res.died);
+  const mine = res.score;
+  let r = null, why = '', theirs = null;
+  if (o && o.next) {
+    // 다음 곡이 벌써 정해짐 → 곧 시작 (renderFriendRoom 이 시작함)
+    box.innerHTML = `<div class="room-word win">둘 다 깼어요! 🎉</div><div class="room-why">${round + 1}곡째 곧 시작해요…</div>`;
+    return;
+  }
+  if (!c.active || !o || (o.left && !o.final)) {
+    if (iDied) r = 'lose', why = '내가 먼저 목숨을 다 썼어요';
+    else r = 'win', why = '상대가 나갔어요';
+  } else if (iDied || (o.final && o.final.died)) {
+    theirs = o.final ? o.final.score : o.live ? o.live.score : null;
+    if (iDied && !(o.final && o.final.died)) r = 'lose', why = '내가 먼저 목숨을 다 썼어요';
+    else if (!iDied) r = 'win', why = `${escapeHtml(o.name)} 님이 먼저 목숨을 다 썼어요`;
+    else {
+      r = roomOutcome('versus', mine, theirs).result;
+      why = '둘 다 쓰러져서 점수로';
+    }
+  } else if (o.final) {
+    box.innerHTML = `<div class="room-word win">둘 다 깼어요! 🎉</div><div class="room-why">다른 곡으로 ${round + 1}곡째 준비 중…</div>
+      <div class="room-row"><span>나<b>${fmt(mine)}</b></span><span>VS</span><span>${escapeHtml(o.name)}<b>${fmt(o.final.score)}</b></span></div>`;
+    return;
+  } else {
+    box.innerHTML = `<div class="room-word">${escapeHtml(o.name)} 님 아직 치는 중… ${o.live ? Math.round((o.live.progress || 0) * 100) + '%' : ''}</div><div class="room-why">상대도 깨면 다른 곡이 바로 이어져요</div>`;
+    return;
+  }
+  const word = { win: '승리! 🎉', lose: '아쉽게 패배…', draw: '무승부!' };
+  const name = o && o.name ? escapeHtml(o.name) : '상대';
+  const html = `<div class="room-word ${r}">${word[r]}</div><div class="room-why">${why} · ${round}곡째에서 끝 (${round - 1}곡 같이 깸)</div>
+    <div class="room-row"><span>나<b>${fmt(mine)}</b></span><span>VS</span><span>${name}<b>${theirs == null ? '-' : fmt(theirs)}</b></span></div>`;
+  rush.over = { res, html };
+  box.innerHTML = html + acts;
+  if (c.active) c.leave(); // 판이 끝났으니 방에서 나옴
+}
+async function rushNext() {
+  $('#screen-result').classList.remove('in-room');
+  $('#res-room').hidden = true;
+  document.body.classList.remove('room-game');
+  show('screen-title');
+  refreshTitle();
+  openRoom();
+  rushGo();
+}
 // ----- 👫 친구 대결 방 (코드로 만들고 들어가기) -----
 function renderFriendRoom(room) {
   const c = state.roomClient;
@@ -16183,11 +16527,21 @@ function renderFriendRoom(room) {
       closeModal('modal-room');
       // 개인전 + 방장이 '무제한'을 켰으면 서바이벌 (곡이 끝나도 둘 다 살아 있으면 끝없이 빨라짐). 아니면 원래 곡으로 점수 승부
       rk.game = null;
+      if (room.pub === 'rush') {
+        stopWaitTimer();
+        startLevel(room.level, { room: { startAt, mode: 'versus', round: room.round, rush: true } });
+        return;
+      }
       startLevel(room.mode === 'versus' && room.endless ? levelSurvivalId(room.level) : room.level, { room: { startAt, mode: room.mode, round: room.round } });
       return;
     }
   }
   if ($('#screen-result').classList.contains('in-room')) renderRoomResult();
+  // 🎲 랜덤 대결은 대기실 없음 (붙으면 바로 시작)
+  if (room.pub === 'rush') {
+    if (c.waiting && !$('#modal-room').hidden) roomPanel('wait');
+    return;
+  }
   // 빠른 대결: 아직 상대가 없으면 '찾는 중' 화면
   if (c.waiting) {
     roomUi.wasWaiting = true;
@@ -16521,6 +16875,8 @@ const ACTIONS = {
   'room-open': () => openRoom(),
   'room-close': () => closeModal('modal-room'),
   'ranked-go': rankedGo,
+  'rush-go': rushGo,
+  'rush-next': rushNext,
   'room-create': roomCreate,
   'room-join': roomJoin,
   'room-ready': roomReady,
@@ -16722,7 +17078,10 @@ const ACTIONS = {
     // 🏆 랭킹전 판을 중간에 그만두면 진 판 / 친구 대결은 지금 점수로 끝낸 걸로 알림
     if (document.body.classList.contains('room-game')) {
       if (rk.game) rankedQuit();
-      else if (state.roomClient.active && state.game)
+      else if (state.roomClient.active && state.roomClient.room && state.roomClient.room.pub === 'rush') {
+        state.roomClient.leave(); // 🎲 랜덤 대결을 그만두면 진 판 (상대는 내가 나간 걸 보고 이김)
+        toast('랜덤 대결을 그만뒀어요', 2200);
+      } else if (state.roomClient.active && state.game)
         state.roomClient.send({ final: { score: state.game.score, stars: 0, grade: 'F', failed: true, died: true, maxCombo: state.game.maxCombo, accuracy: 0 } }, true);
     }
     document.body.classList.remove('room-game');
@@ -17271,7 +17630,7 @@ async function boot() {
     else toast('도전장 링크가 깨졌어요. 다시 받아 주세요!', 3000);
   }
   document.documentElement.dataset.api = state.api.mode;
-  if (devParam('debug') === '1') window.__kk = { state, audio, renderer };
+  if (devParam('debug') === '1') window.__kk = { state, audio, renderer, startLevel };
 }
 
 boot();

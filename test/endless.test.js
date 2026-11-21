@@ -69,7 +69,6 @@ test('16단계 교향곡 40번: 탐탐이 더해진 5악기, 15단계보다 살�
 
 test('17단계 라 쿠카라차: 클래식 아닌 전통 민요, 5악기 지옥, 킥 연타, 같은 엄지 16분음표 연타 없음', () => {
   const lv = getLevel(17);
-  assert.equal(LAST_LEVEL_ID, 17);
   assert.match(lv.composer, /민요/);
   assert.equal(lv.difficulty, 5);
   assert.deepEqual(levelLanes(lv), [CRASH, KICK, TOM, SNARE, HAT]);
@@ -80,6 +79,24 @@ test('17단계 라 쿠카라차: 클래식 아닌 전통 민요, 5악기 지옥,
   assert.equal(lv.bars[lv.rolls[0].bar].replace(/\./g, '').length <= 1, true, '연타 마디엔 노트가 거의 없음');
   assertNoSameThumb16th(buildNotes(lv), 'Lv.17');
   // 단계별 무제한도 5악기 그대로
+  assert.deepEqual(levelLanes(makeLevelEndless(lv)), levelLanes(lv));
+});
+
+test('18단계 엘리제를 위하여: 베토벤, 본편 마지막(지옥), 5악기, 하이햇 연타, 같은 엄지 16분음표 연타 없음', () => {
+  const lv = getLevel(18);
+  assert.equal(LAST_LEVEL_ID, 18);
+  assert.equal(lv.name, '엘리제를 위하여');
+  assert.equal(lv.composer, '베토벤');
+  assert.ok(!lv.xmas && !lv.long);
+  assert.equal(lv.difficulty, 5);
+  assert.deepEqual(levelLanes(lv), [CRASH, KICK, TOM, SNARE, HAT]);
+  for (let b = 0; b < lv.bars.length; b++) assert.equal(lv.bars[b].length, STEPS_PER_BAR, `마디 ${b}`);
+  assert.equal(lv.song.melody.length, lv.bars.length);
+  // 첫 소절 미 레# 미 레# 미 시 레 도
+  assert.deepEqual(parseMelody(lv.song.melody).slice(0, 8).map((n) => n.midi), [76, 75, 76, 75, 76, 71, 74, 72]);
+  assert.equal(lv.rolls[0].lane, HAT);
+  assert.ok(lv.bars[lv.rolls[0].bar].replace(/\./g, '').length <= 1, '연타 마디엔 노트가 거의 없음');
+  assertNoSameThumb16th(buildNotes(lv), 'Lv.18');
   assert.deepEqual(levelLanes(makeLevelEndless(lv)), levelLanes(lv));
 });
 
@@ -312,7 +329,7 @@ test('🎬 영상 전용 릴스 4드럼: 4악기, 10단계보다 느리고 그 �
 });
 
 test('같은 난이도 하나를 깨면 그 난이도 단계가 전부 열림 (지옥 하나 깨면 지옥 전부)', () => {
-  assert.deepEqual(tierOf(13), [13, 14, 15, 16, 17]);
+  assert.deepEqual(tierOf(13), [13, 14, 15, 16, 17, 18]);
   assert.deepEqual(tierOf(9), [9, 10, 11, 12]);
   const b = {};
   for (let i = 1; i <= 12; i++) b[i] = { stars: 1 };
@@ -323,7 +340,7 @@ test('같은 난이도 하나를 깨면 그 난이도 단계가 전부 열림 (�
   assert.equal(unlockHint(14, b).short, '지옥 단계 하나만 깨면 열림');
   // 13단계를 깨면 지옥(13~16) 전부
   b[13] = { stars: 1 };
-  for (const id of [14, 15, 16, 17]) assert.ok(isUnlocked(id, b), `${id}단계`);
+  for (const id of [14, 15, 16, 17, 18]) assert.ok(isUnlocked(id, b), `${id}단계`);
   // 별 0개는 못 깬 것
   const c = { 1: { stars: 1 }, 2: { stars: 1 }, 3: { stars: 1 }, 4: { stars: 1 }, 5: { stars: 0 } };
   assert.ok(isUnlocked(5, c) && !isUnlocked(6, c) && !isUnlocked(8, c));

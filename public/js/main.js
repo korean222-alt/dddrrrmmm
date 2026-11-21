@@ -26,8 +26,9 @@ import { RoomClient, roomOutcome, survivalOutcome } from './room.js';
 import { makeReelCover } from './cover.js';
 import { detectBeat, monoOf, songChart } from './beatsync.js';
 import { seasonLeftText, BOARD_LABEL } from './season.js';
-import { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder } from './storage.js';
+import { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder, resetOldLevel18 } from './storage.js';
 
+resetOldLevel18(); // 18번 = 엘리제를 위하여 (그 전 찬송가 기록 지움)
 migrateLevelOrder(); // 8단계에 새 곡이 끼면서 밀린 번호를 이 브라우저 기록에도 반영 (아래 state 보다 먼저)
 import { makeShareCard, gradeColor } from './sharecard.js';
 import { icon, watchEmoji } from './icons.js';
@@ -550,9 +551,11 @@ function renderLevels() {
       : b
         ? `${starsHTML(b.stars || 0, 'sm')}<span>${fmt(b.score)}</span>`
         : `${starsHTML(0, 'sm')}<span>NEW</span>`;
-    return `${groupHeadHTML(lv.id)}<button class="level-card ${locked ? 'locked' : ''} ${lv.boss ? 'boss' : ''} ${lv.xmas ? 'xmas' : ''}" data-level="${lv.id}">
+    const fresh = lv.newUntil && Date.now() < Date.parse(`${lv.newUntil}T23:59:59+09:00`);
+    return `${groupHeadHTML(lv.id)}<button class="level-card ${locked ? 'locked' : ''} ${lv.boss ? 'boss' : ''} ${lv.xmas ? 'xmas' : ''} ${lv.extreme ? 'extreme' : ''}" data-level="${lv.id}">
+      ${fresh ? '<span class="newtag">NEW</span>' : ''}
       <div class="lv">${lv.xmas ? `<span class="ev">${icon('tree', true)}<small>이벤트</small></span>` : `<span>${lv.id}<small>단계</small></span>`}</div>
-      <div class="info"><h4>${lv.name} <small>${lv.composer}</small></h4><p>${lv.tagline}</p>${diffHTML(lv.difficulty)}</div>
+      <div class="info"><h4>${lv.name} <small>${lv.composer}</small></h4><p>${lv.tagline}</p>${diffHTML(lv.difficulty)}${lv.extreme ? '<span class="extreme-chip">☠ 게임에서 제일 어려움</span>' : ''}</div>
       <div class="meta">${meta}</div>
     </button>`;
   });
@@ -636,6 +639,7 @@ async function startLevel(id, opts = {}) {
   show('screen-game');
   $('#hud-lv').textContent = practice ? `🐢 연습 ${Math.round(practice * 100)}%` : lv.userMap ? '🎹 유저 맵' : lv.custom ? '🎵 내 노래' : lv.survival ? '⚔️ 서바이벌' : lv.challenge ? (lv.endless ? '무제한' : '챌린지') : lv.studioOnly ? '🎬 릴스용' : levelLabel(lv);
   $('#hud-name').textContent = lv.challenge ? `${lv.songName} · ${lv.composer}` : `${lv.name} · ${lv.composer}`;
+  if (room && room.rush) $('#hud-lv').textContent = `🎲 ${room.round}곡째`;
   $('#hud-score').textContent = '0';
   $('#hud-progress').style.width = '0%';
   closeModal('modal-continue');
@@ -771,7 +775,7 @@ async function startLevel(id, opts = {}) {
       if (!state.studio.active && !res.auto && !res.practice) trackPlayEnd({ result: res.failed || res.died ? 'fail' : 'clear', score: res.score, stars: res.stars });
       if (room && room.ghost) res.room = { mode: 'versus', ghost: room.ghost, gid: room.gid };
       if (live && state.roomClient.active) {
-        res.room = { mode: room.mode, round: room.round, ranked: !!room.ranked };
+        res.room = { mode: room.mode, round: room.round, ranked: !!room.ranked, rush: !!room.rush };
         state.roomClient.send(
           { final: { score: res.score, stars: res.stars, grade: res.grade, failed: !!res.failed, maxCombo: res.maxCombo, accuracy: res.accuracy, died: !!(res.died || res.failed), survived: res.survived || 0, lv: res.roundReached || 0 } },
           true
@@ -787,7 +791,7 @@ async function startLevel(id, opts = {}) {
     // 상대와 같은 시각에 시작: 남은 시간 카운트다운 (Game.start 가 0.35초 뒤에 첫 박을 놓음)
     const box = $('#studio-count');
     box.hidden = false;
-    $('#studio-count-msg').textContent = room.ranked ? `🏆 ${roomOtherName()} 님과 랭킹전!` : room.mode === 'team' ? '🤝 팀전! 둘이 같이 깨 봐요' : `⚔️ ${roomOtherName()} 님과 대결!`;
+    $('#studio-count-msg').textContent = room.rush ? `🎲 ${room.round}곡째! ${roomOtherName()} 님과 대결` : room.ranked ? `🏆 ${roomOtherName()} 님과 랭킹전!` : room.mode === 'team' ? '🤝 팀전! 둘이 같이 깨 봐요' : `⚔️ ${roomOtherName()} 님과 대결!`;
     const g = state.game;
     // 기다리는 동안 무대(맵)를 그려 둠
     renderer.draw({ now: -1, notes: g.notes, approach: g.approach, beatDur: g.beat, combo: 0, score: 0, playing: false }, performance.now() / 1000);
@@ -4017,7 +4021,7 @@ function openRoom(code) {
     return;
   }
   const c = state.roomClient;
-  const friend = c.active && c.room && c.room.pub !== 'ranked';
+  const friend = c.active && c.room && !c.room.pub;
   roomPanel(friend ? 'lobby' : c.active && c.waiting ? 'wait' : 'entry');
   if (friend) renderFriendRoom(c.room);
   else {
@@ -4139,6 +4143,7 @@ function renderRoomResult() {
   const res = state.lastResult;
   if (!res || !res.room) return;
   if (res.room.ranked || res.room.ghost) renderRankedResult();
+  else if (res.room.rush) renderRushResult();
   else renderFriendResult();
 }
 /** 결과 화면: 랭킹전 결과 (승패 · 점수 변화) */
@@ -4192,6 +4197,110 @@ function renderRankedResult() {
   // 결과가 정해지면 서버로 (실시간은 서버가 상대 점수를 확인)
   if (sub.state === 'idle' && (res.room.ghost || result != null)) submitRanked(res);
 }
+// ----- 🎲 랜덤 대결 (4~18단계 무작위 · 둘 다 깨면 다음 곡 · 먼저 쓰러지면 짐) -----
+const RUSH_WAIT_MAX_MS = 3 * 60_000; // 이만큼 기다려도 안 잡히면 그만 (서버 요청 아끼기)
+const rush = { over: null }; // 끝난 판 결과 (방을 나간 뒤에도 결과 화면에 그대로)
+async function rushGo() {
+  if (followGated()) {
+    openVerify(null, { label: '🎲 랜덤 대결은 팔로워만', then: rushGo });
+    return;
+  }
+  if (needsCalibration()) {
+    closeModal('modal-room');
+    openCalibration({ required: true, after: rushGo });
+    return;
+  }
+  // 소리는 사용자가 누를 때만 켤 수 있어서 지금 켜 둠 (상대를 찾으면 타이머로 시작)
+  await audio.unlock();
+  roomUi.round = 0;
+  rush.over = null;
+  const c = state.roomClient;
+  try {
+    if (c.active) await c.leave();
+    const waiting = await c.quick(myRoomName(), 'rush');
+    if (!waiting) return; // 바로 붙음 → renderRoom 이 시작
+  } catch (e) {
+    toast(roomErrText(e), 3000);
+    return;
+  }
+  openModal('modal-room');
+  roomPanel('wait');
+  const t0 = Date.now();
+  const tick = async () => {
+    if (!c.active || !c.waiting) return stopWaitTimer();
+    const sec = Math.floor((Date.now() - t0) / 1000);
+    $('#room-wait-title').textContent = `🎲 상대 찾는 중… ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+    $('#room-wait-sub').textContent = '누가 들어오면 바로 시작해요 · 친구에게 랜덤 대결 들어오라고 해 보세요!';
+    if (Date.now() - t0 < RUSH_WAIT_MAX_MS) return;
+    stopWaitTimer();
+    await c.poll();
+    if (!c.active || !c.waiting) return;
+    await c.leave();
+    roomPanel('entry');
+    toast('지금은 상대가 없어요. 조금 뒤에 다시 해 보세요', 3200);
+  };
+  stopWaitTimer();
+  tick();
+  roomUi.waitTimer = setInterval(tick, 1000);
+}
+/** 결과 화면: 랜덤 대결 (둘 다 깼으면 다음 곡 기다림 / 누가 쓰러졌으면 승패) */
+function renderRushResult() {
+  const c = state.roomClient;
+  const box = $('#res-room');
+  const res = state.lastResult;
+  if (!res || !res.room) return;
+  box.hidden = false;
+  const acts = '<div class="room-acts"><button class="btn btn-hot" data-action="rush-next">🎲 새 상대 찾기</button><button class="btn btn-ghost" data-action="room-leave">나가기</button></div>';
+  if (rush.over && rush.over.res === res) {
+    box.innerHTML = rush.over.html + acts;
+    return;
+  }
+  const round = res.room.round || 1;
+  const o = c.active && c.room && c.room.round === round ? c.other : c.active && c.room && c.room.round > round ? { next: true } : null;
+  const iDied = !!(res.failed || res.died);
+  const mine = res.score;
+  let r = null, why = '', theirs = null;
+  if (o && o.next) {
+    // 다음 곡이 벌써 정해짐 → 곧 시작 (renderFriendRoom 이 시작함)
+    box.innerHTML = `<div class="room-word win">둘 다 깼어요! 🎉</div><div class="room-why">${round + 1}곡째 곧 시작해요…</div>`;
+    return;
+  }
+  if (!c.active || !o || (o.left && !o.final)) {
+    if (iDied) r = 'lose', why = '내가 먼저 목숨을 다 썼어요';
+    else r = 'win', why = '상대가 나갔어요';
+  } else if (iDied || (o.final && o.final.died)) {
+    theirs = o.final ? o.final.score : o.live ? o.live.score : null;
+    if (iDied && !(o.final && o.final.died)) r = 'lose', why = '내가 먼저 목숨을 다 썼어요';
+    else if (!iDied) r = 'win', why = `${escapeHtml(o.name)} 님이 먼저 목숨을 다 썼어요`;
+    else {
+      r = roomOutcome('versus', mine, theirs).result;
+      why = '둘 다 쓰러져서 점수로';
+    }
+  } else if (o.final) {
+    box.innerHTML = `<div class="room-word win">둘 다 깼어요! 🎉</div><div class="room-why">다른 곡으로 ${round + 1}곡째 준비 중…</div>
+      <div class="room-row"><span>나<b>${fmt(mine)}</b></span><span>VS</span><span>${escapeHtml(o.name)}<b>${fmt(o.final.score)}</b></span></div>`;
+    return;
+  } else {
+    box.innerHTML = `<div class="room-word">${escapeHtml(o.name)} 님 아직 치는 중… ${o.live ? Math.round((o.live.progress || 0) * 100) + '%' : ''}</div><div class="room-why">상대도 깨면 다른 곡이 바로 이어져요</div>`;
+    return;
+  }
+  const word = { win: '승리! 🎉', lose: '아쉽게 패배…', draw: '무승부!' };
+  const name = o && o.name ? escapeHtml(o.name) : '상대';
+  const html = `<div class="room-word ${r}">${word[r]}</div><div class="room-why">${why} · ${round}곡째에서 끝 (${round - 1}곡 같이 깸)</div>
+    <div class="room-row"><span>나<b>${fmt(mine)}</b></span><span>VS</span><span>${name}<b>${theirs == null ? '-' : fmt(theirs)}</b></span></div>`;
+  rush.over = { res, html };
+  box.innerHTML = html + acts;
+  if (c.active) c.leave(); // 판이 끝났으니 방에서 나옴
+}
+async function rushNext() {
+  $('#screen-result').classList.remove('in-room');
+  $('#res-room').hidden = true;
+  document.body.classList.remove('room-game');
+  show('screen-title');
+  refreshTitle();
+  openRoom();
+  rushGo();
+}
 // ----- 👫 친구 대결 방 (코드로 만들고 들어가기) -----
 function renderFriendRoom(room) {
   const c = state.roomClient;
@@ -4204,11 +4313,21 @@ function renderFriendRoom(room) {
       closeModal('modal-room');
       // 개인전 + 방장이 '무제한'을 켰으면 서바이벌 (곡이 끝나도 둘 다 살아 있으면 끝없이 빨라짐). 아니면 원래 곡으로 점수 승부
       rk.game = null;
+      if (room.pub === 'rush') {
+        stopWaitTimer();
+        startLevel(room.level, { room: { startAt, mode: 'versus', round: room.round, rush: true } });
+        return;
+      }
       startLevel(room.mode === 'versus' && room.endless ? levelSurvivalId(room.level) : room.level, { room: { startAt, mode: room.mode, round: room.round } });
       return;
     }
   }
   if ($('#screen-result').classList.contains('in-room')) renderRoomResult();
+  // 🎲 랜덤 대결은 대기실 없음 (붙으면 바로 시작)
+  if (room.pub === 'rush') {
+    if (c.waiting && !$('#modal-room').hidden) roomPanel('wait');
+    return;
+  }
   // 빠른 대결: 아직 상대가 없으면 '찾는 중' 화면
   if (c.waiting) {
     roomUi.wasWaiting = true;
@@ -4542,6 +4661,8 @@ const ACTIONS = {
   'room-open': () => openRoom(),
   'room-close': () => closeModal('modal-room'),
   'ranked-go': rankedGo,
+  'rush-go': rushGo,
+  'rush-next': rushNext,
   'room-create': roomCreate,
   'room-join': roomJoin,
   'room-ready': roomReady,
@@ -4743,7 +4864,10 @@ const ACTIONS = {
     // 🏆 랭킹전 판을 중간에 그만두면 진 판 / 친구 대결은 지금 점수로 끝낸 걸로 알림
     if (document.body.classList.contains('room-game')) {
       if (rk.game) rankedQuit();
-      else if (state.roomClient.active && state.game)
+      else if (state.roomClient.active && state.roomClient.room && state.roomClient.room.pub === 'rush') {
+        state.roomClient.leave(); // 🎲 랜덤 대결을 그만두면 진 판 (상대는 내가 나간 걸 보고 이김)
+        toast('랜덤 대결을 그만뒀어요', 2200);
+      } else if (state.roomClient.active && state.game)
         state.roomClient.send({ final: { score: state.game.score, stars: 0, grade: 'F', failed: true, died: true, maxCombo: state.game.maxCombo, accuracy: 0 } }, true);
     }
     document.body.classList.remove('room-game');
@@ -5292,7 +5416,7 @@ async function boot() {
     else toast('도전장 링크가 깨졌어요. 다시 받아 주세요!', 3000);
   }
   document.documentElement.dataset.api = state.api.mode;
-  if (devParam('debug') === '1') window.__kk = { state, audio, renderer };
+  if (devParam('debug') === '1') window.__kk = { state, audio, renderer, startLevel };
 }
 
 boot();

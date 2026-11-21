@@ -11,7 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { shiftOldLevelKey, LAST_LEVEL_ID } from '../public/js/charts.js';
-import { DECK_RESET_BEFORE } from './pgstore.js';
+import { DECK_RESET_BEFORE, ELISE_FROM } from './pgstore.js';
 
 // 이용 통계는 1년 보관
 export const STATS_KEEP_MS = 400 * 24 * 3600 * 1000;
@@ -60,11 +60,23 @@ export class JsonStore {
         for (const p of Object.values(this.data.players)) if (p.bests && p.bests[19] && !(p.bests[19].at >= DECK_RESET_BEFORE)) delete p.bests[19];
         this.data.settings['migration:reset-level-19-v1'] = String(Date.now());
       }
+      // 18단계 = 엘리제를 위하여 (2026-11-21). 그 전 18번(빼 버린 찬송가) 기록은 지움
+      if (!this.data.settings['migration:reset-level-18-v1']) {
+        for (const p of Object.values(this.data.players)) for (const k of ['18', '-18']) if (p.bests && p.bests[k] && !(p.bests[k].at >= ELISE_FROM)) delete p.bests[k];
+        this.data.settings['migration:reset-level-18-v1'] = String(Date.now());
+      }
+      // 18단계 엘리제 랭킹 초기화 (운영자 요청, 채보 바꾼 뒤)
+      if (!this.data.settings['migration:reset-level-18-v2']) {
+        for (const p of Object.values(this.data.players)) if (p.bests) { delete p.bests['18']; delete p.bests['-18']; }
+        this.data.settings['migration:reset-level-18-v2'] = String(Date.now());
+      }
     } catch (e) {
       if (e.code !== 'ENOENT') console.error('[store] 읽기 실패, 새로 시작:', e.message);
       // 새로 시작하는 저장소는 처음부터 새 번호 → 나중에 파일이 생겨도 옮기지 않게 표시
       this.data.settings['migration:insert-level-8-v1'] ??= String(Date.now());
       this.data.settings['migration:reset-level-19-v1'] ??= String(Date.now());
+      this.data.settings['migration:reset-level-18-v1'] ??= String(Date.now());
+      this.data.settings['migration:reset-level-18-v2'] ??= String(Date.now());
     }
     return this;
   }

@@ -152,6 +152,17 @@ export class Game {
       // 🎹 오른손 화음 (멜로디 아래 화음 음, 긴 음은 하나 더)
       n.harm = pianoHarmony(this.level.song, m.bar, m.step, m.midi, m.len >= 4);
     }
+    // 🎹 오른쪽 줄 피아노 건반 범위: 멜로디 가장 낮은 음의 도부터 1~2옥타브
+    const ms = [...at.values()].map((m) => m.midi);
+    if (ms.length) {
+      const base = Math.floor(Math.min(...ms) / 12) * 12;
+      this.r.pianoRange = { base, oct: Math.max(...ms) - base >= 12 ? 2 : 1 };
+    }
+  }
+
+  /** 🎹 멜로디 노트를 쳤을 때 오른쪽 피아노 건반이 눌림 */
+  _pianoKeys(n, rt) {
+    if (n && n.midi != null) this.r.onPiano([n.midi, ...(n.harm || [])], rt, Math.max(0.18, Math.min(0.6, (n.dur || 0.3) * 0.8)));
   }
 
   /** 🎭 멜로디 줄을 누름 → 칠 노트(없으면 바로 앞뒤로 가장 가까운 노트)의 음을 피아노로 */
@@ -169,6 +180,7 @@ export class Game {
     const d = Math.max(0.25, best.dur * 0.95);
     a.pianoOr('lead', t0, best.midi, d, a.sfxBus, 1.25);
     for (const h of best.harm || []) a.pianoOr('lead', t0, h, d, a.sfxBus, 0.6);
+    this._pianoKeys(best, performance.now() / 1000);
   }
 
   /** 끝나는 시각: 무제한 모드는 끝없음 (목숨이 다 떨어질 때까지) */
@@ -582,6 +594,7 @@ export class Game {
         while (this.ptr[lane] < list.length && list[this.ptr[lane]].time <= now) {
           const n = list[this.ptr[lane]];
           this.r.onTap(lane, rt);
+          if (lane === SNARE && this.level.tapMelody) this._pianoKeys(n, rt);
           this._judge(n, 0, rt);
           this.ptr[lane]++;
         }

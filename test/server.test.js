@@ -631,6 +631,46 @@ test('⚡ 빠른 대결: 같은 묶음에서 기다리는 사람과 바로 붙�
   await C('POST', '/api/rooms', { action: 'leave', code: c.json.code, slot: 'a', key: c.json.key });
 });
 
+test('🎲 랜덤 대결: 4~18단계 한 묶음 · 붙으면 바로 시작 · 둘 다 깨면 다른 곡 · 쓰러지면 끝 · 나가면 방 닫힘', async () => {
+  assert.equal((await client()('POST', '/api/rooms', { action: 'quick', name: '셋째', bracket: 'rush' })).json.error, 'confirm_required');
+  const A = await verifiedClient('러시에이', 'rush.a');
+  const B = await verifiedClient('러시비', 'rush.b');
+  const C = await verifiedClient('러시씨', 'rush.c');
+  const a = await A('POST', '/api/rooms', { action: 'quick', name: '러시에이', bracket: 'rush' });
+  assert.equal(a.json.waiting, true);
+  const b = await B('POST', '/api/rooms', { action: 'quick', name: '러시비', bracket: 'rush' });
+  assert.equal(b.json.code, a.json.code);
+  assert.equal(b.json.room.status, 'playing', '준비 없이 바로');
+  assert.equal(b.json.room.round, 1);
+  const l1 = b.json.room.level;
+  assert.ok(l1 >= 4 && l1 <= 18, '4~18단계');
+  const ka = { code: a.json.code, slot: 'a', key: a.json.key };
+  const kb = { code: b.json.code, slot: 'b', key: b.json.key };
+  // 한 명만 끝 → 그대로
+  let q = await A('POST', '/api/rooms', { action: 'sync', ...ka, final: { score: 9000 } });
+  assert.equal(q.json.room.round, 1);
+  // 둘 다 깸 → 다른 곡으로 다음 판
+  q = await B('POST', '/api/rooms', { action: 'sync', ...kb, final: { score: 8000 } });
+  assert.equal(q.json.room.round, 2);
+  assert.equal(q.json.room.status, 'playing');
+  assert.notEqual(q.json.room.level, l1, '방금 친 곡은 빼고');
+  assert.ok(q.json.room.startAt > q.json.now);
+  assert.equal(q.json.room.players.a.final, null, '새 판이라 지난 결과는 안 보임');
+  assert.equal((await A('POST', '/api/rooms', { action: 'again', ...ka })).json.error, 'bad_action');
+  // 2곡째에서 A 가 쓰러짐 → 다음 곡 없음
+  await A('POST', '/api/rooms', { action: 'sync', ...ka, final: { score: 100, died: true, failed: true } });
+  q = await B('POST', '/api/rooms', { action: 'sync', ...kb, final: { score: 5000 } });
+  assert.equal(q.json.room.round, 2);
+  assert.equal(q.json.room.players.a.final.died, true);
+  // A 가 나가면 방은 끝 → 다른 사람이 안 붙음
+  await A('POST', '/api/rooms', { action: 'leave', ...ka });
+  const c = await C('POST', '/api/rooms', { action: 'quick', name: '러시씨', bracket: 'rush' });
+  assert.notEqual(c.json.code, a.json.code);
+  assert.equal(c.json.waiting, true);
+  await C('POST', '/api/rooms', { action: 'leave', code: c.json.code, slot: 'a', key: c.json.key });
+  await B('POST', '/api/rooms', { action: 'leave', ...kb });
+});
+
 test('🏆 랭킹전: 실시간으로 붙으면 바로 시작 · 결과로 엘로 · 안 잡히면 고스트(처음엔 봇) · 다음 사람 고스트로', async () => {
   const { getLevel: gl, maxScore: ms } = await import('../public/js/charts.js');
   assert.equal((await client()('POST', '/api/ranked', { action: 'ghost' })).json.error, 'confirm_required');

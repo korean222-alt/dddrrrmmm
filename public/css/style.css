@@ -443,6 +443,17 @@ input[type='range'] { width: 100%; accent-color: var(--grass); height: 28px; }
 .level-card.endless-card .lockline { color: #ffd84a; }
 .level-card.endless-card.locked .lv { background: #6d6590; }
 .level-card.boss .lv { background: #e2541f; }
+/* 새 단계 딱지 · ☠ 게임에서 제일 어려운 곡 (18단계 엘리제) */
+.level-card .newtag { position: absolute; top: -11px; right: 14px; font-size: 12px; background: #ffd84a; color: var(--ink); padding: 2px 10px; border-radius: 99px; border: 2px solid var(--ink); animation: newtag-bob 1.6s ease-in-out infinite; }
+@keyframes newtag-bob { 50% { transform: translateY(-3px) rotate(-4deg); } }
+.level-card.extreme { background: linear-gradient(120deg, #fff 55%, #ffe1e1); border-color: #7a0b16; box-shadow: 0 4px 0 #7a0b16, 0 0 0 3px rgba(226, 38, 61, 0.25); }
+.level-card.extreme .lv { background: radial-gradient(circle at 35% 30%, #ff4d5e, #7a0b16 70%, #1a0204); }
+.level-card.extreme .lv small { color: #fff; }
+.level-card.extreme.locked .lv { background: #d9d4e3; }
+.level-card.extreme.locked .lv small { color: var(--ink); }
+.level-card .extreme-chip { display: inline-block; margin: 5px 0 0 8px; font-size: 12px; color: #fff; background: #1a0204; padding: 1px 8px; border-radius: 99px; animation: extreme-pulse 1.2s ease-in-out infinite; }
+@keyframes extreme-pulse { 50% { background: #c4162a; } }
+@media (prefers-reduced-motion: reduce) { .level-card .newtag, .level-card .extreme-chip { animation: none; } }
 .level-card.boss.locked .lv { background: #d9d4e3; }
 .level-card.locked { opacity: 0.86; }
 .chips button.chip-hot { border-color: var(--ink); background: #fff3ec; }
@@ -586,6 +597,8 @@ body.room-game #modal-pause [data-action='retry'], body.room-game #modal-continu
 .suggest-note { font-size: 13px; line-height: 1.5; background: #fff7e0; border: 2px dashed #e8b84a; border-radius: 12px; padding: 8px 10px; margin: 0 0 10px; }
 .room-join input { min-width: 0; width: 100%; }
 .room-sec > .btn { width: 100%; margin-bottom: 4px; }
+.room-rush { padding-bottom: 10px; }
+.room-rush p { margin: 0 0 10px; line-height: 1.45; }
 .quick-row + p { margin-top: 10px; }
 /* 아이폰 Safari 에서 좁은 폭에도 멀티 창이 옆으로 안 잘리게 */
 .room-join { grid-template-columns: minmax(0, 1fr) auto; }

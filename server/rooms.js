@@ -9,7 +9,7 @@
 //            players: { a: { name, part, key(비밀), ready('cfgVer.round' 문자열 | null), seenAt, live:{round,score,combo,progress,lives}, final:{round,...} }, b: … } }
 
 import { newId } from './session.js';
-import { LEVELS, getLevel, levelDuration, FREE_UPTO } from '../public/js/charts.js';
+import { LEVELS, getLevel, levelDuration, FREE_UPTO, LAST_LEVEL_ID } from '../public/js/charts.js';
 import { RANKED_POOL, rankedPoolFor } from './ranked.js';
 
 export const ROOM_TTL_MS = 2 * 3600 * 1000;
@@ -20,14 +20,28 @@ export const ROOM_PARTS_READY = ['drum'];
 const SLOTS = ['a', 'b'];
 
 // ⚡ 빠른 대결 (모르는 사람과): 사람이 적을 수 있어서 난이도를 두 묶음으로만
-//   easy = 쉬움·보통 (난이도 1~3 = 1~8단계) / hard = 어려움·극악 (난이도 4~5 = 9~17단계)
+//   easy = 쉬움·보통 (난이도 1~3 = 1~8단계) / hard = 어려움·극악 (난이도 4~5 = 9~18단계)
 export const BRACKETS = {
   // 🎄 캐롤(18~20단계)은 빠른 대결엔 안 넣음 (친구 방에선 고를 수 있음)
   easy: LEVELS.filter((l) => !l.xmas && !l.long && l.difficulty <= 3).map((l) => l.id),
   hard: LEVELS.filter((l) => !l.xmas && !l.long && l.difficulty >= 4).map((l) => l.id),
   // 🏆 랭킹전 (server/ranked.js): 상대가 붙으면 준비 없이 바로 시작
   ranked: RANKED_POOL,
+  // 🎲 랜덤 대결 (2026-11-21): 4~18단계 하나로 묶음 (초보·고수 나누니 안 잡혀서). 붙으면 바로 시작,
+  //   둘 다 깨면 다른 곡이 바로 이어지고 누가 먼저 쓰러질 때까지
+  rush: LEVELS.filter((l) => !l.xmas && !l.long && l.id > FREE_UPTO && l.id <= LAST_LEVEL_ID).map((l) => l.id),
 };
+/** 🎲 랜덤 대결: 붙고 나서 첫 곡 시작까지 (기다리던 쪽이 5초마다 물어봐서 알아채도록) */
+export const RUSH_START_DELAY_MS = 10000;
+/** 🎲 둘 다 깼을 때 다음 곡까지 (결과 화면에서 3초마다 물어봄) */
+export const RUSH_NEXT_DELAY_MS = 8000;
+/** 🎲 다음 곡: 방금 친 곡(들)은 빼고 무작위 */
+export function pickRushLevel(recent = [], rand = Math.random) {
+  const all = BRACKETS.rush;
+  const pool = all.filter((id) => !recent.includes(id));
+  const from = pool.length ? pool : all;
+  return from[Math.floor(rand() * from.length)];
+}
 /** 랭킹전: 상대가 붙고 나서 시작까지 (기다리던 쪽이 5초마다 물어봐서 알아채도록 넉넉히) */
 export const RANKED_START_DELAY_MS = 15000;
 /** 기다리는 방은 이 시간 안에 주고받은 적이 있어야 '살아 있음' (창을 닫고 나간 방은 안 잡힘) */
@@ -70,6 +84,13 @@ export function publicRoom(d, now) {
     };
   }
   return { code: d.code, mode: d.mode, void: !!d.void, endless: !!d.endless, level: d.level, status: d.status, round: d.round || 0, startAt: d.startAt || null, host: d.host, pub: d.pub || null, players };
+}
+
+/** 🎲 랜덤 대결: 이번 곡을 둘 다 살아서 끝냈나 (그럼 다음 곡) */
+export function rushBothCleared(d) {
+  if (!d || d.pub !== 'rush' || d.status !== 'playing') return false;
+  const ps = SLOTS.map((s) => d.players && d.players[s]);
+  return ps.every((p) => p && !p.left && p.final && p.final.round === d.round && !p.final.died && !p.final.failed);
 }
 
 const readyTag = (d) => `${d.cfgVer || 0}.${d.round || 0}`;
@@ -150,12 +171,12 @@ export function createRoomHandler({ store, getPlayer, canPlay, isConfirmed = () 
     if (action === 'quick') {
       const name = cleanRoomName(body.name);
       if (!name) return [400, { error: 'bad_name' }];
-      const bracket = body.bracket === 'hard' ? 'hard' : body.bracket === 'ranked' ? 'ranked' : 'easy';
+      const bracket = ['hard', 'ranked', 'rush'].includes(body.bracket) ? body.bracket : 'easy';
       const pl = await getPlayer(request);
       const ok = !!isConfirmed(pl);
       // 어려움·극악 묶음은 전부 4단계 이상 → 팔로워 인증한 사람만
-      if (bracket === 'hard' && canPlay) {
-        const err = await canPlay(BRACKETS.hard[0], pl);
+      if ((bracket === 'hard' || bracket === 'rush') && canPlay) {
+        const err = await canPlay(BRACKETS[bracket][0], pl);
         if (err) return [403, { error: err }];
       }
       let rt = null;
@@ -179,6 +200,11 @@ export function createRoomHandler({ store, getPlayer, canPlay, isConfirmed = () 
           const level = pool[Math.floor(Math.random() * pool.length)];
           const lv = getLevel(level);
           Object.assign(top, { level, status: 'playing', round: 1, startAt: now + RANKED_START_DELAY_MS, endBy: now + RANKED_START_DELAY_MS + levelDuration(lv) * 1000 + 120_000 });
+        }
+        if (bracket === 'rush') {
+          // 🎲 랜덤 대결도 대기실 없이 바로 첫 곡
+          const level = pickRushLevel();
+          Object.assign(top, { level, recent: [level], status: 'playing', round: 1, startAt: now + RUSH_START_DELAY_MS });
         }
         const joined = await store.patchRoom(code, { top, slot: 'b', player: me, cond: { slotFree: 'b', status: 'lobby', round: d.round || 0 } }, now, exp(now));
         if (!joined) continue;
@@ -208,13 +234,14 @@ export function createRoomHandler({ store, getPlayer, canPlay, isConfirmed = () 
         delete players[slot];
         const left = SLOTS.filter((s) => players[s]);
         if (!left.length) await store.deleteRoom(code);
-        else await store.patchRoom(code, { top: { players, host: d.host === slot ? left[0] : d.host, status: 'lobby' } }, now, exp(now));
+        // 🎲 랜덤 대결은 한 명이 나가면 그 방은 끝 (남은 사람에게 모르는 사람이 또 붙지 않게)
+        else await store.patchRoom(code, { top: { players, host: d.host === slot ? left[0] : d.host, status: d.pub === 'rush' ? 'over' : 'lobby' } }, now, exp(now));
         return [200, { ok: true }];
       }
 
       // 한 판 더: 대기실로 (준비는 판 번호가 바뀌어서 저절로 풀림)
       if (action === 'again') {
-        if (d.pub === 'ranked') return [400, { error: 'bad_action' }];
+        if (d.pub === 'ranked' || d.pub === 'rush') return [400, { error: 'bad_action' }];
         const out = (await store.patchRoom(code, { top: { status: 'lobby' }, cond: { status: 'playing', round: d.round || 0 } }, now, exp(now))) || (await store.getRoom(code, now));
         return [200, { room: publicRoom(out, now), now }];
       }
@@ -291,6 +318,18 @@ export function createRoomHandler({ store, getPlayer, canPlay, isConfirmed = () 
         );
         if (started) out = started;
         else out = (await store.getRoom(code, now)) || out;
+      }
+      // 🎲 랜덤 대결: 둘 다 살아서 곡을 끝냄 → 다른 곡 바로 (먼저 바꾼 쪽만 성공)
+      if (rushBothCleared(out)) {
+        const recent = Array.isArray(out.recent) ? out.recent.slice(-4) : [out.level];
+        const level = pickRushLevel(recent);
+        const next = await store.patchRoom(
+          code,
+          { top: { level, recent: [...recent, level].slice(-5), round: (out.round || 0) + 1, startAt: now + RUSH_NEXT_DELAY_MS }, cond: { status: 'playing', round: out.round || 0 } },
+          now,
+          exp(now)
+        );
+        out = next || (await store.getRoom(code, now)) || out;
       }
       return [200, { room: publicRoom(out, now), now }];
     }
