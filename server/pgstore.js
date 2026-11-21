@@ -87,6 +87,11 @@ const SCHEMA_FLAG = (() => {
   return 'schema:' + h.toString(36);
 })();
 
+/** SCHEMA 전부를 DO 블록 하나로 (문장마다 다른 $s0$ 따옴표로 감싸 EXECUTE → 안쪽의 DO $$ … $$ 도 그대로 됨) */
+export function schemaBlock() {
+  return `DO $schema$ BEGIN\n${SCHEMA.map((s, i) => `EXECUTE $s${i}$${s}$s${i}$;`).join('\n')}\nEND $schema$`;
+}
+
 // 이용 통계는 1년 보관
 const STATS_KEEP_MS = 400 * 24 * 3600 * 1000;
 
@@ -107,7 +112,9 @@ export class PgStore {
     try {
       if (await this.one('SELECT 1 AS ok FROM settings WHERE key = $1', [SCHEMA_FLAG])) return this;
     } catch {}
-    for (const s of SCHEMA) await this.q(s);
+    // ⚠ Cloudflare 무료는 요청 하나당 바깥 연결(=Neon 쿼리) 50번까지 → 표 만들기를 한 문장(DO 블록)으로 묶어 1번에 보냄
+    //   (하나씩 보내면 40번 넘게 왕복 → 표를 하나만 더 늘려도 배포 직후 서버가 계속 실패할 수 있었음)
+    await this.q(schemaBlock());
     await this.removeInstagramData();
     await this.shiftLevelsV2();
     await this.repairShiftedLevels();
@@ -351,6 +358,21 @@ END $$`);
     await this.q('DELETE FROM scores WHERE igsid IN (SELECT igsid FROM players WHERE hidden_at IS NOT NULL AND hidden_at < $1)', [cut]);
     const r = await this.q('DELETE FROM players WHERE hidden_at IS NOT NULL AND hidden_at < $1 RETURNING igsid', [cut]);
     return r.length;
+  }
+  /**
+   * 다 쓴 줄 지우기 (DB 왕복 1번): 지난 판 토큰(used_runs, 전엔 안 지워서 판마다 쌓였음)·끝난 방·지난 옮기기 코드·1년 넘은 이용 통계
+   *   Neon 무료 저장 용량 아끼기. 접속(/api/me) 때 가끔(purgeMaybe)
+   */
+  async cleanup(now = Date.now()) {
+    const old = now - STATS_KEEP_MS;
+    await this.q(
+      `WITH a AS (DELETE FROM used_runs WHERE expires_at < $1),
+         b AS (DELETE FROM rooms WHERE expires_at < $1),
+         c AS (DELETE FROM transfers WHERE expires_at < $1),
+         d AS (DELETE FROM plays WHERE started_at < $2)
+       DELETE FROM sessions WHERE started_at < $2`,
+      [now, old]
+    );
   }
   async setChecked(igsid, on) {
     // 확인함 = 숨김도 풀림. on === 'temp' 는 암호 없이 받은 임시 인증 → 음수 시각으로 표시

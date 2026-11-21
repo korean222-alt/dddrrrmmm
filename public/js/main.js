@@ -134,15 +134,22 @@ const isLocalDev = () => /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.host
  */
 let reconnecting = null;
 let reconnectTriedAt = 0;
+let reconnectFails = 0;
 function reconnectServer({ force = false } = {}) {
   if (state.api && state.api.mode === 'server') return Promise.resolve(true);
   if (CONFIG.apiMode === 'mock') return Promise.resolve(false);
-  if (!force && Date.now() - reconnectTriedAt < 30 * 1000) return Promise.resolve(false);
+  // 계속 안 되면 30초 → 1분 → 2분 … 10분 간격으로만 다시 해 봄 (하루 한도를 넘겨 서버가 막혔을 때 헛요청 줄이기)
+  const gap = Math.min(600, 30 * 2 ** reconnectFails) * 1000;
+  if (!force && Date.now() - reconnectTriedAt < gap) return Promise.resolve(false);
   reconnectTriedAt = Date.now();
   reconnecting ??= (async () => {
     try {
       const api = await createApi({ ...CONFIG, apiMode: 'auto' });
-      if (api.mode !== 'server') return false;
+      if (api.mode !== 'server') {
+        reconnectFails = Math.min(reconnectFails + 1, 5);
+        return false;
+      }
+      reconnectFails = 0;
       state.api = api;
       if (state.roomClient) state.roomClient.api = api;
       initTracker({ enabled: true });
@@ -4039,6 +4046,7 @@ function openRoom(code) {
     $('#room-name').value = load('roomName', '') || myRoomName();
     if (code) $('#room-code').value = code;
     $$('#room-mode-new [data-mode]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mode === roomUi.newMode)));
+    showRushWaiting();
   }
   openModal('modal-room');
 }
@@ -4207,6 +4215,20 @@ function renderRankedResult() {
     <div class="room-acts"><button class="btn btn-primary" data-action="room-next">🏆 한 판 더</button><button class="btn btn-ghost" data-action="room-leave">나가기</button></div>`;
   // 결과가 정해지면 서버로 (실시간은 서버가 상대 점수를 확인)
   if (sub.state === 'idle' && (res.room.ghost || result != null)) submitRanked(res);
+}
+/** 🎲 지금 기다리는 사람 수 (창 열 때 한 번만 물어봄 — 요청 아끼려고 폴링 안 함, 10초 안에 다시 열면 그대로) */
+async function showRushWaiting() {
+  const el = $('#rush-wait');
+  if (Date.now() - (roomUi.cntAt || 0) < 10_000) return;
+  roomUi.cntAt = Date.now();
+  const n = await state.roomClient.waitingCounts();
+  if (!n || n.rush == null) {
+    el.hidden = true;
+    return;
+  }
+  el.hidden = false;
+  el.classList.toggle('on', n.rush > 0);
+  el.textContent = n.rush > 0 ? `지금 대기 ${n.rush >= 5 ? '5명+' : n.rush + '명'} · 바로 붙어요!` : '지금 대기 0명';
 }
 // ----- 🎲 랜덤 대결 (4~18단계 무작위 · 둘 다 깨면 다음 곡 · 먼저 쓰러지면 짐) -----
 const RUSH_WAIT_MAX_MS = 3 * 60_000; // 이만큼 기다려도 안 잡히면 그만 (서버 요청 아끼기)

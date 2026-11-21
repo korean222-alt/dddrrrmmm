@@ -160,11 +160,10 @@ export function createRoomHandler({ store, getPlayer, canPlay, isConfirmed = () 
       return [200, { code, slot, key, room: publicRoom(out, now), now }];
     }
 
-    // 빠른 대결 기다리는 사람 수 (멀티 창 열 때 한 번만 물어봄. 5명 넘으면 5)
+    // 🎲 랜덤 대결 기다리는 사람 수 (멀티 창 열 때 한 번만 물어봄. 5명 넘으면 5)
     if (action === 'count') {
-      const fresh = now - QUICK_FRESH_MS;
-      const [easy, hard] = await Promise.all([store.findOpenRooms('easy', fresh, now), store.findOpenRooms('hard', fresh, now)]);
-      return [200, { waiting: { easy: easy.length, hard: hard.length } }];
+      const rush = await store.findOpenRooms('rush', now - QUICK_FRESH_MS, now);
+      return [200, { waiting: { rush: rush.length } }];
     }
 
     // ⚡ 빠른 대결: 같은 묶음에서 기다리는 사람이 있으면 그 방(대기실)에 붙음, 없으면 내가 방을 열고 기다림

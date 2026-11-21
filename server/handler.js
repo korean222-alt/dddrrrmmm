@@ -249,6 +249,7 @@ export function createHandler(cfg, { store }) {
     lastPurge = now;
     try {
       await store.purgeHidden(now);
+      if (store.cleanup) await store.cleanup(now);
     } catch (e) {
       console.error('[purge]', e);
     }
@@ -696,6 +697,7 @@ export function createHandler(cfg, { store }) {
       // 랭킹 참여자 (인스타 아이디로 팔로우 확인 → 안 했으면 삭제)
       if (p === '/api/admin/players' && m === 'GET') {
         await store.purgeHidden();
+        if (store.cleanup) await store.cleanup();
         return json(200, { players: await store.listPlayers(), keepDays: HIDE_KEEP_MS / 86400000 });
       }
       // 랭킹에서 내리기 (5일 뒤 자동 삭제, 그 사이 다시 들어와 아이디를 넣으면 돌아옴) / 되돌리기
