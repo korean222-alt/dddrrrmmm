@@ -583,11 +583,9 @@ test('⚡ 빠른 대결: 같은 묶음에서 기다리는 사람과 바로 붙�
   const A = await verifiedClient('기다림', 'quick.a');
   const B = await verifiedClient('찾음', 'quick.b');
   const C = await verifiedClient('셋째', 'quick.c');
-  assert.deepEqual((await client()('POST', '/api/rooms', { action: 'count' })).json.waiting, { easy: 0, hard: 0 });
   const a = await A('POST', '/api/rooms', { action: 'quick', name: '기다림', bracket: 'easy' });
   assert.equal(a.status, 200);
   assert.equal(a.json.waiting, true);
-  assert.deepEqual((await client()('POST', '/api/rooms', { action: 'count' })).json.waiting, { easy: 1, hard: 0 }, '기다리는 사람 수');
   assert.equal(a.json.room.pub, 'easy');
   assert.match(a.json.room.players.a.pid, /^\w{6,}$/);
   const b = await B('POST', '/api/rooms', { action: 'quick', name: '찾음', bracket: 'easy' });
@@ -636,8 +634,10 @@ test('🎲 랜덤 대결: 4~18단계 한 묶음 · 붙으면 바로 시작 · �
   const A = await verifiedClient('러시에이', 'rush.a');
   const B = await verifiedClient('러시비', 'rush.b');
   const C = await verifiedClient('러시씨', 'rush.c');
+  assert.deepEqual((await client()('POST', '/api/rooms', { action: 'count' })).json.waiting, { rush: 0 });
   const a = await A('POST', '/api/rooms', { action: 'quick', name: '러시에이', bracket: 'rush' });
   assert.equal(a.json.waiting, true);
+  assert.deepEqual((await client()('POST', '/api/rooms', { action: 'count' })).json.waiting, { rush: 1 }, '기다리는 사람 수');
   const b = await B('POST', '/api/rooms', { action: 'quick', name: '러시비', bracket: 'rush' });
   assert.equal(b.json.code, a.json.code);
   assert.equal(b.json.room.status, 'playing', '준비 없이 바로');

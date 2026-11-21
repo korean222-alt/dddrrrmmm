@@ -192,7 +192,7 @@ export class RoomClient {
     this._enter(await this._call({ action: 'join', code, name }));
   }
 
-  /** 빠른 대결에서 지금 기다리는 사람 수 { easy, hard } (실패하면 null) */
+  /** 🎲 랜덤 대결에서 지금 기다리는 사람 수 { rush } (실패하면 null) */
   async waitingCounts() {
     try {
       const r = await this.api.room({ action: 'count' });
