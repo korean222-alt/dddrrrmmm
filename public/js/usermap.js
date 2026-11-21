@@ -301,7 +301,12 @@ function fft(re, im) {
  * @param {{ firstBeat: number, bpm: number, bars: number, lo?: number, hi?: number }} o
  * @returns {{ bars: Array<Array<{step,midi,len}>>, found: number }}
  */
-export function transcribe(input, sr, { firstBeat, bpm, bars, lo = 55, hi = 84 }) {
+// 음 따기 설정 (11-21 시험장에서 고름: 사람 목소리 비슷한 소리 + 팝 반주 24곡, 8분 칸 정답률 62% → 87%, scripts/melody-bench.mjs)
+const POSS = [0.5, 0.8]; // 16분 칸 안에서 볼 자리 (음 첫머리 끌어올림을 피해 조금 뒤쪽)
+const WHITEN = 0.8; // 스펙트럼 고르게 하는 세기
+const KEYTH = 0.03; // 곡에서 이보다 드문 '조 밖 음'만 음계 음으로 고침
+const KEYTH_STRAY = 0.1; // 짧게 튀는 조 밖 음은 이 정도까지
+export function transcribe(input, sr, { firstBeat, bpm, bars, lo = 45, hi = 88 }) {
   const chans = input instanceof Float32Array ? [input] : input;
   const L = chans[0];
   const R = chans[chans.length - 1];
@@ -326,10 +331,12 @@ export function transcribe(input, sr, { firstBeat, bpm, bars, lo = 55, hi = 84 }
   const sal = new Float32Array(steps * C);
   const energy = new Float32Array(steps);
   const mag = new Float32Array(N / 2);
+  const wmag = new Float32Array(N / 2);
+  const csum = new Float64Array(N / 2 + 1);
   const peak = (k) => Math.max(mag[k - 1], mag[k], mag[k + 1]);
-  for (let s = 0; s < steps; s++) {
-    // 칸 가운데쯤(음이 울리는 중)
-    const a = Math.round((firstBeat + s * stepSec + stepSec * 0.45) * sr) - N / 2;
+  for (let s = 0; s < steps; s++) for (const pos of POSS) {
+    // 칸 안 몇 군데(음이 울리는 중)를 보고 더함 — 음 첫머리 끌어올림(스쿱)에 덜 속게
+    const a = Math.round((firstBeat + s * stepSec + stepSec * pos) * sr) - N / 2;
     if (a < 0 || a + N > len) continue;
     let e = 0;
     for (let i = 0; i < N; i++) {
@@ -339,7 +346,7 @@ export function transcribe(input, sr, { firstBeat, bpm, bars, lo = 55, hi = 84 }
       im[i] = 0;
       if (stereo) (reR[i] = R[a + i] * win[i]), (imR[i] = 0);
     }
-    energy[s] = Math.sqrt(e / N);
+    energy[s] += Math.sqrt(e / N) / POSS.length;
     fft(re, im);
     if (stereo) fft(reR, imR);
     mag.fill(0);
@@ -358,20 +365,40 @@ export function transcribe(input, sr, { firstBeat, bpm, bars, lo = 55, hi = 84 }
       } else m = Math.hypot(re[k], im[k]);
       mag[k] = comp === 1 ? m : Math.pow(m, comp);
     }
+    // 스펙트럼 고르게 (whitening): 둘레 평균으로 나눔 → 큰 베이스·패드가 낮은 쪽에서 표를 몰아가지 않게
+    {
+      csum[0] = 0;
+      for (let k = 0; k < N / 2; k++) csum[k + 1] = csum[k] + mag[k];
+      for (let k = kMin; k <= kMax; k++) {
+        const hw = Math.max(3, Math.round(k * 0.12));
+        const a2 = Math.max(0, k - hw);
+        const b2 = Math.min(N / 2, k + hw + 1);
+        const avg = (csum[b2] - csum[a2]) / (b2 - a2);
+        wmag[k] = avg > 0 ? mag[k] / Math.pow(avg, WHITEN) : 0;
+      }
+      for (let k = kMin; k <= kMax; k++) mag[k] = wmag[k];
+    }
     for (let j = 0; j < C; j++) {
       const f0 = 440 * Math.pow(2, (lo + j - 69) / 12);
       let v = 0;
+      let odd = 0;
+      let even = 0;
       for (let h = 1; h <= 8; h++) {
         const k = Math.round((f0 * h) / binHz);
         if (k + 1 > kMax) break;
-        v += Math.pow(0.84, h - 1) * peak(k);
+        const p = Math.pow(0.84, h - 1) * peak(k);
+        v += p;
+        if (h % 2) odd += p;
+        else even += p;
       }
+      // 한 옥타브 아래 가짜 후보: 진짜 음의 배음은 짝수 자리에만 걸리고 홀수 자리(1·3·5배)는 비어 있음 → 깎음
+      if (odd + even > 0) v *= Math.min(1, (2.2 * odd) / (odd + even));
       // 아래 옥타브 배음에 속지 않게: 반 주파수·1.5배 자리에도 힘이 크면 깎음
       const kh = Math.round(f0 / 2 / binHz);
       if (kh > kMin) v -= 0.3 * peak(kh);
       const k15 = Math.round((f0 * 1.5) / binHz);
       if (k15 + 1 <= kMax) v -= 0.2 * peak(k15);
-      sal[s * C + j] = Math.max(0, v);
+      sal[s * C + j] += Math.max(0, v);
     }
   }
   // 칸마다 점수 → 로그 (가장 센 후보 = 0), 쉼 점수는 소리가 작거나 음이 또렷하지 않으면 높게
@@ -624,10 +651,15 @@ export function cleanMelody(bars, { grid = 2, key = true } = {}) {
     const scale = [0, 2, 4, 5, 7, 9, 11].map((d) => (k + d) % 12);
     const w = new Array(12).fill(0);
     for (const n of all) w[n.midi % 12] += n.len;
-    for (const n of all) {
+    const tot = all.reduce((a, x) => a + x.len, 0);
+    for (let i = 0; i < all.length; i++) {
+      const n = all[i];
       const pc = n.midi % 12;
-      // 음계 밖인데 자주 안 나오는 음만 (곡에 많이 나오면 일부러 쓴 음)
-      if (scale.includes(pc) || w[pc] > all.reduce((a, x) => a + x.len, 0) * 0.08) continue;
+      if (scale.includes(pc)) continue;
+      // 음계 밖 음: 아주 드물면 고침. 조금 드물면(단조의 올린 7음 같은 건 자주 나옴) 짧고 앞뒤에 같은 음이 없는 '튀는 음'만
+      const pcAt = (j) => (all[j] ? all[j].midi % 12 : -1);
+      const stray = n.len <= 2 && pcAt(i - 1) !== pc && pcAt(i + 1) !== pc;
+      if (w[pc] > tot * (stray ? KEYTH_STRAY : KEYTH)) continue;
       n.midi += scale.includes((pc + 1) % 12) && (w[(pc + 1) % 12] >= w[(pc + 11) % 12] || !scale.includes((pc + 11) % 12)) ? 1 : -1;
     }
   }
