@@ -258,10 +258,10 @@ test('💥 연타 구간 · ✨ 황금 콩: 점수는 그대로, 하트만 돌�
   assert.ok(MAX_LIVES >= 3);
 });
 
-test('빠른 대결 묶음: 쉬움·보통 = 1~8단계, 어려움·극악 = 9~17단계, 인증 안 했으면 1~3단계만', async () => {
+test('빠른 대결 묶음: 쉬움·보통 = 1~8단계, 어려움·극악 = 9~18단계, 인증 안 했으면 1~3단계만', async () => {
   const { BRACKETS, pickQuickLevel } = await import('../server/rooms.js');
   assert.deepEqual(BRACKETS.easy, [1, 2, 3, 4, 5, 6, 7, 8]);
-  assert.deepEqual(BRACKETS.hard, [9, 10, 11, 12, 13, 14, 15, 16, 17]);
+  assert.deepEqual(BRACKETS.hard, [9, 10, 11, 12, 13, 14, 15, 16, 17, 18]);
   for (let i = 0; i < 30; i++) assert.ok(pickQuickLevel('easy', false) <= 3);
   assert.equal(pickQuickLevel('easy', true, () => 0.99), 8);
   assert.equal(pickQuickLevel('hard', true, () => 0), 9);

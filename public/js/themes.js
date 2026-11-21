@@ -257,7 +257,7 @@ export const THEME_GROUPS = [
   { from: 7, to: 9, key: 'hall' },
   { from: 10, to: 12, key: 'void' },
   { from: 13, to: 15, key: 'lava' },
-  { from: 16, to: 17, key: 'aurora' },
+  { from: 16, to: 18, key: 'aurora' },
   { from: 19, to: 22, key: 'xmas' }, // 🎄 크리스마스 이벤트 곡 (19·21·22)
   { from: 23, to: 23, key: 'hall' }, // 🎭 장거리 (네순 도르마)
 ];

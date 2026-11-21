@@ -79,6 +79,23 @@ export function saveBest(result) {
   return { isNew: false, prev };
 }
 
+/** 18단계 = 엘리제를 위하여 (2026-11-21). 이 브라우저에 남은 그 전 18번(빼 버린 찬송가) 기록은 한 번 지움 */
+const ELISE_FROM = Date.parse('2026-11-21T06:15:00Z');
+export function resetOldLevel18() {
+  if (load('level18V2', false)) return;
+  for (const key of ['bests', 'mockBoard']) {
+    const old = load(key, null);
+    if (!old || typeof old !== 'object') continue;
+    let changed = false;
+    for (const k of ['18', 'e18']) {
+      const v = old[k];
+      if (v && !(v.at >= ELISE_FROM)) { delete old[k]; changed = true; }
+    }
+    if (changed) save(key, old);
+  }
+  save('level18V2', true);
+}
+
 /** 8단계에 새 곡이 끼면서 예전 8~14단계가 9~15단계로 밀림 → 이 브라우저에 쌓인 기록·설정을 한 번만 옮김 */
 export function migrateLevelOrder() {
   if (load('levelOrderV2', false)) return;

@@ -24,8 +24,9 @@ import { RoomClient, roomOutcome, survivalOutcome } from './room.js';
 import { makeReelCover } from './cover.js';
 import { detectBeat, monoOf, songChart } from './beatsync.js';
 import { seasonLeftText, BOARD_LABEL } from './season.js';
-import { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder } from './storage.js';
+import { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder, resetOldLevel18 } from './storage.js';
 
+resetOldLevel18(); // 18번 = 엘리제를 위하여 (그 전 찬송가 기록 지움)
 migrateLevelOrder(); // 8단계에 새 곡이 끼면서 밀린 번호를 이 브라우저 기록에도 반영 (아래 state 보다 먼저)
 import { makeShareCard, gradeColor } from './sharecard.js';
 import { icon, watchEmoji } from './icons.js';
