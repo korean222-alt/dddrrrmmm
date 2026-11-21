@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import zlib from 'node:zlib';
 import { parseMidi, parseMusicXml, readScoreFile, scoreInfo, scoreToMap, readZip, gmDrum } from '../public/js/scorefile.js';
-import { barToMelody, cleanMap, autoDrums, harmonize } from '../public/js/usermap.js';
+import { barToMelody, cleanMap, autoDrums, harmonize, mapLevel } from '../public/js/usermap.js';
 
 // ---- 작은 MIDI 쓰개 (시험용) ----
 const vlq = (n) => {
@@ -76,6 +76,17 @@ test('MIDI: 멜로디·코드·드럼·템포', () => {
   assert.equal(m.drums[1], 'J.H.S.H.J.H.S.H.');
   const map = cleanMap({ name: '시험', bpm: m.bpm, bars: m.drums, melody: m.mel.map(barToMelody), prog: m.prog });
   assert.ok(map);
+  assert.equal(map.low, undefined);
+  // 🎹 왼손(아래 줄) = 반주 트랙 가장 낮은 음, 다음 음까지
+  assert.equal(barToMelody(m.low[0]), 'C3:16');
+  assert.equal(barToMelody(m.low[2]), 'F2:16');
+  const withLow = cleanMap({ name: '시험', bpm: m.bpm, bars: m.drums, melody: m.mel.map(barToMelody), prog: m.prog, low: m.low.map(barToMelody) });
+  assert.equal(withLow.low[0], 'C3:16');
+  const lv = mapLevel(withLow);
+  assert.equal(lv.song.bass, '................'); // 왼손이 있으면 자동 베이스는 끔
+  assert.equal(lv.song.low[2], 'F2:16');
+  // 이상한 왼손은 빼고 맵은 살림
+  assert.equal(cleanMap({ ...withLow, low: ['X9:16'] }).low, undefined);
   // 시작 마디·길이
   const m2 = scoreToMap(sc, { start: 6, bars: 16 });
   assert.equal(m2.bars, 2);

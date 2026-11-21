@@ -2126,7 +2126,7 @@ const mkSave = () => save('mapDraft', mk);
 /** ↩ 되돌리기: 녹음·자동 채우기 직전 모습 하나 (폰에 저장 안 함) */
 let mkUndo = null;
 const mkSnap = () => {
-  mkUndo = JSON.stringify({ mel: mk.mel, drums: mk.drums, drumsAuto: mk.drumsAuto, bpm: mk.bpm, prog: mk.prog || null, songDrums: mk.songDrums || null });
+  mkUndo = JSON.stringify({ mel: mk.mel, drums: mk.drums, drumsAuto: mk.drumsAuto, bpm: mk.bpm, prog: mk.prog || null, songDrums: mk.songDrums || null, low: mk.low || null });
   $('#mk-undo').disabled = false;
 };
 const umLikes = () => load('mapLikes', {});
@@ -2348,6 +2348,12 @@ function mkFixBars() {
   if (mk.drumsAuto === 'song' && !(Array.isArray(mk.songDrums) && mk.songDrums.length === mk.mel.length)) mk.drumsAuto = null;
   if (mk.drumsAuto === 'song') mk.drums = [...mk.songDrums];
   else if (mk.drumsAuto) mk.drums = autoDrums(mk.mel, mk.drumsAuto);
+  // 🎹 왼손(악보 아래 줄): 마디 수를 멜로디에 맞춤
+  if (Array.isArray(mk.low)) {
+    while (mk.low.length < mk.mel.length) mk.low.push([]);
+    mk.low.length = mk.mel.length;
+    if (!mk.low.some((b) => b.length)) mk.low = null;
+  }
   mk.bar = Math.max(0, Math.min(mk.mel.length - 1, mk.bar));
   mk.cur = Math.max(0, Math.min(STEPS_PER_BAR - 1, mk.cur));
   mkSave();
@@ -2731,8 +2737,13 @@ function mkPlayStep(i, t, bus, prog, sd, drums) {
   const partLen = STEPS_PER_BAR / parts.length;
   if (s % partLen === 0) {
     const ch = parseChord(parts[s / partLen]);
-    audio.bass(t, ch.root - 24, partLen * sd * 0.9, bus);
+    if (!mk.low) audio.bass(t, ch.root - 24, partLen * sd * 0.9, bus);
     if (s % 8 === 0 || partLen === 8) audio.pluck(t, ch.notes, partLen * sd * 0.8, bus, 0.5);
+  }
+  // 🎹 왼손(악보 아래 줄)
+  if (mk.low) for (const n of mk.low[b] || []) if (n.step === s) {
+    if (audio.piano) audio.pianoNote(t, n.midi, Math.max(0.2, n.len * sd * 0.95), 0.8, bus);
+    else audio.bass(t, n.midi, n.len * sd * 0.9, bus);
   }
   if (drums) for (const l of CHAR_LANES[(mk.drums[b] || '')[s]] || []) audio.playLane(l, t, bus);
 }
@@ -3012,6 +3023,7 @@ function mkMap(strict = true) {
   mk.name = $('#mk-name').value.trim();
   mkSave();
   const raw = { name: mk.name || (strict ? '' : '내 맵'), bpm: mk.bpm, bars: mk.drums, melody: mk.mel.map(barToMelody), prog: mkProg() };
+  if (Array.isArray(mk.low) && mk.low.length === mk.mel.length) raw.low = mk.low.map(barToMelody);
   const map = cleanMap(raw);
   if (map) return map;
   if (!raw.name) toast('곡 이름을 적어 주세요', 1800);
@@ -3196,6 +3208,7 @@ async function mkTranscribe() {
   // confirm() 은 앱 안 브라우저에서 안 뜰 수 있어서 묻지 않음 (↩ 되돌리기 가능)
   mkSnap();
   mk.mel = t.bars;
+  mk.low = null;
   mk.bpm = Math.round(bpm);
   // 코드·드럼도 노래에서 (곡의 진짜 코드 · 곡의 쿵짝 자리)
   mk.prog = Array.isArray(t.prog) && t.prog.length === bars ? t.prog : null;
@@ -3332,6 +3345,7 @@ function mkScoreMake() {
   const hadDraft = mk.mel.some((b) => b.length) || mk.drumsAuto !== 'easy';
   mkSnap();
   mk.mel = r.mel;
+  mk.low = r.low || null;
   mk.bpm = Math.max(MAP_LIMITS.minBpm, Math.min(MAP_LIMITS.maxBpm, r.bpm));
   mk.prog = r.prog;
   if (r.drums) {
@@ -3349,7 +3363,7 @@ function mkScoreMake() {
   mkRender();
   st.innerHTML =
     `<b>${r.mel.length}마디</b>(${r.start + 1}마디부터)로 만들었어요 · 멜로디 음 <b>${r.found}개</b> · ${mk.bpm} BPM` +
-    `<br>${[r.prog ? '코드는 반주 트랙에서' : '코드는 멜로디로 짐작', r.drums ? '드럼은 악보 드럼 그대로' : '드럼은 자동'].join(' · ')}` +
+    `<br>${[r.prog ? '코드는 반주 트랙에서' : '코드는 멜로디로 짐작', r.low ? '🎹 왼손(아래 줄)도 악보 그대로' : '', r.drums ? '드럼은 악보 드럼 그대로' : '드럼은 자동'].filter(Boolean).join(' · ')}` +
     '<br>위 「처음부터 듣기」로 들어 보고, 고칠 곳은 「자세히 고치기」에서 손봐요' +
     (hadDraft ? '<br>전에 만들던 건 위 「↩ 되돌리기」로 되돌릴 수 있어요' : '');
   toast('🎼 악보로 맵을 만들었어요');

@@ -895,6 +895,12 @@ export class SongPlayer {
     this.tempo = tempoOf(level);
     this.step = 0;
     this.melody = parseMelody(level.song.melody || []);
+    // 🎹 유저 맵 왼손 (악보 아래 줄)
+    try {
+      this.lowNotes = level.song.low ? parseMelody(level.song.low) : [];
+    } catch {
+      this.lowNotes = [];
+    }
     this.melodyBars = (level.song.melody || []).length;
     const lanes = levelLanes(level);
     this.mineCrash = lanes.includes(CRASH); // 크래시를 내가 치면 반주 크래시는 쉼
@@ -1026,6 +1032,12 @@ export class SongPlayer {
     }
     // 화음
     if (song.chord[s] === 'x') a.pluck(t, ch.notes, sd * 3, this.bus, orch ? 0.6 : 1);
+    // 🎹 유저 맵 왼손: 악보 아래 줄 그대로
+    if (this.lowNotes && this.lowNotes.length) for (const n of this.lowNotes) if (n.bar === mb && n.step === s) {
+          const d = Math.max(0.2, n.len * sd * 0.95);
+          if (a.piano) a.pianoNote(t, n.midi, d, 0.8, this.bus);
+          else a.bass(t, n.midi, d, this.bus);
+        }
     // 🎹 두 손 피아노 왼손: 베이스 + 펼친 화음 (pianoLH 곡)
     if (song.pianoLH) {
       const lh = pianoLeftHand(song, mb, s);

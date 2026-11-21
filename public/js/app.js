@@ -1932,6 +1932,7 @@ const MAP_LIMITS = { minBars: 2, maxBars: 64, minBpm: 60, maxBpm: 180, nameMax: 
 const DRUM_RE = /^[KSHCBJX.]{16}$/;
 const LOW = 36; // C2
 const HIGH = 96; // C7
+const LOW_LH = 24; // C1 (왼손 베이스는 더 낮게)
 
 // ---------- 음이름 ----------
 const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -2126,7 +2127,16 @@ function cleanMap(raw) {
   } catch {
     return null;
   }
-  return { name, bpm, bars: [...bars], melody: melody.map((m) => m.trim().replace(/\s+/g, ' ')), prog: prog.map((p) => String(p).trim().replace(/\s+/g, ' ')) };
+  const out = { name, bpm, bars: [...bars], melody: melody.map((m) => m.trim().replace(/\s+/g, ' ')), prog: prog.map((p) => String(p).trim().replace(/\s+/g, ' ')) };
+  // 🎹 왼손(아래 줄, 악보에서) — 있으면 자동 베이스 대신 이걸 침. 이상하면 빼고 맵은 그대로
+  const low = raw.low;
+  if (Array.isArray(low) && low.length === bars.length && low.every((m) => typeof m === 'string' && m.length <= 200)) {
+    try {
+      const ns = parseMelody(low);
+      if (ns.length && ns.every((n) => n.midi >= LOW_LH && n.midi <= HIGH)) out.low = low.map((m) => m.trim().replace(/\s+/g, ' '));
+    } catch {}
+  }
+  return out;
 }
 
 /** 노트 수로 어림한 난이도 1~5 (초당 노트) */
@@ -2164,9 +2174,11 @@ function mapLevel(map, { id = 'um', by = '', mapId = null } = {}) {
     song: {
       prog: map.prog,
       melody: map.melody,
+      // 🎹 악보 왼손(있을 때만) — 자동 베이스는 끄고 이걸 피아노로
+      low: map.low || null,
       hat: '................',
       // 🥁 드럼만 맵(멜로디가 다 쉼)은 베이스·화음도 안 깔고 드럼만
-      bass: isDrumOnly(map) ? '................' : 'x.......x.......',
+      bass: isDrumOnly(map) || map.low ? '................' : 'x.......x.......',
       chord: isDrumOnly(map) ? '................' : 'x.......x.......',
     },
   };
@@ -4651,7 +4663,36 @@ function scoreToMap(score, { melody = null, start = null, bars = MAP_LIMITS.maxB
       }
     if (hits >= 4) drums = Array.from({ length: n }, (_, b) => cells.slice(b * STEPS_PER_BAR, (b + 1) * STEPS_PER_BAR).join(''));
   }
-  return { bpm: Math.round(info.bpm), mel, prog, drums, found, bars: n, start: s0, melodyIndex: mIdx };
+  // 🎹 왼손(아래 줄): 멜로디 말고 다른 트랙(드럼 빼고)에서 16분 칸마다 시작하는 가장 낮은 음 → 다음 음 전까지
+  //   한 트랙 피아노(MIDI)면 멜로디 트랙의 안 쓴 음 중 가온 도(C4) 아래만
+  const bot = new Map();
+  score.tracks.forEach((t, i) => {
+    if (t.isDrum) return;
+    for (const nn of t.notes) {
+      if (i === mIdx && (used.has(nn) || nn.midi >= 60)) continue;
+      const s = q(nn.tick);
+      if (s < from || s >= to) continue;
+      const cur = bot.get(s);
+      if (!cur || nn.midi < cur.midi) bot.set(s, { midi: nn.midi, end: Math.max(s + 1, q(nn.tick + nn.dur)) });
+    }
+  });
+  let low = null;
+  if (bot.size >= 4) {
+    const lb = Array.from({ length: n }, () => []);
+    const ls = [...bot.keys()].sort((a, b) => a - b);
+    ls.forEach((s, i) => {
+      const t = bot.get(s);
+      const next = i + 1 < ls.length ? ls[i + 1] : to;
+      const rel = s - from;
+      const b = Math.floor(rel / STEPS_PER_BAR);
+      let midi = t.midi;
+      while (midi < 28) midi += 12;
+      while (midi > 72) midi -= 12;
+      lb[b].push({ step: rel % STEPS_PER_BAR, midi, len: Math.max(1, Math.min(t.end, next, (b + 1) * STEPS_PER_BAR + from) - s) });
+    });
+    low = lb;
+  }
+  return { bpm: Math.round(info.bpm), mel, prog, drums, low, found, bars: n, start: s0, melodyIndex: mIdx };
 }
 
 /** 추천 시작 마디: 고른 멜로디가 처음 나오는 마디 (멜로디 없는 전주는 건너뜀) */
@@ -5785,6 +5826,12 @@ class SongPlayer {
     this.tempo = tempoOf(level);
     this.step = 0;
     this.melody = parseMelody(level.song.melody || []);
+    // 🎹 유저 맵 왼손 (악보 아래 줄)
+    try {
+      this.lowNotes = level.song.low ? parseMelody(level.song.low) : [];
+    } catch {
+      this.lowNotes = [];
+    }
     this.melodyBars = (level.song.melody || []).length;
     const lanes = levelLanes(level);
     this.mineCrash = lanes.includes(CRASH); // 크래시를 내가 치면 반주 크래시는 쉼
@@ -5916,6 +5963,12 @@ class SongPlayer {
     }
     // 화음
     if (song.chord[s] === 'x') a.pluck(t, ch.notes, sd * 3, this.bus, orch ? 0.6 : 1);
+    // 🎹 유저 맵 왼손: 악보 아래 줄 그대로
+    if (this.lowNotes && this.lowNotes.length) for (const n of this.lowNotes) if (n.bar === mb && n.step === s) {
+          const d = Math.max(0.2, n.len * sd * 0.95);
+          if (a.piano) a.pianoNote(t, n.midi, d, 0.8, this.bus);
+          else a.bass(t, n.midi, d, this.bus);
+        }
     // 🎹 두 손 피아노 왼손: 베이스 + 펼친 화음 (pianoLH 곡)
     if (song.pianoLH) {
       const lh = pianoLeftHand(song, mb, s);
@@ -11923,11 +11976,11 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-21q',
+    id: '2026-11-21r',
     date: '11월 21일',
     title: '🎲 랜덤 대결 · 🎹 18단계 엘리제를 위하여 · 🏛 명예의 전당 · 🎭 장거리 · 🎼 악보로 맵',
     items: [
-      '<b>🎹 유저 맵: 악보 파일(MIDI·MusicXML)로 바로 만들 수 있어요!</b> 🎹 멜로디 탭 → 🎼 악보 파일로 — 악보의 음·박자 그대로, 드럼 트랙이 있으면 드럼도 그대로. 멜로디 트랙·시작 마디는 <b>자동으로 추천</b>해 줘요',
+      '<b>🎹 유저 맵: 악보 파일(MIDI·MusicXML)로 바로 만들 수 있어요!</b> 🎹 멜로디 탭 → 🎼 악보 파일로 — 악보의 음·박자 그대로, 드럼 트랙이 있으면 드럼도 그대로. 멜로디 트랙·시작 마디는 <b>자동으로 추천</b>해 주고, 악보 <b>왼손(아래 줄)</b>도 그대로 피아노로 쳐요',
       '<b>⚔️ 멀티 → 🎲 랜덤 대결</b>이 생겼어요! 모르는 사람과 바로 붙어서 4~18단계 무작위 곡 — 둘 다 깨면 다른 곡이 바로 이어지고, <b>먼저 쓰러지는 쪽이 져요</b>',
       '<b>18단계 엘리제를 위하여</b>(베토벤 · 지옥)가 새로 생겼어요! 게임에서 <b>가장 어려운 곡</b> — 미레미레미시레도 질주에 하이햇 트릴 연타까지',
       '<b>🏛 명예의 전당</b>이 생겼어요! 🏆 랭킹 → 🎵 단계 총합 / 💎 무제한 총합',
@@ -15139,7 +15192,7 @@ const mkSave = () => save('mapDraft', mk);
 /** ↩ 되돌리기: 녹음·자동 채우기 직전 모습 하나 (폰에 저장 안 함) */
 let mkUndo = null;
 const mkSnap = () => {
-  mkUndo = JSON.stringify({ mel: mk.mel, drums: mk.drums, drumsAuto: mk.drumsAuto, bpm: mk.bpm, prog: mk.prog || null, songDrums: mk.songDrums || null });
+  mkUndo = JSON.stringify({ mel: mk.mel, drums: mk.drums, drumsAuto: mk.drumsAuto, bpm: mk.bpm, prog: mk.prog || null, songDrums: mk.songDrums || null, low: mk.low || null });
   $('#mk-undo').disabled = false;
 };
 const umLikes = () => load('mapLikes', {});
@@ -15361,6 +15414,12 @@ function mkFixBars() {
   if (mk.drumsAuto === 'song' && !(Array.isArray(mk.songDrums) && mk.songDrums.length === mk.mel.length)) mk.drumsAuto = null;
   if (mk.drumsAuto === 'song') mk.drums = [...mk.songDrums];
   else if (mk.drumsAuto) mk.drums = autoDrums(mk.mel, mk.drumsAuto);
+  // 🎹 왼손(악보 아래 줄): 마디 수를 멜로디에 맞춤
+  if (Array.isArray(mk.low)) {
+    while (mk.low.length < mk.mel.length) mk.low.push([]);
+    mk.low.length = mk.mel.length;
+    if (!mk.low.some((b) => b.length)) mk.low = null;
+  }
   mk.bar = Math.max(0, Math.min(mk.mel.length - 1, mk.bar));
   mk.cur = Math.max(0, Math.min(STEPS_PER_BAR - 1, mk.cur));
   mkSave();
@@ -15744,8 +15803,13 @@ function mkPlayStep(i, t, bus, prog, sd, drums) {
   const partLen = STEPS_PER_BAR / parts.length;
   if (s % partLen === 0) {
     const ch = parseChord(parts[s / partLen]);
-    audio.bass(t, ch.root - 24, partLen * sd * 0.9, bus);
+    if (!mk.low) audio.bass(t, ch.root - 24, partLen * sd * 0.9, bus);
     if (s % 8 === 0 || partLen === 8) audio.pluck(t, ch.notes, partLen * sd * 0.8, bus, 0.5);
+  }
+  // 🎹 왼손(악보 아래 줄)
+  if (mk.low) for (const n of mk.low[b] || []) if (n.step === s) {
+    if (audio.piano) audio.pianoNote(t, n.midi, Math.max(0.2, n.len * sd * 0.95), 0.8, bus);
+    else audio.bass(t, n.midi, n.len * sd * 0.9, bus);
   }
   if (drums) for (const l of CHAR_LANES[(mk.drums[b] || '')[s]] || []) audio.playLane(l, t, bus);
 }
@@ -16025,6 +16089,7 @@ function mkMap(strict = true) {
   mk.name = $('#mk-name').value.trim();
   mkSave();
   const raw = { name: mk.name || (strict ? '' : '내 맵'), bpm: mk.bpm, bars: mk.drums, melody: mk.mel.map(barToMelody), prog: mkProg() };
+  if (Array.isArray(mk.low) && mk.low.length === mk.mel.length) raw.low = mk.low.map(barToMelody);
   const map = cleanMap(raw);
   if (map) return map;
   if (!raw.name) toast('곡 이름을 적어 주세요', 1800);
@@ -16209,6 +16274,7 @@ async function mkTranscribe() {
   // confirm() 은 앱 안 브라우저에서 안 뜰 수 있어서 묻지 않음 (↩ 되돌리기 가능)
   mkSnap();
   mk.mel = t.bars;
+  mk.low = null;
   mk.bpm = Math.round(bpm);
   // 코드·드럼도 노래에서 (곡의 진짜 코드 · 곡의 쿵짝 자리)
   mk.prog = Array.isArray(t.prog) && t.prog.length === bars ? t.prog : null;
@@ -16345,6 +16411,7 @@ function mkScoreMake() {
   const hadDraft = mk.mel.some((b) => b.length) || mk.drumsAuto !== 'easy';
   mkSnap();
   mk.mel = r.mel;
+  mk.low = r.low || null;
   mk.bpm = Math.max(MAP_LIMITS.minBpm, Math.min(MAP_LIMITS.maxBpm, r.bpm));
   mk.prog = r.prog;
   if (r.drums) {
@@ -16362,7 +16429,7 @@ function mkScoreMake() {
   mkRender();
   st.innerHTML =
     `<b>${r.mel.length}마디</b>(${r.start + 1}마디부터)로 만들었어요 · 멜로디 음 <b>${r.found}개</b> · ${mk.bpm} BPM` +
-    `<br>${[r.prog ? '코드는 반주 트랙에서' : '코드는 멜로디로 짐작', r.drums ? '드럼은 악보 드럼 그대로' : '드럼은 자동'].join(' · ')}` +
+    `<br>${[r.prog ? '코드는 반주 트랙에서' : '코드는 멜로디로 짐작', r.low ? '🎹 왼손(아래 줄)도 악보 그대로' : '', r.drums ? '드럼은 악보 드럼 그대로' : '드럼은 자동'].filter(Boolean).join(' · ')}` +
     '<br>위 「처음부터 듣기」로 들어 보고, 고칠 곳은 「자세히 고치기」에서 손봐요' +
     (hadDraft ? '<br>전에 만들던 건 위 「↩ 되돌리기」로 되돌릴 수 있어요' : '');
   toast('🎼 악보로 맵을 만들었어요');
