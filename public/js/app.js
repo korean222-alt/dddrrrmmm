@@ -17847,8 +17847,8 @@ function openSuggest() {
   $('#suggest-text').value = load('suggestDraft', '');
   $('#suggest-contact').value = load('suggestContact', '');
   $('#suggest-count').textContent = `${[...$('#suggest-text').value].length} / 500`;
+  // 자주 묻는 질문이 먼저 보이게 입력칸에 바로 포커스 주지 않음(폰 자판이 가림)
   openModal('modal-suggest');
-  setTimeout(() => $('#suggest-text').focus(), 50);
 }
 async function sendSuggest() {
   const text = $('#suggest-text').value.trim();
