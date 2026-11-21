@@ -883,6 +883,7 @@ function bindGameInput() {
     (e) => {
       e.preventDefault();
       if (!state.game || (touchEvents && e.pointerType === 'touch')) return;
+      if (!e.isTrusted) state.game.fakeTaps++;
       tapAt(e.clientX, e.clientY, e.timeStamp);
     },
     { passive: false }
@@ -892,6 +893,7 @@ function bindGameInput() {
     (e) => {
       e.preventDefault();
       if (!state.game) return;
+      if (!e.isTrusted) state.game.fakeTaps += e.changedTouches.length;
       for (const t of e.changedTouches) {
         held.set(t.identifier, { at: e.timeStamp, x: t.clientX, y: t.clientY });
         tapAt(t.clientX, t.clientY, e.timeStamp);
@@ -932,6 +934,7 @@ function bindGameInput() {
       return;
     }
     if (e.repeat) return;
+    if (!e.isTrusted) state.game.fakeTaps++;
     const order = state.game.laneOrder;
     const idx = (KEYMAP[order.length] || KEYMAP[2]).findIndex((keys) => keys.includes(e.code));
     if (idx >= 0) state.game.input(order[idx], e.timeStamp);
@@ -1327,7 +1330,7 @@ async function submitRank(r = state.lastResult) {
     const out = await state.api.submitScore(
       endless
         ? { runToken: r.runToken, level: r.levelId, rounds: r.roundsCleared, score: r.score }
-        : { runToken: r.runToken, level: r.levelId, score: r.score, maxCombo: r.maxCombo, counts: r.counts }
+        : { runToken: r.runToken, level: r.levelId, score: r.score, maxCombo: r.maxCombo, counts: r.counts, check: r.check }
     );
     r.submitted = true;
     if (out.rank == null) toast('팔로우 확인이 안 돼서 지금은 랭킹에 안 보여요. 위 ⚠️ 버튼을 눌러 주세요', 3200);

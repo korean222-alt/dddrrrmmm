@@ -16,6 +16,8 @@ const SCHEMA = [
      igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, grade TEXT, max_combo INTEGER,
      at BIGINT NOT NULL, PRIMARY KEY (igsid, level))`,
   `CREATE INDEX IF NOT EXISTS scores_rank ON scores (level, score DESC, at)`,
+  // chk = 핵 의심 확인용 JSON { ms 실제로 친 시간, sd·mean 박자 오차(ms), n 친 수, fake 가짜 입력 수 } (2026-11-21)
+  `ALTER TABLE scores ADD COLUMN IF NOT EXISTS chk TEXT`,
   // 무제한 기록(level <= 0)은 '깬 단계 × 10억 + 점수' 라 INTEGER(약 21억)를 넘음 → BIGINT
   `DO $$ BEGIN
      IF (SELECT data_type FROM information_schema.columns WHERE table_name = 'scores' AND column_name = 'score') = 'integer' THEN
@@ -97,6 +99,16 @@ const STATS_KEEP_MS = 400 * 24 * 3600 * 1000;
 
 /** 랭킹에서 내린 참여자를 이만큼 뒤에 지움 (그 사이 다시 들어와 아이디를 넣으면 살아남) */
 export const HIDE_KEEP_MS = 5 * 24 * 3600 * 1000;
+
+/** scores.chk(JSON 글) → 객체 (없거나 깨졌으면 null) */
+export const parseChk = (s) => {
+  if (!s) return null;
+  try {
+    return typeof s === 'string' ? JSON.parse(s) : s;
+  } catch {
+    return null;
+  }
+};
 
 const num = (v) => (v === null || v === undefined ? v : Number(v));
 
@@ -391,13 +403,13 @@ END $$`);
       `WITH pl AS (SELECT 1 FROM players WHERE igsid = $1),
          prev AS (SELECT score FROM scores WHERE igsid = $1 AND level = $2),
          up AS (
-           INSERT INTO scores (igsid, level, score, grade, max_combo, at)
-           SELECT $1, $2, $3, $4, $5, $6 WHERE EXISTS (SELECT 1 FROM pl)
+           INSERT INTO scores (igsid, level, score, grade, max_combo, at, chk)
+           SELECT $1, $2, $3, $4, $5, $6, $7 WHERE EXISTS (SELECT 1 FROM pl)
            ON CONFLICT (igsid, level) DO UPDATE SET score = EXCLUDED.score, grade = EXCLUDED.grade,
-             max_combo = EXCLUDED.max_combo, at = EXCLUDED.at WHERE EXCLUDED.score > scores.score
+             max_combo = EXCLUDED.max_combo, at = EXCLUDED.at, chk = EXCLUDED.chk WHERE EXCLUDED.score > scores.score
            RETURNING score)
        SELECT EXISTS (SELECT 1 FROM pl) AS ok, (SELECT score FROM prev) AS prev, (SELECT score FROM up) AS up`,
-      [igsid, level, entry.score, entry.grade ?? null, entry.maxCombo ?? 0, Date.now()]
+      [igsid, level, entry.score, entry.grade ?? null, entry.maxCombo ?? 0, Date.now(), entry.chk ?? null]
     );
     if (!r || !r.ok) return null;
     const improved = r.up != null;
@@ -526,8 +538,8 @@ END $$`);
   /** 한 사람의 랭킹 기록 전부 (level: 단계 번호 / 0 = 그리그 무제한 / -N = N단계 무제한) */
   /** 핵 의심 분석용: 모든 단계 최고 기록 (쿼리 한 번) */
   async allScores() {
-    const rows = await this.q('SELECT igsid, level, score, grade, max_combo, at FROM scores WHERE level > 0');
-    return rows.map((r) => ({ igsid: r.igsid, level: Number(r.level), score: Number(r.score), grade: r.grade || null, maxCombo: Number(r.max_combo) || 0, at: Number(r.at) || 0 }));
+    const rows = await this.q('SELECT igsid, level, score, grade, max_combo, at, chk FROM scores WHERE level > 0');
+    return rows.map((r) => ({ igsid: r.igsid, level: Number(r.level), score: Number(r.score), grade: r.grade || null, maxCombo: Number(r.max_combo) || 0, at: Number(r.at) || 0, chk: parseChk(r.chk) }));
   }
   async scoresOf(igsid) {
     const rows = await this.q('SELECT level, score, grade, max_combo FROM scores WHERE igsid = $1', [igsid]);
@@ -538,10 +550,10 @@ END $$`);
   async moveScores(from, to) {
     if (from === to) return;
     await this.q(
-      `INSERT INTO scores (igsid, level, score, grade, max_combo, at)
-       SELECT $2, level, score, grade, max_combo, at FROM scores WHERE igsid = $1
+      `INSERT INTO scores (igsid, level, score, grade, max_combo, at, chk)
+       SELECT $2, level, score, grade, max_combo, at, chk FROM scores WHERE igsid = $1
        ON CONFLICT (igsid, level) DO UPDATE SET score = EXCLUDED.score, grade = EXCLUDED.grade,
-         max_combo = EXCLUDED.max_combo, at = EXCLUDED.at WHERE EXCLUDED.score > scores.score`,
+         max_combo = EXCLUDED.max_combo, at = EXCLUDED.at, chk = EXCLUDED.chk WHERE EXCLUDED.score > scores.score`,
       [from, to]
     );
     await this.q('DELETE FROM scores WHERE igsid = $1', [from]);

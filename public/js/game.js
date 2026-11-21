@@ -76,6 +76,8 @@ export class Game {
     this.maxCombo = 0;
     this.counts = { perfect: 0, great: 0, good: 0, miss: 0, wrong: 0 };
     this.offsets = [];
+    /** 프로그램이 만든 가짜 입력 수 (브라우저가 isTrusted=false 로 표시) — 핵 의심 확인용으로 점수와 같이 보냄 */
+    this.fakeTaps = 0;
     /** 줄마다 마지막으로 누른 시각(곡 시간) — 엄지가 옆 줄로 넘어왔는지 볼 때 */
     this._tapAt = {};
     /** 줄마다 마지막으로 누른 자리 (render.laneHit 의 u, 줄 너비 단위) */
@@ -797,6 +799,7 @@ export class Game {
       continued: this.continues,
       progress: failed || stopped ? Math.max(0, Math.min(1, (failed ? this.diedAt ?? 0 : this.songTime()) / this.endTime)) : 1,
       avgOffsetMs,
+      check: this._check(),
       auto: this.auto,
       practice: this.level.practice || 0,
       timeline: this.timeline.slice(),
@@ -804,6 +807,15 @@ export class Game {
       goldHits: this.goldHits,
       goldTotal: this.goldTotal,
     });
+  }
+
+  /** 핵 의심 확인용: 박자 오차 퍼짐(표준편차)·평균(ms), 친 수, 가짜 입력 수. 사람은 손가락이라 오차가 들쭉날쭉, 자동 입력은 너무 일정 */
+  _check() {
+    const o = this.offsets;
+    const n = o.length;
+    const mean = n ? o.reduce((a, b) => a + b, 0) / n : 0;
+    const sd = n > 1 ? Math.sqrt(o.reduce((a, b) => a + (b - mean) * (b - mean), 0) / (n - 1)) : 0;
+    return { sd: Math.round(sd * 1000), mean: Math.round(mean * 1000), n, fake: this.fakeTaps };
   }
 
   /** 무제한 모드 / 레벨업 챌린지 결과: 몇 단계까지 깼나 + 다이아몬드 */

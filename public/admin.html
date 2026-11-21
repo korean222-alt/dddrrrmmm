@@ -83,7 +83,7 @@
           <ul id="sus-found"></ul>
           <div id="sus-report"></div></div>
         <div class="card"><div class="head"><b id="sus-count"></b><span><button type="button" class="ghost" id="sus-reload">새로고침</button></span></div>
-          <p class="muted" style="margin:6px 0">목록엔 <b>한 폰으로는 불가능한 기록</b>만 떠요: <b>⏱ 겹친 판</b>(곡 치는 시간의 절반도 안 돼서 다음 단계 기록이 찍힘) 2번 이상. 여러 창·기기로 동시에 돌렸거나 자동 프로그램일 수 있어요. <b>💯 만점 근처</b>는 잘하는 사람도 나와서 목록엔 안 넣고, 위 <b>한 사람 지표 보기</b>에서 참고로만 보여요.</p>
+          <p class="muted" style="margin:6px 0">목록엔 <b>사람이 한 폰으로는 못 내는 기록</b>만 떠요: <b>⏱ 겹친 판</b>(곡 치는 시간의 절반도 안 돼서 다음 단계 기록이 찍힘) 2번 이상, <b>🤖 가짜 입력</b>(손가락이 아니라 프로그램이 누름 — 브라우저가 표시해 줌), <b>🎯 기계처럼 일정한 박자</b>(박자 오차 퍼짐 8ms 이하). <b>💯 만점 근처</b>는 잘하는 사람도 나와서 목록엔 안 넣고, 위 <b>한 사람 지표 보기</b>에서 참고로만 보여요.</p>
           <ul id="sus"></ul></div>
       </section>
       <section id="tab-hall" hidden>
@@ -323,19 +323,23 @@
       const ov = its.filter((x) => x.overlap).length;
       const nr = its.filter((x) => x.near);
       const rows = its.map((x) => {
-        const flag = x.overlap ? ' style="background:rgba(255,80,80,.18)"' : x.near ? ' style="background:rgba(255,200,0,.15)"' : '';
+        const flag = x.overlap || x.bot || x.fake >= 5 ? ' style="background:rgba(255,80,80,.18)"' : x.near ? ' style="background:rgba(255,200,0,.15)"' : '';
         return `<tr${flag}><td>${esc(x.label)}</td><td>${fmtN(x.score)}<div class="meta">${x.pct}%${x.near ? ' 💯' : ''}</div></td>
           <td>${esc(x.grade || '-')}<div class="meta">콤보 ${x.maxCombo}/${x.notes}</div></td>
           <td>${x.rank}위<div class="meta">${x.players}명 중${x.near ? ` · 만점근처 ${x.nearCount}명${x.rare ? ' (드묾)' : ''}` : ''}</div></td>
+          <td>${x.realSec != null ? susSec(x.realSec) : '-'}<div class="meta">곡 ${susSec(x.playSec)}</div></td>
+          <td>${x.sd != null ? `±${x.sd}ms${x.bot ? ' 🎯' : ''}` : '-'}<div class="meta">${x.sd != null ? `보통 ${x.sdMid != null ? '±' + x.sdMid + 'ms' : '-'}` : ''}${x.fake ? ` · 🤖 가짜 ${x.fake}` : ''}</div></td>
           <td>${fmtAt(x.at)}<div class="meta">${x.copied ? '한꺼번에 들어옴(옮기기·합치기)' : x.gapSec == null ? '첫 기록' : `직전과 ${susSec(x.gapSec)}${x.overlap ? ` ⏱ 곡은 ${susSec(x.playSec)}` : ''}`}</div></td></tr>`;
       }).join('');
       $('#sus-report').innerHTML = `<div style="margin-top:10px"><div><b>${esc(p.username)}</b> ${p.ig ? '@' + esc(p.ig) : ''} <span class="meta">의심 점수 ${p.risk}${p.listed ? ' · 강한 의심 목록에 있음' : ''}</span></div>
         <div class="meta" style="margin:6px 0">
           ${ok(ov, '겹친 판 없음 (단계마다 곡 시간 이상 간격)', `겹친 판 ${ov}번 — 빨간 줄`)}
+          ${ok(its.some((x) => x.fake >= 5), '가짜 입력 없음', `프로그램이 누른 가짜 입력 있음 (${its.filter((x) => x.fake).map((x) => x.level + '단계 ' + x.fake + '번').join(', ')})`)}
+          ${ok(its.some((x) => x.bot), '박자 오차가 사람 손가락다움', '박자가 기계처럼 일정한 단계 있음 🎯')}
           ${ok(nr.length, `${10}단계 이상 만점 근처 없음`, `10단계 이상 만점 근처 ${nr.length}개 — 노란 줄 (드문 기록 ${nr.filter((x) => x.rare).length}개)`)}
           <div>기록 ${its.length}단계 · 처음 ${fmtAt(its[0] && its[0].at)} · 마지막 ${fmtAt(its.length && its[its.length - 1].at)}</div>
-          <div class="muted">단계마다 '최고 기록'을 찍은 시각만 남아요 (더 낮은 판은 기록 안 됨). 점수 %는 전부 PERFECT 일 때 대비.</div></div>
-        ${its.length ? `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th>단계</th><th>점수</th><th>등급</th><th>등수</th><th>기록 시각</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="muted">기록이 없어요.</p>'}</div>`;
+          <div class="muted">단계마다 '최고 기록'을 찍은 판만 남아요. 점수 %는 전부 PERFECT 대비. <b>친 시간</b> = 판 시작부터 점수 올릴 때까지 실제 걸린 시간(곡 길이보다 길면 정상, 멈춤 포함). <b>박자 오차</b> = 칠 때마다 박자에서 벗어난 정도의 퍼짐 — 사람 손가락은 보통 ±20~50ms, 자동 입력은 거의 0. '보통' 은 그 단계 다른 사람들 가운데값. 친 시간·박자 오차는 11/21 밤부터 새로 세운 최고 기록에만 있어요.</div></div>
+        ${its.length ? `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th>단계</th><th>점수</th><th>등급</th><th>등수</th><th>친 시간</th><th>박자 오차</th><th>기록 시각</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="muted">기록이 없어요.</p>'}</div>`;
     }
     let susPlayers = null;
     $('#sus-q').addEventListener('input', async () => {

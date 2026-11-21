@@ -8,7 +8,11 @@ export const NEAR_PERFECT = 0.995; // 최대 점수의 99.5% 이상 = 거의 전
 export const HIGH_LEVEL = 10; // 이 단계부터 만점 근처를 셈
 const OVERLAP_RATIO = 0.5; // 직전 기록과의 간격이 이 곡 치는 시간의 절반도 안 되면 '겹친 판' (한 폰으로는 불가능)
 const COPY_GAP_MS = 2000; // 이보다 가까운 건 기록 옮기기·계정 합치기로 한꺼번에 들어간 것 → 안 셈
-export const LIST_MIN_RISK = 60; // 목록엔 이 점수 이상만 = 겹친 판 2번 이상 (한 폰으로는 불가능한 것만 목록에)
+export const LIST_MIN_RISK = 60; // 목록엔 이 점수 이상만 = 겹친 판 2번 이상 / 가짜 입력 / 기계처럼 일정한 박자 (사람이 한 폰으로는 못 내는 것만)
+// 아래 둘은 2026-11-21 부터 점수 올릴 때 같이 받는 scores.chk 로 봄 (그 전 기록·예전 앱은 없음)
+export const FAKE_MIN = 5; // 프로그램이 만든 입력(isTrusted=false)이 이만큼 이상
+export const BOT_SD_MS = 8; // 박자 오차 표준편차가 이 ms 이하 (사람 손가락은 보통 20~50ms) — 실제 기록 보고 조정할 것
+const BOT_MIN_HITS = 100;
 const LIST_MAX = 100;
 
 /** 곡을 끝까지 치는 데 걸리는 시간(초, 카운트인 뺌) — 서버 점수 검사와 같은 기준 */
@@ -21,12 +25,17 @@ function levelStats(rows) {
     const lv = getLevel(r.level);
     if (!lv || !(r.level > 0)) continue;
     let s = st.get(r.level);
-    if (!s) st.set(r.level, (s = { lv, max: maxScore(lv), notes: noteCount(lv), players: 0, near: 0, scores: [] }));
+    if (!s) st.set(r.level, (s = { lv, max: maxScore(lv), notes: noteCount(lv), players: 0, near: 0, scores: [], sds: [] }));
     s.players++;
+    if (r.chk && r.chk.sd != null && r.chk.n >= 20) s.sds.push(r.chk.sd);
     s.scores.push(r.score);
     if (r.score >= s.max * NEAR_PERFECT) s.near++;
   }
-  for (const s of st.values()) s.scores.sort((a, b) => b - a);
+  for (const s of st.values()) {
+    s.scores.sort((a, b) => b - a);
+    s.sds.sort((a, b) => a - b);
+    s.sdMid = s.sds.length ? s.sds[Math.floor(s.sds.length / 2)] : null;
+  }
   return st;
 }
 
@@ -47,6 +56,11 @@ function analyze(list, st) {
         near: r.level >= HIGH_LEVEL && pct >= NEAR_PERFECT, nearCount: s.near, players: s.players,
         rank: s.scores.findIndex((x) => x <= r.score) + 1,
         rare: false, gapSec: null, overlap: false, copied: false,
+        // chk: 실제로 친 시간(초)·박자 오차(ms)·가짜 입력 — 11-21 이후 최고 기록만 있음
+        realSec: r.chk && r.chk.ms != null ? Math.round(r.chk.ms / 1000) : null,
+        sd: r.chk && r.chk.sd != null ? r.chk.sd : null, mean: r.chk && r.chk.mean != null ? r.chk.mean : null,
+        hits: r.chk && r.chk.n != null ? r.chk.n : null, fake: (r.chk && r.chk.fake) || 0, sdMid: s.sdMid,
+        bot: !!(r.chk && r.chk.sd != null && r.chk.n >= BOT_MIN_HITS && r.chk.sd <= BOT_SD_MS),
       };
     })
     .filter(Boolean)
@@ -74,6 +88,18 @@ function analyze(list, st) {
   if (overlaps) {
     risk += Math.min(overlaps, 4) * 30;
     reasons.push(`⏱ 겹친 판 ${overlaps}번 — 곡 치는 시간의 절반도 안 돼서 다음 단계 기록이 찍힘 (${olv.join('·')}단계). 여러 창·기기로 동시에 돌렸거나 자동 프로그램일 수 있음`);
+  }
+  // 3) 가짜 입력: 화면을 손가락이 아니라 프로그램이 눌렀음 (브라우저가 표시해 줌)
+  const fake = items.filter((it) => it.fake >= FAKE_MIN);
+  if (fake.length) {
+    risk += 60 + (fake.length - 1) * 20;
+    reasons.push(`🤖 가짜 입력 — 프로그램이 누른 입력이 기록에 섞임 (${fake.map((it) => `${it.level}단계 ${it.fake}번`).join(', ')})`);
+  }
+  // 4) 기계처럼 일정한 박자: 박자 오차 퍼짐이 사람 손가락으론 안 나올 만큼 작음
+  const bot = items.filter((it) => it.bot);
+  if (bot.length) {
+    risk += 60 + (bot.length - 1) * 20;
+    reasons.push(`🎯 박자가 기계처럼 일정 — 오차 퍼짐 ${BOT_SD_MS}ms 이하 (${bot.map((it) => `${it.level}단계 ${it.sd}ms`).join(', ')}). 자동 입력 프로그램일 수 있음`);
   }
   // 2) 높은 단계 만점 근처 — 잘하는 사람도 나와서 의심 점수엔 안 넣음 (11-21 사용자: '잘하는 사람은 다 뜸'). 자세히 보기에서 참고로만
   const near = items.filter((it) => it.near);

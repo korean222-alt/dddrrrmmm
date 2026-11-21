@@ -26,7 +26,7 @@ const val = (v) => (v === undefined ? null : v === true ? 1 : v === false ? 0 : 
  */
 export const D1_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS players (igsid TEXT PRIMARY KEY, username TEXT, follow_verified_at INTEGER, ig TEXT, created_at INTEGER, checked_at INTEGER, hidden_at INTEGER)`,
-  `CREATE TABLE IF NOT EXISTS scores (igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, grade TEXT, max_combo INTEGER, at INTEGER NOT NULL, PRIMARY KEY (igsid, level))`,
+  `CREATE TABLE IF NOT EXISTS scores (igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, grade TEXT, max_combo INTEGER, at INTEGER NOT NULL, chk TEXT, PRIMARY KEY (igsid, level))`,
   `CREATE INDEX IF NOT EXISTS scores_rank ON scores (level, score DESC, at)`,
   `CREATE TABLE IF NOT EXISTS used_runs (nonce TEXT PRIMARY KEY, expires_at INTEGER NOT NULL) WITHOUT ROWID`,
   `CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`,
@@ -51,6 +51,12 @@ export const D1_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS ranked_runs (igsid TEXT NOT NULL, level INTEGER NOT NULL, rating INTEGER NOT NULL, at INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (igsid, level))`,
 ];
 
+/** 이미 있는 표에 열 더하기 — SQLite 엔 'IF NOT EXISTS' 가 없어서 하나씩 해 보고, 이미 있으면 오류를 그냥 넘김 */
+const D1_ALTERS = [
+  // 핵 의심 확인용 JSON (2026-11-21, pgstore SCHEMA 와 같음)
+  'ALTER TABLE scores ADD COLUMN chk TEXT',
+];
+
 /** Neon 에서 이미 끝난 옛 기록 옮기기들 — D1 은 그 뒤 데이터를 받으므로 '했음' 으로만 표시 */
 const DONE_MIGRATIONS = [
   'migration:remove-instagram-v1',
@@ -63,7 +69,7 @@ const DONE_MIGRATIONS = [
 
 const D1_FLAG = (() => {
   let h = 2166136261;
-  for (const ch of D1_SCHEMA.join('\n') + '|' + DONE_MIGRATIONS.join(',')) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+  for (const ch of D1_SCHEMA.join('\n') + '|' + D1_ALTERS.join(';') + '|' + DONE_MIGRATIONS.join(',')) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
   return 'd1schema:' + h.toString(36);
 })();
 
@@ -114,8 +120,9 @@ export class D1Store extends PgStore {
       if (await this.one('SELECT 1 AS ok FROM settings WHERE key = $1', [D1_FLAG])) return this;
     } catch {}
     const now = String(Date.now());
+    await this.batch(D1_SCHEMA.map((s) => [s]));
+    for (const a of D1_ALTERS) await this.db.q(a, []).catch(() => {});
     await this.batch([
-      ...D1_SCHEMA.map((s) => [s]),
       [`INSERT INTO settings (key, value) VALUES ${[...DONE_MIGRATIONS, D1_FLAG].map((_, i) => `($${i + 1}, '${now}')`).join(', ')} ON CONFLICT (key) DO NOTHING`, [...DONE_MIGRATIONS, D1_FLAG]],
     ]);
     return this;
@@ -144,12 +151,12 @@ export class D1Store extends PgStore {
     const [[pre], up] = await this.batch([
       ['SELECT EXISTS (SELECT 1 FROM players WHERE igsid = $1) AS ok, (SELECT score FROM scores WHERE igsid = $1 AND level = $2) AS prev', [igsid, level]],
       [
-        `INSERT INTO scores (igsid, level, score, grade, max_combo, at)
-         SELECT $1, $2, $3, $4, $5, $6 WHERE EXISTS (SELECT 1 FROM players WHERE igsid = $1)
+        `INSERT INTO scores (igsid, level, score, grade, max_combo, at, chk)
+         SELECT $1, $2, $3, $4, $5, $6, $7 WHERE EXISTS (SELECT 1 FROM players WHERE igsid = $1)
          ON CONFLICT (igsid, level) DO UPDATE SET score = excluded.score, grade = excluded.grade,
-           max_combo = excluded.max_combo, at = excluded.at WHERE excluded.score > scores.score
+           max_combo = excluded.max_combo, at = excluded.at, chk = excluded.chk WHERE excluded.score > scores.score
          RETURNING score`,
-        [igsid, level, entry.score, entry.grade ?? null, entry.maxCombo ?? 0, Date.now()],
+        [igsid, level, entry.score, entry.grade ?? null, entry.maxCombo ?? 0, Date.now(), entry.chk ?? null],
       ],
     ]);
     if (!pre || !pre.ok) return null;
