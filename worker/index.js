@@ -1,14 +1,18 @@
 // Cloudflare Worker (드럼 전용 Cloudflare 계정, 2026-11-18 Vercel 무료 한도 초과로 옮김)
 //   - 게임 화면 파일(public/)은 Workers 정적 파일로 바로 나감 → 무료 · 요청 수 무제한 (이 코드를 안 거침)
 //   - /api/* 만 이 코드로 와서 server/handler.js 처리 (Vercel 함수 api/server.js 와 같은 일)
-//   - DB = Neon Postgres. 비밀값(DATABASE_URL · ADMIN_TOKEN · FOLLOW_PASSWORD · SUGGEST_BOT_TOKEN)은
+//   - DB = Cloudflare D1(env.DB, 2026-11-21 Neon 에서 옮김) 또는 Neon Postgres(DATABASE_URL)
+//     어느 쪽을 쓸지는 비밀값 DB_MODE: 'd1' 이면 D1, 없거나 'neon' 이면 Neon → 되돌리기 = DB_MODE 를 neon 으로 (배포 필요 없음)
+//     (옮기기·되돌리기는 GitHub Actions 'D1 옮기기' 가 함. tasks/D1-옮기기.md)
+//   - 비밀값(DATABASE_URL · ADMIN_TOKEN · FOLLOW_PASSWORD · SUGGEST_BOT_TOKEN · DB_MODE)은
 //     Cloudflare 대시보드 → Workers → play → 설정 → 변수 및 비밀 에 넣음 (코드·저장소에 안 씀)
-//   SESSION_SECRET 은 안 넣어도 됨 (DB 에 처음 한 번 자동 생성된 값을 같이 씀)
+//   SESSION_SECRET 은 안 넣어도 됨 (DB settings 의 secret:session 을 같이 씀 — D1 로 옮길 때 같이 옮김)
 
 import { neon } from '@neondatabase/serverless';
 import { makeConfig } from '../server/settings.js';
 import { createHandler } from '../server/handler.js';
 import { PgStore } from '../server/pgstore.js';
+import { D1Store, d1Binding } from '../server/d1store.js';
 
 const DEFAULTS = {
   NODE_ENV: 'production',
@@ -18,13 +22,40 @@ const DEFAULTS = {
 
 const SECURITY_HEADERS = { 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'strict-origin-when-cross-origin' };
 const dbUrl = (env) => env.DATABASE_URL || env.POSTGRES_URL || '';
+const useD1 = (env) => String(env.DB_MODE || '').trim().toLowerCase() === 'd1';
+/** DB 가 연결돼 있나. D1 쪽인데 바인딩이 없으면 Neon 으로 몰래 넘어가지 않고 '없음' (두 DB 에 나뉘어 쓰이는 것 막기) */
+const hasDb = (env) => (useD1(env) ? !!env.DB : !!dbUrl(env));
+
+const neonStore = (env) => {
+  const sql = neon(dbUrl(env));
+  return new PgStore((text, params = []) => sql.query(text, params));
+};
 
 let ready = null;
 function setup(env) {
   if (!ready) {
     ready = (async () => {
-      const sql = neon(dbUrl(env));
-      const store = await new PgStore((text, params = []) => sql.query(text, params)).init();
+      let store;
+      if (useD1(env)) {
+        store = await new D1Store(d1Binding(env.DB)).init();
+        // 옛 Vercel 다리(Neon)에서 만든 '기록 옮기기' 코드는 Neon 에 있음 → D1 에 없으면 Neon 에서 한 번 더 찾음
+        if (dbUrl(env)) {
+          const take = store.takeTransfer.bind(store);
+          let neonOld = null;
+          store.takeTransfer = async (code, now) => {
+            const t = await take(code, now);
+            if (t) return t;
+            try {
+              return await (neonOld ||= neonStore(env)).takeTransfer(code, now);
+            } catch (e) {
+              console.error('[api] Neon 옮기기 코드 찾기 실패', e);
+              return null;
+            }
+          };
+        }
+      } else {
+        store = await neonStore(env).init();
+      }
       const vars = { ...DEFAULTS };
       for (const [k, v] of Object.entries(env)) if (typeof v === 'string' && v !== '') vars[k] = v;
       const cfg = makeConfig(vars);
@@ -40,10 +71,10 @@ function setup(env) {
 
 async function api(request, env) {
   const url = new URL(request.url);
-  const db = dbUrl(env);
+  const db = hasDb(env);
   // DB 가 연결 안 됐으면 '서버 없음' → 사이트는 서버 없는 모드로 돎
   if (url.pathname === '/api/health' && !(db && url.searchParams.get('boot') === '1')) {
-    return Response.json(db ? { ok: true, app: 'okaystra' } : { ok: false, error: 'db_not_connected' }, {
+    return Response.json(db ? { ok: true, app: 'okaystra', db: useD1(env) ? 'd1' : 'neon' } : { ok: false, error: 'db_not_connected' }, {
       status: db ? 200 : 503,
       headers: { 'Cache-Control': 'no-store', ...SECURITY_HEADERS },
     });

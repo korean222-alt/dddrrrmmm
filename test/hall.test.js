@@ -17,7 +17,10 @@ async function stores() {
   const { PgStore } = await import('../server/pgstore.js');
   const db = new PGlite();
   const pg = await new PgStore(async (text, params) => (await db.query(text, params)).rows).init();
-  return { json, pg };
+  const { DatabaseSync } = await import('node:sqlite');
+  const { D1Store, d1Local } = await import('../server/d1store.js');
+  const d1 = await new D1Store(d1Local(new DatabaseSync(':memory:'))).init();
+  return { json, pg, d1 };
 }
 
 test('시즌: 시즌 1 은 11/26 23:59:59(한국) 까지, 그 뒤는 시즌 2 · 안내 문구', () => {
@@ -36,8 +39,8 @@ test('시즌: 시즌 1 은 11/26 23:59:59(한국) 까지, 그 뒤는 시즌 2 ·
 });
 
 test('시즌 총합 랭킹(단계·무제한) · 시즌 2 는 그 시즌 기록만 · 명예의 전당 사진은 본인만', async () => {
-  const { json, pg } = await stores();
-  for (const [name, s] of Object.entries({ json, pg })) {
+  const { json, pg, d1 } = await stores();
+  for (const [name, s] of Object.entries({ json, pg, d1 })) {
     for (const [id, nick] of [['a', '쿵왕'], ['b', '짝왕'], ['c', '셋째'], ['d', '미인증']]) {
       await s.upsertPlayer(id, { username: nick, ig: id + '_ig' });
       if (id !== 'd') await s.setChecked(id, true);

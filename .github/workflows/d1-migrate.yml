@@ -1,0 +1,87 @@
+# Neon → Cloudflare D1 옮기기 / 되돌리기 (2026-11-21). Actions 탭 → 'D1 옮기기' → Run workflow 에서 step 고르기
+#   prepare  : D1 'okaystra' 만들기(없으면) · database_id 출력 · Neon 표마다 줄 수
+#   migrate  : 지금 랭킹 적어 두기 → Neon 전부 D1 로 복사 → 줄 수·내용 맞춰 보기(안 맞으면 멈춤, 사이트는 계속 Neon)
+#              → 비밀값 DB_MODE=d1 (사이트가 D1 로) → 그 사이 Neon 에 생긴 기록 따라잡기 → 사이트 랭킹·로그인 확인
+#              (사이트 확인이 실패하면 바로 DB_MODE=neon 으로 되돌림)
+#   verify   : Neon 과 D1 비교 보고만
+#   rollback : 비밀값 DB_MODE=neon (사이트가 Neon 으로) → D1 로 바꾼 뒤 D1 에 생긴 기록을 Neon 에 합침 → 사이트 확인
+#   필요한 GitHub 비밀값: CLOUDFLARE_API_TOKEN (D1 편집 권한 포함) · NEON_DATABASE_URL (Neon 접속 주소, prepare 는 없어도 됨)
+name: D1 옮기기
+
+on:
+  workflow_dispatch:
+    inputs:
+      step:
+        description: 'prepare / migrate / verify / rollback'
+        required: true
+        type: choice
+        options: [prepare, migrate, verify, rollback]
+
+concurrency:
+  group: cloudflare-deploy
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: 9a61013ac8fa9c59d599e97b4b0362ec
+      NEON_DATABASE_URL: ${{ secrets.NEON_DATABASE_URL }}
+      WRANGLER_SEND_METRICS: 'false'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci --omit=dev
+
+      - name: prepare
+        if: inputs.step == 'prepare'
+        run: node scripts/d1-sync.mjs prepare
+
+      - name: verify
+        if: inputs.step == 'verify'
+        run: node scripts/d1-sync.mjs verify
+
+      # ---------------- migrate ----------------
+      - name: 배포된 코드에 D1 연결이 있는지
+        if: inputs.step == 'migrate'
+        run: |
+          grep -q '"database_id": "[0-9a-f-]\{36\}"' wrangler.jsonc || { echo "❌ wrangler.jsonc 에 D1 database_id 가 없음 (prepare 먼저 → id 넣고 배포)"; exit 1; }
+      - name: 지금(Neon) 사이트 랭킹 적어 두기 + 로그인 확인
+        if: inputs.step == 'migrate'
+        run: node scripts/d1-site-check.mjs before /tmp/before.json
+      - name: Neon → D1 전체 복사 + 맞춰 보기
+        if: inputs.step == 'migrate'
+        run: node scripts/d1-sync.mjs copy
+      - name: 사이트를 D1 로 (비밀값 DB_MODE=d1)
+        if: inputs.step == 'migrate'
+        run: echo d1 | npx -y wrangler@4.164.0 secret put DB_MODE
+      - name: 그 사이 Neon 에 생긴 기록 따라잡기 + 최종 맞춰 보기
+        if: inputs.step == 'migrate'
+        run: node scripts/d1-sync.mjs catchup
+      - name: 사이트 랭킹·로그인 확인 (D1)
+        id: sitecheck
+        if: inputs.step == 'migrate'
+        run: node scripts/d1-site-check.mjs after /tmp/before.json d1
+      - name: ⚠ 사이트 확인 실패 → Neon 으로 되돌림
+        if: failure() && inputs.step == 'migrate' && steps.sitecheck.outcome == 'failure'
+        run: |
+          echo neon | npx -y wrangler@4.164.0 secret put DB_MODE
+          node scripts/d1-sync.mjs back
+
+      # ---------------- rollback ----------------
+      - name: 지금(D1) 사이트 랭킹 적어 두기
+        if: inputs.step == 'rollback'
+        run: node scripts/d1-site-check.mjs before /tmp/before.json
+      - name: 사이트를 Neon 으로 (비밀값 DB_MODE=neon)
+        if: inputs.step == 'rollback'
+        run: echo neon | npx -y wrangler@4.164.0 secret put DB_MODE
+      - name: D1 에서 생긴 기록을 Neon 에 합침
+        if: inputs.step == 'rollback'
+        run: node scripts/d1-sync.mjs back
+      - name: 사이트 랭킹·로그인 확인 (Neon)
+        if: inputs.step == 'rollback'
+        run: node scripts/d1-site-check.mjs after /tmp/before.json neon

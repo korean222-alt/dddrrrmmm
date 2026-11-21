@@ -37,6 +37,12 @@ before(async () => {
     const db = new PGlite();
     store = await new PgStore(async (text, params) => (await db.query(text, params)).rows).init();
   }
+  // TEST_D1=1: Cloudflare 와 같은 D1(SQLite) 저장소를 node:sqlite 메모리 DB 로 시험
+  if (process.env.TEST_D1) {
+    const { DatabaseSync } = await import('node:sqlite');
+    const { D1Store, d1Local } = await import('../server/d1store.js');
+    store = await new D1Store(d1Local(new DatabaseSync(':memory:'))).init();
+  }
   ({ server } = createApp(cfg, { store }));
   await new Promise((r) => server.listen(0, r));
   base = `http://127.0.0.1:${server.address().port}`;
