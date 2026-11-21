@@ -677,10 +677,26 @@ export class Renderer {
     ctx.restore();
     const k = 1 + pulse * 0.05;
     for (const lane of this.laneOrder) {
-      if (this.melodyMode && lane === SNARE) continue; // 🎹 피아노 건반이 과녁
       const x = L.laneX[lane];
       const lit = rt - this.hitAt[lane] < 0.1;
       const c = LANE[lane].rgb;
+      if (this.melodyMode && lane === SNARE) {
+        // 🎹 피아노 줄: 흰 건반 위에선 흰 선이 안 보여서 진한 테두리 + 금색 판정선
+        const w = Math.min(L.laneW * 0.94, L.GW * 0.46);
+        ctx.save();
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = 'rgba(43,29,58,0.85)';
+        ctx.lineWidth = 9;
+        ctx.beginPath();
+        ctx.moveTo(x - w / 2, L.strikeY);
+        ctx.lineTo(x + w / 2, L.strikeY);
+        ctx.stroke();
+        ctx.strokeStyle = lit ? '#FFFFFF' : `rgba(255,205,70,${0.85 + 0.15 * pulse})`;
+        ctx.lineWidth = 4.5;
+        ctx.stroke();
+        ctx.restore();
+        continue;
+      }
       ctx.beginPath();
       if (lane === KICK) rr(ctx, x - (L.barW * k) / 2, L.strikeY - (L.barH * k) / 2, L.barW * k, L.barH * k, (L.barH * k) / 2);
       else if (lane === SNARE || lane === TOM) ctx.ellipse(x, L.strikeY, L.padR * 1.1 * k, L.padR * 1.1 * k * 0.62, 0, 0, Math.PI * 2);
@@ -906,7 +922,7 @@ export class Renderer {
         // 🎹 피아노: 건반 위로 얇게 금빛만 (건반이 가려지지 않게)
         const w = Math.min(L.laneW * 0.94, L.GW * 0.46) * (1 + e * 0.08);
         const h = L.instR * 0.35 * (1 + e);
-        rr(ctx, x - w / 2, L.strikeY - L.instR * 0.75 - h, w, h, h / 2);
+        rr(ctx, x - w / 2, L.strikeY - L.instR * 0.45 - h, w, h, h / 2);
         ctx.fillStyle = 'rgba(255,215,120,0.45)';
         ctx.fill();
       } else if (b.lane === SNARE || b.lane === TOM) {
@@ -1032,7 +1048,7 @@ export class Renderer {
       ctx.lineJoin = 'round';
       ctx.lineWidth = fs * 0.28;
       ctx.strokeStyle = INK;
-      const ly = Math.min(L.H - fs * 1.1, L.strikeY + L.instR * 1.55);
+      const ly = Math.min(L.H - fs * 1.1, L.strikeY + L.instR * (this.melodyMode && lane === SNARE ? 1.95 : 1.55));
       ctx.strokeText(this.melodyMode && lane === SNARE ? '피아노' : LANE[lane].short, x, ly);
       ctx.fillStyle = LANE[lane].light;
       ctx.fillText(this.melodyMode && lane === SNARE ? '피아노' : LANE[lane].short, x, ly);
@@ -1068,7 +1084,8 @@ export class Renderer {
     const w = Math.min(L.laneW * 0.94, L.GW * 0.46);
     const kw = w / nW;
     const kh = Math.min(kw * 5.2, L.instR * 1.5);
-    const top = y - kh * 0.45;
+    // 판정선이 건반 윗부분에 오게 피아노를 아래로 → 선·과녁이 잘 보임 (퍼펙트 맞추기 쉽게)
+    const top = y - kh * 0.2;
     const x0 = x - w / 2;
     const pad = kw * 0.45;
     const lidH = kh * 0.55;
