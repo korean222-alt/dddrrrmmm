@@ -65,12 +65,18 @@ export class JsonStore {
         for (const p of Object.values(this.data.players)) for (const k of ['18', '-18']) if (p.bests && p.bests[k] && !(p.bests[k].at >= ELISE_FROM)) delete p.bests[k];
         this.data.settings['migration:reset-level-18-v1'] = String(Date.now());
       }
+      // 18단계 엘리제 랭킹 초기화 (운영자 요청, 채보 바꾼 뒤)
+      if (!this.data.settings['migration:reset-level-18-v2']) {
+        for (const p of Object.values(this.data.players)) if (p.bests) { delete p.bests['18']; delete p.bests['-18']; }
+        this.data.settings['migration:reset-level-18-v2'] = String(Date.now());
+      }
     } catch (e) {
       if (e.code !== 'ENOENT') console.error('[store] 읽기 실패, 새로 시작:', e.message);
       // 새로 시작하는 저장소는 처음부터 새 번호 → 나중에 파일이 생겨도 옮기지 않게 표시
       this.data.settings['migration:insert-level-8-v1'] ??= String(Date.now());
       this.data.settings['migration:reset-level-19-v1'] ??= String(Date.now());
       this.data.settings['migration:reset-level-18-v1'] ??= String(Date.now());
+      this.data.settings['migration:reset-level-18-v2'] ??= String(Date.now());
     }
     return this;
   }

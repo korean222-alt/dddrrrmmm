@@ -246,12 +246,22 @@ test('18단계 엘리제를 위하여: 그 전 18번(빼 버린 찬송가) 점�
   await q(`CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)`);
   await q(`INSERT INTO players VALUES ('g_a', 'a', NULL), ('g_b', 'b', NULL)`);
   await q(`INSERT INTO scores VALUES ('g_a', 18, 900, 'A', 10, ${old}), ('g_a', -18, 900, 'A', 10, ${old}), ('g_b', 18, 800, 'B', 9, ${fresh}), ('g_a', 17, 700, 'C', 8, ${old})`);
+  await q(`INSERT INTO settings VALUES ('migration:reset-level-18-v2', '1')`); // v1 만 따로 봄
   await new PgStore(q).init();
   const left = (await q('SELECT igsid, level FROM scores ORDER BY igsid, level')).map((r) => `${r.igsid}:${r.level}`).join();
   assert.equal(left, 'g_a:17,g_b:18');
+  // v2: 엘리제 랭킹 초기화 — 18·-18 전부 한 번
+  await q(`DELETE FROM settings WHERE key = 'migration:reset-level-18-v2' OR key LIKE 'schema:%'`); // 새 배포처럼
+  await q(`INSERT INTO scores VALUES ('g_a', -18, 900, 'A', 10, ${fresh})`);
+  await new PgStore(q).init();
+  assert.equal((await q('SELECT igsid, level FROM scores ORDER BY igsid, level')).map((r) => `${r.igsid}:${r.level}`).join(), 'g_a:17');
+  await q(`INSERT INTO scores VALUES ('g_b', 18, 800, 'B', 9, ${fresh})`);
+  await q(`DELETE FROM settings WHERE key LIKE 'schema:%'`);
+  await new PgStore(q).init();
+  assert.equal((await q(`SELECT 1 FROM scores WHERE level = 18`)).length, 1, '한 번만');
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'kk-mig-'));
   const file = path.join(dir, 'db.json');
-  fs.writeFileSync(file, JSON.stringify({ settings: { 'migration:insert-level-8-v1': '1', 'migration:reset-level-19-v1': '1' }, players: {
+  fs.writeFileSync(file, JSON.stringify({ settings: { 'migration:insert-level-8-v1': '1', 'migration:reset-level-19-v1': '1', 'migration:reset-level-18-v2': '1' }, players: {
     g_a: { igsid: 'g_a', username: 'a', bests: { 18: { score: 900, at: old }, 17: { score: 700, at: old } } },
     g_b: { igsid: 'g_b', username: 'b', bests: { 18: { score: 800, at: fresh } } },
   } }));
