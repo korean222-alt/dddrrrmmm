@@ -10,6 +10,7 @@ import {
 } from './charts.js';
 import { separateVocals, resample } from './vocalsep.js';
 import { transcribeSong } from './songmap.js';
+import { instrumentNotes } from './instnotes.js';
 import { videoToAac } from './mp4audio.js';
 import { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmonize, autoDrums, cleanMap, mapLevel } from './usermap.js';
 import { AudioEngine, playMetronome } from './audio.js';
@@ -3133,6 +3134,15 @@ async function mkTranscribe() {
       console.warn('vocalsep', e);
       toast('이 폰에선 목소리 골라내기가 안 돼서 그냥 따요', 2200);
     }
+    // 🎹 반주 악기 음 (Basic Pitch, 228KB) — 목소리 없는 곳·연주곡의 멜로디
+    let inst = null;
+    try {
+      const mono = new Float32Array(Lc.length);
+      for (let i = 0; i < mono.length; i++) mono[i] = (Lc[i] + Rc[i]) * 0.5;
+      inst = await instrumentNotes(mono, sr, (stage, p) => (st.textContent = stage === 'model' ? '악기 음 듣는 준비…' : `악기 음 듣는 중… ${Math.round(p * 100)}%`));
+    } catch (e) {
+      console.warn('instnotes', e);
+    }
     st.textContent = '멜로디·코드·드럼 따는 중…';
     await new Promise((res) => setTimeout(res, 40));
     // 목소리를 골랐으면 같은 빠르기(44.1kHz)로 맞춰서
@@ -3145,6 +3155,7 @@ async function mkTranscribe() {
       bpm,
       bars,
       grid: $('#mk-file-clean').value === 'fine' ? 1 : 2,
+      inst,
     });
   } catch (e) {
     console.warn('transcribe', e);

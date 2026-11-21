@@ -2615,7 +2615,7 @@ const H = 1024;
 const F = 1024; // 모델이 보는 주파수 칸 (0 ~ 11kHz)
 const T = 512; // 모델 한 번에 보는 프레임 수 (약 12초)
 
-let sessP = null;
+const sessP = new Map();
 
 function loadScript(src) {
   return new Promise((ok, no) => {
@@ -2627,17 +2627,17 @@ function loadScript(src) {
   });
 }
 
-/** 모델 준비 (한 번만). onProgress(0~1) = 받는 중 */
-function session(onProgress) {
-  if (!sessP) {
-    sessP = (async () => {
+/** 모델 준비 (모델마다 한 번만). onProgress(0~1) = 받는 중. 악기 음 따기(instnotes.js)도 같이 씀 */
+function modelSession(url, onProgress = () => {}, sizeGuess = 19.7e6) {
+  if (!sessP.has(url)) {
+    const p = (async () => {
       if (!globalThis.ort) await loadScript(ORT_DIR + 'ort.wasm.min.js');
       const ort = globalThis.ort;
       ort.env.wasm.wasmPaths = ORT_DIR;
       ort.env.wasm.numThreads = 1;
-      const res = await fetch(MODEL);
+      const res = await fetch(url);
       if (!res.ok) throw new Error('model ' + res.status);
-      const total = Number(res.headers.get('content-length')) || 19.7e6;
+      const total = Number(res.headers.get('content-length')) || sizeGuess;
       let bytes;
       if (res.body && res.body.getReader) {
         const rd = res.body.getReader();
@@ -2652,16 +2652,18 @@ function session(onProgress) {
         }
         bytes = new Uint8Array(got);
         let at = 0;
-        for (const p of parts) bytes.set(p, at), (at += p.length);
+        for (const q of parts) bytes.set(q, at), (at += q.length);
       } else bytes = new Uint8Array(await res.arrayBuffer());
       return ort.InferenceSession.create(bytes, { executionProviders: ['wasm'], graphOptimizationLevel: 'all' });
     })().catch((e) => {
-      sessP = null;
+      sessP.delete(url);
       throw e;
     });
+    sessP.set(url, p);
   }
-  return sessP;
+  return sessP.get(url);
 }
+const session = (onProgress) => modelSession(MODEL, onProgress);
 
 /** 간단한 선형 보간으로 44.1kHz 로 */
 function resample(x, from) {
@@ -2765,7 +2767,7 @@ async function separateVocals(L, R, sr, onProgress = () => {}) {
   return { L: outL, R: outR, sr: SR };
 }
 
-return { resample, separateVocals };
+return { modelSession, resample, separateVocals };
 })();
 
 // ---- beatsync.js ----
@@ -3742,7 +3744,7 @@ function detectChords(x0, sr0, { firstBeat, bpm, bars, melody = null }) {
  *   mix = 원래 소리 [L, R], voc = 골라낸 목소리 [L, R] (못 골랐으면 null), firstBeat = 첫 마디 시작(초, 이 소리 안에서)
  * @returns {{ bars, found, prog, drums, vocalShare, leadShare }}
  */
-function transcribeSong({ mix, voc = null, sr, firstBeat, bpm, bars, grid = 2, lead = true }) {
+function transcribeSong({ mix, voc = null, sr, firstBeat, bpm, bars, grid = 2, lead = true, inst = null }) {
   const mixM = center(mix);
   const n = mixM.length;
   const accM = new Float32Array(n);
@@ -3816,13 +3818,17 @@ function transcribeSong({ mix, voc = null, sr, firstBeat, bpm, bars, grid = 2, l
       }
       let e = s;
       while (e < total && !vocCell[e]) e++;
-      if (lead && (e - s >= 16 || vocCount < total * 0.1)) gaps.push([s, e]);
+      // 악기 음(inst)이 있으면 한 박 넘게 빈 곳도 채움 (중간중간 비는 곳 줄이기)
+      if (lead && (e - s >= (inst ? 4 : 16) || vocCount < total * 0.1)) gaps.push([s, e]);
       s = e;
     }
   }
   let leadBars = null;
   let leadCount = 0;
-  if (gaps.length) {
+  if (gaps.length && inst) {
+    leadBars = instLine(inst, gaps, firstBeat, bpm, bars);
+    leadBars.forEach((bar) => (leadCount += bar.reduce((a, x) => a + x.len, 0)));
+  } else if (gaps.length) {
     const { y, sr: sr2 } = downsample(vocCount < total * 0.1 ? mixM : accM, sr, 22050);
     const hop = Math.round(sr2 * 0.0116);
     const hopSec = hop / sr2;
@@ -3900,6 +3906,71 @@ function transcribeSong({ mix, voc = null, sr, firstBeat, bpm, bars, grid = 2, l
   return { bars: res, found, prog, drums, vocalShare: vocCount / total, leadShare: leadCount / total, vocalRatio };
 }
 
+/**
+ * Basic Pitch 결과 → 악기 멜로디 (16분 칸마다 '위쪽 줄': 울리는 음 중 가장 높은 음, 베이스 위에 아무것도 없으면 베이스)
+ *   gaps 안의 칸만. 같은 음이 이어져도 그 건반의 '막 시작' 확률이 높으면 새 음
+ */
+function instLine(inst, gaps, firstBeat, bpm, bars) {
+  const { note, onset, frames, fps } = inst;
+  const st = 60 / bpm / 4;
+  const total = bars * STEPS_PER_BAR;
+  const want = new Uint8Array(total);
+  for (const [a, b] of gaps) for (let s = a; s < b; s++) want[s] = 1;
+  const pick = new Int16Array(total).fill(-1);
+  const hit = new Uint8Array(total);
+  const act = new Float32Array(88);
+  // 문턱: 곡에서 가장 또렷한 음의 30% (0.15~0.3) — 베이스·비트뿐인 곡도 뭔가는 따게
+  let gmax = 0;
+  for (let i = 0; i < note.length; i++) if (note[i] > gmax) gmax = note[i];
+  const TH = Math.max(0.15, Math.min(0.3, gmax * 0.3));
+  for (let s = 0; s < total; s++) {
+    if (!want[s]) continue;
+    const f0 = Math.max(0, Math.round((firstBeat + (s + 0.15) * st) * fps));
+    const f1 = Math.min(frames, Math.round((firstBeat + (s + 0.9) * st) * fps) + 1);
+    if (f1 <= f0) continue;
+    act.fill(0);
+    for (let f = f0; f < f1; f++) for (let k = 0; k < 88; k++) act[k] += note[f * 88 + k];
+    let mx = 0;
+    for (let k = 0; k < 88; k++) (act[k] /= f1 - f0), (mx = Math.max(mx, act[k]));
+    if (mx < TH) continue;
+    // 위쪽 줄: 꽤 센 음 중 가장 높은 음 (C3 위). 없으면 가장 센 음(베이스 줄)
+    let best = -1;
+    for (let k = 87; k >= 48 - 21; k--)
+      if (act[k] >= Math.max(TH, mx * 0.45)) {
+        best = k;
+        break;
+      }
+    if (best < 0) for (let k = 0; k < 88; k++) if (act[k] === mx) best = k;
+    pick[s] = best + 21;
+    // 그 건반이 칸 시작 근처에서 막 울리기 시작했나
+    const c = Math.round((firstBeat + s * st) * fps);
+    let on = 0;
+    for (let f = Math.max(0, c - 2); f <= Math.min(frames - 1, c + 3); f++) on = Math.max(on, onset[f * 88 + best]);
+    hit[s] = on > 0.4 ? 1 : 0;
+  }
+  const out = Array.from({ length: bars }, () => []);
+  let cur = null;
+  for (let s = 0; s < total; s++) {
+    const p = pick[s];
+    const step = s % STEPS_PER_BAR;
+    if (p < 0) {
+      cur = null;
+      continue;
+    }
+    if (!cur || cur.midi !== p || hit[s] || step === 0) {
+      cur = { step, midi: p, len: 1 };
+      out[Math.floor(s / STEPS_PER_BAR)].push(cur);
+    } else cur.len++;
+  }
+  // 16분 한 칸짜리 외톨이(앞뒤가 비었거나 다른 음)는 잡음일 때가 많아 지움
+  for (const bar of out)
+    for (let i = bar.length - 1; i >= 0; i--) {
+      const n = bar[i];
+      if (n.len === 1 && !(bar[i - 1] && bar[i - 1].step + bar[i - 1].len === n.step) && !(bar[i + 1] && bar[i + 1].step === n.step + 1)) bar.splice(i, 1);
+    }
+  return out;
+}
+
 function median(a) {
   if (!a.length) return null;
   const s = [...a].sort((x, y) => x - y);
@@ -3907,6 +3978,80 @@ function median(a) {
 }
 
 return { detectChords, transcribeSong };
+})();
+
+// ---- instnotes.js ----
+const __m_instnotes = (() => {
+// 🎹 반주(악기)에서 음 따기 — Spotify Basic Pitch (Apache-2.0, ONNX 228KB) 를 폰 안에서 돌림
+//   11-21 사용자 '반주만 넣었는데 그것도 못 따, 중간중간 안 따지는 곳도 있어' → 배음 더하기로 고르던 악기 줄을
+//   여러 음을 한꺼번에 듣는 신경망으로 바꿈. 22.05kHz 소리를 2초 창(겹침 30프레임)으로 넣으면
+//   1/86초마다 88건반(A0~C8) 각각 '울리는 중' · '막 시작' 확률이 나옴
+const { modelSession } = __m_vocalsep;
+
+const MODEL = '/assets/models/basic-pitch.onnx?v=1';
+const SR = 22050;
+const N = 43844; // 창 길이 (2초 - 256)
+const OV = 30 * 256; // 겹침
+const HOP = N - OV;
+const BP_FPS = SR / 256;
+
+/** 간단한 저역 필터 + 줄이기 → 22.05kHz */
+function to22k(x, sr) {
+  if (sr === SR) return x;
+  const r = sr / SR;
+  const n = Math.floor(x.length / r);
+  const y = new Float32Array(n);
+  const w = Math.max(1, Math.round(r));
+  for (let i = 0; i < n; i++) {
+    const c = i * r;
+    const a = Math.floor(c);
+    let v = 0;
+    for (let k = 0; k < w; k++) v += x[a + k] || 0;
+    y[i] = v / w;
+  }
+  return y;
+}
+
+/**
+ * 소리 → { note, onset: Float32Array(frames*88), frames, fps } (프레임 0 = 소리 0초)
+ * @param {Float32Array} x 모노 @param {number} sr
+ */
+async function instrumentNotes(x, sr, onProgress = () => {}) {
+  const sess = await modelSession(MODEL, (p) => onProgress('model', p), 230e3);
+  const ort = globalThis.ort;
+  const y = to22k(x, sr);
+  const a = new Float32Array(y.length + OV / 2);
+  a.set(y, OV / 2);
+  const starts = [];
+  for (let i = 0; i < a.length; i += HOP) starts.push(i);
+  const frames = Math.floor((y.length * BP_FPS) / SR);
+  const note = new Float32Array(frames * 88);
+  const onset = new Float32Array(frames * 88);
+  const per = 172 - 30; // 창마다 쓰는 프레임 (앞뒤 15씩 버림)
+  const BATCH = 4;
+  for (let b0 = 0; b0 < starts.length; b0 += BATCH) {
+    const nb = Math.min(BATCH, starts.length - b0);
+    const inp = new Float32Array(nb * N);
+    for (let j = 0; j < nb; j++) inp.set(a.subarray(starts[b0 + j], starts[b0 + j] + N), j * N);
+    const r = await sess.run({ [sess.inputNames[0]]: new ort.Tensor('float32', inp, [nb, N, 1]) });
+    const nt = r['StatefulPartitionedCall:1'].data;
+    const on = r['StatefulPartitionedCall:2'].data;
+    for (let j = 0; j < nb; j++) {
+      for (let t = 0; t < per; t++) {
+        const f = (b0 + j) * per + t;
+        if (f >= frames) break;
+        const src = (j * 172 + 15 + t) * 88;
+        note.set(nt.subarray(src, src + 88), f * 88);
+        onset.set(on.subarray(src, src + 88), f * 88);
+      }
+    }
+    onProgress('run', Math.min(1, (b0 + nb) / starts.length));
+    await new Promise((res) => setTimeout(res, 0));
+  }
+  return { note, onset, frames, fps: BP_FPS };
+}
+
+return { BP_FPS, instrumentNotes };
 })();
 
 // ---- mp4audio.js ----
@@ -11168,7 +11313,7 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-21n',
+    id: '2026-11-21o',
     date: '11월 21일',
     title: '🎲 랜덤 대결 · 🎹 18단계 엘리제를 위하여 · 🏛 명예의 전당 · 🎭 장거리',
     items: [
@@ -11178,7 +11323,7 @@ const NEWS = [
       '<b>시즌 1은 11월 26일 밤 12시에 끝나요.</b> 1·2·3등은 명예의 전당에 영원히 기록되고, 프로필 사진도 올릴 수 있어요',
       '<b>🎭 장거리</b>가 바뀌었어요: 곡 하나를 <b>처음부터 끝까지</b>! 첫 곡은 오페라 <b>네순 도르마</b>',
       '왼쪽 엄지는 <b>쿵</b>, 오른쪽은 <b>🎹 피아노</b> — 누르면 그 음의 건반이 눌리며 피아노 화음이 울려요. 놓치면 그 음은 안 들려요!',
-      '<b>🎹 유저 맵 노래 파일 음 따기</b>가 훨씬 좋아졌어요: 목소리 멜로디(목소리 없는 곳은 악기 멜로디)에 <b>코드·드럼까지 노래에서</b> 따고, <b>노래 끝까지</b>(최대 64마디) 따요. 아이폰 화면 녹화 영상도 끝까지 바로 읽어요',
+      '<b>🎹 유저 맵 노래 파일 음 따기</b>가 훨씬 좋아졌어요: 목소리 멜로디에, 목소리 없는 곳·반주만 있는 곡은 <b>악기 음을 듣는 AI</b>로 악기 멜로디를, <b>코드·드럼까지 노래에서</b> 따고, <b>노래 끝까지</b>(최대 64마디) 따요. 아이폰 화면 녹화 영상도 끝까지 바로 읽어요',
       '드럼 탭 맨 위 <b>⚡ 자동 드럼</b>(쉬움·보통·어려움)으로 직접 안 쳐도 바로 드럼이 생겨요',
       '<b>🎹 맵 만들기</b>가 탭으로 바뀌었어요: <b>🥁 드럼</b>은 진짜 드럼 세트처럼 쳐서 녹음(겹쳐 치기 가능), <b>🎹 멜로디</b>에서 그 위에 피아노를 얹어요. 드럼만 올려도 돼요!'
     ],
@@ -12267,6 +12412,7 @@ const __m_main = (() => {
 const { LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES, ENDLESS_ID, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo, ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId, STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase, COUNT_IN_BARS, ROUND_BARS, BEAT_ID, makeBeatReel, beatOpts, beatSeconds, BEAT_MAX_ROUNDS, BEAT_STYLES, BEAT_DIFFS, beatStyleName, QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds, STEPS_PER_BAR, CHAR_LANES, KICK, SNARE, HAT, CRASH, parseChord } = __m_charts;
 const { separateVocals, resample } = __m_vocalsep;
 const { transcribeSong } = __m_songmap;
+const { instrumentNotes } = __m_instnotes;
 const { videoToAac } = __m_mp4audio;
 const { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmonize, autoDrums, cleanMap, mapLevel } = __m_usermap;
 const { AudioEngine, playMetronome } = __m_audio;
@@ -15390,6 +15536,15 @@ async function mkTranscribe() {
       console.warn('vocalsep', e);
       toast('이 폰에선 목소리 골라내기가 안 돼서 그냥 따요', 2200);
     }
+    // 🎹 반주 악기 음 (Basic Pitch, 228KB) — 목소리 없는 곳·연주곡의 멜로디
+    let inst = null;
+    try {
+      const mono = new Float32Array(Lc.length);
+      for (let i = 0; i < mono.length; i++) mono[i] = (Lc[i] + Rc[i]) * 0.5;
+      inst = await instrumentNotes(mono, sr, (stage, p) => (st.textContent = stage === 'model' ? '악기 음 듣는 준비…' : `악기 음 듣는 중… ${Math.round(p * 100)}%`));
+    } catch (e) {
+      console.warn('instnotes', e);
+    }
     st.textContent = '멜로디·코드·드럼 따는 중…';
     await new Promise((res) => setTimeout(res, 40));
     // 목소리를 골랐으면 같은 빠르기(44.1kHz)로 맞춰서
@@ -15402,6 +15557,7 @@ async function mkTranscribe() {
       bpm,
       bars,
       grid: $('#mk-file-clean').value === 'fine' ? 1 : 2,
+      inst,
     });
   } catch (e) {
     console.warn('transcribe', e);
