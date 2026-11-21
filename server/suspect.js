@@ -1,56 +1,124 @@
-// 🕵 핵 의심 지표 (관리자용, 2026-11-21 사용자 요청)
-//   서버는 이미 판 토큰·시간·판정 개수·점수 범위를 검사함. 여기선 통과한 기록 중에서도 '사람이 하기 어려운 패턴'을 점수로 모아 보여 줌.
+// 🕵 핵 의심 지표 (관리자용, 2026-11-21 사용자 요청 · 같은 날 다시 만듦: 천 명 넘게 잡혀서)
+//   서버는 이미 판 토큰·걸린 시간·판정 개수·점수 범위를 검사함. 여기선 통과한 기록 중에서도 '사람이 하기 어려운 패턴'만 봄.
 //   확정이 아니라 참고용 — 운영자가 보고 판단. DB 표는 안 늘리고 scores(단계별 최고 기록 + 기록한 시각)만 읽음.
-import { LAST_LEVEL_ID, getLevel, levelDuration, barDur, COUNT_IN_BARS, maxScore } from '../public/js/charts.js';
+//   예전 규칙 '1시간 안에 6단계' 는 평범하게 연달아 치는 사람을 다 잡아서 뺌. 이제 목록엔 강한 신호만, 나머지는 사람별 자세히 보기로.
+import { getLevel, levelDuration, barDur, COUNT_IN_BARS, maxScore, noteCount, levelLabel } from '../public/js/charts.js';
 
-const MIN_RUN_RATIO = 0.9;
-const MAX_REASONS = 6;
+export const NEAR_PERFECT = 0.995; // 최대 점수의 99.5% 이상 = 거의 전부 PERFECT
+export const HIGH_LEVEL = 10; // 이 단계부터 만점 근처를 셈
+const HELL_LEVEL = 15;
+const OVERLAP_RATIO = 0.5; // 직전 기록과의 간격이 이 곡 치는 시간의 절반도 안 되면 '겹친 판' (한 폰으로는 불가능)
+const COPY_GAP_MS = 2000; // 이보다 가까운 건 기록 옮기기·계정 합치기로 한꺼번에 들어간 것 → 안 셈
+export const LIST_MIN_RISK = 60; // 목록엔 이 점수 이상만 (겹친 판 2번, 또는 드문 지옥 만점 2개 정도)
+const LIST_MAX = 100;
 
-/**
- * players: listPlayers() 결과, rows: allScores() 결과 [{ igsid, level, score, grade, at }]
- * → 의심 순으로 [{ igsid, username, ig, risk, reasons: [...] }] (risk 0 은 뺌)
- */
-export function findSuspects(players, rows, { minRisk = 1 } = {}) {
-  const byId = new Map();
+/** 곡을 끝까지 치는 데 걸리는 시간(초, 카운트인 뺌) — 서버 점수 검사와 같은 기준 */
+const playSec = (lv) => levelDuration(lv) - COUNT_IN_BARS * barDur(lv);
+
+/** 단계별: 기록한 사람 수, 만점 근처인 사람 수, 점수 목록(등수용) */
+function levelStats(rows) {
+  const st = new Map();
   for (const r of rows) {
-    if (!(r.level >= 1 && r.level <= LAST_LEVEL_ID)) continue;
     const lv = getLevel(r.level);
-    if (!lv) continue;
-    (byId.get(r.igsid) || byId.set(r.igsid, []).get(r.igsid)).push({ ...r, lv });
+    if (!lv || !(r.level > 0)) continue;
+    let s = st.get(r.level);
+    if (!s) st.set(r.level, (s = { lv, max: maxScore(lv), notes: noteCount(lv), players: 0, near: 0, scores: [] }));
+    s.players++;
+    s.scores.push(r.score);
+    if (r.score >= s.max * NEAR_PERFECT) s.near++;
   }
-  const out = [];
-  for (const p of players) {
-    const list = byId.get(p.igsid);
-    if (!list || !list.length) continue;
-    let risk = 0;
-    const reasons = [];
-    // 1) 판이 겹침: 한 곡을 끝내는 데 최소 (곡 길이 × 0.9) 초 걸리는데, 다른 단계 기록이 그보다 가까운 시각에 찍힘
-    const timed = list.filter((r) => r.at > 0).sort((a, b) => a.at - b.at);
-    let overlaps = 0;
-    for (let i = 1; i < timed.length; i++) {
-      const b = timed[i];
-      const need = (levelDuration(b.lv) - COUNT_IN_BARS * barDur(b.lv)) * MIN_RUN_RATIO * 1000;
-      if (b.at - timed[i - 1].at < need * 0.8) overlaps++;
-    }
-    if (overlaps) {
-      risk += Math.min(overlaps, 4) * 25;
-      reasons.push(`⏱ 곡 길이보다 짧은 간격으로 기록된 단계 ${overlaps}번 (동시에 여러 판을 돌렸을 수 있음)`);
-    }
-    // 2) 만점 근처: 높은 단계에서 최대 점수의 99.5% 이상
-    const perfect = list.filter((r) => r.lv.id >= 8 && r.score >= maxScore(r.lv) * 0.995).map((r) => r.lv.id).sort((a, b) => a - b);
-    if (perfect.length) {
-      risk += Math.min(perfect.length, 5) * 15 + (perfect.some((id) => id >= 15) ? 20 : 0);
-      reasons.push(`💯 8단계 이상 만점 근처 ${perfect.length}개 (${perfect.join('·')}단계)`);
-    }
-    // 3) 짧은 시간에 단계를 쓸어 담음: 처음~마지막 기록이 1시간 안인데 6단계 이상
-    if (timed.length >= 6) {
-      const span = timed[timed.length - 1].at - timed[0].at;
-      if (span < 3600e3) {
-        risk += 30;
-        reasons.push(`⚡ ${timed.length}단계 기록이 ${Math.max(1, Math.round(span / 60000))}분 안에 몰림`);
+  for (const s of st.values()) s.scores.sort((a, b) => b - a);
+  return st;
+}
+
+/** 이 단계 만점 근처가 드문가: 그 단계 기록한 사람의 2% 이하(최소 3명까지는 드문 걸로) */
+const isRare = (s) => s.near <= Math.max(3, Math.floor(s.players * 0.02));
+
+/** 한 사람 기록 분석 → { risk, reasons, items } (items = 기록한 시각 순 단계별 자세히) */
+function analyze(list, st) {
+  const items = list
+    .map((r) => {
+      const s = st.get(r.level);
+      if (!s) return null;
+      const pct = s.max ? r.score / s.max : 0;
+      return {
+        level: r.level, label: levelLabel(s.lv), score: r.score, max: s.max, pct: Math.round(pct * 1000) / 10,
+        grade: r.grade || null, maxCombo: r.maxCombo || 0, notes: s.notes, at: r.at || 0,
+        playSec: Math.round(playSec(s.lv)),
+        near: r.level >= HIGH_LEVEL && pct >= NEAR_PERFECT, nearCount: s.near, players: s.players,
+        rank: s.scores.findIndex((x) => x <= r.score) + 1,
+        rare: false, gapSec: null, overlap: false, copied: false,
+      };
+    })
+    .filter(Boolean)
+    .sort((a, b) => (a.at || Infinity) - (b.at || Infinity) || a.level - b.level);
+  let risk = 0;
+  const reasons = [];
+  // 1) 겹친 판: 직전 기록과의 간격 < 이 곡 치는 시간 × 0.5  (판 토큰은 곡 시간이 지나야 받아 주므로, 한 폰으로 하나씩 치면 못 나옴)
+  let prev = null;
+  let overlaps = 0;
+  const olv = [];
+  for (const it of items) {
+    if (!it.at) continue;
+    if (prev) {
+      const gap = it.at - prev.at;
+      it.gapSec = Math.round(gap / 100) / 10;
+      if (gap < COPY_GAP_MS) it.copied = true;
+      else if (gap < it.playSec * 1000 * OVERLAP_RATIO) {
+        it.overlap = true;
+        overlaps++;
+        olv.push(it.level);
       }
     }
-    if (risk >= minRisk) out.push({ igsid: p.igsid, username: p.username, ig: p.ig || null, risk, reasons: reasons.slice(0, MAX_REASONS) });
+    prev = it;
   }
-  return out.sort((a, b) => b.risk - a.risk);
+  if (overlaps) {
+    risk += Math.min(overlaps, 4) * 30;
+    reasons.push(`⏱ 겹친 판 ${overlaps}번 — 곡 치는 시간의 절반도 안 돼서 다음 단계 기록이 찍힘 (${olv.join('·')}단계). 여러 창·기기로 동시에 돌렸거나 자동 프로그램일 수 있음`);
+  }
+  // 2) 높은 단계 만점 근처 — 그 단계에서 만점 근처가 드물수록, 지옥 단계일수록 무겁게
+  const near = items.filter((it) => it.near);
+  for (const it of near) {
+    const s = st.get(it.level);
+    it.rare = isRare(s);
+    risk += 10 + (it.rare ? 15 : 0) + (it.level >= HELL_LEVEL ? 15 : 0) + (it.grade === 'SS' ? 5 : 0);
+  }
+  if (near.length) {
+    const rare = near.filter((it) => it.rare).length;
+    reasons.push(`💯 ${HIGH_LEVEL}단계 이상 만점 근처(99.5%↑) ${near.length}개 (${near.map((it) => it.level).join('·')}단계)` + (rare ? ` · 그중 ${rare}개는 전체에서 몇 명 안 되는 기록` : ''));
+  }
+  return { risk, reasons, items };
+}
+
+const byPlayer = (rows) => {
+  const m = new Map();
+  for (const r of rows) {
+    if (!(r.level > 0)) continue;
+    (m.get(r.igsid) || m.set(r.igsid, []).get(r.igsid)).push(r);
+  }
+  return m;
+};
+
+/**
+ * players: listPlayers() 결과, rows: allScores() 결과 [{ igsid, level, score, grade, maxCombo, at }]
+ * → 강한 신호만 의심 순으로 [{ igsid, username, ig, risk, reasons }] (최대 100명)
+ */
+export function findSuspects(players, rows, { minRisk = LIST_MIN_RISK, limit = LIST_MAX } = {}) {
+  const st = levelStats(rows);
+  const mine = byPlayer(rows);
+  const out = [];
+  for (const p of players) {
+    const list = mine.get(p.igsid);
+    if (!list) continue;
+    const a = analyze(list, st);
+    if (a.risk >= minRisk) out.push({ igsid: p.igsid, username: p.username, ig: p.ig || null, risk: a.risk, reasons: a.reasons });
+  }
+  return out.sort((a, b) => b.risk - a.risk).slice(0, limit);
+}
+
+/** 한 사람 자세히 (의심받는 사람이 생겼을 때 운영자가 확인용) */
+export function suspectReport(player, rows) {
+  const st = levelStats(rows);
+  const a = analyze(byPlayer(rows).get(player.igsid) || [], st);
+  return { igsid: player.igsid, username: player.username, ig: player.ig || null, risk: a.risk, listed: a.risk >= LIST_MIN_RISK, reasons: a.reasons, items: a.items };
 }

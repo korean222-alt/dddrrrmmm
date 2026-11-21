@@ -6,7 +6,7 @@
 import crypto from 'node:crypto';
 import { sign, unsign, parseCookies, cookie, newId } from './session.js';
 import { buildStats } from './stats.js';
-import { findSuspects } from './suspect.js';
+import { findSuspects, suspectReport } from './suspect.js';
 import { createRoomHandler } from './rooms.js';
 import { createRankedHandler } from './ranked.js';
 import { cleanMap, mapDifficulty, mapLevel } from '../public/js/usermap.js';
@@ -704,7 +704,15 @@ export function createHandler(cfg, { store }) {
       // 랭킹에서 내리기 (5일 뒤 자동 삭제, 그 사이 다시 들어와 아이디를 넣으면 돌아옴) / 되돌리기
       // 🕵 핵 의심 지표 (쿼리 2번: 참여자 목록 + 전체 기록)
       if (p === '/api/admin/suspects' && m === 'GET') {
-        return json(200, { suspects: findSuspects(await store.listPlayers(), await store.allScores()) });
+        // ?igsid= 이면 그 사람 자세히, 없으면 강한 신호만 목록 (쿼리 2번)
+        const players = await store.listPlayers();
+        const rows = await store.allScores();
+        const id = url.searchParams.get('igsid');
+        if (id) {
+          const pl = players.find((x) => x.igsid === id);
+          return pl ? json(200, { report: suspectReport(pl, rows) }) : json(404, { error: 'not_found' });
+        }
+        return json(200, { checked: players.length, suspects: findSuspects(players, rows) });
       }
       if (p === '/api/admin/players/hide' && m === 'POST') {
         const b = await readJson(request);

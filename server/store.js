@@ -315,7 +315,7 @@ export class JsonStore {
   allScores() {
     const rows = [];
     for (const p of Object.values(this.data.players)) {
-      for (const [lv, b] of Object.entries(p.bests || {})) rows.push({ igsid: p.igsid, level: Number(lv), score: b.score, grade: b.grade || null, at: b.at || 0 });
+      for (const [lv, b] of Object.entries(p.bests || {})) rows.push({ igsid: p.igsid, level: Number(lv), score: b.score, grade: b.grade || null, maxCombo: b.maxCombo || 0, at: b.at || 0 });
     }
     return rows;
   }

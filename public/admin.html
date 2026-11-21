@@ -77,8 +77,14 @@
         <button type="button" data-tab="sus">🕵 핵 의심</button>
       </div>
       <section id="tab-sus" hidden>
+        <div class="card"><div class="head"><b>🔎 한 사람 지표 보기</b></div>
+          <p class="muted" style="margin:6px 0">의심받는 사람이 생기면 닉네임이나 인스타 아이디로 찾아서 기록을 자세히 보세요. (랭킹 참여자 탭의 <b>🕵 지표</b> 버튼으로도 열려요)</p>
+          <input type="search" id="sus-q" placeholder="닉네임 또는 인스타 아이디" style="width:100%">
+          <ul id="sus-found"></ul>
+          <div id="sus-report"></div></div>
         <div class="card"><div class="head"><b id="sus-count"></b><span><button type="button" class="ghost" id="sus-reload">새로고침</button></span></div>
-          <p class="muted" style="margin:6px 0">서버 검사를 통과한 기록 중 <b>사람이 하기 어려운 패턴</b>(곡 길이보다 짧은 간격으로 여러 단계, 높은 단계 만점, 짧은 시간에 몰아치기)을 점수로 모은 거예요. <b>확정이 아니라 참고용</b>이니 기록을 보고 판단하세요. 의심 점수가 높은 순.</p>
+          <p class="muted" style="margin:6px 0">서버 검사를 통과한 기록 중 <b>강한 신호</b>만 모았어요: <b>⏱ 겹친 판</b>(곡 치는 시간의 절반도 안 돼서 다음 단계 기록 — 한 폰으로 하나씩 치면 안 나옴) 2번 이상, 또는 <b>💯 10단계 이상 만점 근처(99.5%↑)</b>가 여러 개(그 단계에서 드문 기록·지옥 단계일수록 무겁게).
+            <b>확정이 아니라 참고용</b>이에요. 실력 좋은 사람도 만점은 나올 수 있으니 자세히 보기로 확인하고 판단하세요.</p>
           <ul id="sus"></ul></div>
       </section>
       <section id="tab-hall" hidden>
@@ -250,7 +256,7 @@
               : '<span class="meta">인스타 아이디 없음</span>';
             return `<li data-igsid="${esc(p.igsid)}"><div><div><b>${esc(p.username)}</b> ${id}</div>
               <div class="meta">${old ? '미인증' : p.checkedAt < 0 ? '🆓 임시 인증' : '인증'} · ${ago(p.createdAt)} · 총 ${fmtN(p.total)}점 (${p.levels}단계)${p.endless != null ? ' · 무제한 Lv.' + Math.floor(p.endless / 1000000000) : ''}</div></div>
-              <div class="acts"><button type="button" class="ghost" data-do="recover">되찾기 코드</button> <button type="button" class="ghost" data-do="delete" style="color:var(--bad)">삭제</button></div></li>`;
+              <div class="acts"><button type="button" class="ghost" data-do="sus">🕵 지표</button> <button type="button" class="ghost" data-do="recover">되찾기 코드</button> <button type="button" class="ghost" data-do="delete" style="color:var(--bad)">삭제</button></div></li>`;
           }).join('')
         : `<li class="empty">${old ? '미인증 참가자가 없어요.' : '아직 인증한 사람이 없어요.'}</li>`;
       lastList = ps;
@@ -271,6 +277,10 @@
       const li = b.closest('li');
       const igsid = li.dataset.igsid;
       const name = li.querySelector('b').textContent;
+      if (b.dataset.do === 'sus') {
+        document.querySelector('[data-tab="sus"]').click();
+        return showReport(igsid);
+      }
       if (b.dataset.do === 'recover') {
         // 인스타 DM 으로 본인인지 확인한 뒤에만! 이 코드를 넣은 폰이 이 계정(인증·랭킹)이 됨
         if (!confirm(`"${name}" 님 계정의 되찾기 코드를 만들까요?\n\n인스타 DM 으로 본인인지 먼저 확인하세요. 코드를 넣은 폰이 이 계정이 돼요. (24시간 · 한 번만)`)) return;
@@ -293,16 +303,63 @@
       if (r.status === 401) return logout('비밀번호가 맞지 않아요.');
       if (r.status !== 200) { $('#sus').innerHTML = '<li class="empty">불러오지 못했어요.</li>'; return; }
       const ss = r.data.suspects || [];
-      $('#sus-count').textContent = `의심 ${ss.length}명`;
+      $('#sus-count').textContent = `강한 의심 ${ss.length}명 (${fmtN(r.data.checked || 0)}명 중)`;
       document.querySelector('[data-tab="sus"]').textContent = `🕵 핵 의심 ${ss.length}`;
       $('#sus').innerHTML = ss.length
         ? ss.map((p) => `<li data-igsid="${esc(p.igsid)}"><div><div><b>${esc(p.username)}</b> ${p.ig ? '@' + esc(p.ig) : ''} <span class="meta">의심 점수 ${p.risk}</span></div>
             <div class="meta">${p.reasons.map(esc).join('<br>')}</div></div>
-            <div class="acts"><button type="button" class="ghost" data-do="delete" style="color:var(--bad)">삭제</button></div></li>`).join('')
-        : '<li class="empty">의심되는 사람이 없어요.</li>';
+            <div class="acts"><button type="button" class="ghost" data-do="report">자세히</button> <button type="button" class="ghost" data-do="delete" style="color:var(--bad)">삭제</button></div></li>`).join('')
+        : '<li class="empty">강한 신호가 있는 사람이 없어요. 👍</li>';
     }
-    $('#sus-reload').addEventListener('click', loadSuspects);
+    const fmtAt = (t) => (t ? new Date(t).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '-');
+    const susSec = (s) => (s == null ? '-' : s < 90 ? `${s}초` : s < 5400 ? `${Math.round(s / 60)}분` : s < 172800 ? `${Math.round(s / 3600)}시간` : `${Math.round(s / 86400)}일`);
+    async function showReport(igsid) {
+      $('#sus-report').innerHTML = '<p class="muted">불러오는 중…</p>';
+      $('#tab-sus').scrollIntoView({ block: 'start' });
+      const r = await call('GET', '/api/admin/suspects?igsid=' + encodeURIComponent(igsid));
+      if (r.status !== 200) { $('#sus-report').innerHTML = '<p class="muted">불러오지 못했어요.</p>'; return; }
+      const p = r.data.report;
+      const its = p.items;
+      const ok = (cond, good, bad) => `<div>${cond ? '⚠️ ' + bad : '✅ ' + good}</div>`;
+      const ov = its.filter((x) => x.overlap).length;
+      const nr = its.filter((x) => x.near);
+      const rows = its.map((x) => {
+        const flag = x.overlap ? ' style="background:rgba(255,80,80,.18)"' : x.near ? ' style="background:rgba(255,200,0,.15)"' : '';
+        return `<tr${flag}><td>${esc(x.label)}</td><td>${fmtN(x.score)}<div class="meta">${x.pct}%${x.near ? ' 💯' : ''}</div></td>
+          <td>${esc(x.grade || '-')}<div class="meta">콤보 ${x.maxCombo}/${x.notes}</div></td>
+          <td>${x.rank}위<div class="meta">${x.players}명 중${x.near ? ` · 만점근처 ${x.nearCount}명${x.rare ? ' (드묾)' : ''}` : ''}</div></td>
+          <td>${fmtAt(x.at)}<div class="meta">${x.copied ? '한꺼번에 들어옴(옮기기·합치기)' : x.gapSec == null ? '첫 기록' : `직전과 ${susSec(x.gapSec)}${x.overlap ? ` ⏱ 곡은 ${susSec(x.playSec)}` : ''}`}</div></td></tr>`;
+      }).join('');
+      $('#sus-report').innerHTML = `<div style="margin-top:10px"><div><b>${esc(p.username)}</b> ${p.ig ? '@' + esc(p.ig) : ''} <span class="meta">의심 점수 ${p.risk}${p.listed ? ' · 강한 의심 목록에 있음' : ''}</span></div>
+        <div class="meta" style="margin:6px 0">
+          ${ok(ov, '겹친 판 없음 (단계마다 곡 시간 이상 간격)', `겹친 판 ${ov}번 — 빨간 줄`)}
+          ${ok(nr.length, `${10}단계 이상 만점 근처 없음`, `10단계 이상 만점 근처 ${nr.length}개 — 노란 줄 (드문 기록 ${nr.filter((x) => x.rare).length}개)`)}
+          <div>기록 ${its.length}단계 · 처음 ${fmtAt(its[0] && its[0].at)} · 마지막 ${fmtAt(its.length && its[its.length - 1].at)}</div>
+          <div class="muted">단계마다 '최고 기록'을 찍은 시각만 남아요 (더 낮은 판은 기록 안 됨). 점수 %는 전부 PERFECT 일 때 대비.</div></div>
+        ${its.length ? `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th>단계</th><th>점수</th><th>등급</th><th>등수</th><th>기록 시각</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="muted">기록이 없어요.</p>'}</div>`;
+    }
+    let susPlayers = null;
+    $('#sus-q').addEventListener('input', async () => {
+      const q = $('#sus-q').value.trim().toLowerCase().replace(/^@/, '');
+      if (!q) { $('#sus-found').innerHTML = ''; return; }
+      if (!susPlayers) {
+        const r = await call('GET', '/api/admin/players');
+        susPlayers = r.status === 200 ? r.data.players || [] : [];
+      }
+      const hit = susPlayers.filter((p) => (p.username || '').toLowerCase().includes(q) || (p.ig || '').toLowerCase().includes(q)).slice(0, 20);
+      $('#sus-found').innerHTML = hit.length
+        ? hit.map((p) => `<li data-igsid="${esc(p.igsid)}"><div><b>${esc(p.username)}</b> ${p.ig ? '@' + esc(p.ig) : ''} <span class="meta">${p.levels}단계 · 총 ${fmtN(p.total)}점</span></div>
+            <div class="acts"><button type="button" class="ghost" data-do="report">지표 보기</button></div></li>`).join('')
+        : '<li class="empty">못 찾았어요.</li>';
+    });
+    $('#sus-found').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-do="report"]');
+      if (b) { $('#sus-found').innerHTML = ''; showReport(b.closest('li').dataset.igsid); }
+    });
+    $('#sus-reload').addEventListener('click', () => { susPlayers = null; loadSuspects(); });
     $('#sus').addEventListener('click', async (e) => {
+      const rb = e.target.closest('[data-do="report"]');
+      if (rb) return showReport(rb.closest('li').dataset.igsid);
       const b = e.target.closest('[data-do="delete"]');
       if (!b) return;
       const li = b.closest('li');

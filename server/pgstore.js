@@ -526,8 +526,8 @@ END $$`);
   /** 한 사람의 랭킹 기록 전부 (level: 단계 번호 / 0 = 그리그 무제한 / -N = N단계 무제한) */
   /** 핵 의심 분석용: 모든 단계 최고 기록 (쿼리 한 번) */
   async allScores() {
-    const rows = await this.q('SELECT igsid, level, score, grade, at FROM scores WHERE level > 0');
-    return rows.map((r) => ({ igsid: r.igsid, level: Number(r.level), score: Number(r.score), grade: r.grade || null, at: Number(r.at) || 0 }));
+    const rows = await this.q('SELECT igsid, level, score, grade, max_combo, at FROM scores WHERE level > 0');
+    return rows.map((r) => ({ igsid: r.igsid, level: Number(r.level), score: Number(r.score), grade: r.grade || null, maxCombo: Number(r.max_combo) || 0, at: Number(r.at) || 0 }));
   }
   async scoresOf(igsid) {
     const rows = await this.q('SELECT level, score, grade, max_combo FROM scores WHERE igsid = $1', [igsid]);
