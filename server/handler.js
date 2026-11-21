@@ -6,6 +6,7 @@
 import crypto from 'node:crypto';
 import { sign, unsign, parseCookies, cookie, newId } from './session.js';
 import { buildStats } from './stats.js';
+import { findSuspects } from './suspect.js';
 import { createRoomHandler } from './rooms.js';
 import { createRankedHandler } from './ranked.js';
 import { cleanMap, mapDifficulty, mapLevel } from '../public/js/usermap.js';
@@ -701,6 +702,10 @@ export function createHandler(cfg, { store }) {
         return json(200, { players: await store.listPlayers(), keepDays: HIDE_KEEP_MS / 86400000 });
       }
       // 랭킹에서 내리기 (5일 뒤 자동 삭제, 그 사이 다시 들어와 아이디를 넣으면 돌아옴) / 되돌리기
+      // 🕵 핵 의심 지표 (쿼리 2번: 참여자 목록 + 전체 기록)
+      if (p === '/api/admin/suspects' && m === 'GET') {
+        return json(200, { suspects: findSuspects(await store.listPlayers(), await store.allScores()) });
+      }
       if (p === '/api/admin/players/hide' && m === 'POST') {
         const b = await readJson(request);
         if (typeof b.igsid !== 'string' || !b.igsid) return json(400, { error: 'bad_igsid' });

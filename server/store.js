@@ -311,6 +311,14 @@ export class JsonStore {
       .sort((a, b) => b.scores - a.scores || (a.createdAt ?? Infinity) - (b.createdAt ?? Infinity))
       .slice(0, 20);
   }
+  /** 핵 의심 분석용: 모든 단계 최고 기록 (한 번에) */
+  allScores() {
+    const rows = [];
+    for (const p of Object.values(this.data.players)) {
+      for (const [lv, b] of Object.entries(p.bests || {})) rows.push({ igsid: p.igsid, level: Number(lv), score: b.score, grade: b.grade || null, at: b.at || 0 });
+    }
+    return rows;
+  }
   scoresOf(igsid) {
     const p = this.data.players[igsid];
     return Object.entries((p && p.bests) || {}).map(([lv, b]) => ({ level: Number(lv), score: b.score, grade: b.grade || null, maxCombo: b.maxCombo || 0 }));

@@ -74,7 +74,13 @@
         <button type="button" data-tab="suggest">건의함</button>
         <button type="button" data-tab="recover">되찾기 요청</button>
         <button type="button" data-tab="hall">명예의 전당</button>
+        <button type="button" data-tab="sus">🕵 핵 의심</button>
       </div>
+      <section id="tab-sus" hidden>
+        <div class="card"><div class="head"><b id="sus-count"></b><span><button type="button" class="ghost" id="sus-reload">새로고침</button></span></div>
+          <p class="muted" style="margin:6px 0">서버 검사를 통과한 기록 중 <b>사람이 하기 어려운 패턴</b>(곡 길이보다 짧은 간격으로 여러 단계, 높은 단계 만점, 짧은 시간에 몰아치기)을 점수로 모은 거예요. <b>확정이 아니라 참고용</b>이니 기록을 보고 판단하세요. 의심 점수가 높은 순.</p>
+          <ul id="sus"></ul></div>
+      </section>
       <section id="tab-hall" hidden>
         <p>끝난 시즌의 1·2·3등(단계 총합·무제한 총합)이에요. 본인이 프로필 사진을 올릴 수 있어요. <b>이상한 사진이면 '사진 지우기'</b>.</p>
         <div class="card"><div class="head"><b>🏛 명예의 전당</b><span><button type="button" class="ghost" id="hall-reload">새로고침</button></span></div><ul id="hall-list"></ul></div>
@@ -282,6 +288,28 @@
       loadPlayers();
     });
     $('#players-reload').addEventListener('click', loadPlayers);
+    async function loadSuspects() {
+      const r = await call('GET', '/api/admin/suspects');
+      if (r.status === 401) return logout('비밀번호가 맞지 않아요.');
+      if (r.status !== 200) { $('#sus').innerHTML = '<li class="empty">불러오지 못했어요.</li>'; return; }
+      const ss = r.data.suspects || [];
+      $('#sus-count').textContent = `의심 ${ss.length}명`;
+      document.querySelector('[data-tab="sus"]').textContent = `🕵 핵 의심 ${ss.length}`;
+      $('#sus').innerHTML = ss.length
+        ? ss.map((p) => `<li data-igsid="${esc(p.igsid)}"><div><div><b>${esc(p.username)}</b> ${p.ig ? '@' + esc(p.ig) : ''} <span class="meta">의심 점수 ${p.risk}</span></div>
+            <div class="meta">${p.reasons.map(esc).join('<br>')}</div></div>
+            <div class="acts"><button type="button" class="ghost" data-do="delete" style="color:var(--bad)">삭제</button></div></li>`).join('')
+        : '<li class="empty">의심되는 사람이 없어요.</li>';
+    }
+    $('#sus-reload').addEventListener('click', loadSuspects);
+    $('#sus').addEventListener('click', async (e) => {
+      const b = e.target.closest('[data-do="delete"]');
+      if (!b) return;
+      const li = b.closest('li');
+      if (!confirm(`"${li.querySelector('b').textContent}" 님을 삭제할까요?\n닉네임과 모든 랭킹 기록이 지워져요.`)) return;
+      await call('POST', '/api/admin/players/delete', { igsid: li.dataset.igsid });
+      loadSuspects();
+    });
     const filterPlayers = () => {
       const q = $('#players-q').value.trim().toLowerCase();
       for (const li of document.querySelectorAll('#players li[data-igsid]')) li.style.display = q && !li.textContent.toLowerCase().includes(q) ? 'none' : '';
@@ -355,7 +383,9 @@
       $('#tab-suggest').hidden = b.dataset.tab !== 'suggest';
       $('#tab-recover').hidden = b.dataset.tab !== 'recover';
       $('#tab-hall').hidden = b.dataset.tab !== 'hall';
-      if (b.dataset.tab === 'hall') loadHall();
+      $('#tab-sus').hidden = b.dataset.tab !== 'sus';
+      if (b.dataset.tab === 'sus') loadSuspects();
+      else if (b.dataset.tab === 'hall') loadHall();
       else if (b.dataset.tab === 'suggest') loadSuggestions();
       else if (b.dataset.tab === 'recover') loadRecovers();
       else if (b.dataset.tab !== 'stats') {

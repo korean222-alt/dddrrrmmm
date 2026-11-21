@@ -87,3 +87,20 @@ test('시즌 총합 랭킹(단계·무제한) · 시즌 2 는 그 시즌 기록�
     assert.deepEqual((await s.seasonBoard(2, 'stage', 50)).rows.map((r) => [r.username, r.score]), [['쿵왕', 500]], name);
   }
 });
+
+test('🕵 핵 의심 지표: 겹친 판·고단계 만점 잡고, 평범한 기록은 안 잡음', async () => {
+  const { findSuspects } = await import('../server/suspect.js');
+  const { getLevel, maxScore } = await import('../public/js/charts.js');
+  const T = Date.UTC(2026, 10, 21);
+  const ps = [{ igsid: 'a', username: 'a' }, { igsid: 'b', username: 'b' }];
+  const rows = [
+    { igsid: 'a', level: 10, score: maxScore(getLevel(10)), at: T },
+    { igsid: 'a', level: 11, score: 1000, at: T + 5000 },
+    { igsid: 'a', level: 12, score: 1000, at: T + 9000 },
+    { igsid: 'b', level: 4, score: 1000, at: T },
+    { igsid: 'b', level: 5, score: 1000, at: T + 3600e3 },
+  ];
+  const r = findSuspects(ps, rows);
+  assert.deepEqual(r.map((x) => x.igsid), ['a']);
+  assert.ok(r[0].reasons.length >= 2);
+});
