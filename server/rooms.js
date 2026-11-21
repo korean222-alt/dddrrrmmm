@@ -29,7 +29,7 @@ export const BRACKETS = {
   ranked: RANKED_POOL,
 };
 /** 랭킹전: 상대가 붙고 나서 시작까지 (기다리던 쪽이 5초마다 물어봐서 알아채도록 넉넉히) */
-export const RANKED_START_DELAY_MS = 8000;
+export const RANKED_START_DELAY_MS = 15000;
 /** 기다리는 방은 이 시간 안에 주고받은 적이 있어야 '살아 있음' (창을 닫고 나간 방은 안 잡힘) */
 export const QUICK_FRESH_MS = 15_000;
 const pidOf = () => newId().replace(/[^A-Za-z0-9]/g, '').slice(0, 10);

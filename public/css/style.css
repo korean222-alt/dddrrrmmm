@@ -799,7 +799,7 @@ button.ig-pause:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--i
 .rk-tier.t-bronze { color: #a0602c; } .rk-tier.t-silver { color: #6e7b8a; } .rk-tier.t-gold { color: #c99700; } .rk-tier.t-diamond { color: #2f8fd8; } .rk-tier.t-master { color: #8a3fd1; }
 .rk-sub { font-size: 13px; color: var(--muted); margin-top: 2px; }
 .rk-prev { display: inline-block; margin-top: 4px; font-size: 12px; padding: 2px 8px; border-radius: 999px; background: #f3eefa; }
-.rk-rule { margin: 8px 0 2px; }
+.rk-rule { margin: 14px 0 2px; }
 .rk-tiers { margin: 0 0 10px; }
 .rk-top h4 { margin: 6px 0; font-size: 15px; }
 .rk-top ol { list-style: none; margin: 0; padding: 0; max-height: 240px; overflow-y: auto; }

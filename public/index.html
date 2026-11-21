@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=136a2f948b" />
+  <link rel="stylesheet" href="css/style.css?v=76d734e9e5" />
 </head>
 <body>
   <div id="app">
@@ -706,14 +706,31 @@
   <div class="modal" id="modal-room" hidden>
     <div class="sheet">
       <button class="icon-btn close" data-action="room-close" aria-label="닫기"><span data-icon="close"></span></button>
-      <h3><span data-icon="trophy" data-e></span> 랭킹전</h3>
+      <h3><span data-icon="trophy" data-e></span> 랭킹전 · 친구 대결</h3>
       <div id="room-entry">
-        <div class="rk-me" id="rk-me"></div>
-        <button class="btn btn-primary btn-big" data-action="ranked-go"><span data-icon="swords" data-e></span> 랭킹전 시작</button>
-        <p class="muted small rk-rule">실시간으로 상대를 찾고, 없으면 비슷한 실력인 사람의 기록(👻 고스트)과 겨뤄요. 같은 곡을 쳐서 점수가 높으면 이기고, 목숨을 다 쓰면 져요. 이기면 점수가 오르고 지면 내려가요.</p>
-        <p class="muted small rk-tiers">🥉 브론즈 · 🥈 실버 1100 · 🥇 골드 1300 · 💎 다이아 1500 · 👑 마스터 1700</p>
-        <div class="rk-top" id="rk-top"></div>
-        <p class="muted small" id="rk-season"></p>
+        <div class="room-sec">
+          <h4><span data-icon="trophy" data-e></span> 랭킹전</h4>
+          <div class="rk-me" id="rk-me"></div>
+          <div class="stack"><button class="btn btn-primary btn-big" data-action="ranked-go"><span data-icon="swords" data-e></span> 랭킹전 시작</button></div>
+          <p class="muted small rk-rule">실시간으로 상대를 찾고, 없으면 비슷한 실력인 사람의 기록(👻 고스트)과 겨뤄요. 같은 곡을 쳐서 점수가 높으면 이기고, 목숨을 다 쓰면 져요.</p>
+          <p class="muted small rk-tiers">🥉 브론즈 · 🥈 실버 1100 · 🥇 골드 1300 · 💎 다이아 1500 · 👑 마스터 1700</p>
+          <div class="rk-top" id="rk-top"></div>
+          <p class="muted small" id="rk-season"></p>
+        </div>
+        <div class="room-sec">
+          <h4><span data-icon="team" data-e></span> 친구랑</h4>
+        <label class="field"><span>내 이름</span><input type="text" id="room-name" maxlength="12" placeholder="예) 쿵짝왕" autocomplete="off" /></label>
+        <div class="chips room-chips" id="room-mode-new">
+          <button data-mode="versus" aria-pressed="true"><span data-icon="swords" data-e></span> 개인전 (1:1)</button>
+          <button data-mode="team" aria-pressed="false"><span data-icon="team" data-e></span> 팀전 (같이 깨기)</button>
+        </div>
+        <button class="btn btn-primary" data-action="room-create">방 만들기</button>
+        <div class="room-or"><span>또는 친구 방에 들어가기</span></div>
+        <div class="room-join">
+          <input type="text" id="room-code" inputmode="numeric" pattern="[0-9]*" maxlength="4" placeholder="코드 4자리" autocomplete="off" />
+          <button class="btn btn-ghost" data-action="room-join">들어가기</button>
+        </div>
+        </div>
       </div>
       <div id="room-wait" hidden>
         <div class="wait-box">
@@ -722,6 +739,30 @@
           <small class="muted" id="room-wait-sub"></small>
         </div>
         <div class="stack"><button class="btn btn-ghost" data-action="room-leave">그만 찾기</button></div>
+      </div>
+      <div id="room-lobby" hidden>
+        <p class="room-link" id="room-link" hidden></p>
+        <div class="room-code-box" id="room-code-box"><span>방 코드</span><b id="room-code-show">0000</b><button class="btn btn-sm btn-ghost" data-action="room-share"><span data-icon="share"></span> 친구 부르기</button></div>
+        <div class="chips room-chips" id="room-mode">
+          <button data-mode="versus" aria-pressed="true"><span data-icon="swords" data-e></span> 개인전</button>
+          <button data-mode="team" aria-pressed="false"><span data-icon="team" data-e></span> 팀전</button>
+        </div>
+        <div class="chips room-chips" id="room-rule">
+          <button data-rule="score" aria-pressed="true"><span data-icon="trophy" data-e></span> 점수 승부</button>
+          <button data-rule="endless" aria-pressed="false"><span data-icon="gem" data-e></span> 무제한</button>
+        </div>
+        <p class="muted small room-rule-note" id="room-rule-note"></p>
+        <label class="field"><span>곡 <small id="room-level-note" class="muted"></small></span><select id="room-level"></select></label>
+        <div class="room-players" id="room-players"></div>
+        <div class="chips room-chips" id="room-part">
+          <button data-part="drum" aria-pressed="true"><span data-icon="drum" data-e></span> 드럼</button>
+          <button data-part="piano" aria-pressed="false" disabled><span data-icon="piano" data-e></span> 피아노 (곧 나와요)</button>
+        </div>
+        <p class="muted small" id="room-hint"></p>
+        <div class="stack">
+          <button class="btn btn-primary btn-big" data-action="room-ready" id="room-ready">준비!</button>
+          <button class="link" data-action="room-leave">방 나가기</button>
+        </div>
       </div>
     </div>
   </div>
@@ -833,6 +874,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=23341e70cc" defer></script>
+  <script src="js/app.js?v=a9ec784211" defer></script>
 </body>
 </html>
