@@ -62,7 +62,7 @@ function session(onProgress) {
 }
 
 /** 간단한 선형 보간으로 44.1kHz 로 */
-function resample(x, from) {
+export function resample(x, from) {
   const n = Math.floor((x.length * SR) / from);
   const y = new Float32Array(n);
   const r = from / SR;
