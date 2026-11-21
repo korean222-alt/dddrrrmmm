@@ -275,7 +275,10 @@ export class RoomClient {
     if (!this.code) return;
     const playing = this.room && this.room.status === 'playing';
     const linking = this.link && !this.link.open; // 연결 신호 주고받는 중엔 빨리
-    const ms = playing ? (this.realtime ? ROOM_POLL_RT_MS : ROOM_POLL_PLAY_MS) : this.waiting ? ROOM_POLL_WAIT_MS : linking ? 1500 : ROOM_POLL_LOBBY_MS;
+    // 🎲 랜덤 대결: 내 곡이 끝났으면 다음 곡 시작을 빨리 알아채게 (결과 화면에서 기다리는 중)
+    const mf = this.me && this.me.final;
+    const rushWait = playing && this.room.pub === 'rush' && mf && mf.round === this.room.round;
+    const ms = rushWait ? ROOM_POLL_LOBBY_MS : playing ? (this.realtime ? ROOM_POLL_RT_MS : ROOM_POLL_PLAY_MS) : this.waiting ? ROOM_POLL_WAIT_MS : linking ? 1500 : ROOM_POLL_LOBBY_MS;
     this._timer = setTimeout(() => {
       if (typeof document !== 'undefined' && document.hidden) this._schedule();
       else this.poll();
@@ -291,6 +294,8 @@ export class RoomClient {
       else if (m.t === 'final') {
         this.peerFinal = { round: m.round, score: m.score | 0, stars: m.stars | 0, grade: String(m.grade || ''), failed: !!m.failed, maxCombo: m.maxCombo | 0, accuracy: +m.accuracy || 0, died: !!m.died, survived: +m.survived || 0, lv: m.lv | 0 };
         this.onUpdate(this.room);
+        // 🎲 랜덤 대결: 상대도 끝남 → 서버가 다음 곡을 정했을 테니 바로 물어봄
+        if (this.room && this.room.pub === 'rush' && !m.died) setTimeout(() => this.poll(), 400);
       }
     };
     link.onOpen = () => {
