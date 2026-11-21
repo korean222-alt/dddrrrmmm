@@ -16,3 +16,10 @@ test('묶음 파일이 최신 (안 맞으면 npm run bundle)', () => {
   // 문법 오류 없이 읽히는지 (실행은 브라우저에서만)
   assert.doesNotThrow(() => new vm.Script(app));
 });
+
+test('admin.html 스크립트에 문법 오류가 없다 (오류 나면 로그인 버튼이 아예 안 먹음)', () => {
+  const html = fs.readFileSync('public/admin.html', 'utf8');
+  const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map((m) => m[1]);
+  assert.ok(scripts.length > 0);
+  for (const s of scripts) new Function(s); // SyntaxError 면 실패
+});

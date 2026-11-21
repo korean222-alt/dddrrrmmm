@@ -163,7 +163,6 @@
       const m = Math.floor(sec / 60);
       return m < 60 ? `${m}분 ${sec % 60}초` : `${Math.floor(m / 60)}시간 ${m % 60}분`;
     };
-    const esc = (v) => String(v).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
     const bar = (v, max) => !v ? '' : `<span class="bar" style="width:${max ? Math.round((v / max) * 70) : 0}px"></span>`;
     const pct = (a, b) => (b ? Math.round((a / b) * 100) + '%' : '-');
     let days = 7;
