@@ -757,16 +757,17 @@ test('🪙 코인: 판 시작·점수 요청에 얹어 받음 · 같은 판 두 
   const r1 = await C('POST', '/api/runs', { level: 1 });
   const tok = r1.json.runToken;
   assert.equal(r1.json.coins, undefined, '보낸 게 없으면 잔액 안 실음');
-  // 방금 시작한 판이라 최대 30개(초당 15개 + 여유 30) → 20 은 다 받음
+  // 방금 시작한 판이라 최대 60개(초당 30개 + 여유 60) → 20 은 다 받음
   const r2 = await C('POST', '/api/runs', { level: 2, coins: { runs: [{ tok, n: 20 }], free: 10, init: 100 } });
   assert.equal(r2.json.coins, 130);
-  const r3 = await C('POST', '/api/runs', { level: 1, coins: { runs: [{ tok, n: 20 }, { tok: 'x.y', n: 99 }], init: 500 } });
-  assert.equal(r3.json.coins, 130, '같은 판·가짜 토큰·두 번째 폰 코인은 안 받음');
+  // 같은 판을 나눠 보내면 한 판 최대(방금 시작한 판 = 60)까지만
+  const r3 = await C('POST', '/api/runs', { level: 1, coins: { runs: [{ tok, n: 100 }, { tok: 'x.y', n: 99 }], init: 500 } });
+  assert.equal(r3.json.coins, 170, '같은 판은 합쳐 60까지 · 가짜 토큰·두 번째 폰 코인은 안 받음');
   // 점수 등록이 거절돼도(가짜 판) 코인은 받고 잔액을 실어 줌
   const bad = await C('POST', '/api/scores', { runToken: 'nope', level: 1, score: 1, counts: {}, coins: { free: 5 } });
   assert.equal(bad.status, 400);
-  assert.equal(bad.json.coins, 135);
-  assert.equal((await C('GET', '/api/me')).json.coins, 135);
+  assert.equal(bad.json.coins, 175);
+  assert.equal((await C('GET', '/api/me')).json.coins, 175);
   // 인증 안 한 사람: 코인 안 받음 (폰이 다시 보냄)
   const anon = client();
   const a = await anon('POST', '/api/runs', { level: 1, coins: { free: 50 } });
@@ -781,10 +782,14 @@ test('🪙 코인 계산: 곡 콩 수·시간 상한 · 토큰 없는 코인 하
   const tok = (t, l = 5) => sign({ l, t, n: String(t) }, secret);
   // 5분 전에 시작한 판: 콩 수 + 300 까지
   const long = applyCoins(null, { runs: [{ tok: tok(now - 300000), n: 1e6 }] }, secret, now);
-  assert.equal(long.wallet.coins, noteCount(lv) + 300);
-  assert.equal(coinCap(5, 2000), 60, '2초 된 판은 60개까지');
+  assert.equal(long.wallet.coins, noteCount(lv) * 2 + 300);
+  assert.equal(coinCap(5, 2000), 120, '2초 된 판은 120개까지');
+  // 같은 판을 판 도중·끝에 나눠 보내도 합쳐서 최대까지
+  let part = applyCoins(null, { runs: [{ tok: tok(now - 300000), n: 50 }] }, secret, now).wallet;
+  part = applyCoins(part, { runs: [{ tok: tok(now - 300000), n: 1e6 }] }, secret, now).wallet;
+  assert.equal(part.coins, noteCount(lv) * 2 + 300);
   // 순서 상관없이 시각 순으로, 지난 판은 안 받음
-  const w = applyCoins({ coins: 0, t: now - 5000 }, { runs: [{ tok: tok(now - 1000), n: 3 }, { tok: tok(now - 9000), n: 7 }] }, secret, now).wallet;
+  const w = applyCoins({ coins: 0, t: now - 5000, tn: 0 }, { runs: [{ tok: tok(now - 1000), n: 3 }, { tok: tok(now - 9000), n: 7 }] }, secret, now).wallet;
   assert.equal(w.coins, 3);
   // 하루 한도
   let f = applyCoins(null, { free: COIN_FREE_DAY - 10 }, secret, now).wallet;

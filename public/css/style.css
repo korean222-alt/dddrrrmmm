@@ -922,3 +922,12 @@ body.room-game .hud-stars .stars svg { width: 20px; height: 20px; }
 .res-coins small { font-size: 12px; color: var(--muted); margin-left: 4px; }
 .chip.locked { opacity: 0.55; }
 .coin-ico { display: inline-block; width: 16px; height: 16px; border-radius: 50%; vertical-align: -2px; background: radial-gradient(circle at 35% 30%, #fff6c2, #ffd23f 45%, #d99a00); border: 2px solid #8a5a00; box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.35); flex: none; }
+.hud-coin { display: flex; align-items: center; justify-content: flex-end; gap: 3px; margin-top: 1px; font-size: 12px; color: #8a5a00; font-variant-numeric: tabular-nums; }
+.hud-coin[hidden] { display: none; }
+.hud-coin em { font-style: normal; }
+.hud-coin .coin-ico { width: 11px; height: 11px; border-width: 1.5px; }
+.hud-coin.bump .coin-ico { animation: coinbump 0.35s ease-out; }
+@keyframes coinbump { 0% { transform: scale(1); } 35% { transform: scale(1.5) rotateY(180deg); } 100% { transform: scale(1) rotateY(360deg); } }
+.res-coins { animation: coinpop 0.5s cubic-bezier(.2, 1.6, .4, 1) both; animation-delay: 0.6s; }
+@keyframes coinpop { from { transform: scale(0.4); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+html.lite .hud-coin.bump .coin-ico, html.lite .res-coins { animation: none; }

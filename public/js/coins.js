@@ -1,5 +1,5 @@
 // 🪙 코인 (2026-11-22)
-//   맞힌 콩(PERFECT·GREAT·GOOD) 1개 + 연타 1번 = 1코인. 잔액은 서버 지갑(팔로워 인증한 계정)에 보관.
+//   PERFECT 2코인 · GREAT·GOOD·연타 1코인. 판 도중에 나가도 그때까지 번 만큼. 잔액은 서버 지갑(팔로워 인증한 계정)에 보관.
 //   판이 끝나면 폰에 모아 두었다가 다음 판 시작(/api/runs)·점수 등록(/api/scores) 요청에 얹어 보냄 → 요청 수 그대로.
 //   · 판 토큰이 있는 판 → runs [{tok, n}] (서버가 그 곡 콩 수로 상한 확인)
 //   · 토큰 없는 판(연습·멀티·유저 맵·내 노래…) → free (서버가 하루 한도)
@@ -48,7 +48,13 @@ export function addRunCoins(n, tok) {
   n = int(n);
   if (!n) return;
   if (!account) save('coins', int(load('coins', 0)) + n);
-  else if (tok) save('coinQ', [...queue(), { tok, n }].slice(-40));
+  else if (tok) {
+    const q = queue();
+    const same = q.find((x) => x.tok === tok);
+    if (same) same.n += n;
+    else q.push({ tok, n });
+    save('coinQ', q.slice(-40));
+  }
   else save('coinFree', int(load('coinFree', 0)) + n);
   onChange();
 }

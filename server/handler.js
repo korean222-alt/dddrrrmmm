@@ -28,8 +28,10 @@ export function endlessMode(id) {
   return { id: `e${base.id}`, slot: -base.id, bpmOf: (r) => base.bpm + LEVEL_ENDLESS_STEP * (r - 1), notes: 130 };
 }
 // ---------------- 🪙 코인 (2026-11-22) ----------------
-//   폰이 판 끝에 번 코인을 모아 두었다가 다음 판 시작(/api/runs)·점수 등록(/api/scores) 요청에 얹어 보냄 → 요청 수 그대로.
-//   runs: [{ tok: 판 토큰, n }] — 토큰 서명 확인, 한 판 최대 = 그 곡 콩 수 + 연타 여유, 지난 판(t ≤ 지갑 t)은 안 받음
+//   PERFECT 2개 · GREAT·GOOD·연타 1개. 폰이 번 코인을 모아 두었다가 다음 판 시작(/api/runs)·점수 등록(/api/scores)
+//   요청에 얹어 보냄 → 요청 수 그대로. 판 도중(앱을 닫음·그만둠)에도 그때까지 번 만큼 보냄.
+//   runs: [{ tok: 판 토큰, n }] — 토큰 서명 확인, 한 판 최대 = 그 곡 콩 수×2 + 연타 여유 & 초당 30개.
+//         같은 판 토큰으로 나눠 와도 합쳐서 최대까지만(tn), 지난 판(t < 지갑 t)은 안 받음
 //   free: 토큰 없이 번 것(연습·멀티·유저 맵·내 노래 등) 하루 COIN_FREE_DAY 까지
 //   init: 서버 지갑 생기기 전 폰에 모은 코인, 계정마다 한 번 COIN_INIT_MAX 까지
 //   쓰기는 지갑 한 줄(바뀐 게 있을 때만) → D1 하루 쓰기에 판당 1줄 정도
@@ -40,7 +42,7 @@ const coinInt = (v, max) => (Number.isFinite(v) ? Math.max(0, Math.min(max, Math
 const kstDay = (now) => new Date(now + 9 * 3600 * 1000).toISOString().slice(0, 10);
 /** 한 판 토큰으로 받을 수 있는 최대 코인 */
 export function coinCap(l, ageMs) {
-  const byTime = Math.floor(Math.max(0, ageMs) / 1000) * 15 + 30; // 초당 15개 넘게는 못 침
+  const byTime = Math.floor(Math.max(0, ageMs) / 1000) * 30 + 60; // PERFECT 2개 × 초당 15타 넘게는 못 침
   if (endlessMode(l)) return byTime;
   const level = getLevel(l);
   if (!level) return 0;
@@ -48,20 +50,29 @@ export function coinCap(l, ageMs) {
   try {
     notes = noteCount(level);
   } catch {}
-  return Math.min(byTime, notes + 300);
+  return Math.min(byTime, notes * 2 + 300);
 }
 /** 지갑에 더할 것 계산 → { wallet(새 값), changed } */
 export function applyCoins(w0, c, secret, now = Date.now()) {
-  const w = { coins: 0, t: 0, fday: '', fn: 0, init: 0, ...(w0 || {}) };
+  const w = { coins: 0, t: 0, tn: 0, fday: '', fn: 0, init: 0, ...(w0 || {}) };
   let changed = false;
-  const runs = (Array.isArray(c.runs) ? c.runs.slice(0, 40) : [])
-    .map((r) => ({ run: r && unsign(r.tok, secret), n: coinInt(r && r.n, 1e6) }))
-    .filter((x) => x.run && Number.isFinite(x.run.t) && x.run.t > w.t && x.run.t <= now && now - x.run.t < COIN_TOKEN_AGE)
-    .sort((a, b) => a.run.t - b.run.t);
-  for (const { run, n } of runs) {
-    if (run.t <= w.t) continue;
-    w.coins += Math.min(n, coinCap(run.l, now - run.t));
-    w.t = run.t;
+  // 같은 판 토큰은 합쳐서
+  const byT = new Map();
+  for (const r of Array.isArray(c.runs) ? c.runs.slice(0, 40) : []) {
+    const run = r && unsign(r.tok, secret);
+    if (!run || !Number.isFinite(run.t) || run.t < w.t || run.t > now || now - run.t >= COIN_TOKEN_AGE) continue;
+    const e = byT.get(run.t) || { run, n: 0 };
+    e.n += coinInt(r.n, 1e6);
+    byT.set(run.t, e);
+  }
+  for (const { run, n } of [...byT.values()].sort((a, b) => a.run.t - b.run.t)) {
+    if (run.t > w.t) {
+      w.t = run.t;
+      w.tn = 0;
+    }
+    const give = Math.max(0, Math.min(n, coinCap(run.l, now - run.t) - w.tn));
+    w.coins += give;
+    w.tn += give;
     changed = true;
   }
   const free = coinInt(c.free, 1e6);

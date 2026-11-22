@@ -103,7 +103,7 @@ export class Renderer {
   }
 
   reset() {
-    this.fx = { judges: [], sparks: [], bursts: [], booms: [], banners: [] };
+    this.fx = { judges: [], sparks: [], bursts: [], booms: [], banners: [], coins: [] };
     this.hitAt = [-9, -9, -9, -9, -9];
     this.piano = new Map(); // 🎹 midi → { t0, d } 눌린 건반
     this.missAt = [-9, -9, -9, -9, -9];
@@ -482,6 +482,23 @@ export class Renderer {
   onJudge(lane, judge, rt, early) {
     const L = this.L;
     const style = JUDGE_STYLE[judge];
+    // 🪙 코인 튀기: PERFECT 2개 · GREAT·GOOD 1개. 판정선에서 살짝 튀어 올랐다가 아래(엄지 자리, 지나간 콩 쪽)로 떨어짐
+    if (this.coinFx && (judge === 'perfect' || judge === 'great' || judge === 'good') && this.L) {
+      const L = this.L;
+      const n = judge === 'perfect' ? 2 : 1;
+      for (let i = 0; i < n; i++) {
+        const side = n === 2 ? (i ? 1 : -1) : Math.random() < 0.5 ? -1 : 1;
+        this.fx.coins.push({
+          x: L.laneX[lane] + side * L.instR * 0.5,
+          y: L.strikeY + L.instR * 0.2,
+          vx: side * L.instR * (1.2 + Math.random() * 0.8),
+          vy: -L.instR * (2.2 + Math.random() * 0.8),
+          t0: rt + i * 0.04,
+          spin: Math.random() * 6,
+        });
+      }
+      if (this.fx.coins.length > 40) this.fx.coins.splice(0, this.fx.coins.length - 40);
+    }
     this.fx.judges.push({ lane, text: style.text, color: style.color, grad: style.grad, scale: style.scale || 1, glow: style.glow, t0: rt, sub: judge === 'perfect' || judge === 'miss' || judge === 'wrong' ? '' : early ? 'FAST' : 'SLOW' });
     if (judge === 'miss' || judge === 'wrong') {
       this.missAt[lane] = rt;
@@ -619,6 +636,7 @@ export class Renderer {
     this._drawNotes(st);
     this._drawBursts(rt);
     if (q >= 1) this._drawSparks(rt);
+    this._drawCoins(rt);
     this._drawJudges(rt);
     this._drawRollCount(st, rt);
     ctx.restore();
@@ -1394,6 +1412,42 @@ export class Renderer {
     }
   }
 
+
+  /** 🪙 코인: 판정선 조금 위까지만 튀고 아래로 떨어지며 사라짐 (다가오는 콩을 안 가리게 작게, 0.55초) */
+  _drawCoins(rt) {
+    const list = this.fx.coins;
+    if (!list.length) return;
+    const ctx = this.ctx;
+    const L = this.L;
+    const LIFE = 0.65;
+    const g = L.instR * 14; // 중력
+    const r = Math.max(4, L.instR * 0.16);
+    this.fx.coins = list.filter((c) => rt - c.t0 < LIFE);
+    for (const c of this.fx.coins) {
+      const t = rt - c.t0;
+      if (t < 0) continue;
+      const x = c.x + c.vx * t;
+      const y = c.y + c.vy * t + 0.5 * g * t * t;
+      const sx = Math.abs(Math.cos(c.spin + t * 14)); // 빙글빙글
+      ctx.save();
+      ctx.globalAlpha = t < LIFE * 0.6 ? 1 : 1 - (t - LIFE * 0.6) / (LIFE * 0.4);
+      ctx.translate(x, y);
+      ctx.scale(Math.max(0.15, sx), 1);
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fillStyle = '#B57A00';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.78, 0, Math.PI * 2);
+      ctx.fillStyle = '#FFD23F';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(-r * 0.25, -r * 0.3, r * 0.28, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,230,0.9)';
+      ctx.fill();
+      ctx.restore();
+    }
+  }
 
   _drawBanners(rt) {
     const ctx = this.ctx;

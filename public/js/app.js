@@ -8707,7 +8707,7 @@ class Renderer {
   }
 
   reset() {
-    this.fx = { judges: [], sparks: [], bursts: [], booms: [], banners: [] };
+    this.fx = { judges: [], sparks: [], bursts: [], booms: [], banners: [], coins: [] };
     this.hitAt = [-9, -9, -9, -9, -9];
     this.piano = new Map(); // 🎹 midi → { t0, d } 눌린 건반
     this.missAt = [-9, -9, -9, -9, -9];
@@ -9086,6 +9086,23 @@ class Renderer {
   onJudge(lane, judge, rt, early) {
     const L = this.L;
     const style = JUDGE_STYLE[judge];
+    // 🪙 코인 튀기: PERFECT 2개 · GREAT·GOOD 1개. 판정선에서 살짝 튀어 올랐다가 아래(엄지 자리, 지나간 콩 쪽)로 떨어짐
+    if (this.coinFx && (judge === 'perfect' || judge === 'great' || judge === 'good') && this.L) {
+      const L = this.L;
+      const n = judge === 'perfect' ? 2 : 1;
+      for (let i = 0; i < n; i++) {
+        const side = n === 2 ? (i ? 1 : -1) : Math.random() < 0.5 ? -1 : 1;
+        this.fx.coins.push({
+          x: L.laneX[lane] + side * L.instR * 0.5,
+          y: L.strikeY + L.instR * 0.2,
+          vx: side * L.instR * (1.2 + Math.random() * 0.8),
+          vy: -L.instR * (2.2 + Math.random() * 0.8),
+          t0: rt + i * 0.04,
+          spin: Math.random() * 6,
+        });
+      }
+      if (this.fx.coins.length > 40) this.fx.coins.splice(0, this.fx.coins.length - 40);
+    }
     this.fx.judges.push({ lane, text: style.text, color: style.color, grad: style.grad, scale: style.scale || 1, glow: style.glow, t0: rt, sub: judge === 'perfect' || judge === 'miss' || judge === 'wrong' ? '' : early ? 'FAST' : 'SLOW' });
     if (judge === 'miss' || judge === 'wrong') {
       this.missAt[lane] = rt;
@@ -9223,6 +9240,7 @@ class Renderer {
     this._drawNotes(st);
     this._drawBursts(rt);
     if (q >= 1) this._drawSparks(rt);
+    this._drawCoins(rt);
     this._drawJudges(rt);
     this._drawRollCount(st, rt);
     ctx.restore();
@@ -9999,6 +10017,42 @@ class Renderer {
   }
 
 
+  /** 🪙 코인: 판정선 조금 위까지만 튀고 아래로 떨어지며 사라짐 (다가오는 콩을 안 가리게 작게, 0.55초) */
+  _drawCoins(rt) {
+    const list = this.fx.coins;
+    if (!list.length) return;
+    const ctx = this.ctx;
+    const L = this.L;
+    const LIFE = 0.65;
+    const g = L.instR * 14; // 중력
+    const r = Math.max(4, L.instR * 0.16);
+    this.fx.coins = list.filter((c) => rt - c.t0 < LIFE);
+    for (const c of this.fx.coins) {
+      const t = rt - c.t0;
+      if (t < 0) continue;
+      const x = c.x + c.vx * t;
+      const y = c.y + c.vy * t + 0.5 * g * t * t;
+      const sx = Math.abs(Math.cos(c.spin + t * 14)); // 빙글빙글
+      ctx.save();
+      ctx.globalAlpha = t < LIFE * 0.6 ? 1 : 1 - (t - LIFE * 0.6) / (LIFE * 0.4);
+      ctx.translate(x, y);
+      ctx.scale(Math.max(0.15, sx), 1);
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fillStyle = '#B57A00';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.78, 0, Math.PI * 2);
+      ctx.fillStyle = '#FFD23F';
+      ctx.fill();
+      ctx.beginPath();
+      ctx.arc(-r * 0.25, -r * 0.3, r * 0.28, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(255,255,230,0.9)';
+      ctx.fill();
+      ctx.restore();
+    }
+  }
+
   _drawBanners(rt) {
     const ctx = this.ctx;
     const L = this.L;
@@ -10696,7 +10750,7 @@ return { load, save, remove, DEFAULT_SETTINGS, loadSettings, saveSettings, loadB
 // ---- coins.js ----
 const __m_coins = (() => {
 // 🪙 코인 (2026-11-22)
-//   맞힌 콩(PERFECT·GREAT·GOOD) 1개 + 연타 1번 = 1코인. 잔액은 서버 지갑(팔로워 인증한 계정)에 보관.
+//   PERFECT 2코인 · GREAT·GOOD·연타 1코인. 판 도중에 나가도 그때까지 번 만큼. 잔액은 서버 지갑(팔로워 인증한 계정)에 보관.
 //   판이 끝나면 폰에 모아 두었다가 다음 판 시작(/api/runs)·점수 등록(/api/scores) 요청에 얹어 보냄 → 요청 수 그대로.
 //   · 판 토큰이 있는 판 → runs [{tok, n}] (서버가 그 곡 콩 수로 상한 확인)
 //   · 토큰 없는 판(연습·멀티·유저 맵·내 노래…) → free (서버가 하루 한도)
@@ -10745,7 +10799,13 @@ function addRunCoins(n, tok) {
   n = int(n);
   if (!n) return;
   if (!account) save('coins', int(load('coins', 0)) + n);
-  else if (tok) save('coinQ', [...queue(), { tok, n }].slice(-40));
+  else if (tok) {
+    const q = queue();
+    const same = q.find((x) => x.tok === tok);
+    if (same) same.n += n;
+    else q.push({ tok, n });
+    save('coinQ', q.slice(-40));
+  }
   else save('coinFree', int(load('coinFree', 0)) + n);
   onChange();
 }
@@ -12260,11 +12320,11 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-22c',
+    id: '2026-11-22d',
     date: '11월 22일',
     title: '🪙 코인 · 판정 글자',
     items: [
-      '<b>🪙 코인</b> — 콩을 맞힐 때마다 코인이 쌓여요! 첫 화면 위에서 확인',
+      '<b>🪙 코인</b> — PERFECT 2개, 나머지 1개! 중간에 끝나도 친 만큼 쌓여요',
       '곧 <b>상점</b>이 열려요 — 코인으로 배경·드럼 세트·콩 색·📷 내 사진 배경을 꾸며요',
       'PERFECT·GREAT·GOOD 글자를 크기·색으로 더 잘 구분되게 바꿨어요',
     ],
@@ -14099,6 +14159,9 @@ async function startLevel(id, opts = {}) {
     }
     return ans;
   };
+  $('#hud-coin').textContent = '0';
+  $('#hud-coin-box').hidden = !!(state.auto || st.active);
+  renderer.coinFx = !(state.auto || st.active);
   const starBox = $('#hud-stars');
   starBox.hidden = !!lv.endless;
   starBox.innerHTML = starsHTML(0);
@@ -14110,6 +14173,17 @@ async function startLevel(id, opts = {}) {
     auto: state.auto,
     onHud: (h) => {
       if (h.score !== last.score) $('#hud-score').textContent = fmt(h.score);
+      const cn = runCoins(state.game);
+      if (cn !== last.coins) {
+        const el = $('#hud-coin');
+        el.textContent = fmt(cn);
+        if (cn > (last.coins || 0)) {
+          el.parentNode.classList.remove('bump');
+          void el.offsetWidth;
+          el.parentNode.classList.add('bump');
+        }
+        last.coins = cn;
+      }
       const p = Math.round(h.progress * 200);
       if (p !== last.p) $('#hud-progress').style.width = p / 2 + '%';
       if (live) {
@@ -15231,17 +15305,29 @@ function refreshCoins() {
   const el = $('#coin-num');
   if (el) el.textContent = fmt(getCoins());
 }
-/** 이 판에서 받은 코인을 더하고 개수를 돌려줌 (한 판에 한 번만) */
-function awardRunCoins(g) {
-  if (!g || g._coined) return 0;
-  g._coined = true;
-  if (state.auto || g.auto || state.studio.active) return 0;
+/** 이 판에서 번 코인: PERFECT 2 · GREAT·GOOD·연타 1 (자동 연주·영상 찍기는 0) */
+function runCoins(g) {
+  if (!g || state.auto || g.auto || state.studio.active) return 0;
   const c = g.counts || {};
-  const n = Math.max(0, Math.min(20000, (c.perfect || 0) + (c.great || 0) + (c.good || 0) + (g.rollHits || 0)));
-  syncCoinAccount();
-  // 판 토큰은 이 판 것일 때만 (다음 판을 시작하며 부르면 state.runToken 은 이미 비어 있음)
-  if (n > 0) addRunCoins(n, g._runToken || null);
-  return n;
+  return Math.max(0, Math.min(40000, (c.perfect || 0) * 2 + (c.great || 0) + (c.good || 0) + (g.rollHits || 0)));
+}
+/**
+ * 이 판에서 번 코인 중 아직 안 넣은 만큼 넣음. 판 도중(앱을 내림·그만둠)에도 부르고, 끝나면 final → 더는 안 넣음.
+ * 돌려주는 값 = 이 판에서 번 코인 전부
+ */
+function awardRunCoins(g, final = true) {
+  if (!g) return 0;
+  const total = runCoins(g);
+  if (g._coined) return total;
+  if (final) g._coined = true;
+  const delta = total - (g._coinPaid || 0);
+  if (delta > 0) {
+    g._coinPaid = total;
+    syncCoinAccount();
+    // 판 토큰은 이 판 것일 때만 (서버가 같은 판은 합쳐서 한 판 최대까지만 받음)
+    addRunCoins(delta, g._runToken || null);
+  }
+  return total;
 }
 
 // ---------------- 🎨 꾸미기 (배경·드럼 세트·콩 색) ----------------
@@ -19114,6 +19200,7 @@ function bindActions() {
 
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
+      if (state.game) awardRunCoins(state.game, false); // 🪙 앱을 닫아 버려도 그때까지 번 코인은 남게
       if (state.game && state.game.state === 'playing') {
         state.game.pause();
         $('#pause-stuck').hidden = true;

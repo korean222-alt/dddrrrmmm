@@ -737,6 +737,9 @@ async function startLevel(id, opts = {}) {
     }
     return ans;
   };
+  $('#hud-coin').textContent = '0';
+  $('#hud-coin-box').hidden = !!(state.auto || st.active);
+  renderer.coinFx = !(state.auto || st.active);
   const starBox = $('#hud-stars');
   starBox.hidden = !!lv.endless;
   starBox.innerHTML = starsHTML(0);
@@ -748,6 +751,17 @@ async function startLevel(id, opts = {}) {
     auto: state.auto,
     onHud: (h) => {
       if (h.score !== last.score) $('#hud-score').textContent = fmt(h.score);
+      const cn = runCoins(state.game);
+      if (cn !== last.coins) {
+        const el = $('#hud-coin');
+        el.textContent = fmt(cn);
+        if (cn > (last.coins || 0)) {
+          el.parentNode.classList.remove('bump');
+          void el.offsetWidth;
+          el.parentNode.classList.add('bump');
+        }
+        last.coins = cn;
+      }
       const p = Math.round(h.progress * 200);
       if (p !== last.p) $('#hud-progress').style.width = p / 2 + '%';
       if (live) {
@@ -1869,17 +1883,29 @@ function refreshCoins() {
   const el = $('#coin-num');
   if (el) el.textContent = fmt(getCoins());
 }
-/** 이 판에서 받은 코인을 더하고 개수를 돌려줌 (한 판에 한 번만) */
-function awardRunCoins(g) {
-  if (!g || g._coined) return 0;
-  g._coined = true;
-  if (state.auto || g.auto || state.studio.active) return 0;
+/** 이 판에서 번 코인: PERFECT 2 · GREAT·GOOD·연타 1 (자동 연주·영상 찍기는 0) */
+function runCoins(g) {
+  if (!g || state.auto || g.auto || state.studio.active) return 0;
   const c = g.counts || {};
-  const n = Math.max(0, Math.min(20000, (c.perfect || 0) + (c.great || 0) + (c.good || 0) + (g.rollHits || 0)));
-  syncCoinAccount();
-  // 판 토큰은 이 판 것일 때만 (다음 판을 시작하며 부르면 state.runToken 은 이미 비어 있음)
-  if (n > 0) addRunCoins(n, g._runToken || null);
-  return n;
+  return Math.max(0, Math.min(40000, (c.perfect || 0) * 2 + (c.great || 0) + (c.good || 0) + (g.rollHits || 0)));
+}
+/**
+ * 이 판에서 번 코인 중 아직 안 넣은 만큼 넣음. 판 도중(앱을 내림·그만둠)에도 부르고, 끝나면 final → 더는 안 넣음.
+ * 돌려주는 값 = 이 판에서 번 코인 전부
+ */
+function awardRunCoins(g, final = true) {
+  if (!g) return 0;
+  const total = runCoins(g);
+  if (g._coined) return total;
+  if (final) g._coined = true;
+  const delta = total - (g._coinPaid || 0);
+  if (delta > 0) {
+    g._coinPaid = total;
+    syncCoinAccount();
+    // 판 토큰은 이 판 것일 때만 (서버가 같은 판은 합쳐서 한 판 최대까지만 받음)
+    addRunCoins(delta, g._runToken || null);
+  }
+  return total;
 }
 
 // ---------------- 🎨 꾸미기 (배경·드럼 세트·콩 색) ----------------
@@ -5752,6 +5778,7 @@ function bindActions() {
 
   document.addEventListener('visibilitychange', () => {
     if (document.hidden) {
+      if (state.game) awardRunCoins(state.game, false); // 🪙 앱을 닫아 버려도 그때까지 번 코인은 남게
       if (state.game && state.game.state === 'playing') {
         state.game.pause();
         $('#pause-stuck').hidden = true;
