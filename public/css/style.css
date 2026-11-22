@@ -1008,3 +1008,21 @@ button.coin-chip { font: inherit; cursor: pointer; }
 .gift-photo { width: 64px; height: 64px; border-radius: 50%; border: 2px solid var(--ink); background: #eee center/cover no-repeat; flex: none; }
 .shop-item:disabled { cursor: default; }
 
+
+/* ---------- 🎤 라이브 스테이지 세트 (상점 ui:live): 게임 위 정보 칸·결과 화면 ---------- */
+html.ui-live #screen-game .hud-progress { height: 6px; background: rgba(10, 12, 40, 0.55); border: 1px solid rgba(255, 255, 255, 0.55); box-shadow: 0 0 8px rgba(140, 225, 255, 0.45); }
+html.ui-live #screen-game .hud-progress i { background: linear-gradient(90deg, #ff8ad8, #ffe27a, #7df2ff, #b996ff); }
+html.ui-live #screen-game .hud-level, html.ui-live #screen-game .hud-score, html.ui-live #screen-game .hud-stars .stars, html.ui-live #screen-game .hud-vs { background: rgba(12, 14, 46, 0.62); border: 1px solid rgba(255, 255, 255, 0.5); border-radius: 6px; color: #fff; box-shadow: 0 0 10px rgba(140, 225, 255, 0.25); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+html.ui-live #screen-game .hud-level { border-left: 4px solid #7df2ff; align-items: flex-start; }
+html.ui-live #screen-game .hud-level b { color: #7df2ff; font-style: italic; letter-spacing: 0.04em; }
+html.ui-live #screen-game .hud-score small, html.ui-live #screen-game .hud-vs em { color: rgba(255, 255, 255, 0.7); letter-spacing: 0.08em; }
+html.ui-live #screen-game .hud-score b { font-family: "Arial Black", "Segoe UI Black", Arial, sans-serif; font-style: italic; font-size: 19px; background: linear-gradient(90deg, #fff, #c8f6ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+html.ui-live #screen-game .icon-btn { background: rgba(12, 14, 46, 0.62); border: 1px solid rgba(255, 255, 255, 0.5); color: #fff; box-shadow: none; }
+html.ui-live #screen-result .result-wrap { background: rgba(14, 14, 48, 0.88); border: 1px solid rgba(255, 255, 255, 0.55); border-radius: 10px; box-shadow: 0 0 24px rgba(140, 225, 255, 0.35); color: #fff; }
+html.ui-live #screen-result .res-level { background: linear-gradient(90deg, #ff8ad8, #b996ff 50%, #7df2ff); border: 0; border-radius: 4px; color: #1a1840; font-style: italic; }
+html.ui-live #screen-result .res-grade { font-family: "Arial Black", "Segoe UI Black", Arial, sans-serif; font-style: italic; -webkit-text-stroke: 3px #fff; text-shadow: 0 0 18px rgba(255, 200, 255, 0.8); }
+html.ui-live #screen-result .res-score { font-family: "Arial Black", "Segoe UI Black", Arial, sans-serif; font-style: italic; letter-spacing: 0.02em; }
+html.ui-live #screen-result .res-badge { background: linear-gradient(90deg, #ff8ad8, #ffe27a, #7df2ff); border: 0; color: #1a1840; font-style: italic; }
+html.ui-live #screen-result .res-stats div { background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 6px; }
+html.ui-live #screen-result .res-stats small, html.ui-live #screen-result .res-meta, html.ui-live #screen-result .res-star-hint { color: rgba(255, 255, 255, 0.75); }
+html.ui-live #screen-result .res-stats b { font-family: "Arial Black", "Segoe UI Black", Arial, sans-serif; font-style: italic; font-size: 19px; }
