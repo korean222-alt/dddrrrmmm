@@ -578,6 +578,26 @@ async function main() {
   if (cmd === 'back') return void (await runBack(neonDbConn, d1));
   if (cmd === 'verify') {
     printReport('Neon → D1 비교', await compare(neonDbConn, d1));
+    // 같은 랭킹 쿼리를 두 DB 에 돌려 다른 줄 찍기 (11-22 줄은 같은데 D1 랭킹만 달랐던 것 찾기)
+    const lbSql = (lv) => `SELECT s.igsid, p.username, s.score, s.at, p.checked_at, p.hidden_at FROM scores s JOIN players p ON p.igsid = s.igsid
+      WHERE s.level = ${lv} AND p.username IS NOT NULL AND p.hidden_at IS NULL AND p.checked_at IS NOT NULL ORDER BY s.score DESC, s.at ASC LIMIT 50`;
+    for (const lv of [9, 12, 16, 18]) {
+      const [a, b] = await Promise.all([neonDbConn.q(lbSql(lv)), d1.q(lbSql(lv))]);
+      const key = (r) => `${r.igsid}|${Number(r.score)}`;
+      const ka = new Set(a.map(key)), kb = new Set(b.map(key));
+      const onlyA = a.filter((r) => !kb.has(key(r))), onlyB = b.filter((r) => !ka.has(key(r)));
+      console.log(`\n${lv}단계 랭킹: Neon ${a.length}줄 · D1 ${b.length}줄 · Neon에만 ${onlyA.length} · D1에만 ${onlyB.length}`);
+      const show = (r) => `${String(r.igsid).slice(0, 8)}… ${r.username} ${r.score} at=${r.at} chk=${r.checked_at} hid=${r.hidden_at} [types ${typeof r.score}/${typeof r.at}]`;
+      for (const r of onlyA.slice(0, 5)) console.log('  Neon에만', show(r));
+      for (const r of onlyB.slice(0, 5)) console.log('  D1에만  ', show(r));
+      if (onlyB.length) {
+        // D1 에만 있는 사람이 Neon 에선 어떤 모습인지
+        for (const r of onlyB.slice(0, 3)) {
+          const n = (await neonDbConn.q(`SELECT s.score, s.at, p.username, p.checked_at, p.hidden_at FROM scores s JOIN players p ON p.igsid = s.igsid WHERE s.level = ${lv} AND s.igsid = ${lit(r.igsid, 't')}`))[0];
+          console.log('    → Neon 쪽:', JSON.stringify(n));
+        }
+      }
+    }
     const s = await sameSessionSecret(neonDbConn, d1);
     console.log(`secret:session: ${s.same ? '같음 ✅' : '다름 ❌'}`);
     return;
