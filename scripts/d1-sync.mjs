@@ -253,6 +253,18 @@ export async function writeRows(db, t, rows, mode) {
   return n;
 }
 
+/** pk 로 줄 지우기 (200줄씩) */
+export async function deleteRows(db, t, rows) {
+  let n = 0;
+  for (let i = 0; i < rows.length; i += 200) {
+    const part = rows.slice(i, i + 200);
+    const cond = part.map((r) => '(' + t.pk.map((c) => `${c} = ${lit(r[c], t.cols[c])}`).join(' AND ') + ')').join(' OR ');
+    await db.q(`DELETE FROM ${t.name} WHERE ${cond}`);
+    n += part.length;
+  }
+  return n;
+}
+
 // ---------------------------------------------------------------- 맞춰 보기
 const keyOf = (t, r) => t.pk.map((c) => norm(r[c], t.cols[c])).join('\u0001');
 const rowOf = (t, r) => Object.keys(t.cols).map((c) => norm(r[c], t.cols[c])).join('\u0001');
@@ -286,7 +298,9 @@ export async function compare(src, dst, { late = Infinity, tables = MAIN(TABLES)
       }
       bm.delete(k);
     }
-    report.push({ table: t.name, src: a.length, dst: b.length, missing, diff, extra: bm.size, notLate, missingLate, samples, fix });
+    // dst 에만 있는 줄 (src 에서 지워진 것). settings 의 d1:* 표시는 옮기기용이라 뺌
+    const extraRows = [...bm.values()].filter((r) => !(t.name === 'settings' && /^d1(:|schema:)/.test(r.key)));
+    report.push({ table: t.name, src: a.length, dst: b.length, missing, diff, extra: bm.size, extraRows, notLate, missingLate, samples, fix });
   }
   return report;
 }
@@ -354,18 +368,19 @@ export async function runCopy(neonDb, d1, { log = console.log } = {}) {
     const late = Date.now();
     report = await compare(neonDb, d1, { late });
     printReport(`맞춰 보기 ${round}`, report);
-    const bad = report.filter((r) => r.missing || r.diff);
+    const bad = report.filter((r) => r.missing || r.diff || r.extraRows.length);
     if (!bad.length) break;
-    // 다르거나 빠진 줄만 다시 (복사 중에 바뀐 것, 시각이 안 바뀌는 고침(아이디 변경 등))
     for (const r of bad) {
       const t = TABLES.find((x) => x.name === r.table);
-      const n = await writeRows(d1, t, r.fix, 'replace');
-      log(`  ${r.table}: ${n}줄 다시 넣음`);
+      // 다르거나 빠진 줄만 다시 (복사 중에 바뀐 것, 시각이 안 바뀌는 고침(아이디 변경 등))
+      if (r.fix.length) log(`  ${r.table}: ${await writeRows(d1, t, r.fix, 'replace')}줄 다시 넣음`);
+      // 미리 복사한 뒤 Neon 에서 지워진 줄(계정 합치기·운영자 삭제 등)은 D1 에서도 지움 — 아직 사이트는 Neon 이라 Neon 이 기준
+      if (r.extraRows.length) log(`  ${r.table}: Neon 에서 지워진 ${await deleteRows(d1, t, r.extraRows)}줄 지움`);
     }
   }
   const secret = await sameSessionSecret(neonDb, d1);
   log(`secret:session (로그인 쿠키 키): Neon ${secret.neon ? '있음' : '없음'} · D1 ${secret.d1 ? '있음' : '없음'} · ${secret.same ? '같음 ✅' : '다름 ❌'}`);
-  const stuck = report.filter((r) => r.notLate);
+  const stuck = report.filter((r) => r.notLate || r.extraRows.length);
   if (!secret.same) throw new Error('secret:session 이 안 맞음 — 바꾸면 모두 로그아웃됨');
   if (stuck.length) throw new Error(`안 맞는 표: ${stuck.map((r) => r.table).join(', ')}`);
   await setFlag(d1, 'd1:copied_at', start);

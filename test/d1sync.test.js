@@ -50,8 +50,17 @@ test('Neon → D1 전체 복사 · 따라잡기 · 되돌리기', async () => {
 
   // 미리 복사해 둔 뒤 다시 copy: 바뀐 줄만 + 시각이 안 바뀌는 고침(닉네임 변경)도 맞춰 보기에서 잡아 고침
   await neonStore.upsertPlayer('ob', { username: '새닉', ig: null });
+  // 그 사이 Neon 에서 지워진 계정(계정 합치기·운영자 삭제)은 D1 에서도 지움 (11-22 랭킹에 지운 계정이 다시 보였던 것)
+  await neonStore.deletePlayer('oa');
   await runCopy(neon, d1, { log: quiet });
   assert.equal((await d1.q("SELECT username FROM players WHERE igsid = 'ob'"))[0].username, '새닉');
+  assert.equal((await d1.q("SELECT COUNT(*) AS n FROM players WHERE igsid = 'oa'"))[0].n, 0);
+  assert.equal((await d1.q("SELECT COUNT(*) AS n FROM scores WHERE igsid = 'oa'"))[0].n, 0);
+  for (const r of await compare(neon, d1)) if (r.table !== 'settings') assert.equal(r.extra, 0, r.table);
+  await neonStore.upsertPlayer('oa', { username: '닉oa', ig: "oa_i'g" }); // 아래 시험이 쓰는 계정 되살림
+  await neonStore.setChecked('oa', true);
+  await neonStore.recordScore('oa', 3, { score: 1002, grade: 'A', maxCombo: 5 });
+  await runCopy(neon, d1, { log: quiet });
 
   // D1 저장소로 읽어도 똑같이 보임 (랭킹·맵·명예의 전당·로그인 키)
   const d1Store = await new D1Store(d1Local(new DatabaseSync(file))).init();
