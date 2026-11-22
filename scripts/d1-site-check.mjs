@@ -60,8 +60,9 @@ async function loginCheck(db) {
   const secret = ((await db.q(`SELECT value FROM settings WHERE key = 'secret:session'`))[0] || {}).value;
   if (!secret) throw new Error('secret:session 없음');
   const p = (await db.q(
-    `SELECT p.igsid, p.username FROM players p JOIN scores s ON s.igsid = p.igsid
-     WHERE p.username IS NOT NULL AND p.checked_at IS NOT NULL AND p.hidden_at IS NULL ORDER BY s.score DESC LIMIT 1`
+    // 1단계 1등부터 (scores_rank 색인으로 몇 줄만 읽음 — 예전엔 점수 전체를 정렬해 한 번에 7.5만 줄, 11-22 D1 읽기 한도 넘긴 원인 중 하나)
+    `SELECT p.igsid, p.username FROM scores s JOIN players p ON p.igsid = s.igsid
+     WHERE s.level = 1 AND p.username IS NOT NULL AND p.checked_at IS NOT NULL AND p.hidden_at IS NULL ORDER BY s.score DESC LIMIT 1`
   ))[0];
   if (!p) return console.log('로그인 확인: 인증된 참여자가 없어 건너뜀');
   const body = Buffer.from(JSON.stringify({ igsid: p.igsid, v: Date.now() })).toString('base64url');
