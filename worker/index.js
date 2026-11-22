@@ -60,6 +60,7 @@ function setup(env) {
         // 통계(판·접속)를 잠시 Neon 에 쓰기 (비밀값 STATS_DB=neon): D1 하루 쓰기 한도 아끼기 — 예전 통계 옮기기(backfill)가
         //   끝날 때까지. Neon 에 쌓인 건 backfill 이 이어서 D1 로 가져감. Neon 이 안 되면 D1 에 씀 (안 잃게)
         if (dbUrl(env) && String(env.STATS_DB || '').trim().toLowerCase() === 'neon') {
+          store.statsSampled = false; // Neon 통계 표엔 표본 무게 열이 없음 → 다 적음
           let neonStats = null;
           const stats = () => (neonStats ||= neonStore(env));
           for (const m of ['trackSession', 'trackPlays']) {

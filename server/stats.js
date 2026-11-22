@@ -6,6 +6,7 @@
 //   plays:    { id, sid, vid, level, mode, startedAt, endedAt, result, score, stars, sec }  ← 곡 한 판
 //   newVids:  기간 안에 처음 온 방문자 id 목록 (그 전에는 한 번도 안 옴)
 // vid = 브라우저(기기)마다 붙는 익명 번호. 이름·아이디·IP 와 연결되지 않아요.
+// w = 표본 무게 (2026-11-22): 사람이 많아지면 방문자 일부만 적고(D1 쓰기 아끼기) 그 줄을 w 배로 셈. 없으면 1
 
 import { levelEndlessBase, getLevel } from '../public/js/charts.js';
 
@@ -43,18 +44,23 @@ export function buildStats(raw, { from, to, tzMin = 540 }) {
   const perDay = new Map();
   for (let t = from; t < to + DAY; t += DAY) {
     const k = dayKey(Math.min(t, to));
-    if (!perDay.has(k)) perDay.set(k, { date: k, visitors: new Set(), sessions: 0, plays: 0, activeSec: 0 });
+    if (!perDay.has(k)) perDay.set(k, { date: k, visitors: new Map(), sessions: 0, plays: 0, activeSec: 0 });
   }
   const day = (t) => perDay.get(dayKey(t)) || null;
 
-  const visitors = new Set();
+  const wOf = (x) => (Number.isFinite(x.w) && x.w > 0 ? x.w : 1);
+  const sumW = (m) => [...m.values()].reduce((a, b) => a + b, 0);
+  const visitors = new Map(); // vid → 무게
+  let nSessions = 0;
   for (const s of sessions) {
-    visitors.add(s.vid);
+    const w = wOf(s);
+    visitors.set(s.vid, Math.max(visitors.get(s.vid) || 0, w));
+    nSessions += w;
     const d = day(s.startedAt);
     if (d) {
-      d.visitors.add(s.vid);
-      d.sessions++;
-      d.activeSec += s.activeSec || 0;
+      d.visitors.set(s.vid, Math.max(d.visitors.get(s.vid) || 0, w));
+      d.sessions += w;
+      d.activeSec += (s.activeSec || 0) * w;
     }
   }
 
@@ -64,18 +70,21 @@ export function buildStats(raw, { from, to, tzMin = 540 }) {
   const perVisitor = new Map();
   const res = { clear: 0, fail: 0, quit: 0 };
   const secs = [];
+  let nPlays = 0;
   for (const p of plays) {
+    const w = wOf(p);
+    nPlays += w;
     const r = p.result === 'clear' || p.result === 'fail' ? p.result : 'quit';
-    res[r]++;
-    hours[hourOf(p.startedAt)]++;
+    res[r] += w;
+    hours[hourOf(p.startedAt)] += w;
     const d = day(p.startedAt);
-    if (d) d.plays++;
+    if (d) d.plays += w;
     perVisitor.set(p.vid, (perVisitor.get(p.vid) || 0) + 1);
     if (p.sec > 0) secs.push(p.sec);
     const k = String(p.level);
     const l = byLevel.get(k) || { level: k, name: levelName(k), plays: 0, clear: 0, fail: 0, quit: 0, scores: [], secs: [], stars: [] };
-    l.plays++;
-    l[r]++;
+    l.plays += w;
+    l[r] += w;
     if (r === 'clear' && Number.isFinite(p.score)) l.scores.push(p.score);
     if (p.sec > 0) l.secs.push(p.sec);
     if (r === 'clear' && Number.isFinite(p.stars)) l.stars.push(p.stars);
@@ -91,20 +100,21 @@ export function buildStats(raw, { from, to, tzMin = 540 }) {
 
   const count = (key) => {
     const m = new Map();
-    for (const s of sessions) m.set(s[key] || '', (m.get(s[key] || '') || 0) + 1);
+    for (const s of sessions) m.set(s[key] || '', (m.get(s[key] || '') || 0) + wOf(s));
     return [...m].map(([name, n]) => ({ name: name || '(직접·알 수 없음)', sessions: n })).sort((a, b) => b.sessions - a.sessions);
   };
 
   // 방문자당 몇 판 했나 (판 0번 = 들어와서 구경만 한 사람)
   const dist = { 0: 0, '1': 0, '2-3': 0, '4-9': 0, '10+': 0 };
-  for (const v of visitors) {
+  for (const [v, w] of visitors) {
     const n = perVisitor.get(v) || 0;
-    dist[n === 0 ? '0' : n === 1 ? '1' : n <= 3 ? '2-3' : n <= 9 ? '4-9' : '10+']++;
+    dist[n === 0 ? '0' : n === 1 ? '1' : n <= 3 ? '2-3' : n <= 9 ? '4-9' : '10+'] += w;
   }
 
   const actives = sessions.map((s) => s.activeSec || 0).filter((n) => n > 0);
-  const nVisitors = visitors.size;
-  const nNew = [...visitors].filter((v) => newVids.has(v)).length;
+  const nVisitors = sumW(visitors);
+  const nNew = [...visitors].filter(([v]) => newVids.has(v)).reduce((a, [, w]) => a + w, 0);
+  const sampled = sessions.some((s) => wOf(s) > 1) || plays.some((p) => wOf(p) > 1);
   const done = res.clear + res.fail;
 
   return {
@@ -113,19 +123,20 @@ export function buildStats(raw, { from, to, tzMin = 540 }) {
       visitors: nVisitors,
       newVisitors: nNew,
       returningVisitors: nVisitors - nNew,
-      sessions: sessions.length,
-      plays: plays.length,
+      sessions: nSessions,
+      plays: nPlays,
       clears: res.clear,
       fails: res.fail,
       quits: res.quit,
       clearRate: done + res.quit ? round1((res.clear / (done + res.quit)) * 100) : 0,
-      avgPlaysPerVisitor: nVisitors ? round1(plays.length / nVisitors) : 0,
+      avgPlaysPerVisitor: nVisitors ? round1(nPlays / nVisitors) : 0,
       avgSessionSec: Math.round(avg(actives)),
       medianSessionSec: Math.round(median(actives)),
-      totalActiveSec: Math.round(actives.reduce((a, b) => a + b, 0)),
+      totalActiveSec: Math.round(sessions.reduce((a, s) => a + (s.activeSec || 0) * wOf(s), 0)),
       avgPlaySec: Math.round(avg(secs)),
     },
-    perDay: [...perDay.values()].map((d) => ({ date: d.date, visitors: d.visitors.size, sessions: d.sessions, plays: d.plays, activeSec: Math.round(d.activeSec) })),
+    sampled,
+    perDay: [...perDay.values()].map((d) => ({ date: d.date, visitors: sumW(d.visitors), sessions: d.sessions, plays: d.plays, activeSec: Math.round(d.activeSec) })),
     byLevel: [...byLevel.values()]
       .map(({ scores, secs: ls, stars, ...l }) => ({
         ...l,

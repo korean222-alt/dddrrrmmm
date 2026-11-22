@@ -801,7 +801,7 @@ test('🪙 코인 계산: 곡 콩 수·시간 상한 · 토큰 없는 코인 하
   f = applyCoins(f, { free: 100 }, secret, now + 24 * 3600 * 1000).wallet;
   assert.equal(f.coins, COIN_FREE_DAY + 100, '다음 날 다시');
   // 3일 지난 토큰은 안 받음
-  assert.equal(applyCoins(null, { runs: [{ tok: tok(now - 4 * 24 * 3600 * 1000), n: 5 }] }, secret, now).changed, false);
+  assert.equal(applyCoins(null, { runs: [{ tok: tok(now - 15 * 24 * 3600 * 1000), n: 5 }] }, secret, now).changed, false); // 14일 지난 판 토큰은 안 받음
 });
 
 test('📱 기기 옮기기: 코드 만들기 → 새 기기에서 넣으면 기록 + 랭킹 계정(인증 포함) · 한 번만 · 틀린 코드 거부', async () => {

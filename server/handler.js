@@ -37,7 +37,8 @@ export function endlessMode(id) {
 //   쓰기는 지갑 한 줄(바뀐 게 있을 때만) → D1 하루 쓰기에 판당 1줄 정도
 export const COIN_FREE_DAY = 5000;
 export const COIN_INIT_MAX = 20000;
-const COIN_TOKEN_AGE = 3 * 24 * 3600 * 1000;
+// 폰이 코인을 10분에 한 번 모아 보내고 한동안 안 들어올 수도 있어서 넉넉히 (판 순서 t 로 같은 판 두 번은 안 받음)
+const COIN_TOKEN_AGE = 14 * 24 * 3600 * 1000;
 const coinInt = (v, max) => (Number.isFinite(v) ? Math.max(0, Math.min(max, Math.floor(v))) : 0);
 const kstDay = (now) => new Date(now + 9 * 3600 * 1000).toISOString().slice(0, 10);
 /** 한 판 토큰으로 받을 수 있는 최대 코인 */
@@ -645,6 +646,23 @@ export function createHandler(cfg, { store, meter = null }) {
 
   // ------------------- API -------------------
   /** 이용 통계 저장 (/api/track, 또는 /api/runs·/api/scores 에 얹혀 온 것). 형식이 틀리면 false */
+  /**
+   * 📊 통계 표본 (2026-11-22 저녁, '사람이 많아져도 무료 안에서'): 통계(접속·판)는 판마다 D1 쓰기 1~2줄로 쓰기 한도의 큰 몫
+   *   → 오늘 쓴 양이 많을수록 방문자 일부만 적고 그 줄을 배로 셈 (방문자 번호로 고르니 한 사람의 접속·판은 같이 들어가거나 같이 빠짐)
+   *   쓰기 15% 전 = 다, 25% 전 = 1/2, 브레이크 1단계(40%) 전 = 1/4, 그 뒤 = 안 적음. D1 이 아닌 저장소(Neon·JSON)는 늘 다
+   */
+  function statsRate() {
+    if (!store.statsSampled || !meter) return 1;
+    if (brake() >= 1) return 0;
+    const same = usage.day === utcDay(Date.now());
+    const f = ((same ? usage.w : 0) + meter.w) / USAGE_LIMITS.w;
+    return f < 0.15 ? 1 : f < 0.25 ? 2 : 4;
+  }
+  function vidBucket(vid) {
+    let h = 0;
+    for (let i = 0; i < vid.length; i++) h = (Math.imul(h, 31) + vid.charCodeAt(i)) >>> 0;
+    return h;
+  }
   async function saveTrack(request, raw, setCookies) {
     const t = cleanTrack(raw);
     if (!t) return false;
@@ -656,14 +674,16 @@ export function createHandler(cfg, { store, meter = null }) {
       setCookies.push(cookie(VID_COOKIE, vid, { maxAge: VID_MAX_AGE, secure: cfg.cookieSecure }));
     }
     const now = Date.now();
+    const w = statsRate();
+    if (!w || (w > 1 && vidBucket(vid) % w !== 0)) return true; // 표본 밖 (쿠키는 그대로 줌)
     // 접속 + 판들을 동시에 (판은 한 문장으로 묶음)
     const plays = t.plays.map((e) =>
       e.ev === 'start'
-        ? { id: e.id, sid: t.sid, vid, level: e.level, mode: e.mode, startedAt: now }
-        : { id: e.id, sid: t.sid, vid, level: e.level, mode: e.mode, startedAt: now - e.sec * 1000, endedAt: now, result: e.result, score: e.score, stars: e.stars, sec: e.sec }
+        ? { id: e.id, sid: t.sid, vid, level: e.level, mode: e.mode, startedAt: now, w }
+        : { id: e.id, sid: t.sid, vid, level: e.level, mode: e.mode, startedAt: now - e.sec * 1000, endedAt: now, result: e.result, score: e.score, stars: e.stars, sec: e.sec, w }
     );
     await Promise.all([
-      store.trackSession({ sid: t.sid, vid, now, activeSec: t.activeSec, ref: t.ref, device: t.device, st: t.st, fresh }),
+      store.trackSession({ sid: t.sid, vid, now, activeSec: t.activeSec, ref: t.ref, device: t.device, st: t.st, fresh, w }),
       plays.length ? store.trackPlays(plays) : null,
     ]);
     return true;

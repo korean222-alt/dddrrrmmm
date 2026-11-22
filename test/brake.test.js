@@ -55,3 +55,25 @@ test('🆓 임시 이용 기간엔 인증 없이 4단계부터·멀티·건의�
   const closed = mk(0);
   assert.equal((await call(closed, '/api/runs', { level: 4 })).status, 403);
 });
+
+test('📊 통계 표본: 오늘 쓰기가 많으면 방문자 일부만 적고 배로 셈 · 브레이크 1단계부터는 안 적음', async () => {
+  const meter = { r: 0, w: Math.ceil(USAGE_LIMITS.w * 0.3), q: 0 };
+  const { store, handle } = await setup(meter);
+  const st = Date.now() - 1000;
+  for (let i = 0; i < 40; i++) {
+    const r = await call(handle, '/api/track', { sid: 'sess-sample-' + String(i).padStart(4, '0'), st, active: 5, plays: [{ ev: 'end', id: 'play-sample-' + String(i).padStart(4, '0'), level: 2, result: 'clear', score: 10, stars: 1, sec: 30 }] });
+    assert.equal(r.status, 200);
+  }
+  const rows = await store.q('SELECT w FROM sessions_t');
+  assert.ok(rows.length > 0 && rows.length < 40, String(rows.length));
+  assert.ok(rows.every((x) => Number(x.w) === 4));
+  const s = await (await call(handle, '/api/admin/stats?days=1&fresh=1', null, { 'x-admin-token': 'pw' })).json();
+  assert.equal(s.totals.sessions, rows.length * 4);
+  assert.equal(s.totals.plays, rows.length * 4);
+  assert.equal(s.sampled, true);
+  // 40% 넘으면(브레이크 1단계) 통계는 안 적음
+  meter.w = Math.ceil(USAGE_LIMITS.w * 0.45);
+  meter.q = 100;
+  await call(handle, '/api/track', { sid: 'sess-sample-late', st, active: 5 });
+  assert.equal((await store.q('SELECT COUNT(*) AS n FROM sessions_t'))[0].n, rows.length);
+});

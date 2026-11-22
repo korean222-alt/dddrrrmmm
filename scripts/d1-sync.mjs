@@ -661,6 +661,26 @@ async function main() {
       const hours = (now - Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())) / 3600000;
       console.log(`UTC 0시부터 ${hours.toFixed(1)}시간 · 시간당 약 ${Math.round(w / hours).toLocaleString()}줄 · 이 속도면 하루 약 ${Math.round((w / hours) * 24).toLocaleString()}줄`);
     }
+    // Worker 요청 수 (무료 하루 10만 건): 오늘 합계 + 어제 + 많이 불린 주소(최근 1시간, 표본)
+    try {
+      const gql = async (query, variables) =>
+        (await fetch('https://api.cloudflare.com/client/v4/graphql', { method: 'POST', headers: { Authorization: `Bearer ${env.CLOUDFLARE_API_TOKEN}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ query, variables }) })).json();
+      const day = (d) => new Date(Date.now() - d * 86400000).toISOString().slice(0, 10);
+      for (const [label, d] of [['오늘', 0], ['어제', 1]]) {
+        const j = await gql(`query($a: String!, $d: Date!) { viewer { accounts(filter: { accountTag: $a }) { workersInvocationsAdaptive(limit: 100, filter: { date: $d }) { sum { requests errors } dimensions { scriptName } } } } }`, { a: env.CLOUDFLARE_ACCOUNT_ID, d: day(d) });
+        const g = j.data ? j.data.viewer.accounts[0].workersInvocationsAdaptive : null;
+        console.log(`Worker 요청 ${label}(UTC ${day(d)}):`, g ? g.map((x) => `${x.dimensions.scriptName} ${Number(x.sum.requests).toLocaleString()}건 (오류 ${x.sum.errors})`).join(' · ') : JSON.stringify(j.errors).slice(0, 300));
+      }
+      const since = new Date(Date.now() - 3600000).toISOString();
+      const j = await gql(`query($a: String!, $s: Time!) { viewer { accounts(filter: { accountTag: $a }) { httpRequestsAdaptiveGroups(limit: 25, filter: { datetime_geq: $s, requestSource: "eyeball" }, orderBy: [count_DESC]) { count dimensions { clientRequestPath } } } } }`, { a: env.CLOUDFLARE_ACCOUNT_ID, s: since });
+      const g = j.data ? j.data.viewer.accounts[0].httpRequestsAdaptiveGroups : null;
+      if (g) {
+        console.log('최근 1시간 많이 불린 주소 (/api 만):');
+        for (const x of g.filter((x) => x.dimensions.clientRequestPath.startsWith('/api'))) console.log(`  ${String(x.count).padStart(6)}  ${x.dimensions.clientRequestPath}`);
+      } else console.log('주소별 못 읽음', JSON.stringify(j.errors).slice(0, 300));
+    } catch (e) {
+      console.log('요청 수 못 읽음', e.message);
+    }
     return;
   }
   if (cmd === 'backfill') {

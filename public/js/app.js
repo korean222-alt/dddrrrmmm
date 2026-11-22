@@ -10760,6 +10760,9 @@ const { load, save } = __m_storage;
 let account = false; // 서버 지갑을 쓰는 계정인가 (팔로워 인증 완료)
 let onChange = () => {};
 
+// 지갑에 적는 건 D1 쓰기 1줄 → 판마다 보내지 않고 10분에 한 번(또는 판이 많이 쌓이면) 모아서 (2026-11-22 저녁)
+//   화면 잔액은 보낼 것까지 더해서 보여 주니 그대로. 서버는 판 토큰을 14일까지 받음
+const SEND_EVERY_MS = 10 * 60 * 1000;
 const int = (v) => (Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
 const queue = () => {
   const q = load('coinQ', []);
@@ -10817,6 +10820,8 @@ function takeCoins() {
   const free = int(load('coinFree', 0));
   const init = load('coinInit', false) ? null : int(load('coins', 0));
   if (!runs.length && !free && init == null) return undefined;
+  const last = Number(load('coinSentAt', 0)) || 0;
+  if (init == null && Date.now() - last < SEND_EVERY_MS && runs.length < 25) return undefined;
   const c = { runs, free };
   if (init != null) c.init = init;
   save('coinSending', c);
@@ -10830,6 +10835,7 @@ function coinsResult(data) {
   const s = load('coinSending', null);
   if (data && Number.isFinite(data.coins)) {
     save('coinSrv', int(data.coins));
+    if (s) save('coinSentAt', Date.now());
     if (s && s.init != null) save('coinInit', true);
     save('coinSending', null);
   } else if (s) coinsInit();

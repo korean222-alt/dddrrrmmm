@@ -19,7 +19,7 @@ export const RANK_CAP = 200;
 export const SESSION_WRITE_EVERY_MS = 10 * 60 * 1000;
 
 const playRow = (r) => ({
-  id: r.id, vid: r.vid, level: r.level, startedAt: Number(r.started_at), result: r.result,
+  id: r.id, vid: r.vid, level: r.level, startedAt: Number(r.started_at), result: r.result, ...(Number(r.w) > 1 ? { w: Number(r.w) } : {}),
   score: r.score == null ? null : Number(r.score), stars: r.stars == null ? null : Number(r.stars), sec: r.sec == null ? null : Number(r.sec),
 });
 const val = (v) => (v === undefined ? null : v === true ? 1 : v === false ? 0 : v);
@@ -61,8 +61,8 @@ export const D1_SCHEMA = [
   // 📊 시간 순 통계 표 (2026-11-22): 주 키 맨 앞이 시작 시각 → 관리자 통계가 그 기간 줄만 읽음
   //   (예전 sessions·plays 는 주 키가 무작위 id 라 통계 볼 때마다 표 전체를 읽었음 — 한 달이면 한 번에 50만 줄)
   //   sessions_t.fresh = 처음 온 방문자(방문자 쿠키가 없던 접속). 예전 표는 그대로 두고 그 전 기간만 읽음
-  `CREATE TABLE IF NOT EXISTS sessions_t (started_at INTEGER NOT NULL, sid TEXT NOT NULL, vid TEXT NOT NULL, last_at INTEGER NOT NULL, active_sec INTEGER NOT NULL DEFAULT 0, ref TEXT, device TEXT, fresh INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (started_at, sid)) WITHOUT ROWID`,
-  `CREATE TABLE IF NOT EXISTS plays_t (started_at INTEGER NOT NULL, id TEXT NOT NULL, sid TEXT NOT NULL, vid TEXT NOT NULL, level TEXT NOT NULL, mode TEXT, ended_at INTEGER, result TEXT, score INTEGER, stars INTEGER, sec INTEGER, PRIMARY KEY (started_at, id)) WITHOUT ROWID`,
+  `CREATE TABLE IF NOT EXISTS sessions_t (started_at INTEGER NOT NULL, sid TEXT NOT NULL, vid TEXT NOT NULL, last_at INTEGER NOT NULL, active_sec INTEGER NOT NULL DEFAULT 0, ref TEXT, device TEXT, fresh INTEGER NOT NULL DEFAULT 0, w INTEGER NOT NULL DEFAULT 1, PRIMARY KEY (started_at, sid)) WITHOUT ROWID`,
+  `CREATE TABLE IF NOT EXISTS plays_t (started_at INTEGER NOT NULL, id TEXT NOT NULL, sid TEXT NOT NULL, vid TEXT NOT NULL, level TEXT NOT NULL, mode TEXT, ended_at INTEGER, result TEXT, score INTEGER, stars INTEGER, sec INTEGER, w INTEGER NOT NULL DEFAULT 1, PRIMARY KEY (started_at, id)) WITHOUT ROWID`,
   // 랭킹에서 내린 사람만 담는 작은 색인 (지우기 purgeHidden 이 참여자 표 전체를 안 읽게). 안 내린 사람은 색인에 안 들어가 쓰기도 안 늚
   `CREATE INDEX IF NOT EXISTS players_hidden ON players (hidden_at) WHERE hidden_at IS NOT NULL`,
   `CREATE TABLE IF NOT EXISTS ranked_runs (igsid TEXT NOT NULL, level INTEGER NOT NULL, rating INTEGER NOT NULL, at INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (igsid, level))`,
@@ -74,6 +74,9 @@ export const D1_ALTERS = [
   'ALTER TABLE scores ADD COLUMN chk TEXT',
   // 🪙 지갑: 마지막 판 토큰으로 받은 코인 (2026-11-22)
   'ALTER TABLE wallet ADD COLUMN tn INTEGER NOT NULL DEFAULT 0',
+  // 📊 통계 표본 무게 (2026-11-22 저녁) — 표를 그날 만들었다면 열이 없을 수 있음
+  'ALTER TABLE sessions_t ADD COLUMN w INTEGER NOT NULL DEFAULT 1',
+  'ALTER TABLE plays_t ADD COLUMN w INTEGER NOT NULL DEFAULT 1',
 ];
 
 /** Neon 에서 이미 끝난 옛 기록 옮기기들 — D1 은 그 뒤 데이터를 받으므로 '했음' 으로만 표시 */
@@ -135,6 +138,8 @@ export class D1Store extends PgStore {
   constructor(db) {
     super((text, params = []) => db.q(toSqlite(text), params));
     this.db = db;
+    // 통계 줄에 표본 무게(w)를 적을 수 있음 → handler 가 사람이 많을 때 일부만 적음 (worker 가 통계를 Neon 에 쓰면 false 로)
+    this.statsSampled = true;
   }
   /** 여러 문장을 한 번에 (한 트랜잭션). [[pg 문장, params], …] */
   batch(list) {
@@ -232,14 +237,14 @@ export class D1Store extends PgStore {
    * 접속 통계: 처음 한 번 넣고, 그 뒤엔 10분 넘게 지났을 때만 고침 (D1 쓰기 아끼기 — 매 판·5분마다 고치던 것)
    *   조건이 안 맞으면 아무 줄도 안 바뀌어 쓰기로 안 셈
    */
-  async trackSession({ sid, vid, now, activeSec, ref, device, st = null, fresh = false }) {
+  async trackSession({ sid, vid, now, activeSec, ref, device, st = null, fresh = false, w = 1 }) {
     // 새 폰(세션 시작 시각 st 를 보냄) → 시간 순 표. 예전 앱(st 없음)만 예전 표에
     if (st != null) {
       await this.q(
-        `INSERT INTO sessions_t (started_at, sid, vid, last_at, active_sec, ref, device, fresh) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        `INSERT INTO sessions_t (started_at, sid, vid, last_at, active_sec, ref, device, fresh, w) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
          ON CONFLICT (started_at, sid) DO UPDATE SET last_at = excluded.last_at, active_sec = MAX(sessions_t.active_sec, excluded.active_sec)
          WHERE excluded.last_at >= sessions_t.last_at + ${SESSION_WRITE_EVERY_MS}`,
-        [st, sid, vid, now, activeSec, ref || null, device || null, fresh ? 1 : 0]
+        [st, sid, vid, now, activeSec, ref || null, device || null, fresh ? 1 : 0, w || 1]
       );
       return;
     }
@@ -254,7 +259,7 @@ export class D1Store extends PgStore {
   /**
    * 판 통계: 끝난 판만 한 줄 (D1 쓰기 아끼기 — 시작 때 한 줄 + 끝날 때 고치던 것). 끝 신호 없이 사라진 판은 안 남음
    *   시간 순 표 plays_t 에 (2026-11-22)
-   *   바인딩 값 100개 제한이라 9줄(×11)씩 끊어서 batch 로
+   *   바인딩 값 100개 제한이라 8줄(×12)씩 끊어서 batch 로
    */
   async trackPlays(list) {
     const byId = new Map();
@@ -266,13 +271,13 @@ export class D1Store extends PgStore {
       else for (const k of ['endedAt', 'result', 'score', 'stars', 'sec']) if (p[k] != null) r[k] = p[k];
     }
     if (!byId.size) return;
-    const rows = [...byId.values()].map((p) => [p.id, p.sid, p.vid, p.level, p.mode ?? null, p.startedAt, p.endedAt ?? null, p.result ?? null, p.score ?? null, p.stars ?? null, p.sec ?? null]);
+    const rows = [...byId.values()].map((p) => [p.id, p.sid, p.vid, p.level, p.mode ?? null, p.startedAt, p.endedAt ?? null, p.result ?? null, p.score ?? null, p.stars ?? null, p.sec ?? null, p.w || 1]);
     const stmts = [];
-    for (let i = 0; i < rows.length; i += 9) {
-      const part = rows.slice(i, i + 9);
-      const vals = part.map((_, j) => '(' + Array.from({ length: 11 }, (_, k) => `$${j * 11 + k + 1}`).join(', ') + ')');
+    for (let i = 0; i < rows.length; i += 8) {
+      const part = rows.slice(i, i + 8);
+      const vals = part.map((_, j) => '(' + Array.from({ length: 12 }, (_, k) => `$${j * 12 + k + 1}`).join(', ') + ')');
       stmts.push([
-        `INSERT INTO plays_t (id, sid, vid, level, mode, started_at, ended_at, result, score, stars, sec) VALUES ${vals.join(', ')}
+        `INSERT INTO plays_t (id, sid, vid, level, mode, started_at, ended_at, result, score, stars, sec, w) VALUES ${vals.join(', ')}
          ON CONFLICT (started_at, id) DO UPDATE SET ended_at = COALESCE(excluded.ended_at, plays_t.ended_at), result = COALESCE(excluded.result, plays_t.result),
            score = COALESCE(excluded.score, plays_t.score), stars = COALESCE(excluded.stars, plays_t.stars), sec = COALESCE(excluded.sec, plays_t.sec)`,
         part.flat(),
@@ -288,15 +293,15 @@ export class D1Store extends PgStore {
   async statsRaw(from, to, { legacy = true } = {}) {
     const [cutRow, ses, pl, fresh] = await this.batch([
       ['SELECT (SELECT MIN(started_at) FROM sessions_t) AS a, (SELECT MIN(started_at) FROM plays_t) AS b', []],
-      ['SELECT sid, vid, started_at, active_sec, ref, device FROM sessions_t WHERE started_at >= $1 AND started_at < $2', [from, to]],
-      ['SELECT id, vid, level, started_at, result, score, stars, sec FROM plays_t WHERE started_at >= $1 AND started_at < $2', [from, to]],
+      ['SELECT sid, vid, started_at, active_sec, ref, device, w FROM sessions_t WHERE started_at >= $1 AND started_at < $2', [from, to]],
+      ['SELECT id, vid, level, started_at, result, score, stars, sec, w FROM plays_t WHERE started_at >= $1 AND started_at < $2', [from, to]],
       ['SELECT DISTINCT vid FROM sessions_t WHERE started_at >= $1 AND started_at < $2 AND fresh = 1', [from, to]],
     ]);
     const c = cutRow[0] || {};
     const cutS = c.a == null ? Infinity : Number(c.a);
     const cutP = c.b == null ? Infinity : Number(c.b);
     const out = {
-      sessions: ses.map((r) => ({ sid: r.sid, vid: r.vid, startedAt: Number(r.started_at), activeSec: Number(r.active_sec), ref: r.ref, device: r.device })),
+      sessions: ses.map((r) => ({ sid: r.sid, vid: r.vid, startedAt: Number(r.started_at), activeSec: Number(r.active_sec), ref: r.ref, device: r.device, ...(Number(r.w) > 1 ? { w: Number(r.w) } : {}) })),
       plays: pl.map(playRow),
       newVids: fresh.map((r) => r.vid),
       legacySkipped: false,
