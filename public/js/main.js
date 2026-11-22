@@ -186,8 +186,20 @@ const verifyLocked = (id) => state.cfg.gateMode !== 'open' && needsVerify(id) &&
 const VERIFY_WHAT = () => `${FREE_UPTO + 1}단계부터·💎 무제한·⚔️ 멀티·💬 건의하기`;
 /** 운영자가 팔로우를 확인함 = 인증 완료 (서버 없는 모드에선 확인할 방법이 없어서 잠가 둠) */
 function isConfirmed() {
-  return !!(state.api && state.api.mode === 'server' && isVerified() && state.me.confirmed);
+  if (state.api && state.api.mode === 'server') {
+    const ok = !!(isVerified() && state.me.confirmed);
+    // 서버가 알려 준 내 인증 상태를 폰에 기억 (서버가 잠깐 안 될 때 쓰려고). 내 정보를 받기 전(빈 me)엔 안 바꿈
+    const known = state.me && (state.me.guest || state.me.verified === false);
+    if (known && ok !== !!load('confirmedAt', 0)) ok ? save('confirmedAt', Date.now()) : remove('confirmedAt');
+    return ok;
+  }
+  // 서버가 잠깐 안 될 때(하루 한도 초과 등 — 2026-11-22 D1 읽기 한도): 7일 안에 인증 완료였던 폰은 그대로 열어 둠
+  //   (기록·코인은 폰에 모아 뒀다가 서버가 돌아오면 올라감)
+  const at = load('confirmedAt', 0);
+  return !!(state.api && !CONFIG_STATIC() && at && Date.now() - at < 7 * 24 * 3600 * 1000);
 }
+/** 처음부터 서버 없이 배포된 사이트(정적 호스팅)인가 */
+const CONFIG_STATIC = () => CONFIG.apiMode === 'mock';
 const CONFIRM_WHAT = VERIFY_WHAT;
 /** 인증 완료 전엔 잠긴 것 (4단계부터, 무제한 전부). 개발용 ?gate=open 에선 풀림 */
 const closedLocked = (id) => state.cfg.gateMode !== 'open' && isClosed(id) && !isConfirmed();
@@ -1905,7 +1917,8 @@ function awardRunCoins(g, final = true) {
     g._coinPaid = total;
     syncCoinAccount();
     // 판 토큰은 이 판 것일 때만 (서버가 같은 판은 합쳐서 한 판 최대까지만 받음)
-    addRunCoins(delta, g._runToken || null);
+    const tok = g._runToken && !String(g._runToken).startsWith('mock.') ? g._runToken : null; // 서버 없을 때 받은 가짜 토큰은 안 씀
+    addRunCoins(delta, tok);
   }
   return total;
 }
