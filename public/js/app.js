@@ -12748,10 +12748,14 @@ class Game {
    * near = 바로 옆 줄들 [{ lane, d }] (d = 경계까지 거리, 줄 너비 기준). 터치일 때만 옴 (render.laneHit)
    * pos = 누른 가로 자리 (줄 너비 단위, render.laneHit 의 u). 터치일 때만
    */
-  input(lane, perfMs, near, pos) {
+  input(lane, perfMs, near, pos, soft = false) {
     const rt = performance.now() / 1000;
     if (!this.laneOrder.includes(lane)) return;
     const playing = this.state === 'playing' && !this.auto;
+    if (soft) {
+      if (playing) this._softTap(lane, this.songTime(perfMs), rt);
+      return;
+    }
     const t = playing ? this.songTime(perfMs) : 0;
     const touched = lane;
     if (playing && near && near.length) lane = this._pickLane(lane, t, near, pos);
@@ -12774,14 +12778,26 @@ class Game {
     if (roll && t >= roll.t0 && t <= roll.t1) return;
     const list = this.lanes[lane];
     let ahead = null;
+    let late = null; // GOOD 보다 조금 늦게 친 노트 (아직 MISS 로 안 넘어감)
     for (let i = this.ptr[lane]; i < list.length; i++) {
       const n = list[i];
       if (n.judged) continue;
       const dt = t - n.time;
-      if (dt > JUDGE.good) continue;
+      if (dt > JUDGE.good) {
+        if (dt <= JUDGE.good + MISS_SLACK) late = n;
+        continue;
+      }
       if (dt < -JUDGE.good) {
         ahead = n;
         break;
+      }
+      // 이 줄 노트를 옆 줄 터치·되살린 터치가 먼저 가져갔고 그게 이 터치에 더 가까우면 → 이번 터치는 그 노트를 친 것.
+      //   안 그러면 다음 노트를 일찍 쳐 버리고, 그다음 터치는 헛침이 되는 연쇄가 생김 (2026-11-22 '터치 씹힘')
+      const b = this._borrowedNear(lane, t);
+      if (b && Math.abs(t - b.time) < Math.abs(dt)) {
+        b.reclaimed = true;
+        this.r.onJudge(lane, b.result, rt);
+        return;
       }
       this._judge(n, dt, rt);
       // 옆 줄에서 넘어온 터치가 가져간 노트 → 그 줄 엄지가 곧 진짜로 치면 헛침으로 안 봄
@@ -12789,21 +12805,71 @@ class Game {
       return;
     }
     // 이 줄 노트를 옆 줄 터치가 먼저 가져갔음 → 이번이 진짜 그 노트를 친 것 (헛침·MISS 아님)
-    for (let i = Math.max(0, this.ptr[lane] - 4); i < list.length && list[i].time - t <= JUDGE.good; i++) {
-      const n = list[i];
-      if (n.borrowed && !n.reclaimed && Math.abs(t - n.time) <= JUDGE.good) {
-        n.reclaimed = true;
-        this.r.onJudge(lane, n.result, rt);
-        return;
-      }
+    const b = this._borrowedNear(lane, t);
+    if (b) {
+      b.reclaimed = true;
+      this.r.onJudge(lane, b.result, rt);
+      return;
+    }
+    // 조금 늦게 친 것 (GOOD 밖): 그 노트를 지금 MISS 로 하고 끝. 예전엔 이 터치가 헛침(하트 하나)이 되고 그 노트도 MISS(또 하나),
+    //   다음 노트가 가까우면 '너무 일찍 누름'으로 그것까지 MISS → 늦은 터치 한 번에 하트 2~3개 ('분명 쳤는데 씹혔다')
+    const early = ahead && t - ahead.time >= -JUDGE.early;
+    if (late && (!early || t - late.time <= ahead.time - t)) {
+      this._miss(late, rt);
+      return;
     }
     // 너무 일찍 누름 → 그 노트는 MISS (마구 연타해서 점수 받는 것 방지)
-    if (ahead && t - ahead.time >= -JUDGE.early) {
+    if (early) {
       this._miss(ahead, rt);
       return;
     }
     // 노트 없는 곳을 누름 → 헛침: 점수 없음 + 콤보 끊김 (카운트인/끝난 뒤는 봐줌)
     if (t > this.firstNoteTime - this.beat && t < this.lastNoteTime + JUDGE.good) this._wrong(lane, rt, t);
+  }
+
+  /** 이 줄에서 다른 터치가 먼저 가져간(borrowed) 노트 중 t 에 가장 가까운 것 (GOOD 범위 안, 없으면 null) */
+  _borrowedNear(lane, t) {
+    const list = this.lanes[lane];
+    let best = null;
+    for (let i = Math.max(0, this.ptr[lane] - 4); i < list.length && list[i].time - t <= JUDGE.good; i++) {
+      const n = list[i];
+      if (n.borrowed && !n.reclaimed && Math.abs(t - n.time) <= JUDGE.good && (!best || Math.abs(t - n.time) < Math.abs(t - best.time))) best = n;
+    }
+    return best;
+  }
+
+  /**
+   * '되살린' 터치 (main 의 touchmove: 아이폰이 손가락 뗌을 놓쳐서 새로 누른 게 움직임으로만 온 것 같을 때).
+   *   진짜 새 터치인지 확실하지 않으니 벌은 절대 안 줌: 맞힐 노트가 GREAT 범위 안에 있을 때만 치고(소리도 그때만),
+   *   아니면 아무 일도 없음 (헛침·이른 MISS 없음). 가져간 노트는 borrowed → 곧 오는 진짜 터치는 헛침이 아님.
+   *   2026-11-22: 이걸 보통 터치처럼 셌더니, 누른 채 살짝 굴리며 떼는 손가락이 터치 한 번 더로 잡혀
+   *   헛침·MISS 가 쏟아짐 ('터치가 씹혀요' 댓글 폭주)
+   */
+  _softTap(lane, t, rt) {
+    const roll = this._rollAt(t);
+    if (roll) {
+      if (roll.lane !== lane) return;
+      try {
+        this.audio.playLane(lane);
+      } catch {}
+      this.r.onTap(lane, rt);
+      this._rollHit(roll, rt);
+      return;
+    }
+    const list = this.lanes[lane];
+    let n = null;
+    for (let i = this.ptr[lane]; i < list.length && list[i].time - t <= JUDGE.great; i++) {
+      const c = list[i];
+      if (!c.judged && Math.abs(t - c.time) <= JUDGE.great && (!n || Math.abs(t - c.time) < Math.abs(t - n.time))) n = c;
+    }
+    if (!n) return;
+    try {
+      if (this.level.tapMelody && lane === SNARE) this._playMelodyTap(t);
+      else this.audio.playLane(lane);
+    } catch {}
+    this.r.onTap(lane, rt);
+    this._judge(n, t - n.time, rt);
+    n.borrowed = true;
   }
 
   /** 지금(t) 이 줄에서 누르면 판정될 노트 (없으면 null) */
@@ -14033,10 +14099,11 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-22k',
+    id: '2026-11-22l',
     date: '11월 22일',
-    title: '🛒 새 상점 · 🏆 시즌 보상 · 🔥 오늘의 챌린지 · 🎵 최신곡으로 치기',
+    title: '🖐 터치 씹힘 고침 · 🛒 새 상점 · 🏆 시즌 보상 · 🔥 오늘의 챌린지',
     items: [
+      '<b>🖐 터치가 씹히던 것 고쳤어요!</b> 누른 채 살짝 밀며 떼면 헛침으로 하트가 깎이던 문제, 조금 늦게 친 한 번에 하트가 2~3개 깎이던 문제예요',
       '<b>🛒 상점이 새로 바뀌어요!</b> <b>🎤 라이브 스테이지 세트</b>(리듬게임 라이브 화면 스타일로 통째로!) · ✨ 콩 스킨 · 🌄 새 무대 · 🥁 새 드럼 — 누르면 미리보기, 곧 판매 시작',
       '맵 배경·맵 드럼·콩 색은 이제 <b>무료</b>! 예전에 산 사람은 코인을 돌려드려요',
       '<b>🏆 시즌 1 보상</b> — 1등 10만 · 2등 7만 · 3등 5만 · 10등까지 1만 · 50등까지 5천 · 100등까지 3천 코인',
@@ -15870,10 +15937,11 @@ async function startLevel(id, opts = {}) {
       if (cn !== last.coins) {
         const el = $('#hud-coin');
         el.textContent = fmt(cn);
-        if (cn > (last.coins || 0)) {
-          el.parentNode.classList.remove('bump');
-          void el.offsetWidth;
-          el.parentNode.classList.add('bump');
+        // 통통 튐: 튀는 중이면 그냥 둠 (예전엔 맞힐 때마다 offsetWidth 로 화면 배치를 강제로 다시 계산 → 빽빽한 곳에서 프레임마다)
+        const box = el.parentNode;
+        if (cn > (last.coins || 0) && !box.classList.contains('bump')) {
+          box.classList.add('bump');
+          setTimeout(() => box.classList.remove('bump'), 360);
         }
         last.coins = cn;
       }
@@ -16019,9 +16087,9 @@ function laneFromPoint(x, y) {
 }
 
 /** 화면 터치 → 게임 입력 (옆 줄 정보까지 넘겨서 경계 근처 터치를 봐줌) */
-function tapAt(x, y, perfMs) {
+function tapAt(x, y, perfMs, soft = false) {
   const { lane, near, u } = laneFromPoint(x, y);
-  state.game.input(lane, perfMs, near, u);
+  state.game.input(lane, perfMs, near, u, soft);
 }
 
 // 키보드: 레인 수에 따라 왼쪽부터 키 배정
@@ -16050,35 +16118,35 @@ function bindGameInput() {
     },
     { passive: false }
   );
+  // 눌려 있는 손가락 (identifier → 마지막으로 본 시각·자리). 아래 touchmove '되살리기'용
+  const held = new Map();
   canvas.addEventListener(
     'touchstart',
     (e) => {
       e.preventDefault();
+      // 게임 시작 전부터 대고 있던 손가락도 기억 (안 그러면 시작 뒤 첫 움직임이 '새 터치'로 잡힘)
+      for (const t of e.changedTouches) held.set(t.identifier, { at: e.timeStamp, x: t.clientX, y: t.clientY });
       if (!state.game) return;
       if (!e.isTrusted) state.game.fakeTaps += e.changedTouches.length;
-      for (const t of e.changedTouches) {
-        held.set(t.identifier, { at: e.timeStamp, x: t.clientX, y: t.clientY });
-        tapAt(t.clientX, t.clientY, e.timeStamp);
-      }
+      for (const t of e.changedTouches) tapAt(t.clientX, t.clientY, e.timeStamp);
     },
     { passive: false }
   );
   // 아이폰: 손가락 하나의 '뗌'(touchend)을 놓치면 사파리가 그 손가락이 아직 붙어 있다고 여겨,
-  //   그 근처를 새로 눌러도 touchstart 대신 그 '유령 손가락'의 touchmove 로만 보냄 → 그 줄(주로 왼쪽 엄지 쿵)만 안 눌리고 새로고침해야 풀림.
-  //   한동안 조용하던 손가락이 다른 자리에서 갑자기 움직이면 새로 누른 것으로 봄.
-  //   2026-11-22 '쳐야 할 곳이 많은 곳에선 터치가 안 됨' 신고: 빽빽한 구간은 같은 엄지로 0.1~0.2초마다 거의 같은 자리를 두드려서
-  //   예전 기준(0.25초 조용 + 10px)엔 하나도 안 걸림 → 그 구간 터치가 통째로 빠짐. 눌러 놓은 손가락의 움직임은 거의 매 프레임(16ms) 오니
-  //   70ms 넘게 조용하다가 4px 넘게 옮겨 온 건 새로 누른 것으로 봄
-  const held = new Map();
+  //   그 근처를 새로 눌러도 touchstart 대신 그 '유령 손가락'의 touchmove 로만 보낼 수 있음.
+  //   한동안(0.25초) 조용하던 손가락이 10px 넘게 다른 자리로 옮겨 오면 새로 누른 것일 수 있다고 보고 '부드러운 터치'(soft)로 넘김:
+  //   맞힐 콩이 GREAT 범위에 있을 때만 치고, 아니면 아무 일도 없음 (헛침·MISS 벌 없음, game._softTap).
+  //   ⚠ 2026-11-22 저녁 이 기준을 70ms·4px 로 줄이고 보통 터치처럼 셌더니, 누른 채 살짝 굴리며 떼는 손가락이
+  //   터치 한 번 더로 잡혀 헛침(하트)·MISS 가 쏟아짐 → '터치가 자꾸 씹혀요' 댓글 폭주. 기준을 줄이지 말 것
   canvas.addEventListener(
     'touchmove',
     (e) => {
       e.preventDefault();
       for (const t of e.changedTouches) {
         const h = held.get(t.identifier);
-        const revived = !h || (e.timeStamp - h.at > 70 && Math.hypot(t.clientX - h.x, t.clientY - h.y) > 4);
+        const revived = !h || (e.timeStamp - h.at > 250 && Math.hypot(t.clientX - h.x, t.clientY - h.y) > 10);
         held.set(t.identifier, { at: e.timeStamp, x: t.clientX, y: t.clientY });
-        if (revived && state.game) tapAt(t.clientX, t.clientY, e.timeStamp);
+        if (revived && state.game) tapAt(t.clientX, t.clientY, e.timeStamp, true);
       }
     },
     { passive: false }

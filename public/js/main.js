@@ -829,10 +829,11 @@ async function startLevel(id, opts = {}) {
       if (cn !== last.coins) {
         const el = $('#hud-coin');
         el.textContent = fmt(cn);
-        if (cn > (last.coins || 0)) {
-          el.parentNode.classList.remove('bump');
-          void el.offsetWidth;
-          el.parentNode.classList.add('bump');
+        // 통통 튐: 튀는 중이면 그냥 둠 (예전엔 맞힐 때마다 offsetWidth 로 화면 배치를 강제로 다시 계산 → 빽빽한 곳에서 프레임마다)
+        const box = el.parentNode;
+        if (cn > (last.coins || 0) && !box.classList.contains('bump')) {
+          box.classList.add('bump');
+          setTimeout(() => box.classList.remove('bump'), 360);
         }
         last.coins = cn;
       }
@@ -978,9 +979,9 @@ function laneFromPoint(x, y) {
 }
 
 /** 화면 터치 → 게임 입력 (옆 줄 정보까지 넘겨서 경계 근처 터치를 봐줌) */
-function tapAt(x, y, perfMs) {
+function tapAt(x, y, perfMs, soft = false) {
   const { lane, near, u } = laneFromPoint(x, y);
-  state.game.input(lane, perfMs, near, u);
+  state.game.input(lane, perfMs, near, u, soft);
 }
 
 // 키보드: 레인 수에 따라 왼쪽부터 키 배정
@@ -1009,35 +1010,35 @@ function bindGameInput() {
     },
     { passive: false }
   );
+  // 눌려 있는 손가락 (identifier → 마지막으로 본 시각·자리). 아래 touchmove '되살리기'용
+  const held = new Map();
   canvas.addEventListener(
     'touchstart',
     (e) => {
       e.preventDefault();
+      // 게임 시작 전부터 대고 있던 손가락도 기억 (안 그러면 시작 뒤 첫 움직임이 '새 터치'로 잡힘)
+      for (const t of e.changedTouches) held.set(t.identifier, { at: e.timeStamp, x: t.clientX, y: t.clientY });
       if (!state.game) return;
       if (!e.isTrusted) state.game.fakeTaps += e.changedTouches.length;
-      for (const t of e.changedTouches) {
-        held.set(t.identifier, { at: e.timeStamp, x: t.clientX, y: t.clientY });
-        tapAt(t.clientX, t.clientY, e.timeStamp);
-      }
+      for (const t of e.changedTouches) tapAt(t.clientX, t.clientY, e.timeStamp);
     },
     { passive: false }
   );
   // 아이폰: 손가락 하나의 '뗌'(touchend)을 놓치면 사파리가 그 손가락이 아직 붙어 있다고 여겨,
-  //   그 근처를 새로 눌러도 touchstart 대신 그 '유령 손가락'의 touchmove 로만 보냄 → 그 줄(주로 왼쪽 엄지 쿵)만 안 눌리고 새로고침해야 풀림.
-  //   한동안 조용하던 손가락이 다른 자리에서 갑자기 움직이면 새로 누른 것으로 봄.
-  //   2026-11-22 '쳐야 할 곳이 많은 곳에선 터치가 안 됨' 신고: 빽빽한 구간은 같은 엄지로 0.1~0.2초마다 거의 같은 자리를 두드려서
-  //   예전 기준(0.25초 조용 + 10px)엔 하나도 안 걸림 → 그 구간 터치가 통째로 빠짐. 눌러 놓은 손가락의 움직임은 거의 매 프레임(16ms) 오니
-  //   70ms 넘게 조용하다가 4px 넘게 옮겨 온 건 새로 누른 것으로 봄
-  const held = new Map();
+  //   그 근처를 새로 눌러도 touchstart 대신 그 '유령 손가락'의 touchmove 로만 보낼 수 있음.
+  //   한동안(0.25초) 조용하던 손가락이 10px 넘게 다른 자리로 옮겨 오면 새로 누른 것일 수 있다고 보고 '부드러운 터치'(soft)로 넘김:
+  //   맞힐 콩이 GREAT 범위에 있을 때만 치고, 아니면 아무 일도 없음 (헛침·MISS 벌 없음, game._softTap).
+  //   ⚠ 2026-11-22 저녁 이 기준을 70ms·4px 로 줄이고 보통 터치처럼 셌더니, 누른 채 살짝 굴리며 떼는 손가락이
+  //   터치 한 번 더로 잡혀 헛침(하트)·MISS 가 쏟아짐 → '터치가 자꾸 씹혀요' 댓글 폭주. 기준을 줄이지 말 것
   canvas.addEventListener(
     'touchmove',
     (e) => {
       e.preventDefault();
       for (const t of e.changedTouches) {
         const h = held.get(t.identifier);
-        const revived = !h || (e.timeStamp - h.at > 70 && Math.hypot(t.clientX - h.x, t.clientY - h.y) > 4);
+        const revived = !h || (e.timeStamp - h.at > 250 && Math.hypot(t.clientX - h.x, t.clientY - h.y) > 10);
         held.set(t.identifier, { at: e.timeStamp, x: t.clientX, y: t.clientY });
-        if (revived && state.game) tapAt(t.clientX, t.clientY, e.timeStamp);
+        if (revived && state.game) tapAt(t.clientX, t.clientY, e.timeStamp, true);
       }
     },
     { passive: false }
