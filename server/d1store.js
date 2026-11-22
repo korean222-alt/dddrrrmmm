@@ -80,8 +80,12 @@ export const D1_ALTERS = [
   // 🎁 운영자 코인 알림 · 💬 명예의 전당 한마디 (2026-11-22)
   'ALTER TABLE wallet ADD COLUMN gift TEXT',
   'ALTER TABLE hall ADD COLUMN msg TEXT',
-  // (📊 sessions_t·plays_t 의 w 열 추가는 11-22 저녁 운영 D1 에 이미 들어가서 뺌 — 첫 init 문장 수를 40 아래로, 요청당 쿼리 50번 한도)
+  // 📊 통계 표본 무게 (2026-11-22 저녁) — 표를 그날 만들었다면 열이 없을 수 있음
+  'ALTER TABLE sessions_t ADD COLUMN w INTEGER NOT NULL DEFAULT 1',
+  'ALTER TABLE plays_t ADD COLUMN w INTEGER NOT NULL DEFAULT 1',
 ];
+// ⚠ 2026-11-22 밤: 운영 D1 에 wallet.owned·sessions_t.w 가 없었음 (열 추가가 오류를 그냥 넘겨서, 한도 초과 때 실패해도 '했음' 표시가 됨)
+//   → 표마다 있는 열을 한 번에 읽고(쿼리 1번) 없는 열만 추가, 추가가 실패하면 '했음' 표시를 안 함 (다음 요청에 다시)
 
 /** Neon 에서 이미 끝난 옛 기록 옮기기들 — D1 은 그 뒤 데이터를 받으므로 '했음' 으로만 표시 */
 const DONE_MIGRATIONS = [
@@ -150,13 +154,35 @@ export class D1Store extends PgStore {
     return this.db.batch(list.map(([t, p = []]) => [toSqlite(t), p]));
   }
 
+  /** D1_ALTERS 중 아직 없는 열만 추가. 실패하면 던짐 (init 이 '했음'을 안 적게) */
+  async addMissingColumns() {
+    const want = D1_ALTERS.map((a) => {
+      const m = /^ALTER TABLE (\w+) ADD COLUMN (\w+)/.exec(a);
+      return m && { sql: a, t: m[1], c: m[2] };
+    }).filter(Boolean);
+    const tables = [...new Set(want.map((w) => w.t))];
+    let have = null;
+    try {
+      const rows = await this.db.q(tables.map((t) => `SELECT '${t}' AS t, name AS c FROM pragma_table_info('${t}')`).join(' UNION ALL '), []);
+      have = new Set(rows.map((r) => `${r.t}.${r.c}`));
+    } catch {}
+    for (const w of want) {
+      if (have && have.has(`${w.t}.${w.c}`)) continue;
+      try {
+        await this.db.q(w.sql, []);
+      } catch (e) {
+        if (!/duplicate column/i.test(String((e && e.message) || e))) throw e;
+      }
+    }
+  }
+
   async init() {
     try {
       if (await this.one('SELECT 1 AS ok FROM settings WHERE key = $1', [D1_FLAG])) return this;
     } catch {}
     const now = String(Date.now());
     await this.batch(D1_SCHEMA.map((s) => [s]));
-    for (const a of D1_ALTERS) await this.db.q(a, []).catch(() => {});
+    await this.addMissingColumns();
     await this.batch([
       [`INSERT INTO settings (key, value) VALUES ${[...DONE_MIGRATIONS, D1_FLAG].map((_, i) => `($${i + 1}, '${now}')`).join(', ')} ON CONFLICT (key) DO NOTHING`, [...DONE_MIGRATIONS, D1_FLAG]],
     ]);

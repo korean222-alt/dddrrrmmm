@@ -198,3 +198,18 @@ test('D1 등수는 위 사람을 RANK_CAP 명까지만 셈 (읽기 아끼기) ·
   assert.deepEqual(await d1.rankOf(4, 'p' + (RANK_CAP - 1)), { rank: RANK_CAP, score: 1000 - ((RANK_CAP - 1) >> 1) });
   assert.equal((await d1.rankOf(4, 'p' + (n - 1))).over, true);
 });
+
+test('init: 예전 모양 표(열 없음)엔 없는 열만 추가 · 추가가 실패하면 다음에 다시 (11-22 운영 D1 에 wallet.owned·sessions_t.w 가 없었음)', async () => {
+  const raw = new DatabaseSync(':memory:');
+  raw.exec('CREATE TABLE wallet (igsid TEXT PRIMARY KEY, coins INTEGER NOT NULL DEFAULT 0, t INTEGER NOT NULL DEFAULT 0, fday TEXT, fn INTEGER NOT NULL DEFAULT 0, init INTEGER NOT NULL DEFAULT 0, tn INTEGER NOT NULL DEFAULT 0) WITHOUT ROWID');
+  raw.exec('CREATE TABLE sessions_t (started_at INTEGER NOT NULL, sid TEXT NOT NULL, vid TEXT NOT NULL, last_at INTEGER NOT NULL, active_sec INTEGER NOT NULL DEFAULT 0, ref TEXT, device TEXT, fresh INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (started_at, sid)) WITHOUT ROWID');
+  const lite = d1Local(raw);
+  let fail = true;
+  const flaky = { q: (t, p) => (fail && /^ALTER TABLE wallet ADD COLUMN gift/.test(t) ? Promise.reject(new Error('D1_ERROR: Exceeded maximum daily rows read')) : lite.q(t, p)), batch: (l) => lite.batch(l) };
+  await assert.rejects(new D1Store(flaky).init());
+  fail = false;
+  await new D1Store(flaky).init();
+  const cols = (t) => raw.prepare(`PRAGMA table_info(${t})`).all().map((c) => c.name);
+  for (const c of ['owned', 'gift']) assert.ok(cols('wallet').includes(c), c);
+  assert.ok(cols('sessions_t').includes('w'));
+});
