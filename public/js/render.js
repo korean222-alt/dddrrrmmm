@@ -675,7 +675,6 @@ export class Renderer {
     this._drawBeatLines(st);
     if (live) {
       this._liveCombo(st, rt);
-      this._liveJudges(rt); // 세트 PERFECT 는 콩 뒤에 (콩을 절대 안 가림, 11-22)
       this._liveTargets(st, rt);
     } else {
       this._drawCombo(st, rt);
@@ -689,7 +688,7 @@ export class Renderer {
     else this._drawBursts(rt);
     if (q >= 1) this._drawSparks(rt);
     this._drawCoins(rt);
-    if (!live) this._drawJudges(rt);
+    this._drawJudges(rt); // 세트도 기본 드럼 화면처럼 줄마다 판정선 위에 작게 (11-22 사용자 '가운데·아래 다 가리거나 안 보임')
     this._drawRollCount(st, rt);
     ctx.restore();
 
@@ -1870,55 +1869,6 @@ export class Renderer {
   }
 
   /** 가운데 큰 판정 글자 (가장 최근 것 하나) */
-  _liveJudges(rt) {
-    const ctx = this.ctx;
-    const L = this.L;
-    const LIFE = 0.4;
-    this.fx.judges = this.fx.judges.filter((j) => rt - j.t0 < LIFE);
-    const j = this.fx.judges[this.fx.judges.length - 1];
-    if (!j) return;
-    const t = (rt - j.t0) / LIFE;
-    if (t < 0) return;
-    const sc = t < 0.1 ? 0.75 + (t / 0.1) * 0.35 : t < 0.2 ? 1.1 - ((t - 0.1) / 0.1) * 0.1 : 1;
-    const look = LIVE_JUDGE[j.text] || LIVE_JUDGE.MISS;
-    // 11-22 '퍼펙트 글자 자체가 가림' → 콩이 내려오는 길 밖, 판정선 아래 엄지 자리(줄 이름 밑)에 (콩을 절대 안 가림)
-    const size = L.GW * 0.07 * sc * look.k;
-    const x = L.cx;
-    const y = L.strikeY + Math.max(size * 1.1, (L.H - L.strikeY) * 0.36);
-    ctx.save();
-    ctx.globalAlpha = 0.95 * (t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4);
-    ctx.font = `italic 900 ${Math.round(size)}px ${LIVE_FONT}`;
-    if ('letterSpacing' in ctx) ctx.letterSpacing = `${Math.round(size * 0.05)}px`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.lineJoin = 'round';
-    const tw = ctx.measureText(j.text).width;
-    ctx.lineWidth = size * 0.26;
-    ctx.strokeStyle = 'rgba(24,20,70,0.85)';
-    ctx.strokeText(j.text, x, y);
-    ctx.lineWidth = size * 0.12;
-    ctx.strokeStyle = '#FFFFFF';
-    if (look.glow && !this.lite) {
-      ctx.shadowColor = look.glow;
-      ctx.shadowBlur = size * 0.5;
-    }
-    ctx.strokeText(j.text, x, y);
-    ctx.shadowBlur = 0;
-    const g = ctx.createLinearGradient(x - tw / 2, 0, x + tw / 2, 0);
-    look.c.forEach((c, i) => g.addColorStop(look.c.length > 1 ? i / (look.c.length - 1) : 0, c));
-    ctx.fillStyle = g;
-    ctx.fillText(j.text, x, y);
-    if (j.sub) {
-      ctx.font = `italic 900 ${Math.round(size * 0.42)}px ${LIVE_FONT}`;
-      ctx.lineWidth = size * 0.1;
-      ctx.strokeStyle = 'rgba(24,20,70,0.85)';
-      ctx.strokeText(j.sub, x, y + size * 0.78);
-      ctx.fillStyle = j.sub === 'FAST' ? '#9CD8FF' : '#FFB3C8';
-      ctx.fillText(j.sub, x, y + size * 0.78);
-    }
-    ctx.restore();
-  }
-
   /** 가운데 콤보 (콩 뒤에 흐리게) */
   _liveCombo(st, rt) {
     if (st.combo < 3) return;

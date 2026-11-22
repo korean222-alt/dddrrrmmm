@@ -155,18 +155,6 @@ export class Game {
     return null;
   }
 
-  /** 🎤 라이브 세트: 드럼 소리는 그대로 + PERFECT 때 「착」을 작게 얹음 (11-22 드럼을 뺐더니 박자 맞추기가 별로라 되돌림) */
-  get _liveSfx() {
-    return !!this.r.live && !this.auto;
-  }
-  _tapSfx(name, vol = 0.9) {
-    try {
-      // 아직 안 받았으면 이번엔 건너뜀 (늦게 나는 치는 소리는 박자를 헷갈리게 함)
-      if (!this.audio.trackBuffer(`assets/sfx/${name}`)) return void this.audio.loadTrack(`assets/sfx/${name}`);
-      this.audio.sfxFile(name, vol);
-    } catch {}
-  }
-
   _rollHit(roll, rt) {
     roll.hits++;
     this.rollHits++;
@@ -280,7 +268,7 @@ export class Game {
     this.r.reset();
     this.r.laneOrder = this.laneOrder;
     this.r.melodyMode = !!this.level.tapMelody;
-    if (this.r.live) for (const n of ['live2_hit.wav', 'live2_combo.mp3']) this.audio.loadTrack(`assets/sfx/${n}`);
+    if (this.r.live) for (const n of ['live2_combo.mp3']) this.audio.loadTrack(`assets/sfx/${n}`);
     let at = ctx.currentTime + 0.35;
     // 🎵 내 노래: 노래를 처음부터 틀고, 채보(카운트인)는 leadIn 초 뒤에 시작
     if (this.level.leadIn > 0) at += this.level.leadIn;
@@ -541,7 +529,6 @@ export class Game {
       if (this.r.onGold) this.r.onGold(n.lane, heal, rt);
     }
     this.offsets.push(dt);
-    if (this._liveSfx && res === 'perfect') this._tapSfx('live2_hit.wav', 0.4); // 세트: PERFECT 때만 드럼 위에 작게 「착」 (11-22 '드럼 없으니 박자 맞추기 별로')
     this.r.onJudge(n.lane, res, rt, dt < 0);
     this.r.onCombo(this.combo, rt);
     // 🔔 25콤보마다 '반짝' (치는 소리에 안 묻히게 작게)

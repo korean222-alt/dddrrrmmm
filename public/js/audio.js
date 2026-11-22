@@ -240,7 +240,7 @@ export class AudioEngine {
    *   처음 부를 때 받아 두고(loadTrack 캐시), 아직 못 받았으면 이번엔 조용히 넘어감. 효과음 볼륨(sfxBus)을 따름
    */
   sfxFile(name, vol = 1) {
-    const src = `assets/sfx/${name.includes('.') ? name : name + '.mp3'}`; // 치는 소리는 .wav (mp3 앞 빈틈 없게)
+    const src = `assets/sfx/${name.includes('.') ? name : name + '.mp3'}`;
     const ctx = this.ctx;
     const buf = this.trackBuffer(src);
     if (!buf) {

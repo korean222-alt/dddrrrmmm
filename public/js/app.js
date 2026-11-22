@@ -5634,7 +5634,6 @@ class Renderer {
     this._drawBeatLines(st);
     if (live) {
       this._liveCombo(st, rt);
-      this._liveJudges(rt); // 세트 PERFECT 는 콩 뒤에 (콩을 절대 안 가림, 11-22)
       this._liveTargets(st, rt);
     } else {
       this._drawCombo(st, rt);
@@ -5648,7 +5647,7 @@ class Renderer {
     else this._drawBursts(rt);
     if (q >= 1) this._drawSparks(rt);
     this._drawCoins(rt);
-    if (!live) this._drawJudges(rt);
+    this._drawJudges(rt); // 세트도 기본 드럼 화면처럼 줄마다 판정선 위에 작게 (11-22 사용자 '가운데·아래 다 가리거나 안 보임')
     this._drawRollCount(st, rt);
     ctx.restore();
 
@@ -6829,55 +6828,6 @@ class Renderer {
   }
 
   /** 가운데 큰 판정 글자 (가장 최근 것 하나) */
-  _liveJudges(rt) {
-    const ctx = this.ctx;
-    const L = this.L;
-    const LIFE = 0.4;
-    this.fx.judges = this.fx.judges.filter((j) => rt - j.t0 < LIFE);
-    const j = this.fx.judges[this.fx.judges.length - 1];
-    if (!j) return;
-    const t = (rt - j.t0) / LIFE;
-    if (t < 0) return;
-    const sc = t < 0.1 ? 0.75 + (t / 0.1) * 0.35 : t < 0.2 ? 1.1 - ((t - 0.1) / 0.1) * 0.1 : 1;
-    const look = LIVE_JUDGE[j.text] || LIVE_JUDGE.MISS;
-    // 11-22 '퍼펙트 글자 자체가 가림' → 콩이 내려오는 길 밖, 판정선 아래 엄지 자리(줄 이름 밑)에 (콩을 절대 안 가림)
-    const size = L.GW * 0.07 * sc * look.k;
-    const x = L.cx;
-    const y = L.strikeY + Math.max(size * 1.1, (L.H - L.strikeY) * 0.36);
-    ctx.save();
-    ctx.globalAlpha = 0.95 * (t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4);
-    ctx.font = `italic 900 ${Math.round(size)}px ${LIVE_FONT}`;
-    if ('letterSpacing' in ctx) ctx.letterSpacing = `${Math.round(size * 0.05)}px`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.lineJoin = 'round';
-    const tw = ctx.measureText(j.text).width;
-    ctx.lineWidth = size * 0.26;
-    ctx.strokeStyle = 'rgba(24,20,70,0.85)';
-    ctx.strokeText(j.text, x, y);
-    ctx.lineWidth = size * 0.12;
-    ctx.strokeStyle = '#FFFFFF';
-    if (look.glow && !this.lite) {
-      ctx.shadowColor = look.glow;
-      ctx.shadowBlur = size * 0.5;
-    }
-    ctx.strokeText(j.text, x, y);
-    ctx.shadowBlur = 0;
-    const g = ctx.createLinearGradient(x - tw / 2, 0, x + tw / 2, 0);
-    look.c.forEach((c, i) => g.addColorStop(look.c.length > 1 ? i / (look.c.length - 1) : 0, c));
-    ctx.fillStyle = g;
-    ctx.fillText(j.text, x, y);
-    if (j.sub) {
-      ctx.font = `italic 900 ${Math.round(size * 0.42)}px ${LIVE_FONT}`;
-      ctx.lineWidth = size * 0.1;
-      ctx.strokeStyle = 'rgba(24,20,70,0.85)';
-      ctx.strokeText(j.sub, x, y + size * 0.78);
-      ctx.fillStyle = j.sub === 'FAST' ? '#9CD8FF' : '#FFB3C8';
-      ctx.fillText(j.sub, x, y + size * 0.78);
-    }
-    ctx.restore();
-  }
-
   /** 가운데 콤보 (콩 뒤에 흐리게) */
   _liveCombo(st, rt) {
     if (st.combo < 3) return;
@@ -11056,7 +11006,7 @@ class AudioEngine {
    *   처음 부를 때 받아 두고(loadTrack 캐시), 아직 못 받았으면 이번엔 조용히 넘어감. 효과음 볼륨(sfxBus)을 따름
    */
   sfxFile(name, vol = 1) {
-    const src = `assets/sfx/${name.includes('.') ? name : name + '.mp3'}`; // 치는 소리는 .wav (mp3 앞 빈틈 없게)
+    const src = `assets/sfx/${name.includes('.') ? name : name + '.mp3'}`;
     const ctx = this.ctx;
     const buf = this.trackBuffer(src);
     if (!buf) {
@@ -12555,18 +12505,6 @@ class Game {
     return null;
   }
 
-  /** 🎤 라이브 세트: 드럼 소리는 그대로 + PERFECT 때 「착」을 작게 얹음 (11-22 드럼을 뺐더니 박자 맞추기가 별로라 되돌림) */
-  get _liveSfx() {
-    return !!this.r.live && !this.auto;
-  }
-  _tapSfx(name, vol = 0.9) {
-    try {
-      // 아직 안 받았으면 이번엔 건너뜀 (늦게 나는 치는 소리는 박자를 헷갈리게 함)
-      if (!this.audio.trackBuffer(`assets/sfx/${name}`)) return void this.audio.loadTrack(`assets/sfx/${name}`);
-      this.audio.sfxFile(name, vol);
-    } catch {}
-  }
-
   _rollHit(roll, rt) {
     roll.hits++;
     this.rollHits++;
@@ -12680,7 +12618,7 @@ class Game {
     this.r.reset();
     this.r.laneOrder = this.laneOrder;
     this.r.melodyMode = !!this.level.tapMelody;
-    if (this.r.live) for (const n of ['live2_hit.wav', 'live2_combo.mp3']) this.audio.loadTrack(`assets/sfx/${n}`);
+    if (this.r.live) for (const n of ['live2_combo.mp3']) this.audio.loadTrack(`assets/sfx/${n}`);
     let at = ctx.currentTime + 0.35;
     // 🎵 내 노래: 노래를 처음부터 틀고, 채보(카운트인)는 leadIn 초 뒤에 시작
     if (this.level.leadIn > 0) at += this.level.leadIn;
@@ -12941,7 +12879,6 @@ class Game {
       if (this.r.onGold) this.r.onGold(n.lane, heal, rt);
     }
     this.offsets.push(dt);
-    if (this._liveSfx && res === 'perfect') this._tapSfx('live2_hit.wav', 0.4); // 세트: PERFECT 때만 드럼 위에 작게 「착」 (11-22 '드럼 없으니 박자 맞추기 별로')
     this.r.onJudge(n.lane, res, rt, dt < 0);
     this.r.onCombo(this.combo, rt);
     // 🔔 25콤보마다 '반짝' (치는 소리에 안 묻히게 작게)
