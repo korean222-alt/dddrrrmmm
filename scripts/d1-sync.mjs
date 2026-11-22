@@ -563,6 +563,24 @@ async function main() {
     console.log(`D1 오늘(UTC) 쓴 줄 ${when}: ${w == null ? '못 읽음' : w.toLocaleString()} / 100,000`);
     return w;
   };
+  if (cmd === 'reads') {
+    // 오늘(UTC) D1 읽은 줄 합계 + 많이 읽은 쿼리 (Cloudflare GraphQL d1QueriesAdaptiveGroups)
+    const token = env.CLOUDFLARE_API_TOKEN;
+    const account = env.CLOUDFLARE_ACCOUNT_ID;
+    const date = new Date().toISOString().slice(0, 10);
+    const gql = async (query) => {
+      const res = await fetch('https://api.cloudflare.com/client/v4/graphql', { method: 'POST', headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' }, body: JSON.stringify({ query, variables: { a: account, d: date } }) });
+      return res.json();
+    };
+    const tot = await gql(`query($a: String!, $d: Date!) { viewer { accounts(filter: { accountTag: $a }) { d1AnalyticsAdaptiveGroups(limit: 100, filter: { date: $d }) { sum { rowsRead rowsWritten readQueries writeQueries } } } } }`);
+    console.log('합계', JSON.stringify(tot.data ? tot.data.viewer.accounts[0].d1AnalyticsAdaptiveGroups : tot.errors));
+    const q = await gql(`query($a: String!, $d: Date!) { viewer { accounts(filter: { accountTag: $a }) { d1QueriesAdaptiveGroups(limit: 40, filter: { date_geq: $d }, orderBy: [sum_rowsRead_DESC]) { count sum { rowsRead rowsWritten } dimensions { query } } } } }`);
+    if (!q.data) return void console.log('쿼리별 못 읽음', JSON.stringify(q.errors));
+    for (const g of q.data.viewer.accounts[0].d1QueriesAdaptiveGroups) {
+      console.log(`읽음 ${Number(g.sum.rowsRead).toLocaleString().padStart(12)} · 씀 ${Number(g.sum.rowsWritten).toLocaleString().padStart(8)} · ${String(g.count).padStart(6)}번 · 한 번에 ${Math.round(g.sum.rowsRead / g.count).toLocaleString()}줄\n    ${String(g.dimensions.query).replace(/\s+/g, ' ').slice(0, 300)}`);
+    }
+    return;
+  }
   if (cmd === 'usage') {
     // 오늘(UTC 0시 = 한국 9시부터) D1 쓴 줄 + 시간당 속도로 하루 끝 어림
     const w = await usage('지금');
