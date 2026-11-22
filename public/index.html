@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=46c99adcf7" />
+  <link rel="stylesheet" href="css/style.css?v=6f4eba7d13" />
 </head>
 <body>
   <div id="app">
@@ -915,7 +915,34 @@
     <div class="sheet shop-sheet">
       <button class="icon-btn close" data-action="close-shop" aria-label="닫기"><span data-icon="close"></span></button>
       <h3>🛒 상점 <span class="shop-coins"><i class="coin-ico"></i><b id="shop-coins">0</b></span></h3>
+      <div class="shop-prev" id="shop-prev" hidden>
+        <canvas id="shop-prev-cv"></canvas>
+        <div class="shop-prev-side">
+          <b id="shop-prev-name"></b>
+          <small class="muted" id="shop-prev-sub"></small>
+          <button class="btn btn-primary" id="shop-prev-buy"></button>
+          <button class="btn btn-ghost btn-sm" data-action="shop-back">← 목록</button>
+        </div>
+      </div>
       <div class="shop-list" id="shop-list"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="modal-gift" hidden>
+    <div class="sheet gift-sheet">
+      <div id="gift-top">
+        <div class="gift-big">🎁</div>
+        <h3>선물이 왔어요!</h3>
+        <p class="gift-coins" id="gift-coins-line"><i class="coin-ico"></i> <b id="gift-coins">0</b> 코인</p>
+        <p class="gift-note" id="gift-note"></p>
+      </div>
+      <div id="gift-msg-box" hidden>
+        <h4 id="gift-msg-title">🏛 명예의 전당에 남길 한마디</h4>
+        <input type="text" id="gift-msg" maxlength="40" placeholder="예) 다들 고마워요! 시즌 2에서 만나요" autocomplete="off">
+        <small class="muted">40자까지 · 명예의 전당 내 칸에 영원히 보여요</small>
+      </div>
+      <button class="btn btn-primary" id="gift-ok">받기</button>
+      <button class="btn btn-ghost btn-sm" id="gift-later" hidden>나중에 쓸게요</button>
     </div>
   </div>
 
@@ -963,6 +990,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=220664a971" defer></script>
+  <script src="js/app.js?v=46ef2cc398" defer></script>
 </body>
 </html>

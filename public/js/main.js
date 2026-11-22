@@ -10,6 +10,7 @@ import {
 } from './charts.js';
 import { todayMission, missionDone, streakView, markDone } from './daily.js';
 import { DECO_THEMES, NOTE_SHOP, NOTE_PREMIUM, priceOf } from './shop.js';
+import { startShopPreview, stopShopPreview } from './shoppreview.js';
 import { separateVocals, resample } from './vocalsep.js';
 import { transcribeSong } from './songmap.js';
 import { instrumentNotes } from './instnotes.js';
@@ -1694,7 +1695,9 @@ function rankFootJoin(foot) {
 }
 
 /** 🏛 명예의 전당: 끝난 시즌 1·2·3등(사진) + 이번 시즌 총합 순위(시상대 + 목록) */
+var lastHallData = null;
 function hallHtml(data, board) {
+  lastHallData = data;
   const sub = (e) => (board === 'endless' ? `Lv.${fmt(e.rounds)} · ${e.n}판` : `${e.n}/${data.levels}단계`);
   const past = {};
   for (const h of data.hall || []) if (h.board === board) (past[h.season] ||= []).push(h);
@@ -1708,10 +1711,13 @@ function hallHtml(data, board) {
         .filter(Boolean)
         .map((h) => {
           const mine = h.me
-            ? btn(n, h, 'hall-photo', `📷 ${h.image ? '사진 바꾸기' : '사진 올리기'}`, 'btn btn-sm btn-ghost') + (h.image ? btn(n, h, 'hall-photo-del', '지우기', 'link small') : '')
+            ? btn(n, h, 'hall-photo', `📷 ${h.image ? '사진 바꾸기' : '사진 올리기'}`, 'btn btn-sm btn-ghost') +
+              (h.image ? btn(n, h, 'hall-photo-del', '지우기', 'link small') : '') +
+              btn(n, h, 'hall-msg', `💬 ${h.msg ? '한마디 고치기' : '한마디 쓰기'}`, 'btn btn-sm btn-ghost')
             : '';
+          const msg = h.msg ? `<span class="hall-msg">“${escapeHtml(h.msg)}”</span>` : '';
           return `<div class="hall-card r${h.rank} ${h.me ? 'me' : ''}">${avatar(h)}<span class="hall-rk">${['🥇', '🥈', '🥉'][h.rank - 1]} ${h.rank}등</span>
-            <b class="hall-nm">${escapeHtml(h.username)}</b><span class="hall-sc">${fmt(h.score)}</span><span class="pl">${sub(h)}</span>${mine}</div>`;
+            <b class="hall-nm">${escapeHtml(h.username)}</b><span class="hall-sc">${fmt(h.score)}</span><span class="pl">${sub(h)}</span>${msg}${mine}</div>`;
         })
         .join('');
       return `<div class="hall-sec"><h4>🏛 시즌 ${n} 명예의 전당</h4><div class="hall-row">${cards}</div></div>`;
@@ -2003,6 +2009,76 @@ function syncCoinAccount() {
   const fresh = Number.isFinite(me.coins) && !me._coinsUsed;
   if (fresh) me._coinsUsed = true;
   setCoinAccount(isConfirmed(), fresh ? me.coins : undefined);
+  if (me.gift && !giftShown) setTimeout(() => showGift(me.gift), 600);
+}
+
+// ---------------- 🎁 운영자 선물 · 💬 명예의 전당 한마디 (2026-11-22) ----------------
+//   운영자가 admin 에서 코인을 주면(지갑에 바로 들어감) 그 사람이 다음에 들어올 때 /api/me·boot 에 gift 가 실려 옴 → 팝업.
+//   hall 이 있으면 명예의 전당 한마디 칸도. '받기·남기기' = /api/gift/ack (알림 지움), '나중에' = 다음 접속 때 또 뜸. 새 폴링 없음
+var giftShown = false; // var: 시작 때 syncCoinAccount 가 먼저 불려도 되게
+var giftMode = null; // { gift } 또는 { edit: { season, board, rank, msg } }
+function showGift(gift) {
+  if (!gift || giftShown) return;
+  giftShown = true;
+  giftMode = { gift };
+  $('#gift-top').hidden = false;
+  $('#gift-coins-line').hidden = !(gift.coins > 0);
+  $('#gift-coins').textContent = fmt(gift.coins || 0);
+  $('#gift-note').textContent = gift.note || '';
+  $('#gift-msg-box').hidden = !gift.hall;
+  $('#gift-msg-title').textContent = gift.hall ? `🏛 시즌 ${gift.hall.season} 명예의 전당에 남길 한마디` : '';
+  $('#gift-msg').value = '';
+  $('#gift-ok').textContent = gift.hall ? '받고 한마디 남기기' : '받기';
+  $('#gift-later').hidden = !gift.hall;
+  openModal('modal-gift');
+  refreshCoins();
+}
+function editHallMsg(season, board, rank, msg) {
+  giftMode = { edit: { season, board, rank } };
+  $('#gift-top').hidden = true;
+  $('#gift-msg-box').hidden = false;
+  $('#gift-msg-title').textContent = `🏛 시즌 ${season} 명예의 전당 한마디`;
+  $('#gift-msg').value = msg || '';
+  $('#gift-ok').textContent = '저장';
+  $('#gift-later').hidden = false;
+  $('#gift-later').textContent = '닫기';
+  openModal('modal-gift');
+}
+async function giftOk() {
+  const mode = giftMode;
+  if (!mode) return closeModal('modal-gift');
+  const msg = $('#gift-msg').value.trim();
+  const b = $('#gift-ok');
+  b.disabled = true;
+  try {
+    if (mode.edit) {
+      await state.api.hallMsg({ ...mode.edit, msg });
+      toast(msg ? '💬 한마디를 남겼어요!' : '한마디를 지웠어요', 2200);
+      loadRank();
+    } else {
+      if (mode.gift.hall && !msg) {
+        b.disabled = false;
+        $('#gift-msg').focus();
+        return toast('한마디를 적어 주세요 · 나중에 써도 돼요', 2200);
+      }
+      const r = await state.api.giftAck(msg);
+      if (state.me) state.me.gift = null;
+      toast(r && r.saved ? '🎉 받았어요! 한마디도 명예의 전당에 남겼어요' : '🎉 받았어요!', 2600);
+    }
+    giftMode = null;
+    closeModal('modal-gift');
+  } catch (e) {
+    toast(e && e.status === 503 ? '서버가 잠깐 쉬는 중이에요 · 조금 뒤 다시' : '저장하지 못했어요 · 잠시 뒤 다시 해 주세요', 2600);
+  } finally {
+    b.disabled = false;
+  }
+}
+function giftLater() {
+  const g = giftMode && giftMode.gift;
+  giftMode = null;
+  closeModal('modal-gift');
+  $('#gift-later').textContent = '나중에 쓸게요';
+  if (g) toast('코인은 이미 들어왔어요 · 다음에 들어오면 다시 물어볼게요', 2600);
 }
 const getCoins = () => coinTotal();
 function refreshCoins() {
@@ -2178,7 +2254,7 @@ function renderShop(focus) {
     const id = `${type}:${key}`;
     const own = decoOpen(type, key);
     const price = priceOf(id);
-    return `<button class="shop-item ${own ? 'owned' : ''} ${focus === id ? 'focus' : ''}" data-shop="${id}"${own ? ' disabled' : ''}>
+    return `<button class="shop-item ${own ? 'owned' : ''} ${focus === id ? 'focus' : ''}" data-shop="${id}">
       <i style="background:${shopSwatch(type, key)}"></i><b>${escapeHtml(shopName(type, key))}</b>
       <span>${own ? '보유' : `<i class="coin-ico"></i>${fmt(price)}`}</span></button>`;
   };
@@ -2192,8 +2268,43 @@ function renderShop(focus) {
   if (f) setTimeout(() => f.scrollIntoView({ block: 'center', behavior: 'smooth' }), 60);
 }
 function openShop(focus) {
-  renderShop(typeof focus === 'string' ? focus : null);
+  const f = typeof focus === 'string' ? focus : null;
+  renderShop(f);
   openModal('modal-shop');
+  if (f) previewShop(f);
+  else closeShopPreview();
+}
+// 👀 미리보기 (2026-11-22): 물건을 누르면 실제 게임 화면으로 보여 줌. 고른 것만 바꾸고 나머지는 지금 꾸미기 그대로
+var shopPrevId = null;
+function previewShop(id) {
+  const [type, key] = id.split(':');
+  if (priceOf(id) == null) return;
+  shopPrevId = id;
+  const own = decoOpen(type, key);
+  $('#shop-prev').hidden = false;
+  $('#shop-prev-name').textContent = shopName(type, key);
+  $('#shop-prev-sub').textContent = type === 'notes' ? '콩 색' : type === 'kit' ? '드럼 세트' : key === 'photo' ? '배경 · 내 사진을 넣어요' : '배경';
+  const b = $('#shop-prev-buy');
+  const using = own && decoPick(type) === key;
+  b.innerHTML = own ? (using ? '✓ 쓰는 중' : '이걸로 바꾸기') : `<i class="coin-ico"></i> ${fmt(priceOf(id))} 사기`;
+  b.disabled = using;
+  document.querySelectorAll('#shop-list .shop-item').forEach((x) => x.classList.toggle('focus', x.dataset.shop === id));
+  const pick = { bg: decoPick('bg'), kit: decoPick('kit'), notes: decoPick('notes') };
+  pick[type] = key;
+  startShopPreview($('#shop-prev-cv'), { ...pick, photo: pick.bg === 'photo' ? renderer.bgPhoto : null }).catch(() => {});
+  const sheet = $('#modal-shop .sheet');
+  if (sheet && sheet.scrollTo) sheet.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function closeShopPreview() {
+  stopShopPreview();
+  shopPrevId = null;
+  $('#shop-prev').hidden = true;
+  document.querySelectorAll('#shop-list .shop-item.focus').forEach((x) => x.classList.remove('focus'));
+  applyDeco(); // 미리보기로 바꾼 콩 색 되돌리기
+}
+function closeShop() {
+  closeShopPreview();
+  closeModal('modal-shop');
 }
 /** 산 것을 바로 씀 (사진 배경이면 사진 고르기) */
 function equipDeco(id) {
@@ -2231,6 +2342,7 @@ async function buyShop(id) {
   refreshCoins();
   renderShop(id);
   equipDeco(id);
+  if (shopPrevId === id) previewShop(id);
   toast(`🎉 ${name} 샀어요! 바로 적용했어요`, 2400);
 }
 function bindDeco() {
@@ -2259,7 +2371,16 @@ function bindDeco() {
   });
   $('#shop-list').addEventListener('click', (e) => {
     const b = e.target.closest('[data-shop]');
-    if (b && !b.disabled) buyShop(b.dataset.shop);
+    if (b) previewShop(b.dataset.shop);
+  });
+  $('#shop-prev-buy').addEventListener('click', () => {
+    const id = shopPrevId;
+    if (!id) return;
+    const [type, key] = id.split(':');
+    if (!decoOpen(type, key)) return buyShop(id);
+    equipDeco(id);
+    previewShop(id);
+    toast(`${shopName(type, key)}(으)로 바꿨어요`, 1800);
   });
   $('#set-deco').addEventListener('click', (e) => {
     const b = e.target.closest('.chip');
@@ -5385,7 +5506,8 @@ const ACTIONS = {
   'room-next': roomNext,
   'news-open': openNews,
   'shop-open': () => openShop(),
-  'close-shop': () => closeModal('modal-shop'),
+  'close-shop': () => closeShop(),
+  'shop-back': () => closeShopPreview(),
   'a2hs-open': openA2hs,
   'close-a2hs': () => closeModal('modal-a2hs'),
   'a2hs-install': a2hsInstall,
@@ -5544,6 +5666,13 @@ const ACTIONS = {
     const f = $('#hall-photo-file');
     f.value = '';
     f.click();
+  },
+  'hall-msg': (a) => {
+    const season = Number(a.dataset.season);
+    const board = a.dataset.board;
+    const rank = Number(a.dataset.rank);
+    const h = ((lastHallData && lastHallData.hall) || []).find((x) => x.season === season && x.board === board && x.rank === rank);
+    editHallMsg(season, board, rank, h && h.msg);
   },
   'hall-photo-del': async (a) => {
     if (!confirm('프로필 사진을 지울까요?')) return;
@@ -5839,6 +5968,8 @@ function bindActions() {
   });
   $('#mk-score-len').addEventListener('change', mkScoreRec);
   $('#hall-photo-file').addEventListener('change', (e) => hallPhotoPicked(e.target.files[0]));
+  $('#gift-ok').addEventListener('click', giftOk);
+  $('#gift-later').addEventListener('click', giftLater);
   $('#mk-name').addEventListener('change', () => {
     mk.name = $('#mk-name').value.trim();
     mkSave();

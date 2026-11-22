@@ -81,6 +81,29 @@ test('시즌 총합 랭킹(단계·무제한) · 시즌 2 는 그 시즌 기록�
     assert.equal((await s.hallList())[0].image, 'data:image/jpeg;base64,AAAA', name);
     assert.equal(await s.hallSetImage(1, 'stage', 1, null), true, name); // 운영자 지우기
     assert.equal((await s.hallList())[0].image, null, name);
+    // 💬 한마디: 본인 칸만 · 운영자 지우기
+    assert.equal((await s.hallList())[0].msg, null, name);
+    assert.equal(await s.hallSetMsg(1, 'stage', 1, '고마워요', 'b'), false, name);
+    assert.equal(await s.hallSetMsg(1, 'stage', 1, '고마워요', 'a'), true, name);
+    assert.equal((await s.hallList())[0].msg, '고마워요', name);
+    assert.equal(await s.hallSetMsg(1, 'stage', 1, null), true, name);
+    assert.equal((await s.hallList())[0].msg, null, name);
+
+    // 🎁 선물: 잔액에 더하고 알림 저장 · 코인 쓰기(putWallet)가 알림을 안 지움 · 지우기
+    await s.giveCoins('a', 5000, { coins: 5000, note: '축하', hall: { season: 1, board: 'stage', rank: 1 }, at: 1 });
+    let w = await s.getWallet('a');
+    assert.equal(w.coins, 5000, name);
+    assert.deepEqual(w.gift.hall, { season: 1, board: 'stage', rank: 1 }, name);
+    await s.putWallet('a', { ...w, coins: w.coins + 10, gift: undefined });
+    w = await s.getWallet('a');
+    assert.equal(w.coins, 5010, name);
+    assert.equal(w.gift.coins, 5000, name);
+    await s.giveCoins('a', 100, { coins: 5100, note: '', hall: null, at: 2 });
+    assert.equal((await s.getWallet('a')).coins, 5110, name);
+    await s.clearGift('a');
+    w = await s.getWallet('a');
+    assert.equal(w.gift, null, name);
+    assert.equal(w.coins, 5110, name);
 
     // 계정 합치기 때 시즌 기록도 옮김
     await s.moveScores('c', 'a');

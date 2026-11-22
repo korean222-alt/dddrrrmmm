@@ -779,6 +779,31 @@ test('🛒 상점: 얹어 온 코인 먼저 더하고 차감 · 모자라면 402
   assert.equal((await client()('POST', '/api/shop/buy', { item: 'notes:neon' })).status, 403);
 });
 
+test('🎁 운영자 코인 주기: 지갑에 바로 · 다음 접속에 알림 · 받기 하면 지움 · 전당에 없으면 한마디 요청 안 됨', async () => {
+  const C = await verifiedClient('선물손님', 'gift.guest');
+  const p = (await C('GET', '/api/admin/players', null, adm)).json.players.find((x) => x.ig === 'gift.guest');
+  assert.equal((await client()('POST', '/api/admin/gift', { igsid: p.igsid, coins: 100 })).status, 401);
+  assert.equal((await C('POST', '/api/admin/gift', { igsid: 'nobody', coins: 100 }, adm)).status, 404);
+  assert.equal((await C('POST', '/api/admin/gift', { igsid: p.igsid, coins: 100, hall: { season: 1, board: 'stage', rank: 1 } }, adm)).json.error, 'not_in_hall');
+  const g = await C('POST', '/api/admin/gift', { igsid: p.igsid, coins: 3000, note: '고마워요' }, adm);
+  assert.equal(g.status, 200);
+  assert.equal(g.json.coins, 3000);
+  await C('POST', '/api/admin/gift', { igsid: p.igsid, coins: 2000 }, adm);
+  const me = (await C('GET', '/api/me')).json;
+  assert.equal(me.coins, 5000);
+  assert.deepEqual(me.gift, { coins: 5000, note: '고마워요', hall: null }, '안 본 선물은 합쳐서 한 번에');
+  // 코인을 더 보내도 알림은 그대로
+  await C('POST', '/api/runs', { level: 1, coins: { free: 10 } });
+  assert.equal((await C('GET', '/api/me')).json.gift.coins, 5000);
+  const ack = await C('POST', '/api/gift/ack', { msg: '안녕' });
+  assert.equal(ack.json.ok, true);
+  assert.equal(ack.json.saved, false, '전당 칸이 없으면 한마디는 안 적힘');
+  const me2 = (await C('GET', '/api/me')).json;
+  assert.equal(me2.gift, undefined);
+  assert.equal(me2.coins, 5010);
+  assert.equal((await C('POST', '/api/hall/msg', { season: 1, board: 'stage', rank: 1, msg: 'x' })).status, 403);
+});
+
 test('🪙 코인: 판 시작·점수 요청에 얹어 받음 · 같은 판 두 번 안 받음 · 폰 코인은 한 번만 · 인증 안 한 사람은 안 받음', async () => {
   const C = await verifiedClient('코인부자', 'coin.rich');
   assert.equal((await C('GET', '/api/me')).json.coins, 0);

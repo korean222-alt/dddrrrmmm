@@ -445,6 +445,7 @@ export function createHandler(cfg, { store, meter = null }) {
   }
 
   const hallEntry = (r, pl) => ({ rank: r.rank, username: r.username, score: r.score, n: r.n, rounds: r.rounds, me: pl ? r.igsid === pl.igsid : false });
+  const hallListCached = () => cached('hall:list', ttlOf(10 * 60 * 1000), async () => store.hallList(), { shared: false });
 
   /** 관리자 비밀번호 확인 (길이 같을 때만 한 글자씩 비교) */
   function isAdmin(request) {
@@ -524,8 +525,10 @@ export function createHandler(cfg, { store, meter = null }) {
   const walletOf = async (pl) => {
     if (!pl || !isConfirmed(pl)) return { coins: null, owned: undefined };
     const w = (await store.getWallet(pl.igsid)) || { coins: 0 };
-    return { coins: w.coins, owned: cleanOwned(w.owned) };
+    return { coins: w.coins, owned: cleanOwned(w.owned), ...(w.gift ? { gift: giftOut(w.gift) } : {}) };
   };
+  /** 🎁 폰에 보낼 선물 알림 (명예의 전당 칸이면 한마디 칸 정보도) */
+  const giftOut = (g) => ({ coins: Number(g.coins) || 0, note: g.note || '', hall: g.hall || null });
 
   // 대결 방: 4단계부터는 혼자 칠 때와 같은 잠금 (팔로워 인증 완료한 사람만)
   const ranked = createRankedHandler({ store, getPlayer: (request) => getPlayer(request), isConfirmed: (pl) => !!pl && (cfg.gateMode === 'open' || isConfirmed(pl)) });
@@ -1122,6 +1125,34 @@ export function createHandler(cfg, { store, meter = null }) {
         memo.delete('hall:list');
         return json(200, { ok: await store.hallSetImage(Number(b.season), String(b.board), Number(b.rank), null) });
       }
+      if (p === '/api/admin/hall/msg' && m === 'POST') {
+        const b = await readJson(request);
+        memo.delete('hall:list');
+        return json(200, { ok: await store.hallSetMsg(Number(b.season), String(b.board), Number(b.rank), null) });
+      }
+      // 🎁 코인 주기 (2026-11-22, 시즌 1등 보상 등): 지갑에 바로 더하고, 그 사람이 다음에 들어올 때 팝업
+      //   hall = { season, board, rank } 를 주면 팝업에서 명예의 전당 한마디도 받음
+      if (p === '/api/admin/gift' && m === 'POST') {
+        const b = await readJson(request);
+        const igsid = String(b.igsid || '');
+        const coins = Math.floor(Number(b.coins) || 0);
+        if (!igsid || coins < 0 || coins > 10000000) return json(400, { error: 'bad_request' });
+        const pl = await store.getPlayer(igsid);
+        if (!pl) return json(404, { error: 'no_player' });
+        let hall = null;
+        if (b.hall) {
+          const h = (await store.hallList()).find((x) => x.season === Number(b.hall.season) && x.board === String(b.hall.board) && x.rank === Number(b.hall.rank));
+          if (!h || h.igsid !== igsid) return json(400, { error: 'not_in_hall' });
+          hall = { season: h.season, board: h.board, rank: h.rank };
+        }
+        if (!coins && !hall) return json(400, { error: 'bad_request' });
+        const w0 = await store.getWallet(igsid);
+        const prev = (w0 && w0.gift) || null;
+        const gift = { coins: coins + ((prev && Number(prev.coins)) || 0), note: String(b.note || '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 80) || (prev && prev.note) || '', hall: hall || (prev && prev.hall) || null, at: Date.now() };
+        await store.giveCoins(igsid, coins, gift);
+        const w1 = await store.getWallet(igsid);
+        return json(200, { ok: true, username: pl.username, coins: w1 ? w1.coins : coins, gift });
+      }
       // 랭킹 참여자 (인스타 아이디로 팔로우 확인 → 안 했으면 삭제)
       if (p === '/api/admin/players' && m === 'GET') {
         // 5분 캐시 (참여자 목록은 기록 전체를 읽어서 무거움). admin 에서 뭘 바꾸면 비움
@@ -1386,7 +1417,7 @@ export function createHandler(cfg, { store, meter = null }) {
       // 위 순위는 6시간 캐시(+ 기록 오르면 고침), 내 줄만 새로 계산해서 끼워 넣음 (내 점수는 바로 보이게)
       const mineNow = pl ? await store.seasonMine(season.n, board, pl.igsid) : null;
       const { list: top, mine } = hallMerge(await hallData(season.n, board), mineNow, pl);
-      const hall = (await cached('hall:list', ttlOf(10 * 60 * 1000), async () => store.hallList(), { shared: false })).map((h) => ({ ...hallEntry(h, pl), season: h.season, board: h.board, image: h.image }));
+      const hall = (await hallListCached()).map((h) => ({ ...hallEntry(h, pl), season: h.season, board: h.board, image: h.image, msg: h.msg || null }));
       return json(200, { season: { n: season.n, end: season.end }, board, levels: LAST_LEVEL_ID, entries: top.map((r) => hallEntry(r, pl)), me: mine ? { ...hallEntry(mine, pl), cap: mine.cap || null } : null, hall });
     }
     // 명예의 전당에 오른 사람만 자기 칸에 프로필 사진 올리기 / 지우기 (image: null)
@@ -1402,6 +1433,36 @@ export function createHandler(cfg, { store, meter = null }) {
       const ok = await store.hallSetImage(b.season, board, b.rank, image, pl.igsid);
       memo.delete('hall:list');
       return ok ? json(200, { ok: true }) : json(403, { error: 'not_yours' });
+    }
+
+    // 💬 명예의 전당 한마디 (본인 칸만, 2026-11-22) — msg: '' 또는 null = 지우기
+    if (p === '/api/hall/msg' && m === 'POST') {
+      if (!limitHallPhoto(ip)) return json(429, { error: 'rate_limited' });
+      const b = await readJson(request);
+      const pl = await getPlayer(request);
+      if (!pl) return json(401, { error: 'verify_required' });
+      const board = HALL_BOARDS.includes(b.board) ? b.board : null;
+      if (!board || !Number.isInteger(b.season) || !Number.isInteger(b.rank)) return json(400, { error: 'bad_request' });
+      const ok = await store.hallSetMsg(b.season, board, b.rank, cleanHallMsg(b.msg), pl.igsid);
+      memo.delete('hall:list');
+      return ok ? json(200, { ok: true }) : json(403, { error: 'not_yours' });
+    }
+    // 🎁 운영자가 준 코인 알림을 봤음 (+ 명예의 전당 한마디를 같이 적을 수 있음). 코인은 줄 때 이미 지갑에 들어가 있음
+    if (p === '/api/gift/ack' && m === 'POST') {
+      if (!limitHallPhoto(ip)) return json(429, { error: 'rate_limited' });
+      const b = await readJson(request);
+      const pl = await getPlayer(request);
+      if (!pl) return json(401, { error: 'verify_required' });
+      const w = await store.getWallet(pl.igsid);
+      const g = w && w.gift;
+      if (!g) return json(200, { ok: true });
+      const msg = cleanHallMsg(b.msg);
+      if (g.hall && msg) {
+        await store.hallSetMsg(g.hall.season, g.hall.board, g.hall.rank, msg, pl.igsid);
+        memo.delete('hall:list');
+      }
+      await store.clearGift(pl.igsid);
+      return json(200, { ok: true, saved: !!(g.hall && msg) });
     }
 
     if (p === '/api/leaderboard' && m === 'GET' && url.searchParams.get('level') === 'total') {
@@ -1518,6 +1579,13 @@ export function validateEndless(body, cfg, now = Date.now()) {
 }
 
 /** 랭킹 닉네임: 앞뒤 공백 빼고 2~12자, 글자·숫자·_ . 공백만 */
+/** 💬 명예의 전당 한마디: 줄바꿈·제어 글자 빼고 40자까지 (없으면 null) */
+export function cleanHallMsg(v) {
+  if (typeof v !== 'string') return null;
+  const t = [...v.replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim()].slice(0, 40).join('');
+  return t || null;
+}
+
 export function cleanNickname(v) {
   const s = String(v || '').trim().replace(/\s+/g, ' ');
   if ([...s].length < 2 || [...s].length > 12) return null;

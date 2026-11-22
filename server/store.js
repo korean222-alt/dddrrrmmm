@@ -113,7 +113,17 @@ export class JsonStore {
     return w ? { ...w } : null;
   }
   putWallet(igsid, w) {
-    this.data.wallet[igsid] = { coins: w.coins, t: w.t, tn: w.tn || 0, fday: w.fday, fn: w.fn, init: w.init, owned: Array.isArray(w.owned) ? [...w.owned] : [] };
+    const gift = this.data.wallet[igsid] ? this.data.wallet[igsid].gift || null : null;
+    this.data.wallet[igsid] = { coins: w.coins, t: w.t, tn: w.tn || 0, fday: w.fday, fn: w.fn, init: w.init, owned: Array.isArray(w.owned) ? [...w.owned] : [], gift };
+    this._save();
+  }
+  giveCoins(igsid, coins, gift) {
+    const w = this.data.wallet[igsid] || { coins: 0, t: 0, tn: 0, fday: '', fn: 0, init: 0, owned: [] };
+    this.data.wallet[igsid] = { ...w, coins: (w.coins || 0) + coins, gift: gift ? { ...gift } : null };
+    this._save();
+  }
+  clearGift(igsid) {
+    if (this.data.wallet[igsid]) this.data.wallet[igsid].gift = null;
     this._save();
   }
 
@@ -296,13 +306,20 @@ export class JsonStore {
     return rest;
   }
   hallList() {
-    return [...this.data.hall].sort((a, b) => b.season - a.season || a.board.localeCompare(b.board) || a.rank - b.rank).map((r) => ({ image: null, ...r }));
+    return [...this.data.hall].sort((a, b) => b.season - a.season || a.board.localeCompare(b.board) || a.rank - b.rank).map((r) => ({ image: null, msg: null, ...r }));
   }
   hallInsert(rows) {
     for (const r of rows)
       if (!this.data.hall.some((h) => h.season === r.season && h.board === r.board && h.rank === r.rank))
         this.data.hall.push({ season: r.season, board: r.board, rank: r.rank, igsid: r.igsid, username: r.username, score: r.score, n: r.n ?? null, rounds: r.rounds ?? null, at: r.at, image: null });
     this._save();
+  }
+  hallSetMsg(season, board, rank, msg, igsid = null) {
+    const h = this.data.hall.find((x) => x.season === season && x.board === board && x.rank === rank && (!igsid || x.igsid === igsid));
+    if (!h) return false;
+    h.msg = msg;
+    this._save();
+    return true;
   }
   hallSetImage(season, board, rank, image, igsid = null) {
     const h = this.data.hall.find((x) => x.season === season && x.board === board && x.rank === rank && (!igsid || x.igsid === igsid));
