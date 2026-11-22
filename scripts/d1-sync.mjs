@@ -559,6 +559,16 @@ async function main() {
     console.log(`D1 오늘(UTC) 쓴 줄 ${when}: ${w == null ? '못 읽음' : w.toLocaleString()} / 100,000`);
     return w;
   };
+  if (cmd === 'usage') {
+    // 오늘(UTC 0시 = 한국 9시부터) D1 쓴 줄 + 시간당 속도로 하루 끝 어림
+    const w = await usage('지금');
+    if (w != null) {
+      const now = new Date();
+      const hours = (now - Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())) / 3600000;
+      console.log(`UTC 0시부터 ${hours.toFixed(1)}시간 · 시간당 약 ${Math.round(w / hours).toLocaleString()}줄 · 이 속도면 하루 약 ${Math.round((w / hours) * 24).toLocaleString()}줄`);
+    }
+    return;
+  }
   if (cmd === 'backfill') {
     if (!(await d1.find()) || !(await getFlag(d1, 'd1:switched_at').catch(() => null))) return void console.log('아직 D1 로 안 바꿈 — 할 일 없음');
     const w = await usage('지금');
