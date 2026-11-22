@@ -69,8 +69,14 @@ export function takeTrack() {
   return payloadNow();
 }
 
+// 서버가 '지금은 표본 밖'(rest)이라 하면 그동안 통계만 따로 보내는 요청은 안 함 (판 요청에 얹는 건 그대로)
+let restUntil = 0;
 function send() {
   if (!on || !sess) return;
+  if (Date.now() < restUntil) {
+    queue.length = 0;
+    return;
+  }
   const payload = payloadNow();
   try {
     fetch('/api/track', {
@@ -79,7 +85,12 @@ function send() {
       keepalive: true,
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
-    }).catch(() => {});
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (d && Number.isFinite(d.rest) && d.rest > 0) restUntil = Date.now() + Math.min(d.rest, 6 * 3600 * 1000);
+      })
+      .catch(() => {});
   } catch {}
 }
 

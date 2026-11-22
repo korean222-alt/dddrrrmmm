@@ -54,6 +54,9 @@ function withCoins(send) {
 }
 
 const LB_CACHE_MS = 60 * 1000;
+const NEXT_TOKEN_MS = 10 * 60 * 1000;
+let nextTok = {}; // 단계 → { tok, at }
+const usedPre = []; // 미리 받은 토큰으로 시작한 단계 (서버 판 수 세기용, 다음 요청에 얹음)
 const lbCache = new Map();
 
 function serverApi(boot = null) {
@@ -82,10 +85,24 @@ function serverApi(boot = null) {
     verifyPassword: (body) => http('POST', '/api/verify/password', body),
     // 이용 통계는 따로 안 보내고 이 요청들에 얹어 보냄 (요청 수 아끼기)
     // 🪙 코인도 얹어 보냄 (coins.js). 응답에 잔액이 오면 받은 것, 아니면 다음에 다시
-    startRun: (level) => withCoins((coins, offline) => http('POST', '/api/runs', { level, track: takeTrack(), coins, offline })),
+    // 🎟 점수를 올리면 서버가 '같은 단계·다음 단계' 판 토큰을 미리 줌 → 깬 뒤 바로 다시·다음 판은 /api/runs 요청 없이 (Worker 요청 아끼기)
+    startRun: (level) => {
+      const k = String(level);
+      const pre = nextTok[k];
+      nextTok = {}; // 하나 쓰면 나머지는 버림 (코인은 판 순서대로만 받음)
+      if (pre && Date.now() - pre.at < NEXT_TOKEN_MS) {
+        usedPre.push(k);
+        return Promise.resolve({ runToken: pre.tok });
+      }
+      return withCoins((coins, offline) => http('POST', '/api/runs', { level, track: takeTrack(), coins, offline, pre: usedPre.splice(0) }));
+    },
     submitScore: (payload) => {
       lbCache.clear();
-      return withCoins((coins, offline) => http('POST', '/api/scores', { ...payload, track: takeTrack(), coins, offline }));
+      nextTok = {};
+      return withCoins((coins, offline) => http('POST', '/api/scores', { ...payload, track: takeTrack(), coins, offline, pre: usedPre.splice(0) })).then((r) => {
+        if (r && r.next && typeof r.next === 'object') for (const [k, tok] of Object.entries(r.next)) if (typeof tok === 'string') nextTok[k] = { tok, at: Date.now() };
+        return r;
+      });
     },
     // 랭킹은 1분 동안 같은 걸 다시 씀 (탭을 왔다 갔다 해도 요청 안 함). 점수 올리면 비움
     leaderboard: (level) => {

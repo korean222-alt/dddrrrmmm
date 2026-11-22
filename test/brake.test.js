@@ -60,11 +60,14 @@ test('📊 통계 표본: 오늘 쓰기가 많으면 방문자 일부만 적고 
   const meter = { r: 0, w: Math.ceil(USAGE_LIMITS.w * 0.3), q: 0 };
   const { store, handle } = await setup(meter);
   const st = Date.now() - 1000;
+  let rests = 0;
   for (let i = 0; i < 40; i++) {
     const r = await call(handle, '/api/track', { sid: 'sess-sample-' + String(i).padStart(4, '0'), st, active: 5, plays: [{ ev: 'end', id: 'play-sample-' + String(i).padStart(4, '0'), level: 2, result: 'clear', score: 10, stars: 1, sec: 30 }] });
     assert.equal(r.status, 200);
+    if ((await r.json()).rest > 0) rests++; // 표본 밖 → 폰은 한동안 통계만 따로 안 보냄
   }
   const rows = await store.q('SELECT w FROM sessions_t');
+  assert.equal(rests + rows.length, 40);
   assert.ok(rows.length > 0 && rows.length < 40, String(rows.length));
   assert.ok(rows.every((x) => Number(x.w) === 4));
   const s = await (await call(handle, '/api/admin/stats?days=1&fresh=1', null, { 'x-admin-token': 'pw' })).json();

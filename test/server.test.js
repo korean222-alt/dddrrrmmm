@@ -1139,6 +1139,11 @@ test('🧯 D1 아끼기: 명예의 전당·총 등수는 캐시인데 기록이 
   // 판 토큰: 기록이 오른 판은 다시 못 보냄
   const up = await play(a, 2, perfectRun(2));
   assert.equal(up.r.json.improved, true);
+  // 🎟 다음 판 토큰: 같은 단계·다음 단계 토큰이 같이 옴 → /api/runs 없이 그 토큰으로 바로 올릴 수 있음
+  assert.ok(up.r.json.next && up.r.json.next['2'] && up.r.json.next['3'], JSON.stringify(up.r.json.next));
+  const nx = await a('POST', '/api/scores', { runToken: up.r.json.next['3'], level: 3, ...perfectRun(3), pre: ['3'] });
+  assert.equal(nx.status, 200);
+  assert.equal(nx.json.improved, true);
   assert.equal((await a('POST', '/api/scores', { runToken: up.runToken, level: 2, ...perfectRun(2) })).status, 409);
   // 안 오른 판(같은 점수)은 '썼음'으로 안 적음 (다시 보내도 바뀌는 게 없어서) → D1 쓰기 아낌
   const same = await play(a, 2, perfectRun(2));

@@ -230,6 +230,7 @@ class HttpError extends Error {
 export const USAGE_LIMITS = { r: 5_000_000, w: 100_000, q: 100_000 };
 export const BRAKE_AT = [0.4, 0.6, 0.8];
 const USAGE_FLUSH_MS = 3 * 60 * 1000;
+const TRACK_REST_MS = 60 * 60 * 1000;
 const utcDay = (t) => new Date(t).toISOString().slice(0, 10);
 
 export function createHandler(cfg, { store, meter = null }) {
@@ -549,6 +550,29 @@ export function createHandler(cfg, { store, meter = null }) {
     t.at = Date.now();
     tryBuf.set(k, t);
   }
+  /**
+   * 🎟 다음 판 토큰 (2026-11-22 저녁): 점수를 올린 응답에 '같은 단계·다음 단계' 판 토큰을 미리 실어 줌
+   *   → 깬 뒤 바로 다시·다음 판은 폰이 /api/runs 를 안 부름 (Worker 요청의 3할이 /api/runs). 폰은 10분 안에 하나만 씀
+   *   그 판 시작은 폰이 다음 요청에 pre:[단계] 로 알려 줌 → 판 수 세기
+   */
+  function nextTokens(levels) {
+    const out = {};
+    let i = 0;
+    for (const id of levels) {
+      if (id == null || out[id]) continue;
+      // 시각을 1ms 씩 달리 (코인은 판 토큰 시각으로 판을 구분함)
+      out[id] = sign({ l: id, t: Date.now() - i++, n: newId() }, cfg.sessionSecret);
+    }
+    return out;
+  }
+  const preList = (body) => (Array.isArray(body && body.pre) ? body.pre.slice(0, 20) : []);
+  function notePre(pl, body) {
+    if (!pl || brake() >= 1) return;
+    for (const k of preList(body)) {
+      const id = Number(k);
+      if (Number.isInteger(id) && id > 0 && getLevel(id)) noteTry(pl.igsid, id, 1, 0);
+    }
+  }
   async function flushTries() {
     if (!tryBuf.size) return;
     const list = [...tryBuf.values()].slice(0, 200);
@@ -683,7 +707,7 @@ export function createHandler(cfg, { store, meter = null }) {
     }
     const now = Date.now();
     const w = statsRate();
-    if (!w || (w > 1 && vidBucket(vid) % w !== 0)) return true; // 표본 밖 (쿠키는 그대로 줌)
+    if (!w || (w > 1 && vidBucket(vid) % w !== 0)) return 'skip'; // 표본 밖 (쿠키는 그대로 줌)
     // 접속 + 판들을 동시에 (판은 한 문장으로 묶음)
     const plays = t.plays.map((e) =>
       e.ev === 'start'
@@ -902,7 +926,8 @@ export function createHandler(cfg, { store, meter = null }) {
       if (!limitTrack(ip)) return json(429, { error: 'rate_limited' });
       const ok = await saveTrack(request, await readJson(request), setCookies);
       if (!ok) return json(400, { error: 'bad_track' });
-      return json(200, { ok: true });
+      // 표본 밖이면 폰은 1시간 동안 통계만 따로 보내는 요청을 안 함 (Worker 요청 하루 10만 건 아끼기, 판 요청에 얹는 건 그대로)
+      return json(200, ok === 'skip' ? { ok: true, rest: TRACK_REST_MS } : { ok: true });
     }
 
     // 건의함: 누구나 (닉네임이 있으면 같이 저장). 같은 브라우저는 1시간에 5개까지
@@ -1266,7 +1291,8 @@ export function createHandler(cfg, { store, meter = null }) {
       // 🕵 단계마다 몇 판 시작했나 (누군지 이미 아는 판만 = 4단계부터. 1~3단계는 쿼리 늘리지 않으려고 안 셈)
       if (runPl && runPl.igsid && level.id > 0 && brake() < 1) noteTry(runPl.igsid, level.id, 1, 0);
       const runToken = sign({ l: level.id, t: Date.now(), n: newId() }, cfg.sessionSecret);
-      const anyPl = body.coins || body.offline ? runPl || (await getPlayer(request)) : null;
+      const anyPl = body.coins || body.offline || preList(body).length ? runPl || (await getPlayer(request)) : null;
+      notePre(anyPl, body);
       const coins = body.coins ? await takeCoins(anyPl, body.coins) : null;
       const offline = body.offline ? await takeOffline(anyPl, body.offline) : null;
       const out = { runToken };
@@ -1284,6 +1310,7 @@ export function createHandler(cfg, { store, meter = null }) {
       if (!pl) return json(401, { error: 'verify_required' });
       // 랭킹은 팔로워 인증(인증 완료)한 사람만 (GATE_MODE=open 이면 닉네임만 있어도)
       if (cfg.gateMode !== 'open' && !isConfirmed(pl)) return json(403, { error: 'verify_required' });
+      notePre(pl, body);
       const coins = body.coins ? await takeCoins(pl, body.coins) : null;
       const offline = body.offline ? await takeOffline(pl, body.offline) : null;
       // 코인·서버 없을 때 기록을 받았으면 오류 응답에도 실음 (폰이 두 번 안 보내게)
@@ -1303,7 +1330,7 @@ export function createHandler(cfg, { store, meter = null }) {
         if (out && out.improved) boardChanged(em.slot, pl.igsid);
         const mine = out.improved && brake() < 2 ? await store.rankOf(em.slot, pl.igsid) : null;
         const best = endlessParts(out.best);
-        return json(200, wc({ improved: out.improved, best: best.score, rounds: best.rounds, rank: mine ? mine.rank : null, over: !!(mine && mine.over), busy: out.improved && !mine, kept: !out.improved }));
+        return json(200, wc({ improved: out.improved, best: best.score, rounds: best.rounds, rank: mine ? mine.rank : null, over: !!(mine && mine.over), busy: out.improved && !mine, kept: !out.improved, next: nextTokens([em.id]) }));
       }
       const v = validateScore(body, cfg);
       if (!v.ok) return json(400, wc({ error: v.error }));
@@ -1316,7 +1343,8 @@ export function createHandler(cfg, { store, meter = null }) {
       if (out && out.improved && v.level.id > 0 && v.level.id <= LAST_LEVEL_ID) await hallBump(pl.igsid, 'stage');
       if (out && out.improved) boardChanged(v.level.id, pl.igsid);
       const mine = out.improved && brake() < 2 ? await store.rankOf(v.level.id, pl.igsid) : null;
-      return json(200, wc({ ...out, rank: mine ? mine.rank : null, over: !!(mine && mine.over), busy: !!out.improved && !mine, kept: !out.improved }));
+      const nextLv = getLevel(v.level.id + 1);
+      return json(200, wc({ ...out, rank: mine ? mine.rank : null, over: !!(mine && mine.over), busy: !!out.improved && !mine, kept: !out.improved, next: nextTokens([v.level.id, nextLv && !nextLv.long ? nextLv.id : null]) }));
     }
 
     // 🏛 명예의 전당: 이번 시즌 총합 랭킹(단계·무제한) + 끝난 시즌 1·2·3등(사진 포함)
