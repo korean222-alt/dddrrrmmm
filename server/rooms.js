@@ -46,6 +46,7 @@ export function pickRushLevel(recent = [], rand = Math.random) {
 export const RANKED_START_DELAY_MS = 15000;
 /** 기다리는 방은 이 시간 안에 주고받은 적이 있어야 '살아 있음' (창을 닫고 나간 방은 안 잡힘) */
 export const QUICK_FRESH_MS = 15_000;
+const SEEN_WRITE_MS = 8_000;
 const pidOf = () => newId().replace(/[^A-Za-z0-9]/g, '').slice(0, 10);
 
 /** 빠른 대결 곡: 두 사람 다 칠 수 있는 곡 중에서 무작위 (인증 안 한 사람이 있으면 1~3단계만) */
@@ -300,7 +301,11 @@ export function createRoomHandler({ store, getPlayer, canPlay, isConfirmed = () 
             lv: int(f.lv, 0, 9999) ?? 0,
           };
       }
-      let out = await store.patchRoom(code, { top, slot, player: me }, now, exp(now));
+      // ✍ 바뀐 게 '방금 봤음(seenAt)' 뿐이고 8초 안에 이미 적었으면 안 씀 (D1 쓰기 = 폴링마다 1줄 → 1/3 쯤, 2026-11-22)
+      //   상대는 15초 넘게 소식이 없어야 '끊김'으로 보고, 빠른 대결도 15초 안 방만 찾음 → 8초면 넉넉
+      const prevSeen = d.players && d.players[slot] && d.players[slot].seenAt;
+      const onlySeen = Object.keys(me).length === 1 && !Object.keys(top).length;
+      let out = onlySeen && prevSeen && now - prevSeen < SEEN_WRITE_MS ? d : await store.patchRoom(code, { top, slot, player: me }, now, exp(now));
       if (!out) throw Object.assign(new Error('room_gone'), { status: 404 });
       // 두 사람 다 준비 → 시작 시각 정하기 (먼저 바꾼 쪽만 성공)
       const tag = readyTag(out);

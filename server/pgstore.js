@@ -621,6 +621,10 @@ END $$`);
   }
 
   // ----- 판 토큰 1회용 처리 -----
+  /** 이 판 토큰이 이미 쓰였나 (읽기만) */
+  async runUsed(nonce) {
+    return !!(await this.one('SELECT 1 AS ok FROM used_runs WHERE nonce = $1', [nonce]));
+  }
   async useRun(nonce, expiresAt) {
     const r = await this.q('INSERT INTO used_runs (nonce, expires_at) VALUES ($1, $2) ON CONFLICT (nonce) DO NOTHING RETURNING nonce', [nonce, expiresAt]);
     return r.length === 1;
@@ -766,11 +770,12 @@ END $$`);
   }
   /** 모드별 1~n등 */
   async topMapScores(id, n = 3) {
-    const rows = await this.q(
-      `SELECT mode, nick, score FROM (SELECT mode, nick, score, ROW_NUMBER() OVER (PARTITION BY mode ORDER BY score DESC, at ASC) AS rk FROM map_scores WHERE map_id = $1) t WHERE rk <= $2 ORDER BY mode, rk`,
-      [id, n]
-    );
+    // 모드마다 색인(map_scores_top)으로 위 n 줄만 읽음 (예전 ROW_NUMBER 는 그 맵 기록을 전부 읽었음, 2026-11-22)
+    const part = (mode, a) =>
+      `SELECT mode, nick, score, at FROM (SELECT mode, nick, score, at FROM map_scores WHERE map_id = $1 AND mode = '${mode}' ORDER BY score DESC, at ASC LIMIT $2) ${a}`;
+    const rows = await this.q(`${part('free', 'f')} UNION ALL ${part('hearts', 'h')}`, [id, n]);
     const out = { free: [], hearts: [] };
+    rows.sort((a, b) => Number(b.score) - Number(a.score) || Number(a.at) - Number(b.at));
     for (const r of rows) if (out[r.mode]) out[r.mode].push({ nick: r.nick, score: Number(r.score) });
     return out;
   }

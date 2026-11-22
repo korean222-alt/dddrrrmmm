@@ -6,6 +6,7 @@
 //   ⚠ D1 무료는 요청(Worker 실행) 하나당 쿼리 50번까지, 쿼리 하나당 바인딩 값 100개까지
 
 import { PgStore } from './pgstore.js';
+import { LAST_LEVEL_ID } from '../public/js/charts.js';
 
 /** Postgres 문장 → SQLite 문장 ($1 → ?1, 형 변환 빼기) */
 export function toSqlite(text) {
@@ -17,6 +18,10 @@ export function toSqlite(text) {
 export const RANK_CAP = 200;
 export const SESSION_WRITE_EVERY_MS = 10 * 60 * 1000;
 
+const playRow = (r) => ({
+  id: r.id, vid: r.vid, level: r.level, startedAt: Number(r.started_at), result: r.result,
+  score: r.score == null ? null : Number(r.score), stars: r.stars == null ? null : Number(r.stars), sec: r.sec == null ? null : Number(r.sec),
+});
 const val = (v) => (v === undefined ? null : v === true ? 1 : v === false ? 0 : v);
 
 /**
@@ -53,6 +58,13 @@ export const D1_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS hall (season INTEGER NOT NULL, board TEXT NOT NULL, rank INTEGER NOT NULL, igsid TEXT NOT NULL, username TEXT, score INTEGER NOT NULL, n INTEGER, rounds INTEGER, at INTEGER NOT NULL, image TEXT, PRIMARY KEY (season, board, rank)) WITHOUT ROWID`,
   // 📊 오늘 쓴 양 (2026-11-22, 한도 브레이크용 — handler `brake`). 하루 한 줄
   `CREATE TABLE IF NOT EXISTS usage_day (day TEXT PRIMARY KEY, r INTEGER NOT NULL DEFAULT 0, w INTEGER NOT NULL DEFAULT 0, q INTEGER NOT NULL DEFAULT 0) WITHOUT ROWID`,
+  // 📊 시간 순 통계 표 (2026-11-22): 주 키 맨 앞이 시작 시각 → 관리자 통계가 그 기간 줄만 읽음
+  //   (예전 sessions·plays 는 주 키가 무작위 id 라 통계 볼 때마다 표 전체를 읽었음 — 한 달이면 한 번에 50만 줄)
+  //   sessions_t.fresh = 처음 온 방문자(방문자 쿠키가 없던 접속). 예전 표는 그대로 두고 그 전 기간만 읽음
+  `CREATE TABLE IF NOT EXISTS sessions_t (started_at INTEGER NOT NULL, sid TEXT NOT NULL, vid TEXT NOT NULL, last_at INTEGER NOT NULL, active_sec INTEGER NOT NULL DEFAULT 0, ref TEXT, device TEXT, fresh INTEGER NOT NULL DEFAULT 0, PRIMARY KEY (started_at, sid)) WITHOUT ROWID`,
+  `CREATE TABLE IF NOT EXISTS plays_t (started_at INTEGER NOT NULL, id TEXT NOT NULL, sid TEXT NOT NULL, vid TEXT NOT NULL, level TEXT NOT NULL, mode TEXT, ended_at INTEGER, result TEXT, score INTEGER, stars INTEGER, sec INTEGER, PRIMARY KEY (started_at, id)) WITHOUT ROWID`,
+  // 랭킹에서 내린 사람만 담는 작은 색인 (지우기 purgeHidden 이 참여자 표 전체를 안 읽게). 안 내린 사람은 색인에 안 들어가 쓰기도 안 늚
+  `CREATE INDEX IF NOT EXISTS players_hidden ON players (hidden_at) WHERE hidden_at IS NOT NULL`,
   `CREATE TABLE IF NOT EXISTS ranked_runs (igsid TEXT NOT NULL, level INTEGER NOT NULL, rating INTEGER NOT NULL, at INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (igsid, level))`,
 ];
 
@@ -150,10 +162,14 @@ export class D1Store extends PgStore {
   async resetEliseRanking() {}
 
   async cleanup(now = Date.now()) {
+    const old = now - 400 * 24 * 3600 * 1000;
     await this.batch([
       // 판 토큰(하루 약 1.1만)은 지우지 않음: 지우는 것도 한 줄씩 쓰기로 셈 → 하루 쓰기 1.1만 줄 아낌 (1년 약 400만 줄·200MB, D1 무료 저장 5GB)
       ['DELETE FROM rooms WHERE expires_at < $1', [now]],
       ['DELETE FROM transfers WHERE expires_at < $1', [now]],
+      // 시간 순 통계 표는 주 키 범위라 지울 줄만 읽음
+      ['DELETE FROM sessions_t WHERE started_at < $1', [old]],
+      ['DELETE FROM plays_t WHERE started_at < $1', [old]],
       // 통계(plays·sessions) 400일 지난 것 지우기는 뺌: 색인이 없어 지울 때마다 표 전체를 읽음(2026-11-22 한 번에 2만 줄),
       //   지울 게 생기는 건 2027-12 부터 → 그때 따로 (예: 하루 한 번 Actions 에서)
     ]);
@@ -216,7 +232,17 @@ export class D1Store extends PgStore {
    * 접속 통계: 처음 한 번 넣고, 그 뒤엔 10분 넘게 지났을 때만 고침 (D1 쓰기 아끼기 — 매 판·5분마다 고치던 것)
    *   조건이 안 맞으면 아무 줄도 안 바뀌어 쓰기로 안 셈
    */
-  async trackSession({ sid, vid, now, activeSec, ref, device }) {
+  async trackSession({ sid, vid, now, activeSec, ref, device, st = null, fresh = false }) {
+    // 새 폰(세션 시작 시각 st 를 보냄) → 시간 순 표. 예전 앱(st 없음)만 예전 표에
+    if (st != null) {
+      await this.q(
+        `INSERT INTO sessions_t (started_at, sid, vid, last_at, active_sec, ref, device, fresh) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+         ON CONFLICT (started_at, sid) DO UPDATE SET last_at = excluded.last_at, active_sec = MAX(sessions_t.active_sec, excluded.active_sec)
+         WHERE excluded.last_at >= sessions_t.last_at + ${SESSION_WRITE_EVERY_MS}`,
+        [st, sid, vid, now, activeSec, ref || null, device || null, fresh ? 1 : 0]
+      );
+      return;
+    }
     await this.q(
       `INSERT INTO sessions (sid, vid, started_at, last_at, active_sec, ref, device) VALUES ($1, $2, $3, $3, $4, $5, $6)
        ON CONFLICT (sid) DO UPDATE SET last_at = excluded.last_at, active_sec = MAX(sessions.active_sec, excluded.active_sec)
@@ -227,6 +253,7 @@ export class D1Store extends PgStore {
 
   /**
    * 판 통계: 끝난 판만 한 줄 (D1 쓰기 아끼기 — 시작 때 한 줄 + 끝날 때 고치던 것). 끝 신호 없이 사라진 판은 안 남음
+   *   시간 순 표 plays_t 에 (2026-11-22)
    *   바인딩 값 100개 제한이라 9줄(×11)씩 끊어서 batch 로
    */
   async trackPlays(list) {
@@ -245,13 +272,114 @@ export class D1Store extends PgStore {
       const part = rows.slice(i, i + 9);
       const vals = part.map((_, j) => '(' + Array.from({ length: 11 }, (_, k) => `$${j * 11 + k + 1}`).join(', ') + ')');
       stmts.push([
-        `INSERT INTO plays (id, sid, vid, level, mode, started_at, ended_at, result, score, stars, sec) VALUES ${vals.join(', ')}
-         ON CONFLICT (id) DO UPDATE SET ended_at = COALESCE(excluded.ended_at, plays.ended_at), result = COALESCE(excluded.result, plays.result),
-           score = COALESCE(excluded.score, plays.score), stars = COALESCE(excluded.stars, plays.stars), sec = COALESCE(excluded.sec, plays.sec)`,
+        `INSERT INTO plays_t (id, sid, vid, level, mode, started_at, ended_at, result, score, stars, sec) VALUES ${vals.join(', ')}
+         ON CONFLICT (started_at, id) DO UPDATE SET ended_at = COALESCE(excluded.ended_at, plays_t.ended_at), result = COALESCE(excluded.result, plays_t.result),
+           score = COALESCE(excluded.score, plays_t.score), stars = COALESCE(excluded.stars, plays_t.stars), sec = COALESCE(excluded.sec, plays_t.sec)`,
         part.flat(),
       ]);
     }
     await this.batch(stmts);
+  }
+
+  /**
+   * 📊 관리자 통계 원본: 시간 순 표(sessions_t·plays_t)는 기간 줄만 읽음.
+   *   그 표가 쓰이기 전(cut) 기간만 예전 표(sessions·plays, 표 전체를 읽음)에서 — legacy:false 면 예전 표는 안 읽음(한도 브레이크 때)
+   */
+  async statsRaw(from, to, { legacy = true } = {}) {
+    const [cutRow, ses, pl, fresh] = await this.batch([
+      ['SELECT (SELECT MIN(started_at) FROM sessions_t) AS a, (SELECT MIN(started_at) FROM plays_t) AS b', []],
+      ['SELECT sid, vid, started_at, active_sec, ref, device FROM sessions_t WHERE started_at >= $1 AND started_at < $2', [from, to]],
+      ['SELECT id, vid, level, started_at, result, score, stars, sec FROM plays_t WHERE started_at >= $1 AND started_at < $2', [from, to]],
+      ['SELECT DISTINCT vid FROM sessions_t WHERE started_at >= $1 AND started_at < $2 AND fresh = 1', [from, to]],
+    ]);
+    const c = cutRow[0] || {};
+    const cutS = c.a == null ? Infinity : Number(c.a);
+    const cutP = c.b == null ? Infinity : Number(c.b);
+    const out = {
+      sessions: ses.map((r) => ({ sid: r.sid, vid: r.vid, startedAt: Number(r.started_at), activeSec: Number(r.active_sec), ref: r.ref, device: r.device })),
+      plays: pl.map(playRow),
+      newVids: fresh.map((r) => r.vid),
+      legacySkipped: false,
+    };
+    // 예전 표: 시간 순 표가 시작되기 전 기간만 (표마다 따로). 표 전체를 읽으므로 legacy:false 면 건너뜀
+    if (from < cutS || from < cutP) {
+      if (!legacy) out.legacySkipped = true;
+      else {
+        if (from < cutS) {
+          const t = Math.min(to, cutS);
+          const [ss, fr] = await this.batch([
+            ['SELECT sid, vid, started_at, active_sec, ref, device FROM sessions WHERE started_at >= $1 AND started_at < $2', [from, t]],
+            ['SELECT vid FROM sessions GROUP BY vid HAVING MIN(started_at) >= $1 AND MIN(started_at) < $2', [from, t]],
+          ]);
+          out.sessions.push(...ss.map((r) => ({ sid: r.sid, vid: r.vid, startedAt: Number(r.started_at), activeSec: Number(r.active_sec), ref: r.ref, device: r.device })));
+          out.newVids = [...new Set([...out.newVids, ...fr.map((r) => r.vid)])];
+        }
+        if (from < cutP) {
+          const ps = await this.q('SELECT id, vid, level, started_at, result, score, stars, sec FROM plays WHERE started_at >= $1 AND started_at < $2', [from, Math.min(to, cutP)]);
+          out.plays.push(...ps.map(playRow));
+        }
+      }
+    }
+    return out;
+  }
+
+  /**
+   * 관리자 참여자 목록 (2026-11-22, 예전 쿼리는 한 번에 6만 줄): totals:false 면 참여자 표만 (점수 합계는 playerTotals 를 따로 오래 기억)
+   *   totals:true 면 점수를 사람별로 먼저 모은 뒤 붙임
+   */
+  async listPlayers(limit = 1_000_000, { totals = true } = {}) {
+    if (!totals) {
+      const rows = await this.q(
+        `SELECT igsid, username, ig, created_at, checked_at, hidden_at FROM players WHERE username IS NOT NULL
+         ORDER BY (hidden_at IS NOT NULL), (ig IS NULL), (checked_at IS NULL) DESC, created_at DESC NULLS LAST LIMIT $1`,
+        [limit]
+      );
+      const n = (v) => (v == null ? null : Number(v));
+      return rows.map((r) => ({ igsid: r.igsid, username: r.username, ig: r.ig || null, createdAt: n(r.created_at), checkedAt: n(r.checked_at), hiddenAt: n(r.hidden_at) }));
+    }
+    const rows = await this.q(
+      `SELECT p.igsid, p.username, p.ig, p.created_at, p.checked_at, p.hidden_at,
+         COALESCE(t.total, 0) AS total, COALESCE(t.levels, 0) AS levels, t.top, t.endless
+       FROM players p LEFT JOIN (
+         SELECT igsid, SUM(CASE WHEN level > 0 THEN score ELSE 0 END) AS total, SUM(CASE WHEN level > 0 THEN 1 ELSE 0 END) AS levels,
+           MAX(CASE WHEN level > 0 AND level <= ${LAST_LEVEL_ID} THEN level END) AS top, MAX(CASE WHEN level = 0 THEN score END) AS endless
+         FROM scores GROUP BY igsid) t ON t.igsid = p.igsid
+       WHERE p.username IS NOT NULL
+       ORDER BY (p.hidden_at IS NOT NULL), (p.ig IS NULL), (p.checked_at IS NULL) DESC, p.created_at DESC NULLS LAST LIMIT $1`,
+      [limit]
+    );
+    return rows.map((r) => ({
+      igsid: r.igsid, username: r.username, ig: r.ig || null, createdAt: r.created_at == null ? null : Number(r.created_at), checkedAt: r.checked_at == null ? null : Number(r.checked_at),
+      hiddenAt: r.hidden_at == null ? null : Number(r.hidden_at),
+      total: Number(r.total), levels: Number(r.levels), top: r.top == null ? 0 : Number(r.top), endless: r.endless == null ? null : Number(r.endless),
+    }));
+  }
+
+  /** 판 수 세기 여러 개를 한 번에 [{ igsid, level, starts, clears, at }] (handler 가 몇 분 모아서) — 바인딩 100개 제한이라 19줄씩 */
+  async addTries(list) {
+    const stmts = [];
+    for (let i = 0; i < list.length; i += 19) {
+      const part = list.slice(i, i + 19);
+      stmts.push([
+        `INSERT INTO level_tries (igsid, level, starts, clears, last_at) VALUES ${part.map((_, j) => `($${j * 5 + 1}, $${j * 5 + 2}, $${j * 5 + 3}, $${j * 5 + 4}, $${j * 5 + 5})`).join(', ')}
+         ON CONFLICT (igsid, level) DO UPDATE SET starts = level_tries.starts + excluded.starts, clears = level_tries.clears + excluded.clears, last_at = excluded.last_at`,
+        part.flatMap((t) => [t.igsid, t.level, t.starts, t.clears, t.at]),
+      ]);
+    }
+    if (stmts.length) await this.batch(stmts);
+  }
+
+  /** 사람별 점수 합계 { igsid: { total, levels, top, endless } } — 점수 표를 한 번 훑음 (admin 이 30분 기억) */
+  async playerTotals() {
+    const rows = await this.q(
+      `SELECT igsid, SUM(CASE WHEN level > 0 THEN score ELSE 0 END) AS total, SUM(CASE WHEN level > 0 THEN 1 ELSE 0 END) AS levels,
+         MAX(CASE WHEN level > 0 AND level <= ${LAST_LEVEL_ID} THEN level END) AS top, MAX(CASE WHEN level = 0 THEN score END) AS endless
+       FROM scores GROUP BY igsid`,
+      []
+    );
+    const out = {};
+    for (const r of rows) out[r.igsid] = { total: Number(r.total), levels: Number(r.levels), top: r.top == null ? 0 : Number(r.top), endless: r.endless == null ? null : Number(r.endless) };
+    return out;
   }
 
   async pickRankedRuns(notIgsid, rating, levels, since, n = 8) {

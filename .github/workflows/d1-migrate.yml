@@ -87,7 +87,7 @@ jobs:
           grep -q '"database_id": "[0-9a-f-]\{36\}"' wrangler.jsonc || { echo "❌ wrangler.jsonc 에 D1 database_id 가 없음 (prepare 먼저 → id 넣고 배포)"; exit 1; }
       - name: 지금(Neon) 사이트 랭킹 적어 두기 + 로그인 확인
         if: inputs.step == 'migrate'
-        run: node scripts/d1-site-check.mjs before /tmp/before.json
+        run: HEAVY_GUARD=1 node scripts/d1-site-check.mjs before /tmp/before.json
       - name: Neon → D1 전체 복사 + 맞춰 보기
         if: inputs.step == 'migrate'
         run: node scripts/d1-sync.mjs copy

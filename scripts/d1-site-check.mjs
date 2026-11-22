@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import { createHmac } from 'node:crypto';
 import { LAST_LEVEL_ID } from '../public/js/charts.js';
-import { d1Rest, neonDb } from './d1-sync.mjs';
+import { d1Rest, neonDb, guardHeavy } from './d1-sync.mjs';
 
 const SITE = process.env.SITE || 'https://play.kongkong-drum.workers.dev';
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -75,9 +75,11 @@ async function loginCheck(db) {
 async function main() {
   const [cmd, file, want] = process.argv.slice(2);
   const env = process.env;
-  const d1 = d1Rest({ token: env.CLOUDFLARE_API_TOKEN, account: env.CLOUDFLARE_ACCOUNT_ID, name: env.D1_NAME || 'okaystra' });
+  const d1 = (siteD1 = d1Rest({ token: env.CLOUDFLARE_API_TOKEN, account: env.CLOUDFLARE_ACCOUNT_ID, name: env.D1_NAME || 'okaystra' }));
   const neon = env.NEON_DATABASE_URL ? await neonDb(env.NEON_DATABASE_URL) : null;
   if (cmd === 'before') {
+    // 옮기기 시작 전(HEAVY_GUARD=1, migrate 만): 오늘 D1 사용량이 많으면 시작 안 함 (옮기기는 표를 통째 읽음). 되돌리기는 막지 않음
+    if (env.HEAVY_GUARD === '1') await guardHeavy('옮기기·되돌리기 준비', { token: env.CLOUDFLARE_API_TOKEN, account: env.CLOUDFLARE_ACCOUNT_ID });
     const h = await get('/api/health');
     console.log(`지금 사이트 DB: ${h.db || 'neon'}`);
     const b = await boards();
@@ -118,7 +120,12 @@ async function main() {
   process.exit(2);
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) main().catch((e) => {
-  console.error('❌', e.message);
-  process.exit(1);
-});
+let siteD1 = null;
+if (import.meta.url === `file://${process.argv[1]}`)
+  main()
+    .then(() => siteD1 && siteD1.reportUsage())
+    .catch(async (e) => {
+      if (siteD1) await siteD1.reportUsage();
+      console.error('❌', e.message);
+      process.exit(1);
+    });

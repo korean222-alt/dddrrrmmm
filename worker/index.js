@@ -120,16 +120,17 @@ async function offlineSave(request, env) {
 
 // 📴 서버(D1) 가 쉬는 동안 보여 줄 랭킹 (2026-11-22): Neon 에 남은 D1 이사 전(11-22 09:49 KST) 랭킹을 그대로
 //   /api/snap/leaderboard?level= · /api/snap/hall?board= · /api/snap/maps?sort= · /api/snap/maps/<id> → Neon 저장소로 만든 handler 에 /api/leaderboard·/api/hall 로 넘김
-//   쿠키 빼고(내 줄 없음) Cloudflare 캐시 10분 → Neon 을 거의 안 깨움
+//   쿠키 빼고(내 줄 없음) 인스턴스 메모리 10분 + 폰 캐시 → Neon 을 덜 깨움
 let snapReady = null;
 let snapAt = null;
+const snapMemo = new Map();
 async function snapshot(request, env, url) {
   const h = { 'Cache-Control': 'public, max-age=600', ...SECURITY_HEADERS };
   if (request.method !== 'GET' || !dbUrl(env)) return Response.json({ error: 'no_snapshot' }, { status: 503, headers: SECURITY_HEADERS });
-  const cache = caches.default;
-  const key = new Request(url.toString(), { method: 'GET' });
-  const hit = await cache.match(key);
-  if (hit) return hit;
+  // caches.default 는 workers.dev 주소에선 아무 일도 안 함(Cloudflare 문서, 11-22 확인) → 인스턴스 메모리에 10분
+  const k = url.pathname + url.search;
+  const m = snapMemo.get(k);
+  if (m && m.exp > Date.now()) return Response.json(m.body, { headers: h });
   try {
     const store = neonStore(env);
     snapReady ||= (async () => {
@@ -154,9 +155,10 @@ async function snapshot(request, env, url) {
       console.error('[api] 쉬는 동안 보기 실패', inner.pathname, res.status, why.slice(0, 200));
       return Response.json({ error: 'no_snapshot', status: res.status, why: why.slice(0, 200) }, { status: 503, headers: SECURITY_HEADERS });
     }
-    const out = Response.json({ ...(await res.json()), snap: { at: snapAt } }, { headers: h });
-    await cache.put(key, out.clone());
-    return out;
+    const body = { ...(await res.json()), snap: { at: snapAt } };
+    if (snapMemo.size > 500) snapMemo.clear();
+    snapMemo.set(k, { exp: Date.now() + 10 * 60 * 1000, body });
+    return Response.json(body, { headers: h });
   } catch (e) {
     console.error('[api] 쉬는 동안 랭킹 실패', e);
     return Response.json({ error: 'no_snapshot' }, { status: 503, headers: SECURITY_HEADERS });

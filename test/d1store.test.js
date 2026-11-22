@@ -63,8 +63,9 @@ test('점수·랭킹·참여자·통계가 Postgres 와 같은 결과', async ()
     r.push(await s.purgeHidden(Date.now()));
     r.push(await s.expireTempChecks());
     // 통계는 D1 에서 덜 씀(끝난 판만·접속은 10분마다) → 끝난 판·첫 접속 기준으로 비교
-    await s.trackSession({ sid: 's1', vid: 'v1', now: 100, activeSec: 5 });
-    await s.trackSession({ sid: 's1', vid: 'v1', now: 100 + 600000, activeSec: 9 });
+    // st(세션 시작)·fresh(처음 온 방문자): D1 은 시간 순 표에, Postgres 는 무시
+    await s.trackSession({ sid: 's1', vid: 'v1', now: 100, activeSec: 5, st: 100, fresh: true });
+    await s.trackSession({ sid: 's1', vid: 'v1', now: 100 + 600000, activeSec: 9, st: 100 });
     // 9줄 넘게 한 번에 (D1 바인딩 100개 제한 → 끊어 보냄)
     await s.trackPlays(Array.from({ length: 23 }, (_, i) => ({ id: 'p' + i, sid: 's1', vid: 'v1', level: String(i), startedAt: 100 + i, endedAt: i % 2 ? 900 : null, result: i % 2 ? 'clear' : null, score: i })));
     await s.trackPlays([{ id: 'p0', sid: 's1', vid: 'v1', level: '0', startedAt: 1, endedAt: 999, result: 'fail' }]);
@@ -82,8 +83,9 @@ test('점수·랭킹·참여자·통계가 Postgres 와 같은 결과', async ()
   }
   assert.deepEqual(out.d1, out.pg);
   // 테스트 끝 표시: 두 DB 의 줄 수 같음
+  // (D1 접속 통계는 시간 순 표 sessions_t 에)
   for (const t of ['players', 'scores', 'season_scores', 'sessions'])
-    assert.equal(Number((await dq(`SELECT COUNT(*) AS n FROM ${t}`))[0].n), Number((await pq(`SELECT COUNT(*) AS n FROM ${t}`))[0].n), t);
+    assert.equal(Number((await dq(`SELECT COUNT(*) AS n FROM ${t === 'sessions' ? 'sessions_t' : t}`))[0].n), Number((await pq(`SELECT COUNT(*) AS n FROM ${t}`))[0].n), t);
 });
 
 test('맵·투표·맵 점수·랭킹전 기록이 Postgres 와 같은 결과', async () => {
@@ -155,19 +157,30 @@ test('D1 통계는 덜 씀: 시작만 한 판은 안 남고, 접속은 10분 넘
   const lite = { ...raw, q: async (t, p) => (await raw.q(t, p)).map((r) => ({ ...r })) };
   const d1 = await new D1Store(lite).init();
   await d1.trackPlays([{ id: 'play0001', sid: 's', vid: 'v', level: '3', startedAt: 10 }]);
-  assert.equal((await lite.q('SELECT COUNT(*) AS n FROM plays'))[0].n, 0);
+  assert.equal((await lite.q('SELECT COUNT(*) AS n FROM plays_t'))[0].n, 0);
   await d1.trackPlays([
     { id: 'play0002', sid: 's', vid: 'v', level: '3', startedAt: 10 },
     { id: 'play0002', sid: 's', vid: 'v', level: '3', startedAt: 5, endedAt: 70, result: 'clear', score: 9, stars: 3, sec: 60 },
   ]);
-  assert.deepEqual(await lite.q('SELECT id, started_at, ended_at, result FROM plays'), [{ id: 'play0002', started_at: 10, ended_at: 70, result: 'clear' }]);
+  assert.deepEqual(await lite.q('SELECT id, started_at, ended_at, result FROM plays_t'), [{ id: 'play0002', started_at: 10, ended_at: 70, result: 'clear' }]);
   await d1.trackSession({ sid: 's', vid: 'v', now: 1000, activeSec: 1 });
   await d1.trackSession({ sid: 's', vid: 'v', now: 1000 + 60000, activeSec: 50 });
   assert.deepEqual(await lite.q('SELECT last_at, active_sec FROM sessions'), [{ last_at: 1000, active_sec: 1 }]);
   await d1.trackSession({ sid: 's', vid: 'v', now: 1000 + 600000, activeSec: 300 });
   assert.deepEqual(await lite.q('SELECT last_at, active_sec FROM sessions'), [{ last_at: 601000, active_sec: 300 }]);
+  // 새 폰(st 를 보냄)은 시간 순 표에, 같은 규칙(10분)
+  await d1.trackSession({ sid: 's2', vid: 'v', now: 2000, activeSec: 1, st: 1990, fresh: true });
+  await d1.trackSession({ sid: 's2', vid: 'v', now: 2000 + 60000, activeSec: 50, st: 1990 });
+  assert.deepEqual(await lite.q('SELECT started_at, last_at, active_sec, fresh FROM sessions_t'), [{ started_at: 1990, last_at: 2000, active_sec: 1, fresh: 1 }]);
+  // 관리자 통계: 시간 순 표는 기간만, 그 전 기간은 예전 표(legacy:false 면 건너뜀)
+  const st = await d1.statsRaw(1500, 5000);
+  assert.deepEqual([st.sessions.map((x) => x.sid), st.newVids], [['s2'], ['v']]);
+  const all = await d1.statsRaw(0, 1e15, { legacy: false });
+  assert.equal(all.legacySkipped, true);
+  assert.deepEqual(all.sessions.map((x) => x.sid), ['s2']);
+  assert.deepEqual((await d1.statsRaw(0, 1e15)).sessions.map((x) => x.sid).sort(), ['s', 's2']);
   // 통계 표엔 색인 없음 (쓰기 아끼기)
-  assert.deepEqual((await lite.q("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name IN ('plays', 'sessions') AND name NOT LIKE 'sqlite_%'")), []);
+  assert.deepEqual((await lite.q("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name IN ('plays', 'sessions', 'plays_t', 'sessions_t') AND name NOT LIKE 'sqlite_%'")), []);
 });
 
 test('D1 등수는 위 사람을 RANK_CAP 명까지만 셈 (읽기 아끼기) · 같은 점수는 먼저 낸 사람이 위', async () => {

@@ -13,7 +13,7 @@ const FLUSH_MS = 300 * 1000;
 const HIDE_GAP_MS = 60 * 1000;
 
 let on = false;
-let sess = null; // { sid, ref }
+let sess = null; // { sid, ref, st(세션 시작 시각) }
 let activeMs = 0;
 let lastInput = Date.now();
 let lastSent = -1;
@@ -56,7 +56,7 @@ function deviceKind() {
 }
 
 function payloadNow() {
-  const payload = { sid: sess.sid, active: Math.round(activeMs / 1000), ref: sess.ref, device: deviceKind(), plays: queue.splice(0, 10) };
+  const payload = { sid: sess.sid, st: sess.st, active: Math.round(activeMs / 1000), ref: sess.ref, device: deviceKind(), plays: queue.splice(0, 10) };
   lastSent = payload.active;
   lastSentAt = Date.now();
   writeStore();
@@ -89,10 +89,11 @@ export function initTracker({ enabled }) {
   on = true;
   const prev = readStore();
   if (prev && prev.sid && Date.now() - prev.at < SESSION_GAP_MS) {
-    sess = { sid: prev.sid, ref: prev.ref || '' };
+    sess = { sid: prev.sid, ref: prev.ref || '', st: prev.st || Date.now() };
     activeMs = (prev.active || 0) * 1000;
   } else {
-    sess = { sid: rid() + rid(), ref: referrer() };
+    // st: 세션 시작 시각 → 서버가 통계를 시간 순 표에 넣어 관리자 통계가 그 기간만 읽게 (2026-11-22, D1 읽기 아끼기)
+    sess = { sid: rid() + rid(), ref: referrer(), st: Date.now() };
     activeMs = 0;
   }
   const touch = () => (lastInput = Date.now());

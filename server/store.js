@@ -378,6 +378,9 @@ export class JsonStore {
   }
 
   // ----- 판 토큰 1회용 처리 -----
+  runUsed(nonce) {
+    return !!this.data.usedRuns[nonce];
+  }
   useRun(nonce, expiresAt) {
     if (this.data.usedRuns[nonce]) return false;
     this.data.usedRuns[nonce] = expiresAt;

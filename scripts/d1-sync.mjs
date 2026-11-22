@@ -127,6 +127,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 export function d1Rest({ token, account, name }) {
   const base = `https://api.cloudflare.com/client/v4/accounts/${account}/d1/database`;
   let id = null;
+  // 🧯 이 스크립트가 읽고 쓴 줄 수 (D1 이 알려 주는 meta) → 끝날 때 usage_day 에 더함 (사이트 한도 브레이크가 알게, 2026-11-22)
+  const used = { r: 0, w: 0 };
   async function call(url, init = {}) {
     for (let i = 0; ; i++) {
       let res, body;
@@ -159,9 +161,62 @@ export function d1Rest({ token, account, name }) {
     async q(sql) {
       if (!id && !(await this.find())) throw new Error(`D1 '${name}' 없음 — prepare 먼저`);
       const r = await call(`${base}/${id}/query`, { method: 'POST', body: JSON.stringify({ sql }) });
+      for (const x of r || []) {
+        used.r += Number((x.meta && x.meta.rows_read) || 0);
+        used.w += Number((x.meta && x.meta.rows_written) || 0);
+      }
       return (r && r[0] && r[0].results) || [];
     },
+    used,
+    /** 지금까지 쓴 양을 오늘 usage_day 에 더함 (사이트 브레이크가 스크립트 몫까지 알게). 실패해도 그냥 넘어감 */
+    async reportUsage(log = console.log) {
+      const add = { r: used.r, w: used.w };
+      if (!add.r && !add.w) return;
+      used.r -= add.r;
+      used.w -= add.w;
+      const day = new Date().toISOString().slice(0, 10);
+      try {
+        await this.q(`INSERT INTO usage_day (day, r, w, q) VALUES ('${day}', ${Math.floor(add.r)}, ${Math.floor(add.w)}, 0) ON CONFLICT (day) DO UPDATE SET r = usage_day.r + excluded.r, w = usage_day.w + excluded.w`);
+        log(`🧯 이 작업이 D1 에서 읽은 줄 ${add.r.toLocaleString()} · 쓴 줄 ${add.w.toLocaleString()} → 사이트 한도 브레이크에 더함`);
+      } catch (e) {
+        log('usage_day 더하기 못 함', e.message);
+      }
+    },
   };
+}
+
+/** 오늘(UTC) 이 계정 D1 에서 읽은·쓴 줄 (Cloudflare GraphQL). 못 읽으면 null */
+export async function d1UsageToday({ token, account }) {
+  try {
+    const date = new Date().toISOString().slice(0, 10);
+    const res = await fetch('https://api.cloudflare.com/client/v4/graphql', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        query: `query($a: String!, $d: Date!) { viewer { accounts(filter: { accountTag: $a }) { d1AnalyticsAdaptiveGroups(limit: 100, filter: { date: $d }) { sum { rowsRead rowsWritten } } } } }`,
+        variables: { a: account, d: date },
+      }),
+    });
+    const j = await res.json();
+    const groups = j && j.data && j.data.viewer.accounts[0] && j.data.viewer.accounts[0].d1AnalyticsAdaptiveGroups;
+    if (!groups) return null;
+    return groups.reduce((o, g) => ({ r: o.r + Number(g.sum.rowsRead || 0), w: o.w + Number(g.sum.rowsWritten || 0) }), { r: 0, w: 0 });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * 🧯 무거운 작업(표 전체 읽기) 전에: 오늘 D1 사용량이 이미 많으면 멈춤 (2026-11-22 옮기기 작업이 읽기 한도의 절반을 써서 사이트가 멈춘 일)
+ *   읽기 30%·쓰기 30% 넘으면 멈춤. 급할 땐 FORCE=1
+ */
+export async function guardHeavy(what, { token, account, env = process.env, log = console.log } = {}) {
+  if (env.D1_LOCAL || env.FORCE === '1') return;
+  const u = await d1UsageToday({ token, account });
+  if (!u) return void log(`⚠ 오늘 D1 사용량을 못 읽음 — ${what} 그대로 진행`);
+  log(`오늘(UTC) D1 읽은 줄 ${u.r.toLocaleString()} / 5,000,000 · 쓴 줄 ${u.w.toLocaleString()} / 100,000`);
+  if (u.r > 1_500_000 || u.w > 30_000)
+    throw new Error(`오늘 D1 사용량이 이미 많아서 ${what} 안 함 (읽기 30%·쓰기 30% 넘음). 한국 오전 9시(UTC 0시) 지나서 다시, 급하면 FORCE=1`);
 }
 
 /** Neon (Postgres) */
@@ -529,12 +584,13 @@ export async function runBackfill(neonDb, d1, { budget, log = console.log } = {}
   return { written: budget - left, done };
 }
 
+let mainD1 = null;
 async function main() {
   const cmd = process.argv[2];
   const env = process.env;
-  const d1 = env.D1_LOCAL
+  const d1 = (mainD1 = env.D1_LOCAL
     ? await localSqlite(env.D1_LOCAL)
-    : d1Rest({ token: env.CLOUDFLARE_API_TOKEN, account: env.CLOUDFLARE_ACCOUNT_ID, name: env.D1_NAME || 'okaystra' });
+    : d1Rest({ token: env.CLOUDFLARE_API_TOKEN, account: env.CLOUDFLARE_ACCOUNT_ID, name: env.D1_NAME || 'okaystra' }));
   const needNeon = cmd !== 'prepare' || env.NEON_DATABASE_URL;
   if (needNeon && !env.NEON_DATABASE_URL) {
     console.error('❌ NEON_DATABASE_URL 이 없음: GitHub 저장소 Settings → Secrets and variables → Actions → New repository secret 에 NEON_DATABASE_URL (Neon 접속 주소) 를 넣어 주세요');
@@ -621,13 +677,13 @@ async function main() {
     console.log(`이번 통계 옮기기 한도: ${budget}줄`);
     if (!budget) return;
     const r = await runBackfill(neonDbConn, d1, { budget });
-    // 사이트의 한도 브레이크(handler brake)가 알게 오늘 쓴 양(usage_day)에 더함 — 사이트는 자기 몫만 셈
-    if (r.written) await d1.q(`INSERT INTO usage_day (day, r, w, q) VALUES ('${now.toISOString().slice(0, 10)}', 0, ${Math.floor(r.written)}, 0) ON CONFLICT (day) DO UPDATE SET w = usage_day.w + excluded.w`).catch((e) => console.log('usage_day 더하기 못 함', e.message));
+    // 사이트의 한도 브레이크가 알게 오늘 쓴 양(usage_day)에 더하는 건 끝날 때 reportUsage 가 함 (D1 이 알려 준 실제 줄 수)
     console.log(r.done ? '✅ 예전 통계 전부 D1 에 옮김' : `이번에 ${r.written}줄. 남은 건 내일 이어서`);
     if (r.done && env.GITHUB_OUTPUT) (await import('node:fs')).appendFileSync(env.GITHUB_OUTPUT, 'done=true\n');
     await usage('끝난 뒤');
     return;
   }
+  if (cmd === 'copy' || cmd === 'verify') await guardHeavy(cmd === 'copy' ? '전체 복사' : '맞춰 보기', { token: env.CLOUDFLARE_API_TOKEN, account: env.CLOUDFLARE_ACCOUNT_ID });
   if (cmd === 'copy' || cmd === 'catchup') await usage('시작 전');
   if (cmd === 'copy') return void (await runCopy(neonDbConn, d1));
   if (cmd === 'catchup') return void (await runCatchup(neonDbConn, d1));
@@ -663,8 +719,12 @@ async function main() {
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((e) => {
-    console.error('❌', e.message);
-    process.exit(1);
-  });
+  // 스크립트가 쓴 D1 양을 사이트 한도 브레이크에 알림 (성공·실패 모두)
+  const report = () => (mainD1 && mainD1.reportUsage ? mainD1.reportUsage() : null);
+  main()
+    .then(report, async (e) => {
+      await report();
+      console.error('❌', e.message);
+      process.exit(1);
+    });
 }

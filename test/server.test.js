@@ -492,7 +492,8 @@ test('이용 통계: 접속·판 기록 → 관리자만 집계 조회', async (
   assert.ok(st.refs.length >= 1);
   // 방문자 번호 쿠키는 다시 발급되지 않음 (같은 브라우저 = 같은 방문자)
   await a('POST', '/api/track', { sid: 'sess-aaaaaaaa-2', active: 5 });
-  const st2 = (await a('GET', '/api/admin/stats?days=7', null, { 'x-admin-token': 'admin-pw' })).json;
+  // 통계는 10분 기억 → 바로 보려면 fresh=1
+  const st2 = (await a('GET', '/api/admin/stats?days=7&fresh=1', null, { 'x-admin-token': 'admin-pw' })).json;
   assert.equal(st2.totals.visitors, 2);
   assert.equal(st2.totals.sessions, 3);
 
@@ -502,7 +503,7 @@ test('이용 통계: 접속·판 기록 → 관리자만 집계 조회', async (
   assert.ok(r.json.runToken);
   // 잘못된 통계가 얹혀도 판 시작은 됨
   assert.equal((await a('POST', '/api/runs', { level: 1, track: { sid: 'x' } })).status, 200);
-  const st3 = (await a('GET', '/api/admin/stats?days=7', null, { 'x-admin-token': 'admin-pw' })).json;
+  const st3 = (await a('GET', '/api/admin/stats?days=7&fresh=1', null, { 'x-admin-token': 'admin-pw' })).json;
   assert.equal(st3.totals.sessions, 4);
   assert.equal(st3.totals.plays, 4);
 });
@@ -1109,4 +1110,38 @@ test('🏛 명예의 전당 API: 이번 시즌 단계·무제한 총합 · 시�
   assert.equal((await c('POST', '/api/hall/photo', { season: 1, board: 'stage', rank: 1, image: 'javascript:1' })).status, 400);
   assert.equal((await client()('GET', '/api/admin/hall')).status, 401);
   assert.ok(Array.isArray((await client()('GET', '/api/admin/hall', null, adm)).json.hall));
+});
+
+test('🧯 D1 아끼기: 명예의 전당·총 등수는 캐시인데 기록이 오르면 바로 보임 · 판 토큰은 기록이 오를 때만 적음', async () => {
+  const viewer = client();
+  const a = await verifiedClient('전당하나', 'hall.one');
+  const play = async (c, lv, body) => {
+    const runToken = (await c('POST', '/api/runs', { level: lv })).json.runToken;
+    return { runToken, r: await c('POST', '/api/scores', { runToken, level: lv, ...body }) };
+  };
+  assert.equal((await play(a, 1, perfectRun(1))).r.status, 200);
+  // 보는 사람이 먼저 열어 캐시를 만듦
+  const h0 = (await viewer('GET', '/api/hall')).json;
+  assert.ok(h0.entries.some((e) => e.username === '전당하나'));
+  assert.ok(!h0.entries.some((e) => e.username === '전당둘'));
+  // 새 사람이 기록을 올림 → 캐시 시간 안이어도 위 순위에 바로
+  const b = await verifiedClient('전당둘', 'hall.two');
+  await play(b, 1, perfectRun(1));
+  await play(b, 2, perfectRun(2));
+  const h1 = (await viewer('GET', '/api/hall')).json;
+  const two = h1.entries.find((e) => e.username === '전당둘');
+  assert.ok(two, JSON.stringify(h1.entries.map((e) => e.username)));
+  assert.equal(two.score, perfectRun(1).score + perfectRun(2).score);
+  // 예전 '총 등수' 주소도 같은 캐시로
+  const tot = (await b('GET', '/api/leaderboard?level=total')).json;
+  assert.ok(tot.entries.some((e) => e.username === '전당둘' && e.levels === 2 && e.me));
+  assert.equal(tot.me.levels, 2);
+  // 판 토큰: 기록이 오른 판은 다시 못 보냄
+  const up = await play(a, 2, perfectRun(2));
+  assert.equal(up.r.json.improved, true);
+  assert.equal((await a('POST', '/api/scores', { runToken: up.runToken, level: 2, ...perfectRun(2) })).status, 409);
+  // 안 오른 판(같은 점수)은 '썼음'으로 안 적음 (다시 보내도 바뀌는 게 없어서) → D1 쓰기 아낌
+  const same = await play(a, 2, perfectRun(2));
+  assert.equal(same.r.json.improved, false);
+  assert.equal((await a('POST', '/api/scores', { runToken: same.runToken, level: 2, ...perfectRun(2) })).json.kept, true);
 });

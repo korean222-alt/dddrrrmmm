@@ -228,7 +228,7 @@ class HttpError extends Error {
 //   세는 건 인스턴스마다 하다가 몇 분·요청 몇 번마다 합침 → 덜 세질 수 있어서 단계를 낮게 잡음. Actions 스크립트가 읽는 건 안 셈
 export const USAGE_LIMITS = { r: 5_000_000, w: 100_000, q: 100_000 };
 export const BRAKE_AT = [0.4, 0.6, 0.8];
-const USAGE_FLUSH_MS = 2 * 60 * 1000;
+const USAGE_FLUSH_MS = 3 * 60 * 1000;
 const utcDay = (t) => new Date(t).toISOString().slice(0, 10);
 
 export function createHandler(cfg, { store, meter = null }) {
@@ -311,6 +311,7 @@ export function createHandler(cfg, { store, meter = null }) {
           await store.hallInsert(top.rows.map((r) => ({ ...r, season: n, board })));
         }
         await store.setSetting(flag, String(now));
+        memo.delete('hall:list');
       }
       hallDone.add(n);
     }
@@ -321,6 +322,8 @@ export function createHandler(cfg, { store, meter = null }) {
   const memo = new Map();
   async function cached(key, ttl, fn, { shared = true } = {}) {
     const now = Date.now();
+    if (memo.size > 3000) for (const [k, v] of memo) if (v.exp <= now) memo.delete(k);
+    if (memo.size > 3000) memo.clear();
     const m = memo.get(key);
     if (m && m.exp > now) return m.v;
     if (shared) {
@@ -339,32 +342,96 @@ export function createHandler(cfg, { store, meter = null }) {
     if (shared) await Promise.resolve().then(() => store.setSetting('cache:' + key, JSON.stringify({ exp: now + ttl, at: now, v }))).catch(() => {});
     return v;
   }
-  async function uncache(key) {
-    memo.delete(key);
-    await Promise.resolve().then(() => store.setSetting('cache:' + key, '{}')).catch(() => {});
-  }
-  // 참여자가 바뀌는 저장소 함수는 admin 참여자 목록 캐시를 비우게 감쌈 (가입·인증·숨김·삭제·계정 합치기)
+  // 참여자가 바뀌면(이름·인증·숨김·삭제·합치기) 이 인스턴스의 랭킹 기억만 버림 (메모리, D1 안 씀)
   for (const fn of ['upsertPlayer', 'setChecked', 'setHidden', 'deletePlayer', 'expireTempChecks', 'moveScores']) {
     const orig = store[fn];
-    if (typeof orig !== 'function' || orig._uncaches) continue;
+    if (typeof orig !== 'function' || orig._forgets) continue;
     store[fn] = async function (...a) {
       const r = await orig.apply(this, a);
-      await uncache('admin:players');
-      memo.delete('admin:scores');
+      for (const k of memo.keys()) if (k.startsWith('lb:') || k.startsWith('rank:')) memo.delete(k);
       return r;
     };
-    store[fn]._uncaches = true;
+    store[fn]._forgets = true;
   }
-  const HALL_TTL_BASE = 60 * 60 * 1000; // 명예의 전당 전체 순위: 1시간마다 새로 (내 줄은 늘 새로 계산), 브레이크 1단계부터 6시간
-  const ADMIN_TTL_BASE = 5 * 60 * 1000; // 브레이크 1단계부터 30분
+  // 🏛 명예의 전당 (2026-11-22 다시 만듦, '사람이 많아져도 한도 안 차게'): 총합 순위는 기록 전체를 모아야 해서 무거움(지금 한 번에 3만 줄, 사람 따라 늘어남)
+  //   → 6시간마다 한 번만 계산해 settings 한 줄에 '위 60명 + 위 1000명 점수 사다리'만 담음 (예전엔 전체 순위를 담아 사람이 늘면 한 줄 크기 한도 2MB 를 넘을 뻔)
+  //   기록이 오르면(hallBump) 그 사람 총합만 새로 세서(18줄) 위 60명에 들 때만 그 줄을 고침 → 1~3등 바뀌는 건 바로 보임
+  //   내 줄은 늘 새로 계산, 내 등수는 사다리로 (1000위 밖이면 '1000위 밖'). 쓰기는 위 60명이 바뀔 때만
+  const HALL_TTL_BASE = 6 * 60 * 60 * 1000; // 브레이크 1단계부터 36시간
+  const HALL_TOP = 60;
+  const HALL_LADDER = 1000;
   const ttlOf = (base) => (brake() >= 1 ? base * 6 : base);
   const sortHall = (a, b) => b.score - a.score || a.at - b.at;
-  /** 시즌 총합 전체(랭킹에 보이는 사람) — 1시간 캐시 */
-  const hallRows = (n, board) =>
-    cached(`hall:${n}:${board}`, ttlOf(HALL_TTL_BASE), async () =>
-      (await store.seasonBoard(n, board, 1_000_000)).rows.map((r) => ({ igsid: r.igsid, username: r.username, score: r.score, n: r.n, rounds: r.rounds, at: r.at }))
-    );
-  const adminPlayers = () => cached('admin:players', ttlOf(ADMIN_TTL_BASE), () => store.listPlayers());
+  const slimHall = (r) => ({ igsid: r.igsid, username: r.username, score: r.score, n: r.n, rounds: r.rounds, at: r.at });
+  const hallKey = (n, board) => `hall2:${n}:${board}`;
+  /** 시즌 총합: { top: 위 60명, ladder: 위 1000명 [점수, 시각], full: 1000명이 안 되면 true } — 6시간 캐시 */
+  const hallData = (n, board) =>
+    cached(hallKey(n, board), ttlOf(HALL_TTL_BASE), async () => {
+      const rows = (await store.seasonBoard(n, board, HALL_LADDER)).rows;
+      return { top: rows.slice(0, HALL_TOP).map(slimHall), ladder: rows.map((r) => [r.score, r.at]), full: rows.length < HALL_LADDER };
+    });
+  /** 내 줄(mineNow)을 끼운 위 순위 + 내 등수 { list, mine } */
+  function hallMerge(data, mineNow, pl) {
+    const list = (pl ? data.top.filter((r) => r.igsid !== pl.igsid) : data.top.slice()).slice();
+    if (mineNow) list.push(mineNow);
+    list.sort(sortHall);
+    let mine = null;
+    if (mineNow) {
+      const i = list.indexOf(mineNow);
+      if (i < HALL_TOP - 1 || list.length <= HALL_TOP) mine = { ...mineNow, rank: i + 1 };
+      else {
+        // 위 60명 밖: 사다리(마지막 계산 때 위 1000명 점수)에서 나보다 앞선 사람 수
+        const ahead = data.ladder.filter(([sc, at]) => sc > mineNow.score || (sc === mineNow.score && at < mineNow.at)).length;
+        mine = !data.full && ahead >= data.ladder.length ? { ...mineNow, rank: null, cap: HALL_LADDER } : { ...mineNow, rank: Math.max(ahead + 1, HALL_TOP) };
+      }
+    }
+    return { list: list.slice(0, 50).map((r, i) => ({ ...r, rank: i + 1 })), mine };
+  }
+  /** 기록이 올랐을 때: 그 사람 시즌 총합만 새로 세서 위 60명에 들면 캐시 줄을 고침 (계산 주기는 그대로) */
+  async function hallBump(igsid, board) {
+    if (brake() >= 1) return;
+    try {
+      const n = seasonAt().n;
+      const key = hallKey(n, board);
+      const raw = await store.getSetting('cache:' + key);
+      const c = raw ? JSON.parse(raw) : null;
+      if (!c || !c.v || !Array.isArray(c.v.top)) return; // 아직 계산 전 → 다음 계산에 들어감
+      const mine = await store.seasonMine(n, board, igsid);
+      if (!mine) return;
+      const top = c.v.top;
+      const i = top.findIndex((r) => r.igsid === igsid);
+      if (i >= 0 && top[i].score === mine.score) return;
+      if (i < 0 && top.length >= HALL_TOP && sortHall(mine, top[top.length - 1]) >= 0) return; // 위 60명에 못 듦
+      const next = top.filter((r) => r.igsid !== igsid).concat([slimHall(mine)]).sort(sortHall).slice(0, HALL_TOP);
+      c.v = { ...c.v, top: next };
+      memo.delete(key);
+      await store.setSetting('cache:' + key, JSON.stringify(c));
+    } catch (e) {
+      console.error('[hall]', e);
+    }
+  }
+  // 📋 단계별 랭킹 위 50명: 인스턴스마다 20초 (사람이 많아질수록 같은 랭킹을 계속 읽음, 한 번에 100줄쯤)
+  //   (Cloudflare 캐시(caches.default)는 workers.dev 주소에선 아무 일도 안 해서 못 씀 — 11-22 확인)
+  const boardOf = (level) => cached('lb:' + level, ttlOf(20_000), () => store.leaderboard(level, 50), { shared: false });
+  /** 내 등수(50등 밖): 인스턴스마다 2분 (위 200명까지 세는 쿼리, 한 번에 수백 줄) */
+  const myRank = (level, igsid) => cached(`rank:${level}:${igsid}`, 2 * 60_000, () => store.rankOf(level, igsid), { shared: false });
+  /** 기록이 올랐으면 이 인스턴스의 그 랭킹·내 등수 기억은 버림 (다른 인스턴스는 20초·2분 안에 새로) */
+  function boardChanged(level, igsid) {
+    memo.delete('lb:' + level);
+    memo.delete(`rank:${level}:${igsid}`);
+  }
+  /**
+   * admin 참여자 목록 (2026-11-22): 참여자 표는 매번 새로(D1 수천 줄 — 인증·숨김이 바로 보임),
+   *   점수 합계(점수 표 전체를 훑음)만 30분 기억. D1 이 아닌 저장소는 예전처럼 한 번에
+   */
+  async function adminPlayers() {
+    if (typeof store.playerTotals !== 'function') return store.listPlayers();
+    const [list, totals] = await Promise.all([
+      store.listPlayers(1_000_000, { totals: false }),
+      cached('admin:totals', ttlOf(30 * 60_000), () => store.playerTotals(), { shared: false }),
+    ]);
+    return list.map((p) => ({ ...p, ...(totals[p.igsid] || { total: 0, levels: 0, top: 0, endless: null }) }));
+  }
 
   const hallEntry = (r, pl) => ({ rank: r.rank, username: r.username, score: r.score, n: r.n, rounds: r.rounds, me: pl ? r.igsid === pl.igsid : false });
 
@@ -422,6 +489,8 @@ export function createHandler(cfg, { store, meter = null }) {
     if (!pl || !isConfirmed(pl) || !Array.isArray(list)) return null;
     const done = [];
     let up = 0;
+    let bumpS = false;
+    let bumpE = false;
     const now = Date.now();
     for (const e of list.slice(0, OFFLINE_MAX)) {
       const v = validateOffline(e, cfg, now);
@@ -433,7 +502,11 @@ export function createHandler(cfg, { store, meter = null }) {
       if (out.improved) up++;
       const sn = seasonAt(v.at).n;
       if (sn > 1 && sn === seasonAt(now).n && (v.endless || (v.slot > 0 && v.slot <= LAST_LEVEL_ID))) await store.recordSeasonScore(sn, pl.igsid, v.slot, v.score);
+      if (out.improved && v.endless) bumpE = true;
+      else if (out.improved && v.slot > 0 && v.slot <= LAST_LEVEL_ID) bumpS = true;
     }
+    if (bumpS) await hallBump(pl.igsid, 'stage');
+    if (bumpE) await hallBump(pl.igsid, 'endless');
     return { done: done.filter((k) => k != null), improved: up };
   }
   const coinsOf = async (pl) => (pl && isConfirmed(pl) ? ((await store.getWallet(pl.igsid)) || { coins: 0 }).coins : null);
@@ -455,7 +528,32 @@ export function createHandler(cfg, { store, meter = null }) {
   // 🧯 한도 브레이크: usage = 마지막으로 합친 오늘 합계, meter = 이 인스턴스가 아직 안 보낸 몫
   let usage = { day: '', r: 0, w: 0, q: 0 };
   let usageAt = 0;
+  // 🕵 판 수 세기(level_tries)는 판마다 쓰지 않고 인스턴스에 모았다가 몇 분마다 한 번에 (같은 사람·단계를 여러 판 = 1줄)
+  //   (예전엔 4단계부터 판 시작·깸마다 D1 쓰기 1줄 → 하루 1만 줄 넘게. 인스턴스가 사라지면 몇 판 덜 셀 수 있음 — 대략 보는 값)
+  const tryBuf = new Map();
+  let tryAt = 0;
+  function noteTry(igsid, level, starts, clears) {
+    const k = igsid + '|' + level;
+    const t = tryBuf.get(k) || { igsid, level, starts: 0, clears: 0, at: 0 };
+    t.starts += starts;
+    t.clears += clears;
+    t.at = Date.now();
+    tryBuf.set(k, t);
+  }
+  async function flushTries() {
+    if (!tryBuf.size) return;
+    const list = [...tryBuf.values()].slice(0, 200);
+    for (const t of list) tryBuf.delete(t.igsid + '|' + t.level);
+    tryAt = Date.now();
+    try {
+      if (typeof store.addTries === 'function') await store.addTries(list);
+      else for (const t of list) await store.addTry(t.igsid, t.level, t.starts, t.clears, t.at);
+    } catch (e) {
+      console.error('[tries]', e);
+    }
+  }
   async function flushUsage(now) {
+    if (tryBuf.size && (now - tryAt >= USAGE_FLUSH_MS || tryBuf.size >= 100 || !meter)) await flushTries();
     if (!meter || typeof store.usageAdd !== 'function') return;
     const day = utcDay(now);
     const big = meter.q >= 50 || meter.r >= 20000 || meter.w >= 200;
@@ -551,7 +649,9 @@ export function createHandler(cfg, { store, meter = null }) {
     const t = cleanTrack(raw);
     if (!t) return false;
     let vid = cookiesOf(request)[VID_COOKIE];
+    let fresh = false; // 처음 온 방문자 (방문자 쿠키가 없음) → 통계 '새 방문자'
     if (!/^[A-Za-z0-9_-]{16,32}$/.test(vid || '')) {
+      fresh = true;
       vid = newId();
       setCookies.push(cookie(VID_COOKIE, vid, { maxAge: VID_MAX_AGE, secure: cfg.cookieSecure }));
     }
@@ -563,7 +663,7 @@ export function createHandler(cfg, { store, meter = null }) {
         : { id: e.id, sid: t.sid, vid, level: e.level, mode: e.mode, startedAt: now - e.sec * 1000, endedAt: now, result: e.result, score: e.score, stars: e.stars, sec: e.sec }
     );
     await Promise.all([
-      store.trackSession({ sid: t.sid, vid, now, activeSec: t.activeSec, ref: t.ref, device: t.device }),
+      store.trackSession({ sid: t.sid, vid, now, activeSec: t.activeSec, ref: t.ref, device: t.device, st: t.st, fresh }),
       plays.length ? store.trackPlays(plays) : null,
     ]);
     return true;
@@ -811,7 +911,9 @@ export function createHandler(cfg, { store, meter = null }) {
       const pub = (m) => ({ id: m.id, nick: m.nick, name: m.name, bpm: m.bpm, bars: m.bars, diff: m.diff, at: m.at, plays: m.plays, likes: m.likes, mine: !!pl && m.igsid === pl.igsid });
       if (p === '/api/maps' && m === 'GET') {
         const sort = url.searchParams.get('sort') === 'top' ? 'top' : 'new';
-        return json(200, { maps: (await store.listMaps(sort, 60)).map(pub) });
+        // 목록은 인스턴스마다 1분 (사람 많아지면 같은 목록을 계속 읽음). 'top' 은 맵 표 전체를 정렬해서 더
+        const list = await cached('maps:' + sort, sort === 'top' ? 3 * 60_000 : 60_000, () => store.listMaps(sort, 60), { shared: false });
+        return json(200, { maps: list.map(pub) });
       }
       if (p === '/api/maps' && m === 'POST') {
         if (!canWrite) return writeErr();
@@ -826,6 +928,7 @@ export function createHandler(cfg, { store, meter = null }) {
           if (await store.addMap({ id: tryId, igsid: pl.igsid, nick: pl.username, name: map.name, bpm: map.bpm, bars: map.bars.length, diff: mapDifficulty(map), data: map, at: now })) id = tryId;
         }
         if (!id) return json(500, { error: 'server_error' });
+        memo.delete('maps:new');
         return json(200, { ok: true, id });
       }
       const mm = /^\/api\/maps\/([A-Za-z0-9]{7})(?:\/(like|report|delete|score))?$/.exec(p);
@@ -833,14 +936,19 @@ export function createHandler(cfg, { store, meter = null }) {
       const [, id, act] = mm;
       if (!act && m === 'GET') {
         const play = url.searchParams.get('play') === '1';
-        const r = await store.getMap(id, { play });
+        // 친 횟수 올리기는 쓰기 1줄 → 한도 브레이크 1단계부터는 안 셈
+        const r = await store.getMap(id, { play: play && brake() < 1 });
         if (!r) return json(404, { error: 'not_found' });
         // 🏆 치러 들어갈 때 같은 요청에 모드별 1~3등을 같이 실어 보냄 (따로 요청 안 늘림)
-        return json(200, { map: { ...pub(r), data: r.data }, top: play || url.searchParams.get('top') === '1' ? await store.topMapScores(id, 3) : undefined });
+        return json(200, { map: { ...pub(r), data: r.data }, top: play || url.searchParams.get('top') === '1' ? await cached('maptop:' + id, 60_000, () => store.topMapScores(id, 3), { shared: false }) : undefined });
       }
       if (act && m === 'POST') {
         if (!canWrite) return writeErr();
-        if (act === 'delete') return json(200, { ok: await store.deleteMap(id, pl.igsid) });
+        if (act === 'delete') {
+          memo.delete('maps:new');
+          memo.delete('maps:top');
+          return json(200, { ok: await store.deleteMap(id, pl.igsid) });
+        }
         if (act === 'score') {
           // 🏆 판이 끝날 때 한 번: mode 'free'(무적) / 'hearts'(하트 5개, 끝까지 살아남은 판만)
           const b = await readJson(request);
@@ -853,6 +961,7 @@ export function createHandler(cfg, { store, meter = null }) {
           if (!map || score > maxScore(mapLevel(map))) return json(400, { error: 'bad_score' });
           const s = await store.addMapScore(id, pl.igsid, pl.username, mode, score);
           if (!s) return json(404, { error: 'not_found' });
+          memo.delete('maptop:' + id);
           return json(200, { ok: true, best: s.best, top: await store.topMapScores(id, 3) });
         }
         const b = await readJson(request);
@@ -911,7 +1020,7 @@ export function createHandler(cfg, { store, meter = null }) {
       if (!isAdmin(request)) return json(401, { error: 'admin_required' });
       // 바꾸는 요청이면 캐시해 둔 참여자 목록·기록은 버림
       if (m !== 'GET') {
-        await uncache('admin:players');
+        memo.delete('admin:totals');
         memo.delete('admin:scores');
       }
       // 이용 통계: ?days=7 (1~90). 오늘 포함 최근 N일
@@ -923,22 +1032,30 @@ export function createHandler(cfg, { store, meter = null }) {
         const dayMs = 24 * 3600 * 1000;
         const todayStart = Math.floor((now + tzMin * 60000) / dayMs) * dayMs - tzMin * 60000;
         const from = todayStart - (days - 1) * dayMs;
-        return json(200, { days, ...buildStats(await store.statsRaw(from, now + 1), { from, to: now, tzMin }) });
+        // 10분 기억 (통계 표는 크고 계속 늘어남). D1 은 시간 순 표라 기간만 읽고, 그 전 기간(예전 표 전체)은 한도 여유 있을 때만
+        const fresh = url.searchParams.get('fresh') === '1';
+        const key = `admin:stats:${days}`;
+        if (fresh) memo.delete(key);
+        const out = await cached(key, 10 * 60_000, async () => {
+          const raw = await store.statsRaw(from, now + 1, { legacy: brake() < 1 });
+          return { days, ...buildStats(raw, { from, to: now, tzMin }), legacySkipped: !!raw.legacySkipped, at: now };
+        }, { shared: false });
+        return json(200, out);
       }
       // 🏛 명예의 전당 사진 보기·지우기 (이상한 사진이면)
       if (p === '/api/admin/hall' && m === 'GET') return json(200, { hall: await store.hallList() });
       if (p === '/api/admin/hall/photo' && m === 'POST') {
         const b = await readJson(request);
+        memo.delete('hall:list');
         return json(200, { ok: await store.hallSetImage(Number(b.season), String(b.board), Number(b.rank), null) });
       }
       // 랭킹 참여자 (인스타 아이디로 팔로우 확인 → 안 했으면 삭제)
       if (p === '/api/admin/players' && m === 'GET') {
         // 5분 캐시 (참여자 목록은 기록 전체를 읽어서 무거움). admin 에서 뭘 바꾸면 비움
-        const players = await cached('admin:players', ttlOf(ADMIN_TTL_BASE), async () => {
-          await store.purgeHidden();
-          if (store.cleanup) await store.cleanup();
-          return store.listPlayers();
-        });
+        if (url.searchParams.get('fresh') === '1') memo.delete('admin:totals');
+        await store.purgeHidden();
+        if (store.cleanup) await store.cleanup();
+        const players = await adminPlayers();
         return json(200, { players, keepDays: HIDE_KEEP_MS / 86400000 });
       }
       // 랭킹에서 내리기 (5일 뒤 자동 삭제, 그 사이 다시 들어와 아이디를 넣으면 돌아옴) / 되돌리기
@@ -946,10 +1063,11 @@ export function createHandler(cfg, { store, meter = null }) {
       if (p === '/api/admin/suspects' && m === 'GET') {
         // ?igsid= 이면 그 사람 자세히, 없으면 강한 신호만 목록 (쿼리 2번)
         const players = await adminPlayers();
-        const rows = await cached('admin:scores', ttlOf(ADMIN_TTL_BASE), () => store.allScores(), { shared: false }); // 커서 settings 엔 안 넣음
+        const rows = await cached('admin:scores', ttlOf(15 * 60_000), () => store.allScores(), { shared: false }); // 점수 표 전체(수만 줄) → 15분 기억, settings 엔 안 넣음
         const id = url.searchParams.get('igsid');
         if (id) {
           const pl = players.find((x) => x.igsid === id);
+          await flushTries();
           return pl ? json(200, { report: suspectReport(pl, rows, await store.triesOf(id)) }) : json(404, { error: 'not_found' });
         }
         return json(200, { checked: players.length, suspects: findSuspects(players, rows) });
@@ -1110,7 +1228,7 @@ export function createHandler(cfg, { store, meter = null }) {
         if (needsVerify(level.id) && !isVerified(pl)) return json(403, { error: 'verify_required' });
       }
       // 🕵 단계마다 몇 판 시작했나 (누군지 이미 아는 판만 = 4단계부터. 1~3단계는 쿼리 늘리지 않으려고 안 셈)
-      if (runPl && runPl.igsid && level.id > 0 && brake() < 1) await Promise.resolve().then(() => store.addTry(runPl.igsid, level.id, 1, 0)).catch(() => {});
+      if (runPl && runPl.igsid && level.id > 0 && brake() < 1) noteTry(runPl.igsid, level.id, 1, 0);
       const runToken = sign({ l: level.id, t: Date.now(), n: newId() }, cfg.sessionSecret);
       const anyPl = body.coins || body.offline ? runPl || (await getPlayer(request)) : null;
       const coins = body.coins ? await takeCoins(anyPl, body.coins) : null;
@@ -1138,22 +1256,29 @@ export function createHandler(cfg, { store, meter = null }) {
       if (em) {
         const e = validateEndless(body, cfg);
         if (!e.ok) return json(400, wc({ error: e.error }));
-        if (!(await store.useRun(e.nonce, Date.now() + 2 * 24 * 3600 * 1000))) return json(409, wc({ error: 'run_used' }));
+        if (await store.runUsed(e.nonce)) return json(409, wc({ error: 'run_used' }));
         await ensureHall();
         const out = await store.recordScore(pl.igsid, em.slot, { score: endlessKey(e.rounds, e.score), grade: null, maxCombo: 0 });
+        // 판 토큰은 기록이 올랐을 때만 '썼음'으로 적음: 안 오른 판은 다시 보내도 바뀌는 게 없음 (D1 쓰기 판마다 1줄 아끼기, 2026-11-22)
+        if (out && out.improved) await store.useRun(e.nonce, Date.now() + 2 * 24 * 3600 * 1000);
         if (seasonAt().n > 1) await store.recordSeasonScore(seasonAt().n, pl.igsid, em.slot, endlessKey(e.rounds, e.score));
+        if (out && out.improved) await hallBump(pl.igsid, 'endless');
         // 등수는 기록이 올랐을 때만 셈 (D1 읽기 아끼기)
+        if (out && out.improved) boardChanged(em.slot, pl.igsid);
         const mine = out.improved && brake() < 2 ? await store.rankOf(em.slot, pl.igsid) : null;
         const best = endlessParts(out.best);
         return json(200, wc({ improved: out.improved, best: best.score, rounds: best.rounds, rank: mine ? mine.rank : null, over: !!(mine && mine.over), busy: out.improved && !mine, kept: !out.improved }));
       }
       const v = validateScore(body, cfg);
       if (!v.ok) return json(400, wc({ error: v.error }));
-      if (!(await store.useRun(v.nonce, Date.now() + 2 * 24 * 3600 * 1000))) return json(409, wc({ error: 'run_used' }));
+      if (await store.runUsed(v.nonce)) return json(409, wc({ error: 'run_used' }));
       await ensureHall();
       const out = await store.recordScore(pl.igsid, v.level.id, { score: v.score, grade: v.grade, maxCombo: v.maxCombo, chk: v.chk });
-      if (v.level.id > 0 && brake() < 1) await Promise.resolve().then(() => store.addTry(pl.igsid, v.level.id, 0, 1)).catch(() => {});
+      if (out && out.improved) await store.useRun(v.nonce, Date.now() + 2 * 24 * 3600 * 1000);
+      if (v.level.id > 0 && brake() < 1) noteTry(pl.igsid, v.level.id, 0, 1);
       if (seasonAt().n > 1 && v.level.id > 0 && v.level.id <= LAST_LEVEL_ID) await store.recordSeasonScore(seasonAt().n, pl.igsid, v.level.id, v.score);
+      if (out && out.improved && v.level.id > 0 && v.level.id <= LAST_LEVEL_ID) await hallBump(pl.igsid, 'stage');
+      if (out && out.improved) boardChanged(v.level.id, pl.igsid);
       const mine = out.improved && brake() < 2 ? await store.rankOf(v.level.id, pl.igsid) : null;
       return json(200, wc({ ...out, rank: mine ? mine.rank : null, over: !!(mine && mine.over), busy: !!out.improved && !mine, kept: !out.improved }));
     }
@@ -1164,16 +1289,11 @@ export function createHandler(cfg, { store, meter = null }) {
       await ensureHall();
       const pl = await getPlayer(request);
       const season = seasonAt();
-      // 전체 순위는 1시간 캐시, 내 줄만 새로 계산해서 끼워 넣음 (내 점수는 바로 보이게)
-      const all = await hallRows(season.n, board);
+      // 위 순위는 6시간 캐시(+ 기록 오르면 고침), 내 줄만 새로 계산해서 끼워 넣음 (내 점수는 바로 보이게)
       const mineNow = pl ? await store.seasonMine(season.n, board, pl.igsid) : null;
-      const list = pl ? all.filter((r) => r.igsid !== pl.igsid) : all.slice();
-      if (mineNow) list.push(mineNow);
-      list.sort(sortHall);
-      const top = list.slice(0, 50).map((r, i) => ({ ...r, rank: i + 1 }));
-      const mine = mineNow ? { ...mineNow, rank: list.indexOf(mineNow) + 1 } : null;
-      const hall = (await store.hallList()).map((h) => ({ ...hallEntry(h, pl), season: h.season, board: h.board, image: h.image }));
-      return json(200, { season: { n: season.n, end: season.end }, board, levels: LAST_LEVEL_ID, entries: top.map((r) => hallEntry(r, pl)), me: mine ? hallEntry(mine, pl) : null, hall });
+      const { list: top, mine } = hallMerge(await hallData(season.n, board), mineNow, pl);
+      const hall = (await cached('hall:list', ttlOf(10 * 60 * 1000), async () => store.hallList(), { shared: false })).map((h) => ({ ...hallEntry(h, pl), season: h.season, board: h.board, image: h.image }));
+      return json(200, { season: { n: season.n, end: season.end }, board, levels: LAST_LEVEL_ID, entries: top.map((r) => hallEntry(r, pl)), me: mine ? { ...hallEntry(mine, pl), cap: mine.cap || null } : null, hall });
     }
     // 명예의 전당에 오른 사람만 자기 칸에 프로필 사진 올리기 / 지우기 (image: null)
     if (p === '/api/hall/photo' && m === 'POST') {
@@ -1186,24 +1306,26 @@ export function createHandler(cfg, { store, meter = null }) {
       const board = HALL_BOARDS.includes(b.board) ? b.board : null;
       if (!board || !Number.isInteger(b.season) || !Number.isInteger(b.rank)) return json(400, { error: 'bad_request' });
       const ok = await store.hallSetImage(b.season, board, b.rank, image, pl.igsid);
+      memo.delete('hall:list');
       return ok ? json(200, { ok: true }) : json(403, { error: 'not_yours' });
     }
 
     if (p === '/api/leaderboard' && m === 'GET' && url.searchParams.get('level') === 'total') {
+      // 예전 '총 등수' (화면에선 명예의 전당으로 바뀜): 기록 전체를 모으는 쿼리라 매번 돌리면 위험 → 시즌 1 총합 캐시로 (전체 기간 = scores)
       const pl = await getPlayer(request);
-      const lb = await store.totalLeaderboard(50);
-      const entries = lb.rows.map((r) => ({ rank: r.rank, username: r.username, score: r.score, levels: r.levels, me: pl ? r.igsid === pl.igsid : false }));
-      const mine = pl ? await store.totalRankOf(pl.igsid) : null;
-      return json(200, { level: 'total', levels: LAST_LEVEL_ID, entries, me: mine });
+      const mineNow = pl ? await store.seasonMine(1, 'stage', pl.igsid) : null;
+      const { list, mine } = hallMerge(await hallData(1, 'stage'), mineNow, pl);
+      const entries = list.map((r) => ({ rank: r.rank, username: r.username, score: r.score, levels: r.n, me: pl ? r.igsid === pl.igsid : false }));
+      return json(200, { level: 'total', levels: LAST_LEVEL_ID, entries, me: mine ? { rank: mine.rank, score: mine.score, levels: mine.n, cap: mine.cap || null } : null });
     }
 
     const lbEndless = p === '/api/leaderboard' && m === 'GET' ? endlessMode(url.searchParams.get('level')) : null;
     if (lbEndless) {
       const pl = await getPlayer(request);
-      const lb = await store.leaderboard(lbEndless.slot, 50);
+      const lb = await boardOf(lbEndless.slot);
       const entries = lb.rows.map((r) => ({ rank: r.rank, username: r.username, ...endlessParts(r.score), me: pl ? r.igsid === pl.igsid : false }));
       const inTop = pl && lb.rows.find((r) => r.igsid === pl.igsid);
-      const mine = inTop ? { rank: inTop.rank, score: inTop.score } : pl && brake() < 1 ? await store.rankOf(lbEndless.slot, pl.igsid) : null;
+      const mine = inTop ? { rank: inTop.rank, score: inTop.score } : pl && brake() < 1 ? await myRank(lbEndless.slot, pl.igsid) : null;
       return json(200, { level: lbEndless.id, entries, me: mine ? { rank: mine.rank, over: !!mine.over, ...endlessParts(mine.score) } : null });
     }
 
@@ -1211,10 +1333,10 @@ export function createHandler(cfg, { store, meter = null }) {
       const level = getLevel(url.searchParams.get('level') || 4);
       if (!level) return json(400, { error: 'bad_level' });
       const pl = await getPlayer(request);
-      const lb = await store.leaderboard(level.id, 50);
+      const lb = await boardOf(level.id);
       const entries = lb.rows.map((r) => ({ rank: r.rank, username: r.username, score: r.score, grade: r.grade, me: pl ? r.igsid === pl.igsid : false }));
       const inTop = pl && lb.rows.find((r) => r.igsid === pl.igsid);
-      const mine = inTop ? { rank: inTop.rank, score: inTop.score } : pl && brake() < 1 ? await store.rankOf(level.id, pl.igsid) : null;
+      const mine = inTop ? { rank: inTop.rank, score: inTop.score } : pl && brake() < 1 ? await myRank(level.id, pl.igsid) : null;
       return json(200, { level: level.id, entries, me: mine ? { rank: mine.rank, over: !!mine.over, score: mine.score } : null });
     }
 
@@ -1244,8 +1366,11 @@ export function cleanTrack(b) {
     }
     plays.push(out);
   }
+  // st: 세션 시작 시각(폰 시계). 이상하면 null → 서버가 예전 방식으로 (D1 시간 순 표에 못 넣음)
+  const st = Number.isFinite(b.st) && b.st > Date.now() - 2 * 86400000 && b.st < Date.now() + 60000 ? Math.floor(b.st) : null;
   return {
     sid,
+    st,
     activeSec: int(b.active, 24 * 3600),
     // 어디서 왔나 (utm_source 나 이전 페이지의 도메인). 개인 정보가 섞이지 않게 글자 종류·길이 제한
     ref: typeof b.ref === 'string' ? b.ref.toLowerCase().replace(/[^a-z0-9._-]/g, '').slice(0, 40) : '',

@@ -11952,7 +11952,7 @@ const FLUSH_MS = 300 * 1000;
 const HIDE_GAP_MS = 60 * 1000;
 
 let on = false;
-let sess = null; // { sid, ref }
+let sess = null; // { sid, ref, st(세션 시작 시각) }
 let activeMs = 0;
 let lastInput = Date.now();
 let lastSent = -1;
@@ -11995,7 +11995,7 @@ function deviceKind() {
 }
 
 function payloadNow() {
-  const payload = { sid: sess.sid, active: Math.round(activeMs / 1000), ref: sess.ref, device: deviceKind(), plays: queue.splice(0, 10) };
+  const payload = { sid: sess.sid, st: sess.st, active: Math.round(activeMs / 1000), ref: sess.ref, device: deviceKind(), plays: queue.splice(0, 10) };
   lastSent = payload.active;
   lastSentAt = Date.now();
   writeStore();
@@ -12028,10 +12028,11 @@ function initTracker({ enabled }) {
   on = true;
   const prev = readStore();
   if (prev && prev.sid && Date.now() - prev.at < SESSION_GAP_MS) {
-    sess = { sid: prev.sid, ref: prev.ref || '' };
+    sess = { sid: prev.sid, ref: prev.ref || '', st: prev.st || Date.now() };
     activeMs = (prev.active || 0) * 1000;
   } else {
-    sess = { sid: rid() + rid(), ref: referrer() };
+    // st: 세션 시작 시각 → 서버가 통계를 시간 순 표에 넣어 관리자 통계가 그 기간만 읽게 (2026-11-22, D1 읽기 아끼기)
+    sess = { sid: rid() + rid(), ref: referrer(), st: Date.now() };
     activeMs = 0;
   }
   const touch = () => (lastInput = Date.now());
@@ -15194,7 +15195,7 @@ async function loadRank() {
       const foot = [];
       foot.push(board === 'endless' ? '무제한 판(그리그·단계별 무제한) 점수를 모두 더한 점수예요.' : '단계별 최고점을 모두 더한 점수예요. 더 많은 단계를 높은 점수로 칠수록 올라가요!');
       if (data.season.n > 1) foot.push(`시즌 ${data.season.n}에 친 기록만 세요.`);
-      if (data.me) foot.push(data.me.rank ? `내 순위: ${data.me.rank}위.` : '내 순위: 200위 밖.');
+      if (data.me) foot.push(data.me.rank ? `내 순위: ${data.me.rank}위.` : `내 순위: ${data.me.cap || 200}위 밖.`);
       rankFootJoin(foot);
       return;
     }
@@ -15220,7 +15221,7 @@ async function loadRank() {
       const eb = levelEndlessBase(want);
       foot.push(`${eb ? `${eb.id}단계 ${escapeHtml(eb.name)} 무제한` : '그리그 무제한 모드'} 랭킹이에요. 더 높은 단계(Lv.)까지 깬 사람이 위, 같으면 점수가 높은 사람이 위예요.`);
     }
-    if (data.me) foot.push(data.me.rank ? `내 순위: ${data.me.rank}위.` : '내 순위: 200위 밖.');
+    if (data.me) foot.push(data.me.rank ? `내 순위: ${data.me.rank}위.` : `내 순위: ${data.me.cap || 200}위 밖.`);
     rankFootJoin(foot);
   } catch {
     list.innerHTML = '<div class="rank-empty">랭킹을 불러오지 못했어요.</div>';

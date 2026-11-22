@@ -1621,7 +1621,7 @@ async function loadRank() {
       const foot = [];
       foot.push(board === 'endless' ? '무제한 판(그리그·단계별 무제한) 점수를 모두 더한 점수예요.' : '단계별 최고점을 모두 더한 점수예요. 더 많은 단계를 높은 점수로 칠수록 올라가요!');
       if (data.season.n > 1) foot.push(`시즌 ${data.season.n}에 친 기록만 세요.`);
-      if (data.me) foot.push(data.me.rank ? `내 순위: ${data.me.rank}위.` : '내 순위: 200위 밖.');
+      if (data.me) foot.push(data.me.rank ? `내 순위: ${data.me.rank}위.` : `내 순위: ${data.me.cap || 200}위 밖.`);
       rankFootJoin(foot);
       return;
     }
@@ -1647,7 +1647,7 @@ async function loadRank() {
       const eb = levelEndlessBase(want);
       foot.push(`${eb ? `${eb.id}단계 ${escapeHtml(eb.name)} 무제한` : '그리그 무제한 모드'} 랭킹이에요. 더 높은 단계(Lv.)까지 깬 사람이 위, 같으면 점수가 높은 사람이 위예요.`);
     }
-    if (data.me) foot.push(data.me.rank ? `내 순위: ${data.me.rank}위.` : '내 순위: 200위 밖.');
+    if (data.me) foot.push(data.me.rank ? `내 순위: ${data.me.rank}위.` : `내 순위: ${data.me.cap || 200}위 밖.`);
     rankFootJoin(foot);
   } catch {
     list.innerHTML = '<div class="rank-empty">랭킹을 불러오지 못했어요.</div>';

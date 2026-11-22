@@ -229,7 +229,7 @@
         (d.refs.map((x) => `<tr><td>${esc(x.name)}</td><td>${fmtN(x.sessions)}</td></tr>`).join('') || '<tr><td class="empty">-</td></tr>') +
         '<tr><th>기기</th><th>접속</th></tr>' +
         d.devices.map((x) => `<tr><td>${esc(devName[x.name] || x.name)}</td><td>${fmtN(x.sessions)}</td></tr>`).join('');
-      $('#stats-note').textContent = `방문자 = 브라우저(기기) 기준 익명 번호 · 이용 시간 = 화면을 보며 만진 시간만 (1분 넘게 안 만지면 제외) · 날짜는 한국시간 기준 · 업데이트 ${new Date().toLocaleTimeString('ko-KR')}`;
+      $('#stats-note').textContent = `방문자 = 브라우저(기기) 기준 익명 번호 · 이용 시간 = 화면을 보며 만진 시간만 (1분 넘게 안 만지면 제외) · 날짜는 한국시간 기준 · ${new Date(d.at || Date.now()).toLocaleTimeString('ko-KR')} 기준 (10분마다 새로)${d.legacySkipped ? ' · ⚠ 오늘 D1 사용량이 많아서 예전 통계 표(시간 순 표 전 기간)는 빼고 셈' : ''}`;
     }
 
     $('#ranges').addEventListener('click', (e) => {
@@ -599,7 +599,8 @@
     async function login() {
       token = $('#token').value.trim() || token;
       if (!token) return;
-      const r = await call('GET', '/api/admin/stats?days=1');
+      // 비밀번호 확인은 가벼운 사용량 요청으로 (통계는 무거워서 — 2026-11-22)
+      const r = await call('GET', '/api/admin/usage');
       if (r.status !== 200) return logout(
         r.status === 401 ? '비밀번호가 맞지 않아요. (401)'
         : r.status === 429 ? '비밀번호를 여러 번 틀려서 10분 동안 막혔어요. (429)'
