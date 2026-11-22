@@ -52,7 +52,7 @@ export const D1_SCHEMA = [
 ];
 
 /** 이미 있는 표에 열 더하기 — SQLite 엔 'IF NOT EXISTS' 가 없어서 하나씩 해 보고, 이미 있으면 오류를 그냥 넘김 */
-const D1_ALTERS = [
+export const D1_ALTERS = [
   // 핵 의심 확인용 JSON (2026-11-21, pgstore SCHEMA 와 같음)
   'ALTER TABLE scores ADD COLUMN chk TEXT',
 ];

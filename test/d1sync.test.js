@@ -134,7 +134,11 @@ test('createSchema: 비어 있는 예전 모양(보통 표) 통계·토큰 표�
   await d1.q('CREATE TABLE used_runs (nonce TEXT PRIMARY KEY, expires_at INTEGER NOT NULL)');
   await d1.q('CREATE TABLE plays (id TEXT PRIMARY KEY, sid TEXT NOT NULL, vid TEXT NOT NULL, level TEXT NOT NULL, mode TEXT, started_at INTEGER NOT NULL, ended_at INTEGER, result TEXT, score INTEGER, stars INTEGER, sec INTEGER)');
   await d1.q("INSERT INTO plays (id, sid, vid, level, started_at) VALUES ('p', 's', 'v', '1', 1)");
+  await d1.q('CREATE TABLE scores (igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, grade TEXT, max_combo INTEGER, at INTEGER NOT NULL, PRIMARY KEY (igsid, level))');
   await createSchema(d1);
+  await createSchema(d1); // 두 번 돌려도 됨
+  // 미리 복사해 둔 예전 scores 에도 나중에 더한 열(chk)이 생김
+  assert.ok((await d1.q('PRAGMA table_info(scores)')).some((c) => c.name === 'chk'));
   const sqlOf = async (t) => (await d1.q(`SELECT sql FROM sqlite_master WHERE name = '${t}'`))[0].sql;
   assert.match(await sqlOf('used_runs'), /WITHOUT ROWID/);
   assert.doesNotMatch(await sqlOf('plays'), /WITHOUT ROWID/);

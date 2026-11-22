@@ -15,7 +15,7 @@
 //   표마다: cols(열·형 i 정수 r 실수 t 글자 j JSON) · pk · ts(바뀐 시각 SQL, 따라잡기 기준) · merge(따라잡기 때 이미 있으면)
 //   전체 복사는 Neon 값이 이김(D1 은 아직 아무도 안 씀), 따라잡기는 '더 높은 점수·더 늦은 시각·빈 칸만 채움' 처럼 둘 다 살림
 
-import { D1_SCHEMA } from '../server/d1store.js';
+import { D1_SCHEMA, D1_ALTERS } from '../server/d1store.js';
 
 /** 통계 표 (backfill 로 따로 옮김) */
 const MAIN = (list) => list.filter((t) => !t.backfill);
@@ -318,6 +318,8 @@ export async function createSchema(d1) {
     else console.log(`  ⚠ ${t}: 보통 표인데 ${n}줄 있어서 그대로 둠`);
   }
   for (const s of D1_SCHEMA) await d1.q(s);
+  // 나중에 더한 열 (이미 미리 복사해 둔 표엔 없음). 이미 있으면 오류 → 넘어감
+  for (const a of D1_ALTERS) await d1.q(a).catch(() => {});
 }
 
 export async function copyAll(neonDb, d1, { since = 0, mode = 'replace', log = console.log, tables = MAIN(TABLES) } = {}) {
