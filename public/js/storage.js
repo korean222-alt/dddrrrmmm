@@ -40,6 +40,8 @@ export const DEFAULT_SETTINGS = {
   bg: 'auto',
   kit: 'auto',
   notes: 'basic',
+  // 🎤 화면 스타일: 'basic' 또는 'live'(상점 라이브 스테이지 세트)
+  ui: 'basic',
   // 📷 내 사진 배경 어둡게 (0~0.85). 사진 파일 자체는 IndexedDB (photoSave)
   photoDim: 0.4,
 };

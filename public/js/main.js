@@ -2120,7 +2120,7 @@ function awardRunCoins(g, final = true) {
 //   11-22 사용자 결정: 원래 배경(단계별)·맵 드럼·기본 콩 색만 무료, 나머지(다른 배경·드럼·콩 색·📷 내 사진)는
 //   🔒 잠금 → 곧 상점에서 코인으로 엶. 열린 건 load('decoOwned') = ['bg:city', 'kit:lava', 'notes:neon', 'bg:photo' …]
 //   11-22 밤 상점 개편: 맵 배경·맵 드럼·색만 바꾸는 콩 색은 무료, 상점 전용(새 그림 배경·새 드럼·효과 콩 스킨·📷 내 사진)만 잠금
-const DECO_FREE = { bg: 'auto', kit: 'auto', notes: 'basic' };
+const DECO_FREE = { bg: 'auto', kit: 'auto', notes: 'basic', ui: 'basic' };
 function decoOpen(type, key) {
   if (!key || key === DECO_FREE[type]) return true;
   if ((type === 'bg' || type === 'kit') && DECO_THEMES.includes(key)) return true;
@@ -2140,10 +2140,11 @@ function applyDeco() {
   renderer.bgPick = bg !== 'auto' ? bg : null;
   renderer.kitPick = kit !== 'auto' ? kit : null;
   renderer.photoDim = s.photoDim ?? 0.4;
+  renderer.uiStyle = decoPick('ui') === 'live' ? 'live' : null; // 🎤 라이브 스테이지 세트
   applyNoteColors(renderer.studio ? 'basic' : decoPick('notes'));
 }
 function renderDeco() {
-  const s = { ...state.settings, bg: decoPick('bg'), kit: decoPick('kit'), notes: decoPick('notes') };
+  const s = { ...state.settings, bg: decoPick('bg'), kit: decoPick('kit'), notes: decoPick('notes'), ui: decoPick('ui') };
   const chip = (attr, key, label, bg, on) => {
     const open = decoOpen(attr, key);
     return `<button class="chip ${open ? '' : 'locked'}" data-${attr}="${key}" aria-pressed="${open && on}"><i style="background:${bg}"></i>${label}${open ? '' : ' 🔒'}</button>`;
@@ -2166,6 +2167,7 @@ function renderDeco() {
   $('#set-notes').innerHTML = Object.entries(NOTE_PALETTES)
     .map(([k, p]) => chip('notes', k, p.name, p.shop ? shopSwatch('notes', k) : `conic-gradient(${lanes(p).join(',')})`, (s.notes || 'basic') === k))
     .join('');
+  $('#set-ui').innerHTML = chip('ui', 'basic', '기본', 'linear-gradient(#FF9A6B,#6A1B78)', s.ui !== 'live') + chip('ui', 'live', shopName('ui', 'live'), shopSwatch('ui', 'live'), s.ui === 'live');
   $('#set-photo-opts').hidden = !(decoPick('bg') === 'photo' && photo.url);
   $('#set-photo-dim').value = s.photoDim ?? 0.4;
 }
@@ -2241,6 +2243,7 @@ const LANE_DEFAULT = LANE.slice(0, 4).map((l) => l.main);
 const SHOP_BGS = SHOP_ITEMS.map(([id]) => id.split(':')).filter(([t, k]) => t === 'bg' && THEMES[k] && THEMES[k].img).map(([, k]) => k);
 const shopIsOpen = () => !!state.cfg.shopOpen;
 function shopSwatch(type, key) {
+  if (type === 'ui') return 'linear-gradient(160deg,#1A1450 0%,#3A2A8A 45%,#FF8AD8 70%,#7DF2FF 100%)';
   if (type === 'notes') {
     const p = NOTE_PALETTES[key];
     const c = (p && p.c ? p.c.slice(0, 4).map((x) => x[0]) : LANE_DEFAULT).join(',');
@@ -2264,6 +2267,7 @@ function shopSwatch(type, key) {
   return `linear-gradient(${t.sky.join(',')})`;
 }
 function shopName(type, key) {
+  if (type === 'ui') return '🎤 라이브 스테이지 세트';
   if (type === 'notes') return (NOTE_PALETTES[key] || {}).name || key;
   if (key === 'photo') return '📷 내 사진 배경';
   if (type === 'kit' && SHOP_KITS[key]) return SHOP_KITS[key].name;
@@ -2274,6 +2278,7 @@ const SHOP_DESC = {
   bg: '상점에서만 파는 무대예요',
   kit: '상점에서만 파는 드럼 세트예요',
   photo: '내 사진을 무대 배경으로 깔아요',
+  ui: '판정선·콩·판정 글자·콤보·무대가 리듬게임 라이브 화면처럼 한 번에 바뀌어요',
 };
 function renderShop() {
   $('#shop-coins').textContent = fmt(getCoins());
@@ -2287,7 +2292,7 @@ function renderShop() {
       <span>${own ? '보유' : `<i class="coin-ico"></i>${fmt(price)}`}</span></button>`;
   };
   const sec = (title, type) => `<h4>${title}</h4><div class="shop-grid">${SHOP_ITEMS.filter(([id]) => id.startsWith(type + ':')).map(item).join('')}</div>`;
-  $('#shop-list').innerHTML = sec('✨ 콩 스킨', 'notes') + sec('🌄 배경', 'bg') + sec('🥁 드럼 세트', 'kit');
+  $('#shop-list').innerHTML = sec('🎤 세트', 'ui') + sec('✨ 콩 스킨', 'notes') + sec('🌄 배경', 'bg') + sec('🥁 드럼 세트', 'kit');
 }
 function openShop(focus) {
   renderShop();
@@ -2319,7 +2324,7 @@ function previewShop(id) {
     b.disabled = false;
   }
   openModal('modal-shopitem');
-  const pick = { bg: decoPick('bg'), kit: decoPick('kit'), notes: decoPick('notes') };
+  const pick = { bg: decoPick('bg'), kit: decoPick('kit'), notes: decoPick('notes'), ui: decoPick('ui') };
   pick[type] = key;
   // 콩 스킨은 어두운 무대에서 (화려한 맵 위에선 잘 안 보임)
   if (type === 'notes' && pick.bg === 'auto') pick.bg = 'void';
@@ -2441,6 +2446,7 @@ function bindDeco() {
     if (b.dataset.bg) s.bg = b.dataset.bg;
     if (b.dataset.kit) s.kit = b.dataset.kit;
     if (b.dataset.notes) s.notes = b.dataset.notes;
+    if (b.dataset.ui) s.ui = b.dataset.ui;
     saveSettings(s);
     applyDeco();
     renderDeco();

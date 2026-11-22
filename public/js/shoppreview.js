@@ -45,9 +45,9 @@ export function stopShopPreview() {
 
 /**
  * @param {HTMLCanvasElement} cv  화면에 붙어 있는 캔버스 (CSS 크기가 정해져 있어야 함)
- * @param {{ bg, kit, notes, photo }} o  bg·kit = 'auto' | 맵 키 | 'photo', notes = 콩 색 키, photo = 내 사진 Image (없으면 예시)
+ * @param {{ bg, kit, notes, ui, photo }} o  bg·kit = 'auto' | 맵 키 | 'photo', notes = 콩 색 키, ui = 'live'(세트) | 'basic', photo = 내 사진 Image (없으면 예시)
  */
-export async function startShopPreview(cv, { bg, kit, notes, photo }) {
+export async function startShopPreview(cv, { bg, kit, notes, ui, photo }) {
   stopShopPreview();
   const me = {};
   cur = me;
@@ -58,6 +58,7 @@ export async function startShopPreview(cv, { bg, kit, notes, photo }) {
   r.quality = 2;
   r.bgPick = bg && bg !== 'auto' ? bg : null;
   r.kitPick = kit && kit !== 'auto' ? kit : null;
+  r.uiStyle = ui === 'live' ? 'live' : null;
   if (bg === 'photo') {
     r.bgPhoto = photo || samplePhoto();
     r.photoDim = 0.35;

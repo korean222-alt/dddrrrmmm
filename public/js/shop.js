@@ -2,7 +2,7 @@
 //   11-22 밤 개편(사용자 '이미 있는 배경·드럼 말고 새로 만들어야 희귀성 · 색만 바뀌어서 안 사고 싶음'):
 //   맵 배경·맵 드럼·색만 바꾸는 콩 색은 무료로 돌리고, 상점엔 상점에서만 파는 새 것만.
 //   콩 스킨 = 색 + 질감 + 꼬리·반짝이 효과(render.js NOTE_PALETTES fx), 배경 = 새 그림(themes.js img), 드럼 = 새 마감(themes.js SHOP_KITS)
-//   id = 'bg:sakura' · 'kit:goldkit' · 'notes:flame' · 'bg:photo' (설정 → 꾸미기의 decoOwned 와 같은 모양)
+//   id = 'bg:sakura' · 'kit:goldkit' · 'notes:flame' · 'bg:photo' · 'ui:live'(화면 스타일 세트) (설정 → 꾸미기의 decoOwned 와 같은 모양)
 
 /** 맵 8개 (배경·드럼 세트로 고를 수 있는 것, 무료) */
 export const DECO_THEMES = ['sunset', 'city', 'hall', 'void', 'lava', 'aurora', 'xmas', 'space'];
@@ -11,6 +11,8 @@ export const NOTE_FREE = ['candy', 'neon', 'ocean', 'fire', 'mono'];
 
 /** 상점 물건: [id, 값, 등급] — 등급 rare 레어 · epic 에픽 · legend 전설 */
 export const SHOP_ITEMS = [
+  // 🎤 세트 (2026-11-22, 사용자 요청: 리듬게임 라이브 화면 스타일 세트, 1만 코인) = 화면 스타일(render.js live) + 세트 무대
+  ['ui:live', 10000, 'epic'],
   ['notes:galaxy', 50000, 'legend'],
   ['notes:gold', 30000, 'legend'],
   ['notes:cyber', 9000, 'epic'],
