@@ -146,7 +146,8 @@ async function snapshot(request, env, url) {
     if (snapAt == null) snapAt = Number(((await store.q('SELECT MAX(at) AS t FROM scores'))[0] || {}).t) || 0;
     const inner = new URL(url);
     inner.pathname = url.pathname.replace('/api/snap/', '/api/');
-    inner.searchParams.delete('play'); // 맵 받기: 친 횟수 올리기(쓰기) 안 함
+    inner.searchParams.delete('play'); // 맵 받기: 친 횟수 올리기(쓰기) 안 함, 1~3등은 같이
+    if (/^\/api\/maps\/./.test(inner.pathname)) inner.searchParams.set('top', '1');
     const res = await handle(new Request(inner.toString(), { method: 'GET' }), { ip: request.headers.get('cf-connecting-ip') || '?' });
     if (!res.ok) {
       const why = await res.text().catch(() => '');

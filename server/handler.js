@@ -834,7 +834,7 @@ export function createHandler(cfg, { store, meter = null }) {
         const r = await store.getMap(id, { play });
         if (!r) return json(404, { error: 'not_found' });
         // 🏆 치러 들어갈 때 같은 요청에 모드별 1~3등을 같이 실어 보냄 (따로 요청 안 늘림)
-        return json(200, { map: { ...pub(r), data: r.data }, top: play ? await store.topMapScores(id, 3) : undefined });
+        return json(200, { map: { ...pub(r), data: r.data }, top: play || url.searchParams.get('top') === '1' ? await store.topMapScores(id, 3) : undefined });
       }
       if (act && m === 'POST') {
         if (!canWrite) return writeErr();
