@@ -1513,6 +1513,12 @@ export class Renderer {
       const size = Math.min(L.GW * 0.055, L.laneW * 0.2) * sc * (j.scale || 1);
       ctx.save();
       ctx.globalAlpha = t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4;
+      // 🎤 세트: 자리는 기본처럼, 글씨만 세트 모양 (기울인 굵은 글씨 + 파스텔 그라데이션, 11-22 사용자)
+      if (this.live) {
+        this._liveJudgeText(j, x, y, size);
+        ctx.restore();
+        continue;
+      }
       ctx.font = `${Math.round(size)}px ${FONT}`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
@@ -1544,6 +1550,41 @@ export class Renderer {
     }
   }
 
+
+  /** 🎤 세트 판정 글자 한 개 (자리·크기는 _drawJudges 가 정함) */
+  _liveJudgeText(j, x, y, size) {
+    const ctx = this.ctx;
+    const look = LIVE_JUDGE[j.text] || LIVE_JUDGE.MISS;
+    const sz = size * 1.05 * look.k;
+    ctx.font = `italic 900 ${Math.round(sz)}px ${LIVE_FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    const tw = ctx.measureText(j.text).width;
+    ctx.lineWidth = sz * 0.3;
+    ctx.strokeStyle = 'rgba(24,20,70,0.85)';
+    ctx.strokeText(j.text, x, y);
+    ctx.lineWidth = sz * 0.14;
+    ctx.strokeStyle = '#FFFFFF';
+    if (look.glow && !this.lite) {
+      ctx.shadowColor = look.glow;
+      ctx.shadowBlur = sz * 0.5;
+    }
+    ctx.strokeText(j.text, x, y);
+    ctx.shadowBlur = 0;
+    const g = ctx.createLinearGradient(x - tw / 2, 0, x + tw / 2, 0);
+    look.c.forEach((c, i) => g.addColorStop(look.c.length > 1 ? i / (look.c.length - 1) : 0, c));
+    ctx.fillStyle = g;
+    ctx.fillText(j.text, x, y);
+    if (j.sub) {
+      ctx.font = `italic 900 ${Math.round(sz * 0.5)}px ${LIVE_FONT}`;
+      ctx.lineWidth = sz * 0.12;
+      ctx.strokeStyle = 'rgba(24,20,70,0.85)';
+      ctx.strokeText(j.sub, x, y + sz * 0.8);
+      ctx.fillStyle = j.sub === 'FAST' ? '#9CD8FF' : '#FFB3C8';
+      ctx.fillText(j.sub, x, y + sz * 0.8);
+    }
+  }
 
   /** 🪙 코인: 판정선 조금 위까지만 튀고 아래로 떨어지며 사라짐 (다가오는 콩을 안 가리게 작게, 0.55초) */
   _drawCoins(rt) {
