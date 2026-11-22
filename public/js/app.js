@@ -13695,6 +13695,7 @@ async function http(method, url, body) {
   if (!res.ok) {
     // 🧯 서버 DB 가 막힘(하루 한도 등) → main.js 가 서버 없는 모드로 바꿈
     if (res.status === 503 && data && data.error === 'db_down') {
+      noteServerDown(data);
       try {
         window.dispatchEvent(new CustomEvent('okaystra:db-down'));
       } catch {}
@@ -13994,9 +13995,29 @@ function mockApi(cfg) {
   };
 }
 
+// 🧯 서버가 쉬는 중(db_down)이면 다음에 붙어 볼 시각을 폰에 적어 둠 (2026-11-22 밤).
+//   서버가 쉬는 동안 폰마다 새로고침·판 시작 때마다 /api/health 를 불러 한 시간에 9천 건 → Worker 하루 한도(10만)를 위협.
+//   서버가 알려 준 until(하루 한도면 오전 9시)까지, 단 최대 30분(+몇 분 흩뿌림) 동안은 묻지 않고 바로 서버 없는 모드.
+//   새로고침해도 이어짐(폰 저장). 사람이 누른 인증·되찾기(force)는 바로 물어봄.
+const DOWN_MAX_MS = 30 * 60 * 1000;
+function noteServerDown(data) {
+  const now = Date.now();
+  const hint = data && Number(data.until) > now ? Number(data.until) - now : 5 * 60 * 1000;
+  const wait = Math.min(DOWN_MAX_MS, Math.max(2 * 60 * 1000, hint)) + Math.floor(Math.random() * 5 * 60 * 1000);
+  try {
+    save('srvNextTry', now + wait);
+  } catch {}
+}
+function serverResting() {
+  const t = Number(load('srvNextTry', 0)) || 0;
+  return t > Date.now() && t - Date.now() < DOWN_MAX_MS + 6 * 60 * 1000;
+}
+
 async function createApi(cfg) {
   if (cfg.apiMode === 'mock') return mockApi(cfg);
   if (cfg.apiMode === 'server') return serverApi();
+  // 서버가 쉬는 중이라고 적어 둔 동안은 묻지 않음 (force 면 물어봄)
+  if (!cfg.force && serverResting()) return mockApi(cfg);
   // auto: /api/health 가 응답하면 서버 사용
   try {
     const ctrl = new AbortController();
@@ -14006,13 +14027,19 @@ async function createApi(cfg) {
     clearTimeout(timer);
     if (res.ok) {
       const j = await res.json();
-      if (j && j.ok && j.app === 'okaystra') return serverApi(j);
+      if (j && j.ok && j.app === 'okaystra') {
+        save('srvNextTry', 0);
+        return serverApi(j);
+      }
+    } else if (res.status === 503) {
+      const j = await res.json().catch(() => null);
+      if (j && j.error === 'db_down') noteServerDown(j);
     }
   } catch {}
   return mockApi(cfg);
 }
 
-return { createApi };
+return { noteServerDown, serverResting, createApi };
 })();
 
 // ---- config.js ----
@@ -15090,7 +15117,7 @@ const { coinsInit, setCoinAccount, coinTotal, addRunCoins } = __m_coins;
 const { queueOffline, backupOffline } = __m_offrec;
 const { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } = __m_game;
 const { initAds, showRewarded } = __m_ads;
-const { createApi } = __m_api;
+const { createApi, serverResting } = __m_api;
 const { initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay } = __m_track;
 const { CONFIG } = __m_config;
 const { buddyUrl, loadBuddies } = __m_buddies;
@@ -15237,7 +15264,7 @@ function reconnectServer({ force = false } = {}) {
   reconnectTriedAt = Date.now();
   reconnecting ??= (async () => {
     try {
-      const api = await createApi({ ...CONFIG, apiMode: 'auto' });
+      const api = await createApi({ ...CONFIG, apiMode: 'auto', force });
       if (api.mode !== 'server') {
         reconnectFails = Math.min(reconnectFails + 1, 5);
         return false;
@@ -21471,7 +21498,7 @@ async function boot() {
   refreshMoveBtn();
   checkReq();
   // 서버가 늦게 깨서 서버 없는 모드로 시작했으면 몇 초 뒤 한 번 더 붙어 봄
-  if (state.api.mode !== 'server') setTimeout(() => reconnectServer({ force: true }), 4000);
+  if (state.api.mode !== 'server' && !serverResting()) setTimeout(() => reconnectServer({ force: true }), 4000);
   // 옛 주소에서 넘어옴 (/?t=123456): 그쪽 기록·로그인을 자동으로 가져옴
   const bridgeCode = params.get('t');
   if (/^\d{6}$/.test(bridgeCode || '')) {

@@ -653,6 +653,10 @@ export function createHandler(cfg, { store, meter = null }) {
     );
     return f >= BRAKE_AT[2] ? 3 : f >= BRAKE_AT[1] ? 2 : f >= BRAKE_AT[0] ? 1 : 0;
   }
+  // 폰이 다시 물어볼 때까지 기다릴 시각 (api.js noteServerDown 이 최대 30분으로 자름). 하루 한도면 다음 UTC 0시(한국 오전 9시)
+  const nextUtcDay = () => Math.ceil((Date.now() + 1) / 86400000) * 86400000 + 60 * 1000;
+  const isLimitError = (e) => /exceed|limit|quota/i.test(String((e && e.message) || e));
+  let downUntilHint = 0;
   const isDbError = (e) => !e.status && /D1_|SQLITE|exceed|limit|quota|too many|database|neon|fetch failed|network/i.test(String((e && e.message) || e));
 
   return async function handle(request, { ip = '?' } = {}) {
@@ -663,7 +667,7 @@ export function createHandler(cfg, { store, meter = null }) {
     if (url.pathname.startsWith('/api/') && !(adminUsage && Date.now() < dbDownUntil)) await flushUsage(Date.now());
     // 🧯 3단계: 한도 직전 → 일부러 db_down (운영자 화면은 그대로)
     if (brake() >= 3 && url.pathname.startsWith('/api/') && !url.pathname.startsWith('/api/admin/')) {
-      return new Response(JSON.stringify({ error: 'db_down', brake: 3 }), {
+      return new Response(JSON.stringify({ error: 'db_down', brake: 3, until: nextUtcDay() }), {
         status: 503,
         headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
       });
@@ -676,7 +680,7 @@ export function createHandler(cfg, { store, meter = null }) {
       });
     }
     if (Date.now() < dbDownUntil && url.pathname.startsWith('/api/')) {
-      return new Response(JSON.stringify({ error: 'db_down', retryAfter: Math.ceil((dbDownUntil - Date.now()) / 1000) }), {
+      return new Response(JSON.stringify({ error: 'db_down', retryAfter: Math.ceil((dbDownUntil - Date.now()) / 1000), until: Math.max(dbDownUntil, downUntilHint) }), {
         status: 503,
         headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
       });
@@ -694,7 +698,8 @@ export function createHandler(cfg, { store, meter = null }) {
       if (!e.status) console.error(e);
       if (isDbError(e)) {
         dbDownUntil = Date.now() + DB_DOWN_MS;
-        return json(503, { error: 'db_down' });
+        downUntilHint = isLimitError(e) ? nextUtcDay() : 0;
+        return json(503, { error: 'db_down', until: Math.max(dbDownUntil, downUntilHint) });
       }
       return json(e.status || 500, { error: e.status ? e.message : 'server_error' });
     }

@@ -23,7 +23,7 @@ import { coinsInit, setCoinAccount, coinTotal, addRunCoins } from './coins.js';
 import { queueOffline, backupOffline } from './offrec.js';
 import { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } from './game.js';
 import { initAds, showRewarded } from './ads.js';
-import { createApi } from './api.js';
+import { createApi, serverResting } from './api.js';
 import { initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay } from './track.js';
 import { CONFIG } from './config.js';
 import { buddyUrl, loadBuddies } from './buddies.js';
@@ -170,7 +170,7 @@ function reconnectServer({ force = false } = {}) {
   reconnectTriedAt = Date.now();
   reconnecting ??= (async () => {
     try {
-      const api = await createApi({ ...CONFIG, apiMode: 'auto' });
+      const api = await createApi({ ...CONFIG, apiMode: 'auto', force });
       if (api.mode !== 'server') {
         reconnectFails = Math.min(reconnectFails + 1, 5);
         return false;
@@ -6404,7 +6404,7 @@ async function boot() {
   refreshMoveBtn();
   checkReq();
   // 서버가 늦게 깨서 서버 없는 모드로 시작했으면 몇 초 뒤 한 번 더 붙어 봄
-  if (state.api.mode !== 'server') setTimeout(() => reconnectServer({ force: true }), 4000);
+  if (state.api.mode !== 'server' && !serverResting()) setTimeout(() => reconnectServer({ force: true }), 4000);
   // 옛 주소에서 넘어옴 (/?t=123456): 그쪽 기록·로그인을 자동으로 가져옴
   const bridgeCode = params.get('t');
   if (/^\d{6}$/.test(bridgeCode || '')) {

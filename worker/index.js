@@ -200,7 +200,10 @@ async function api(request, env) {
       return Response.json(ok ? { dbDown: true, metered: true } : { error: 'admin_required' }, { status: ok ? 200 : 401, headers: { 'Cache-Control': 'no-store', ...SECURITY_HEADERS } });
     }
     // 준비(DB 첫 확인)에서 실패 = 거의 DB 문제(D1 하루 한도 등) → 폰이 서버 없는 모드로 가게 db_down
-    return Response.json({ error: 'db_down' }, { status: 503, headers: SECURITY_HEADERS });
+    // until: 하루 한도면 다음 UTC 0시(한국 오전 9시) → 폰이 최대 30분 동안 다시 안 물어봄 (api.js noteServerDown)
+    const limit = /exceed|limit|quota/i.test(String((e && e.message) || e));
+    const until = limit ? Math.ceil((Date.now() + 1) / 86400000) * 86400000 + 60000 : Date.now() + 5 * 60000;
+    return Response.json({ error: 'db_down', until }, { status: 503, headers: SECURITY_HEADERS });
   }
 }
 
