@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=12dfcb1eeb" />
+  <link rel="stylesheet" href="css/style.css?v=8e724d73a5" />
 </head>
 <body>
   <div id="app">
@@ -26,7 +26,7 @@
       <div class="title-top">
         <div class="title-left">
           <button class="icon-btn gear-btn" data-action="settings" aria-label="설정"><img src="assets/gear.png" alt="" width="40" height="40" /></button>
-          <div class="coin-chip" id="coin-chip" title="콩을 맞힌 만큼 쌓이는 코인"><i class="coin-ico"></i><b id="coin-num">0</b></div>
+          <button class="coin-chip" id="coin-chip" data-action="shop-open" aria-label="상점"><i class="coin-ico"></i><b id="coin-num">0</b><span class="coin-shop">🛒</span></button>
         </div>
         <button class="follow-chip" data-action="rank-join" hidden></button>
         <button class="icon-btn" data-action="ranking" aria-label="랭킹"><span data-icon="trophy"></span></button>
@@ -693,7 +693,7 @@
         </div>
       </div>
       <div class="deco" id="set-deco">
-        <h4>🎨 꾸미기 <small class="muted">🔒 곧 상점에서 코인으로</small></h4>
+        <h4>🎨 꾸미기 <button class="link" data-action="shop-open">🛒 상점</button></h4>
         <div class="field"><span>배경</span><div class="chips" id="set-bg"></div></div>
         <div class="photo-opts" id="set-photo-opts" hidden>
           <label class="field"><span>사진 어둡게</span><input type="range" min="0" max="0.85" step="0.05" id="set-photo-dim" /></label>
@@ -910,6 +910,14 @@
     </div>
   </div>
 
+  <div class="modal" id="modal-shop" hidden>
+    <div class="sheet shop-sheet">
+      <button class="icon-btn close" data-action="close-shop" aria-label="닫기"><span data-icon="close"></span></button>
+      <h3>🛒 상점 <span class="shop-coins"><i class="coin-ico"></i><b id="shop-coins">0</b></span></h3>
+      <div class="shop-list" id="shop-list"></div>
+    </div>
+  </div>
+
   <div class="modal" id="modal-news" hidden>
     <div class="sheet">
       <button class="icon-btn close" data-action="close-news" aria-label="닫기"><span data-icon="close"></span></button>
@@ -954,6 +962,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=7e6d8e6f5d" defer></script>
+  <script src="js/app.js?v=79f3db0ae5" defer></script>
 </body>
 </html>

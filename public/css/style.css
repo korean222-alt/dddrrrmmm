@@ -950,3 +950,23 @@ html.lite .hud-coin.bump .coin-ico, html.lite .res-coins { animation: none; }
 
 /* 📴 서버가 쉬는 동안 랭킹 창 안내 */
 .rank-snap { margin: 0 0 10px; padding: 8px 12px; border-radius: 12px; background: #fff3d6; border: 2px solid var(--ink); color: var(--ink); font-size: 13px; line-height: 1.5; text-align: center; }
+
+/* 🛒 상점 (2026-11-22) */
+button.coin-chip { font: inherit; cursor: pointer; }
+.coin-chip .coin-shop { font-size: 13px; margin-left: 2px; }
+.shop-sheet h3 { display: flex; align-items: center; gap: 10px; }
+.shop-coins { display: inline-flex; align-items: center; gap: 4px; font-size: 16px; padding: 2px 10px; border: 2px solid var(--ink); border-radius: 99px; background: #fff6d6; }
+.shop-list h4 { margin: 14px 0 6px; font-weight: 400; }
+.shop-list h4 small { color: var(--muted); font-size: 12px; }
+.shop-list h4.shop-premium { color: #b07a00; }
+.shop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
+.shop-item { display: grid; justify-items: center; gap: 4px; padding: 8px 4px; border: 2px solid var(--ink); border-radius: 14px; background: #fff; color: var(--ink); font: inherit; }
+.shop-item > i { width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--ink); }
+.shop-item b { font-weight: 400; font-size: 13px; line-height: 1.2; text-align: center; }
+.shop-item span { display: inline-flex; align-items: center; gap: 3px; font-size: 13px; color: #b06a00; }
+.shop-item span .coin-ico { width: 14px; height: 14px; }
+.shop-item.owned { opacity: 0.6; background: #eef7ee; }
+.shop-item.owned span { color: var(--grass); }
+.shop-item.focus { box-shadow: 0 0 0 3px #ffb020; }
+.shop-item:active:not(:disabled) { transform: translateY(2px); }
+.shop-premium + .shop-grid .shop-item { background: linear-gradient(160deg, #fff8dc, #ffe9b0); }

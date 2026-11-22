@@ -65,6 +65,18 @@ function serverApi(boot = null) {
   let bootMe = boot && boot.me;
   return {
     mode: 'server',
+    /** 🛒 상점에서 사기: 모아 둔 코인을 지금 다 얹어 보냄(서버가 먼저 더하고 차감) */
+    async buy(item) {
+      const coins = takeCoins({ force: true });
+      try {
+        const r = await http('POST', '/api/shop/buy', { item, coins });
+        coinsResult(r);
+        return r;
+      } catch (e) {
+        if (coins) coinsResult(e && e.data);
+        throw e;
+      }
+    },
     config: () => {
       if (bootConfig) {
         const c = bootConfig;
@@ -181,6 +193,9 @@ function mockApi(cfg) {
   const real = cfg.apiMode !== 'mock' && !isLocal();
   return {
     mode: 'mock',
+    async buy() {
+      throw Object.assign(new Error('no_server'), { status: 503 });
+    },
     async config() {
       return { gateMode: cfg.gateMode, instagramHandle: cfg.instagramHandle };
     },

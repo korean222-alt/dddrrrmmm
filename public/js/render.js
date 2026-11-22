@@ -26,6 +26,9 @@ export const NOTE_PALETTES = {
   ocean: { name: '바다', c: [['#2E9BFF', '#B5DCFF', '#145FB0'], ['#36E0D0', '#C0F7F1', '#13968A'], ['#9AD8FF', '#E6F6FF', '#4C93BF'], ['#6F7BFF', '#D0D4FF', '#3A44BF'], ['#3FD6A0', '#C6F5E3', '#1A8F66']] },
   fire: { name: '불꽃', c: [['#FF4A2E', '#FFB3A6', '#B3200E'], ['#FF9F1C', '#FFDDA8', '#B86600'], ['#FFD93A', '#FFF3B0', '#B88F00'], ['#FF5E7E', '#FFC2CE', '#B32446'], ['#FF7A3A', '#FFCBA8', '#B3450E']] },
   mono: { name: '흑백', c: [['#F2F2F2', '#FFFFFF', '#9A9A9A'], ['#BFC4CC', '#EEF0F3', '#6E747E'], ['#E6E6E6', '#FFFFFF', '#8E8E8E'], ['#A8ADB5', '#E2E4E8', '#5E636B'], ['#D0D0D0', '#F5F5F5', '#7A7A7A']] },
+  // ✨ 상점 특별 콩 색 (비쌈, 2026-11-22)
+  gold: { name: '👑 황금', premium: true, c: [['#FFC83D', '#FFF1B8', '#B07A00'], ['#E9EEF5', '#FFFFFF', '#8D96A3'], ['#FFE07A', '#FFF8D6', '#B89520'], ['#F2A97E', '#FFE2D1', '#A85A32'], ['#D9B45A', '#F7EBC7', '#8C6C1E']] },
+  galaxy: { name: '🌌 은하수', premium: true, c: [['#B26BFF', '#E6D0FF', '#6A22C2'], ['#4FD8FF', '#CFF5FF', '#1688B0'], ['#FF7AD9', '#FFD3F2', '#B8338F'], ['#7C8CFF', '#D9DEFF', '#3B46C2'], ['#5CFFC8', '#CCFFEE', '#1FA67A']] },
 };
 const LANE_BASE = LANE.map((l) => ({ main: l.main, light: l.light, dark: l.dark, rgb: l.rgb }));
 const hexRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)).join(',');

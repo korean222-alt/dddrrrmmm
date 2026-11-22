@@ -10,6 +10,7 @@ import { findSuspects, suspectReport } from './suspect.js';
 import { createRoomHandler } from './rooms.js';
 import { createRankedHandler } from './ranked.js';
 import { cleanMap, mapDifficulty, mapLevel } from '../public/js/usermap.js';
+import { buyItem, cleanOwned } from '../public/js/shop.js';
 import { seasonAt, endedSeasons, HALL_BOARDS, cleanHallImage } from '../public/js/season.js';
 import { LEVELS, LAST_LEVEL_ID, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur, ENDLESS_ID, ROUND_BARS, roundBpm, pointsFor, levelEndlessBase, LEVEL_ENDLESS_STEP, needsVerify, isClosed, diamondsFor } from '../public/js/charts.js';
 
@@ -519,7 +520,12 @@ export function createHandler(cfg, { store, meter = null }) {
     if (bumpE) await hallBump(pl.igsid, 'endless');
     return { done: done.filter((k) => k != null), improved: up };
   }
-  const coinsOf = async (pl) => (pl && isConfirmed(pl) ? ((await store.getWallet(pl.igsid)) || { coins: 0 }).coins : null);
+  /** 내 지갑 { coins, owned } (인증 전이면 null) — 🛒 산 것도 같이 (폰을 바꿔도 그대로) */
+  const walletOf = async (pl) => {
+    if (!pl || !isConfirmed(pl)) return { coins: null, owned: undefined };
+    const w = (await store.getWallet(pl.igsid)) || { coins: 0 };
+    return { coins: w.coins, owned: cleanOwned(w.owned) };
+  };
 
   // 대결 방: 4단계부터는 혼자 칠 때와 같은 잠금 (팔로워 인증 완료한 사람만)
   const ranked = createRankedHandler({ store, getPlayer: (request) => getPlayer(request), isConfirmed: (pl) => !!pl && (cfg.gateMode === 'open' || isConfirmed(pl)) });
@@ -743,7 +749,7 @@ export function createHandler(cfg, { store, meter = null }) {
         ok: true,
         app: 'okaystra',
         config: { gateMode: cfg.gateMode, instagramHandle: cfg.instagramHandle, siteUrl: cfg.siteUrl, freePassUntil: (await freePassOn()) ? await freePassUntil() : 0 },
-        me: pl ? { ...meOf(pl), coins: await coinsOf(pl) } : { verified: false },
+        me: pl ? { ...meOf(pl), ...(await walletOf(pl)) } : { verified: false },
       });
     }
 
@@ -762,11 +768,11 @@ export function createHandler(cfg, { store, meter = null }) {
       const pl = await getPlayer(request);
       if (!pl) return json(200, { verified: false });
       await purgeMaybe();
-      const coins = await coinsOf(pl);
+      const wal = await walletOf(pl);
       // hidden: 운영자가 팔로우 확인이 안 돼서 랭킹에서 내림 → 화면에 알리고 아이디를 다시 받음. deleteAt 에 지워짐
       // checked: 인증 신청함(아이디 적음) → 9·12단계 · 그리그 무제한이 열림
       // confirmed: 운영자가 팔로우를 확인함(인증 완료) → 13·14단계 · 단계별 무제한까지 열림
-      return json(200, { ...meOf(pl), coins });
+      return json(200, { ...meOf(pl), ...wal });
     }
 
     if (p === '/api/logout' && m === 'POST') {
@@ -1307,6 +1313,22 @@ export function createHandler(cfg, { store, meter = null }) {
       if (coins != null) out.coins = coins;
       if (offline) out.offline = offline;
       return json(200, out);
+    }
+
+    // 🛒 상점에서 사기 (2026-11-22): 폰이 모아 둔 코인(force)을 같이 보냄 → 먼저 더하고 같은 요청에서 차감. 지갑 쓰기 1줄
+    if (p === '/api/shop/buy' && m === 'POST') {
+      if (!limitScores(ip)) return json(429, { error: 'rate_limited' });
+      const body = await readJson(request);
+      const pl = await getPlayer(request);
+      if (!pl || !isConfirmed(pl)) return json(403, { error: 'verify_required' });
+      const w0 = (await store.getWallet(pl.igsid)) || null;
+      const { wallet: w1, changed } = body.coins && typeof body.coins === 'object' ? applyCoins(w0, body.coins, cfg.sessionSecret) : { wallet: { coins: 0, t: 0, tn: 0, fday: '', fn: 0, init: 0, ...(w0 || {}) }, changed: false };
+      const r = buyItem(w1, String(body.item || ''));
+      if (r.ok && !r.already) await store.putWallet(pl.igsid, r.wallet);
+      else if (changed) await store.putWallet(pl.igsid, { ...w1, owned: r.wallet.owned });
+      const out = { coins: r.wallet.coins, owned: r.wallet.owned };
+      if (!r.ok) return json(r.error === 'not_enough' ? 402 : 400, { error: r.error, ...out });
+      return json(200, { ok: true, ...out });
     }
 
     // 4) 점수 등록 (닉네임 또는 인스타 인증 필요)

@@ -113,7 +113,7 @@ export class JsonStore {
     return w ? { ...w } : null;
   }
   putWallet(igsid, w) {
-    this.data.wallet[igsid] = { coins: w.coins, t: w.t, tn: w.tn || 0, fday: w.fday, fn: w.fn, init: w.init };
+    this.data.wallet[igsid] = { coins: w.coins, t: w.t, tn: w.tn || 0, fday: w.fday, fn: w.fn, init: w.init, owned: Array.isArray(w.owned) ? [...w.owned] : [] };
     this._save();
   }
 

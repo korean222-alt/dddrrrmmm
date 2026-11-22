@@ -2091,6 +2091,58 @@ function markDone(rec, today = kstDateKey()) {
 return { todayMission, missionDone, streakView, markDone };
 })();
 
+// ---- shop.js ----
+const __m_shop = (() => {
+// 🛒 상점 (2026-11-22): 코인으로 꾸미기를 삼. 서버(handler)와 폰(main)이 같은 가격표를 씀
+//   사용자 결정: 보통 꾸미기는 싸게, 특별한 건 비싸게(랭커만 살 정도)
+//   id = 'bg:city' · 'kit:lava' · 'notes:neon' · 'bg:photo' (설정 → 꾸미기의 decoOwned 와 같은 모양)
+
+/** 맵 8개 (배경·드럼 세트로 고를 수 있는 것) */
+const DECO_THEMES = ['sunset', 'city', 'hall', 'void', 'lava', 'aurora', 'xmas', 'space'];
+/** 보통 콩 색 / ✨ 특별 콩 색 */
+const NOTE_SHOP = ['candy', 'neon', 'ocean', 'fire', 'mono'];
+const NOTE_PREMIUM = { gold: 30000, galaxy: 50000 };
+
+const PRICES = {
+  notes: 1000,
+  bg: 1500,
+  kit: 2000,
+  photo: 5000,
+};
+
+/** 이 물건 값 (팔지 않는 것이면 null) */
+function priceOf(id) {
+  const [type, key] = String(id || '').split(':');
+  if (type === 'bg' && key === 'photo') return PRICES.photo;
+  if ((type === 'bg' || type === 'kit') && DECO_THEMES.includes(key)) return PRICES[type];
+  if (type === 'notes') {
+    if (NOTE_SHOP.includes(key)) return PRICES.notes;
+    if (NOTE_PREMIUM[key]) return NOTE_PREMIUM[key];
+  }
+  return null;
+}
+
+/** 서버가 받은 산 목록 정리 (모르는 것·겹친 것 빼기) */
+function cleanOwned(list) {
+  return Array.isArray(list) ? [...new Set(list.filter((x) => typeof x === 'string' && priceOf(x) != null))] : [];
+}
+
+/**
+ * 사기: 지갑 { coins, owned } → { ok, wallet, error }
+ *   이미 있으면 ok(돈 안 냄), 모자라면 not_enough
+ */
+function buyItem(w, id) {
+  const price = priceOf(id);
+  if (price == null) return { ok: false, error: 'bad_item', wallet: w };
+  const owned = cleanOwned(w.owned);
+  if (owned.includes(id)) return { ok: true, already: true, wallet: { ...w, owned } };
+  if ((w.coins || 0) < price) return { ok: false, error: 'not_enough', wallet: { ...w, owned } };
+  return { ok: true, wallet: { ...w, coins: w.coins - price, owned: [...owned, id] } };
+}
+
+return { DECO_THEMES, NOTE_SHOP, NOTE_PREMIUM, PRICES, priceOf, cleanOwned, buyItem };
+})();
+
 // ---- usermap.js ----
 const __m_usermap = (() => {
 // 🌍 유저 맵 (브라우저와 서버가 같이 씀)
@@ -8804,6 +8856,9 @@ const NOTE_PALETTES = {
   ocean: { name: '바다', c: [['#2E9BFF', '#B5DCFF', '#145FB0'], ['#36E0D0', '#C0F7F1', '#13968A'], ['#9AD8FF', '#E6F6FF', '#4C93BF'], ['#6F7BFF', '#D0D4FF', '#3A44BF'], ['#3FD6A0', '#C6F5E3', '#1A8F66']] },
   fire: { name: '불꽃', c: [['#FF4A2E', '#FFB3A6', '#B3200E'], ['#FF9F1C', '#FFDDA8', '#B86600'], ['#FFD93A', '#FFF3B0', '#B88F00'], ['#FF5E7E', '#FFC2CE', '#B32446'], ['#FF7A3A', '#FFCBA8', '#B3450E']] },
   mono: { name: '흑백', c: [['#F2F2F2', '#FFFFFF', '#9A9A9A'], ['#BFC4CC', '#EEF0F3', '#6E747E'], ['#E6E6E6', '#FFFFFF', '#8E8E8E'], ['#A8ADB5', '#E2E4E8', '#5E636B'], ['#D0D0D0', '#F5F5F5', '#7A7A7A']] },
+  // ✨ 상점 특별 콩 색 (비쌈, 2026-11-22)
+  gold: { name: '👑 황금', premium: true, c: [['#FFC83D', '#FFF1B8', '#B07A00'], ['#E9EEF5', '#FFFFFF', '#8D96A3'], ['#FFE07A', '#FFF8D6', '#B89520'], ['#F2A97E', '#FFE2D1', '#A85A32'], ['#D9B45A', '#F7EBC7', '#8C6C1E']] },
+  galaxy: { name: '🌌 은하수', premium: true, c: [['#B26BFF', '#E6D0FF', '#6A22C2'], ['#4FD8FF', '#CFF5FF', '#1688B0'], ['#FF7AD9', '#FFD3F2', '#B8338F'], ['#7C8CFF', '#D9DEFF', '#3B46C2'], ['#5CFFC8', '#CCFFEE', '#1FA67A']] },
 };
 const LANE_BASE = LANE.map((l) => ({ main: l.main, light: l.light, dark: l.dark, rgb: l.rgb }));
 const hexRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)).join(',');
@@ -12398,6 +12453,18 @@ function serverApi(boot = null) {
   let bootMe = boot && boot.me;
   return {
     mode: 'server',
+    /** 🛒 상점에서 사기: 모아 둔 코인을 지금 다 얹어 보냄(서버가 먼저 더하고 차감) */
+    async buy(item) {
+      const coins = takeCoins({ force: true });
+      try {
+        const r = await http('POST', '/api/shop/buy', { item, coins });
+        coinsResult(r);
+        return r;
+      } catch (e) {
+        if (coins) coinsResult(e && e.data);
+        throw e;
+      }
+    },
     config: () => {
       if (bootConfig) {
         const c = bootConfig;
@@ -12514,6 +12581,9 @@ function mockApi(cfg) {
   const real = cfg.apiMode !== 'mock' && !isLocal();
   return {
     mode: 'mock',
+    async buy() {
+      throw Object.assign(new Error('no_server'), { status: 503 });
+    },
     async config() {
       return { gateMode: cfg.gateMode, instagramHandle: cfg.instagramHandle };
     },
@@ -12685,15 +12755,15 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-22g',
+    id: '2026-11-22h',
     date: '11월 22일',
-    title: '🔥 오늘의 챌린지 · 🎵 최신곡으로 치기 · 🪙 코인',
+    title: '🛒 상점 · 🔥 오늘의 챌린지 · 🎵 최신곡으로 치기',
     items: [
+      '<b>🛒 상점 오픈!</b> 왼쪽 위 코인을 누르면 콩 색·배경·드럼 세트를 살 수 있어요 · ✨ 특별 콩 색(👑 황금 · 🌌 은하수)도 있어요',
       '<b>칠 때마다 판정선이 흔들리던 것</b> 고쳤어요 — 이제 쿵·짝 자리가 꼼짝 안 해요',
       '<b>🎵 최신곡으로 치기</b> — 노래 나오는 화면을 화면 녹화해서 넣으면 그 노래로 쳐요',
       '<b>🔥 오늘의 챌린지</b> — 매일 곡 하나와 미션이 바뀌어요. 성공하면 <b>연속 일수</b>가 쌓여요!',
       '<b>🪙 코인</b> — PERFECT 2개, 나머지 1개! 중간에 끝나도 친 만큼 쌓여요',
-      '곧 <b>상점</b>이 열려요 — 코인으로 배경·드럼 세트·콩 색·📷 내 사진 배경을 꾸며요',
       'PERFECT·GREAT·GOOD 글자를 크기·색으로 더 잘 구분되게 바꿨어요',
       '서버가 잠깐 쉴 때 친 기록도 폰에 모아 뒀다가, 서버가 돌아오면 <b>랭킹에 올라가요</b>',
     ],
@@ -13699,6 +13769,7 @@ const __m_main = (() => {
 
 const { LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES, ENDLESS_ID, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo, ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId, STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase, COUNT_IN_BARS, ROUND_BARS, BEAT_ID, makeBeatReel, beatOpts, beatSeconds, BEAT_MAX_ROUNDS, BEAT_STYLES, BEAT_DIFFS, beatStyleName, QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds, STEPS_PER_BAR, CHAR_LANES, KICK, SNARE, HAT, CRASH, parseChord, noteCount } = __m_charts;
 const { todayMission, missionDone, streakView, markDone } = __m_daily;
+const { DECO_THEMES, NOTE_SHOP, NOTE_PREMIUM, priceOf } = __m_shop;
 const { separateVocals, resample } = __m_vocalsep;
 const { transcribeSong } = __m_songmap;
 const { instrumentNotes } = __m_instnotes;
@@ -15683,6 +15754,12 @@ async function checkReq({ manual = false } = {}) {
 /** 인증 상태·서버 잔액을 coins.js 에 알림 (me 를 새로 받았을 때 그 잔액은 한 번만 씀) */
 function syncCoinAccount() {
   const me = state.me || {};
+  // 🛒 서버에 있는 산 것 → 이 폰 목록에 합침 (폰을 바꿔도 그대로)
+  if (Array.isArray(me.owned) && me.owned.length) {
+    const mine = load('decoOwned', []) || [];
+    const all = [...new Set([...mine, ...me.owned])];
+    if (all.length !== mine.length) save('decoOwned', all);
+  }
   const fresh = Number.isFinite(me.coins) && !me._coinsUsed;
   if (fresh) me._coinsUsed = true;
   setCoinAccount(isConfirmed(), fresh ? me.coins : undefined);
@@ -15732,7 +15809,6 @@ const decoPick = (type) => {
   return decoOpen(type, k) ? k : DECO_FREE[type];
 };
 //   이 폰에만 저장(설정). 서버 요청 없음. 영상 찍기는 원래 맵 그대로(render.js)
-const DECO_THEMES = ['sunset', 'city', 'hall', 'void', 'lava', 'aurora', 'xmas', 'space'];
 function applyDeco() {
   const s = state.settings;
   const bg = decoPick('bg');
@@ -15762,6 +15838,7 @@ function renderDeco() {
     }).join('');
   const lanes = (p) => (p.c ? p.c.slice(0, 4).map((c) => c[0]) : LANE_DEFAULT);
   $('#set-notes').innerHTML = Object.entries(NOTE_PALETTES)
+    .filter(([k, p]) => !p.premium || decoOpen('notes', k))
     .map(([k, p]) => chip('notes', k, p.name, `conic-gradient(${lanes(p).join(',')})`, (s.notes || 'basic') === k))
     .join('');
   $('#set-photo-opts').hidden = !(decoPick('bg') === 'photo' && photo.url);
@@ -15831,6 +15908,91 @@ async function pickPhoto(file) {
   toast('📷 배경으로 넣었어요! 다음 판부터 보여요', 2400);
 }
 const LANE_DEFAULT = LANE.slice(0, 4).map((l) => l.main);
+
+// ---------------- 🛒 상점 (2026-11-22) ----------------
+//   가격표는 shop.js (서버와 같이 씀). 인증한 계정 = 서버 지갑에서 차감(/api/shop/buy, 모아 둔 코인을 같이 보냄),
+//   인증 전 = 이 폰 코인에서 차감. 산 것은 decoOwned 에 → 설정 → 꾸미기에서 바로 고를 수 있음
+const SHOP_AUTO = 'conic-gradient(#FF9A6B,#6A1B78,#7A2A1C,#1C4A5E,#FF9A6B)';
+function shopSwatch(type, key) {
+  if (type === 'notes') {
+    const p = NOTE_PALETTES[key];
+    return `conic-gradient(${(p && p.c ? p.c.slice(0, 4).map((c) => c[0]) : LANE_DEFAULT).join(',')})`;
+  }
+  if (key === 'photo') return 'linear-gradient(135deg,#ffd6a5,#bde0fe)';
+  const t = THEMES[key];
+  if (!t) return SHOP_AUTO;
+  if (type === 'kit') {
+    const sh = t.kit.shell;
+    return `radial-gradient(circle at 35% 30%,${sh[0]},${sh[1]} 55%,${sh[2]})`;
+  }
+  return `linear-gradient(${t.sky.join(',')})`;
+}
+function shopName(type, key) {
+  if (type === 'notes') return (NOTE_PALETTES[key] || {}).name || key;
+  if (key === 'photo') return '📷 내 사진 배경';
+  return (THEMES[key] || {}).name || key;
+}
+function renderShop(focus) {
+  $('#shop-coins').textContent = fmt(getCoins());
+  const item = (type, key) => {
+    const id = `${type}:${key}`;
+    const own = decoOpen(type, key);
+    const price = priceOf(id);
+    return `<button class="shop-item ${own ? 'owned' : ''} ${focus === id ? 'focus' : ''}" data-shop="${id}"${own ? ' disabled' : ''}>
+      <i style="background:${shopSwatch(type, key)}"></i><b>${escapeHtml(shopName(type, key))}</b>
+      <span>${own ? '보유' : `<i class="coin-ico"></i>${fmt(price)}`}</span></button>`;
+  };
+  const sec = (title, items, cls = '') => `<h4 class="${cls}">${title}</h4><div class="shop-grid">${items.join('')}</div>`;
+  $('#shop-list').innerHTML =
+    sec('✨ 특별 콩 색 <small>랭커 전용급</small>', Object.keys(NOTE_PREMIUM).map((k) => item('notes', k)), 'shop-premium') +
+    sec('🎨 콩 색', NOTE_SHOP.map((k) => item('notes', k))) +
+    sec('🌄 배경', [item('bg', 'photo'), ...DECO_THEMES.map((k) => item('bg', k))]) +
+    sec('🥁 드럼 세트', DECO_THEMES.map((k) => item('kit', k)));
+  const f = focus && $(`#shop-list [data-shop="${focus}"]`);
+  if (f) setTimeout(() => f.scrollIntoView({ block: 'center', behavior: 'smooth' }), 60);
+}
+function openShop(focus) {
+  renderShop(typeof focus === 'string' ? focus : null);
+  openModal('modal-shop');
+}
+/** 산 것을 바로 씀 (사진 배경이면 사진 고르기) */
+function equipDeco(id) {
+  const [type, key] = id.split(':');
+  if (type === 'bg' && key === 'photo') {
+    if (!photo.url) return $('#set-photo-file').click();
+  }
+  state.settings[type] = key;
+  saveSettings(state.settings);
+  applyDeco();
+  renderDeco();
+}
+async function buyShop(id) {
+  const price = priceOf(id);
+  const [type, key] = id.split(':');
+  if (price == null || decoOpen(type, key)) return;
+  if (getCoins() < price) return toast(`🪙 코인이 ${fmt(price - getCoins())}개 모자라요 · 콩을 맞히면 쌓여요`, 2600);
+  const name = shopName(type, key);
+  const account = isConfirmed() && state.api && state.api.mode === 'server';
+  if (account) {
+    if (load('coinSending', null)) return toast('코인 보내는 중이에요 · 잠시 뒤 다시 눌러 주세요', 2200);
+    try {
+      const r = await state.api.buy(id);
+      save('decoOwned', [...new Set([...(load('decoOwned', []) || []), ...(r.owned || []), id])]);
+    } catch (e) {
+      if (e && e.status === 402) return renderShop(id), toast('🪙 코인이 모자라요', 2200);
+      return toast(e && e.status === 503 ? '서버가 잠깐 쉬는 중이라 지금은 못 사요 · 조금 뒤 다시' : '사지 못했어요 · 잠시 뒤 다시 해 주세요', 2800);
+    }
+  } else {
+    const have = Number(load('coins', 0)) || 0;
+    if (have < price) return toast('🪙 코인이 모자라요', 2200);
+    save('coins', have - price);
+    save('decoOwned', [...new Set([...(load('decoOwned', []) || []), id])]);
+  }
+  refreshCoins();
+  renderShop(id);
+  equipDeco(id);
+  toast(`🎉 ${name} 샀어요! 바로 적용했어요`, 2400);
+}
 function bindDeco() {
   loadPhotoBg();
   $('#set-photo-file').addEventListener('change', (e) => {
@@ -15855,12 +16017,16 @@ function bindDeco() {
     renderDeco();
     toast('사진을 지웠어요', 1800);
   });
+  $('#shop-list').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-shop]');
+    if (b && !b.disabled) buyShop(b.dataset.shop);
+  });
   $('#set-deco').addEventListener('click', (e) => {
     const b = e.target.closest('.chip');
     if (!b) return;
     const s = state.settings;
     const [type, key] = Object.entries(DECO_FREE).map(([t]) => [t, b.dataset[t]]).find(([, k]) => k) || [];
-    if (!decoOpen(type, key)) return toast('🔒 곧 상점에서 코인으로 열 수 있어요! 콩을 맞힐수록 코인이 쌓여요', 2800);
+    if (!decoOpen(type, key)) return openShop(`${type}:${key}`);
     if (b.dataset.bg === 'photo' && !photo.url) return $('#set-photo-file').click();
     if (b.dataset.bg) s.bg = b.dataset.bg;
     if (b.dataset.kit) s.kit = b.dataset.kit;
@@ -18971,6 +19137,8 @@ const ACTIONS = {
   'room-leave': roomLeave,
   'room-next': roomNext,
   'news-open': openNews,
+  'shop-open': () => openShop(),
+  'close-shop': () => closeModal('modal-shop'),
   'a2hs-open': openA2hs,
   'close-a2hs': () => closeModal('modal-a2hs'),
   'a2hs-install': a2hsInstall,
