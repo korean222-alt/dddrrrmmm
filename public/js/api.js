@@ -227,6 +227,24 @@ function mockApi(cfg) {
       const me = entries.find((e) => e.me) || null;
       return { level: Number(level), entries, me, sample: true };
     },
+    // 🎹 유저 맵: 서버가 쉬는 동안 예전 목록·맵 (치기만, 기록·좋아요·올리기는 안 됨)
+    ...(real
+      ? {
+          async maps(sort) {
+            const d = await snapGet(`/api/snap/maps?sort=${sort === 'top' ? 'top' : 'new'}`);
+            if (!d || !Array.isArray(d.maps)) throw Object.assign(new Error('no_server'), { status: 503 });
+            return d;
+          },
+          async mapGet(id) {
+            const d = await snapGet(`/api/snap/maps/${encodeURIComponent(id)}`);
+            if (!d || !d.map) throw Object.assign(new Error('no_server'), { status: 503 });
+            return d;
+          },
+          async mapVote() {
+            throw Object.assign(new Error('no_server'), { status: 503 });
+          },
+        }
+      : {}),
     async hall(board) {
       if (real) {
         const d = await snapGet(`/api/snap/hall?board=${board === 'endless' ? 'endless' : 'stage'}`);

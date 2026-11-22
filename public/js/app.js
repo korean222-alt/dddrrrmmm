@@ -12362,6 +12362,24 @@ function mockApi(cfg) {
       const me = entries.find((e) => e.me) || null;
       return { level: Number(level), entries, me, sample: true };
     },
+    // 🎹 유저 맵: 서버가 쉬는 동안 예전 목록·맵 (치기만, 기록·좋아요·올리기는 안 됨)
+    ...(real
+      ? {
+          async maps(sort) {
+            const d = await snapGet(`/api/snap/maps?sort=${sort === 'top' ? 'top' : 'new'}`);
+            if (!d || !Array.isArray(d.maps)) throw Object.assign(new Error('no_server'), { status: 503 });
+            return d;
+          },
+          async mapGet(id) {
+            const d = await snapGet(`/api/snap/maps/${encodeURIComponent(id)}`);
+            if (!d || !d.map) throw Object.assign(new Error('no_server'), { status: 503 });
+            return d;
+          },
+          async mapVote() {
+            throw Object.assign(new Error('no_server'), { status: 503 });
+          },
+        }
+      : {}),
     async hall(board) {
       if (real) {
         const d = await snapGet(`/api/snap/hall?board=${board === 'endless' ? 'endless' : 'stage'}`);
@@ -16050,19 +16068,25 @@ async function loadMaps(fresh = false) {
   try {
     const r = await state.api.maps(um.sort, fresh);
     um.list = r.maps || [];
+    um.snap = r.snap || null;
     renderMaps();
   } catch (e) {
-    box.innerHTML = `<p class="rank-empty">${e.status === 429 ? '오늘 서버가 바빠요. 내일 오전 9시에 다시 열려요' : '못 불러왔어요. 잠시 뒤 다시 해 보세요'}</p>`;
+    box.innerHTML = e.status === 503 ? snapNotice(null).replace('랭킹은', '유저 맵은') : `<p class="rank-empty">${e.status === 429 ? '오늘 서버가 바빠요. 내일 오전 9시에 다시 열려요' : '못 불러왔어요. 잠시 뒤 다시 해 보세요'}</p>`;
   }
+}
+/** 📴 서버가 쉬는 동안 유저 맵 목록 위 안내 */
+function mapsSnapNotice() {
+  const n = snapNotice({ snap: um.snap });
+  return n.replace('</b> 기준 랭킹이에요', '</b>까지 올라온 맵이에요 · 지금은 치기만 돼요').replace('실시간으로 업데이트돼요', '기록·좋아요·올리기가 다시 돼요');
 }
 function renderMaps() {
   const box = $('#maps-list');
   const likes = umLikes();
   if (!um.list.length) {
-    box.innerHTML = '<p class="rank-empty">아직 올라온 맵이 없어요.<br>첫 맵을 만들어 올려 보세요!</p>';
+    box.innerHTML = '<p class="rank-empty">아직 올라온 맵이 없어요</p>';
     return;
   }
-  box.innerHTML = um.list
+  box.innerHTML = (um.snap ? mapsSnapNotice() : '') + um.list
     .map((m) => {
       const liked = !!likes[m.id];
       return `<div class="map-card" data-id="${m.id}">
@@ -16110,7 +16134,7 @@ async function mapAct(id, act, btn) {
       toast('지웠어요', 1400);
     }
   } catch (e) {
-    toast(e.status === 403 ? '팔로워 인증을 하면 쓸 수 있어요' : e.status === 404 ? '이미 내려간 맵이에요' : '잠시 뒤 다시 해 보세요', 2200);
+    toast(e.status === 403 ? '팔로워 인증을 하면 쓸 수 있어요' : e.status === 404 ? '이미 내려간 맵이에요' : e.status === 503 ? '서버가 쉬는 중이라 오전 9시부터 돼요' : '잠시 뒤 다시 해 보세요', 2200);
   }
 }
 async function playMap(id) {

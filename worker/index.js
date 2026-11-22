@@ -119,7 +119,7 @@ async function offlineSave(request, env) {
 }
 
 // 📴 서버(D1) 가 쉬는 동안 보여 줄 랭킹 (2026-11-22): Neon 에 남은 D1 이사 전(11-22 09:49 KST) 랭킹을 그대로
-//   /api/snap/leaderboard?level= · /api/snap/hall?board= → Neon 저장소로 만든 handler 에 /api/leaderboard·/api/hall 로 넘김
+//   /api/snap/leaderboard?level= · /api/snap/hall?board= · /api/snap/maps?sort= · /api/snap/maps/<id> → Neon 저장소로 만든 handler 에 /api/leaderboard·/api/hall 로 넘김
 //   쿠키 빼고(내 줄 없음) Cloudflare 캐시 10분 → Neon 을 거의 안 깨움
 let snapReady = null;
 let snapAt = null;
@@ -146,7 +146,8 @@ async function snapshot(request, env, url) {
     if (snapAt == null) snapAt = Number(((await store.q('SELECT MAX(at) AS t FROM scores'))[0] || {}).t) || 0;
     const inner = new URL(url);
     inner.pathname = url.pathname.replace('/api/snap/', '/api/');
-    const res = await handle(new Request(inner.toString(), { method: 'GET' }), { ip: 'snap' });
+    inner.searchParams.delete('play'); // 맵 받기: 친 횟수 올리기(쓰기) 안 함
+    const res = await handle(new Request(inner.toString(), { method: 'GET' }), { ip: request.headers.get('cf-connecting-ip') || '?' });
     if (!res.ok) return Response.json({ error: 'no_snapshot' }, { status: 503, headers: SECURITY_HEADERS });
     const out = Response.json({ ...(await res.json()), snap: { at: snapAt } }, { headers: h });
     await cache.put(key, out.clone());
@@ -159,7 +160,7 @@ async function snapshot(request, env, url) {
 
 async function api(request, env) {
   const url = new URL(request.url);
-  if (url.pathname === '/api/snap/leaderboard' || url.pathname === '/api/snap/hall') {
+  if (/^\/api\/snap\/(leaderboard|hall|maps|maps\/[A-Za-z0-9]{7})$/.test(url.pathname)) {
     meter.q++;
     return snapshot(request, env, url);
   }
