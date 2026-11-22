@@ -704,7 +704,8 @@ async function startLevel(id, opts = {}) {
   state.practice = practice;
   // 🎲 랜덤 대결: 곡이 넘어갈수록 빨라짐 (두 사람 다 round 로 같은 빠르기)
   const rushRate = opts.room && opts.room.rush ? rushSpeed(opts.room.round) : 1;
-  const lv = practice ? practiceLevel(base, practice) : rushRate > 1 ? { ...base, bpm: Math.round(base.bpm * rushRate * 10) / 10 } : base;
+  let lv = practice ? practiceLevel(base, practice) : rushRate > 1 ? { ...base, bpm: Math.round(base.bpm * rushRate * 10) / 10 } : base;
+  if (state.studio.active && isFailFormat() && typeof lv.id === 'number' && !lv.challenge) lv = failLevel(lv);
   // 친구 대결 방 판: { startAt(내 시계 ms), mode } — 같은 시각에 시작, 랭킹엔 안 올림
   // 🏆 랭킹전 판: 실시간 { startAt(내 시계 ms), mode, round } / 고스트 { ghost, gid } — 랭킹엔 안 올림
   const room = opts.room || null;
@@ -911,7 +912,7 @@ async function startLevel(id, opts = {}) {
     },
     // 영상 찍기 땐 목숨 없음 (녹화 중에 멈추면 안 되니까). 멀티는 광고 이어하기 없이 그 자리에서 끝
     // 🐢 연습은 목숨 없이 끝까지
-    onDeath: st.active || practice ? null : lv.userMap && um.from === 'list' && um.mode === 'hearts' ? umDeath : lv.custom ? null : room ? onRoomDeath : onDeath,
+    onDeath: st.active ? (lv.failReel ? studioFailDeath : null) : practice ? null : lv.userMap && um.from === 'list' && um.mode === 'hearts' ? umDeath : lv.custom ? null : room ? onRoomDeath : onDeath,
   });
   if (live) {
     // 상대와 같은 시각에 시작: 남은 시간 카운트다운 (Game.start 가 0.35초 뒤에 첫 박을 놓음)
@@ -3897,13 +3898,23 @@ const STUDIO_TEXT = {
   beat: { top: '엄지 드럼 챌린지', bottom: '어디까지 따라오나 보자' },
   beatSteady: { top: '이 노래 엄지로 쳐봐', bottom: '프로필 링크에서 직접 쳐보기' },
   quiz: { top: '이 노래 제목 맞혀봐!', bottom: '정답은 영상 끝에 · 댓글로 먼저!' },
+  fail: { top: '이 정도는 쉽지 ㅋㅋ', bottom: '이거 깰 수 있는 사람?' },
 };
 const isQuizFormat = () => state.studio.format === 'quiz';
+/** 💀 실패 영상: 잘 치다가 일부러 MISS 를 줄줄이 → 하트가 다 떨어져 끝 → 도발 문구 */
+const isFailFormat = () => state.studio.format === 'fail';
+const FAIL_SECS = [8, 12, 18, 25];
+/** 실패 영상 판: 탈락 시점(첫 콩부터 초)을 곡 길이 안으로 */
+function failLevel(lv) {
+  const total = (lv.bars.length * 4 * 60) / lv.bpm;
+  return { ...lv, failReel: true, failAfter: Math.max(3, Math.min(state.studio.failSec || 12, total * 0.85)) };
+}
 /** 실제로 칠 판 id: 노래 맞히기면 'q2x8' 처럼 */
 const studioPlayId = () => (isQuizFormat() && typeof state.studio.level === 'number' ? quizId(state.studio.level, state.studio.quizBars ?? 8) : state.studio.level);
 const STUDIO_CHALLENGES = [4, 7];
 function studioDefaults(id) {
   if (isQuizFormat()) return STUDIO_TEXT.quiz;
+  if (isFailFormat()) return STUDIO_TEXT.fail;
   if (id === BEAT_ID) {
     const style = beatSaved().style;
     return style === 'steady' || style === 'song' ? STUDIO_TEXT.beatSteady : STUDIO_TEXT.beat;
@@ -3915,7 +3926,7 @@ function pickStudioLevel(id) {
   const top = $('#studio-top');
   const bottom = $('#studio-bottom');
   // 기본 문구 그대로였으면 새 기본 문구로 바꿔 줌 (직접 쓴 문구는 그대로)
-  const all = [STUDIO_TEXT.level, STUDIO_TEXT.beat, STUDIO_TEXT.beatSteady, { top: '드롭에서 엄지 터짐 주의', bottom: '빌드업 끝까지 따라와 봐' }, { top: '이 노래 엄지로 드럼 커버', bottom: '프로필 링크에서 직접 쳐보기' }, STUDIO_TEXT.quiz, ...STUDIO_CHALLENGES.map(STUDIO_TEXT.challenge)];
+  const all = [STUDIO_TEXT.level, STUDIO_TEXT.beat, STUDIO_TEXT.beatSteady, { top: '드롭에서 엄지 터짐 주의', bottom: '빌드업 끝까지 따라와 봐' }, { top: '이 노래 엄지로 드럼 커버', bottom: '프로필 링크에서 직접 쳐보기' }, STUDIO_TEXT.quiz, STUDIO_TEXT.fail, ...STUDIO_CHALLENGES.map(STUDIO_TEXT.challenge)];
   const after = studioDefaults(id);
   if (!top.value.trim() || all.some((d) => d.top === top.value.trim())) top.value = after.top;
   if (!bottom.value.trim() || all.some((d) => d.bottom === bottom.value.trim())) bottom.value = after.bottom;
@@ -3927,6 +3938,20 @@ function pickStudioLevel(id) {
   }
   st.level = id;
   fillQuizBars();
+  fillFailLen();
+}
+
+/** 실패 영상: 몇 초쯤에 탈락할지 + 문구 칸 이름 */
+function fillFailLen() {
+  const st = state.studio;
+  const on = isFailFormat();
+  $('#fail-len').hidden = !on;
+  $('#studio-top-label').textContent = on ? '위 (치는 동안)' : '위 (훅)';
+  $('#studio-bottom-label').textContent = on ? '끝 (도발 문구)' : '아래 (유도)';
+  if (!on) return;
+  if (!FAIL_SECS.includes(st.failSec)) st.failSec = 12;
+  $('#fail-secs').innerHTML = FAIL_SECS.map((n) => `<option value="${n}">약 ${n}초에 탈락</option>`).join('');
+  $('#fail-secs').value = String(st.failSec);
 }
 
 /** 노래 맞히기: 길이 고르기 (곡마다 초가 달라서 곡을 바꾸면 다시 채움) */
@@ -3947,7 +3972,7 @@ function fillQuizBars() {
 function renderStudioLevels() {
   const st = state.studio;
   $$('#studio-format button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.format === (st.format || 'play')));
-  if (isQuizFormat()) {
+  if (isQuizFormat() || isFailFormat()) {
     $('#studio-levels').innerHTML = LEVELS.map((l) => `<button data-studio-level="${l.id}" aria-pressed="${l.id === st.level}">${levelLabel(l)} · ${l.name}</button>`).join('');
   } else {
     $('#studio-levels').innerHTML =
@@ -3963,8 +3988,9 @@ function renderStudioLevels() {
 function pickStudioFormat(f) {
   const st = state.studio;
   st.format = f;
-  // 노래 맞히기는 진짜 곡만 (레벨업 챌린지·박자 맞추기는 곡이 아님)
-  pickStudioLevel(f === 'quiz' && (typeof st.level !== 'number' || !getLevel(st.level)) ? 2 : st.level);
+  // 노래 맞히기·실패 영상은 진짜 곡만 (레벨업 챌린지·박자 맞추기는 곡이 아님)
+  const real = typeof st.level === 'number' && getLevel(st.level);
+  pickStudioLevel(f === 'quiz' && !real ? 2 : f === 'fail' && !real ? (getLevel(9) ? 9 : 2) : st.level);
   renderStudioLevels();
 }
 
@@ -3972,6 +3998,7 @@ function pickStudioFormat(f) {
 function studioOverlay(lv) {
   const st = state.studio;
   if (lv.quiz) return { top: st.top, bottom: st.bottom, quiz: true, answer: lv.name, composer: lv.composer, bottomEnd: '프로필 링크에서 직접 쳐보기' };
+  if (isFailFormat() && typeof lv.id === 'number') return { top: st.top, bottom: st.bottom, fail: true, label: `${levelLabel(lv)} · ${lv.composer} ${lv.name}`, bottomEnd: '프로필 링크에서 도전' };
   return {
     top: st.top,
     bottom: st.bottom,
@@ -3989,6 +4016,7 @@ function openStudio() {
   st.active = false;
   $('#screen-game').classList.remove('studio-mode');
   if (isQuizFormat() && (typeof st.level !== 'number' || !getLevel(st.level))) st.level = 2;
+  if (isFailFormat() && (typeof st.level !== 'number' || !getLevel(st.level))) st.level = getLevel(9) ? 9 : 2;
   renderStudioLevels();
   $$('#studio-mode button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.mode === st.mode));
   $('#studio-top').value = st.top;
@@ -4504,7 +4532,8 @@ async function studioStart() {
   st.bottom = $('#studio-bottom').value.trim();
   st.file = $('#studio-file').checked;
   st.quizBars = Number($('#quiz-bars').value || st.quizBars || 8);
-  save('studio', { level: st.level, mode: st.mode, top: st.top, bottom: st.bottom, file: st.file, format: st.format || 'play', quizBars: st.quizBars });
+  st.failSec = Number($('#fail-secs').value || st.failSec || 12);
+  save('studio', { level: st.level, mode: st.mode, top: st.top, bottom: st.bottom, file: st.file, format: st.format || 'play', quizBars: st.quizBars, failSec: st.failSec });
   const playId = studioPlayId();
   closeModal('modal-studio-done');
   await audio.unlock();
@@ -4569,18 +4598,33 @@ function stopRecorder() {
   });
 }
 
+/** 💀 실패 영상: 하트가 다 떨어짐 → '띠로리' + 그대로 끝 (studioFinish 가 도발 문구 장면을 찍음) */
+function studioFailDeath() {
+  const g = state.game;
+  if (!g || !state.studio.active) return;
+  g.giveUp();
+  try {
+    audio.aww();
+  } catch {}
+}
+
 async function studioFinish(res) {
   const st = state.studio;
   // 마지막 장면(환호하는 마스코트)을 잠깐 더 담기
   const g = state.game;
   const t0 = performance.now();
+  const died = !!(res.failed && g && g.level.failReel);
   await new Promise((resolve) => {
     (function hold() {
       const rt = performance.now() / 1000;
       renderer.draw(
         {
-          now: g.endTime,
-          notes: [],
+          now: died ? g.diedAt : g.endTime,
+          notes: died ? g.notes : [],
+          dead: died,
+          lives: died ? 0 : null,
+          maxLives: MAX_LIVES,
+          progress: res.progress,
           approach: g.approach,
           beatDur: g.beat,
           combo: g.combo,
@@ -4593,7 +4637,7 @@ async function studioFinish(res) {
         rt
       );
       // 노래 맞히기: 정답이 뜨는 장면을 넉넉히
-      if (performance.now() - t0 < (renderer.studio && renderer.studio.quiz ? 3600 : res.challenge ? 2400 : 1500)) requestAnimationFrame(hold);
+      if (performance.now() - t0 < (renderer.studio && (renderer.studio.quiz || died) ? 3600 : res.challenge ? 2400 : 1500)) requestAnimationFrame(hold);
       else resolve();
     })();
   });
@@ -4630,7 +4674,7 @@ async function studioFinish(res) {
     $('#btn-studio-save').hidden = true;
     $('#studio-done-msg').textContent = '화면 녹화를 멈추고 사진 앱에서 확인하세요. 위아래를 9:16으로 잘라 쓰면 딱 맞아요.';
   }
-  if (!res.auto && !res.challenge && !isQuizId(res.levelId)) saveBest(res);
+  if (!res.auto && !res.challenge && !res.failed && !isQuizId(res.levelId)) saveBest(res);
   openModal('modal-studio-done');
 }
 
@@ -4638,7 +4682,7 @@ async function studioSave() {
   const st = state.studio;
   if (!st.blob) return;
   const ext = st.blob.type.includes('mp4') ? 'mp4' : 'webm';
-  const file = new File([st.blob], `okaystra-${isQuizFormat() ? 'quiz-' + st.level : isChallengeId(st.level) ? 'challenge' : st.level + '단계'}.${ext}`, { type: st.blob.type });
+  const file = new File([st.blob], `okaystra-${isQuizFormat() ? 'quiz-' + st.level : isFailFormat() ? 'fail-' + st.level : isChallengeId(st.level) ? 'challenge' : st.level + '단계'}.${ext}`, { type: st.blob.type });
   try {
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       await navigator.share({ files: [file] });
@@ -5954,6 +5998,7 @@ function bindActions() {
   });
   $('#my-rec').addEventListener('change', (e) => (my.rec = e.target.checked));
   $('#quiz-bars').addEventListener('change', (e) => (state.studio.quizBars = Number(e.target.value)));
+  $('#fail-secs').addEventListener('change', (e) => (state.studio.failSec = Number(e.target.value)));
   $('#calib-pad').addEventListener('pointerdown', (e) => {
     e.preventDefault();
     if (!audio.ctx) return;
