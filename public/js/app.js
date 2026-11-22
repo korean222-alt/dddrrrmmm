@@ -16028,7 +16028,10 @@ function bindGameInput() {
   );
   // 아이폰: 손가락 하나의 '뗌'(touchend)을 놓치면 사파리가 그 손가락이 아직 붙어 있다고 여겨,
   //   그 근처를 새로 눌러도 touchstart 대신 그 '유령 손가락'의 touchmove 로만 보냄 → 그 줄(주로 왼쪽 엄지 쿵)만 안 눌리고 새로고침해야 풀림.
-  //   한동안 조용하던 손가락이 다른 자리에서 갑자기 움직이면 새로 누른 것으로 봄
+  //   한동안 조용하던 손가락이 다른 자리에서 갑자기 움직이면 새로 누른 것으로 봄.
+  //   2026-11-22 '쳐야 할 곳이 많은 곳에선 터치가 안 됨' 신고: 빽빽한 구간은 같은 엄지로 0.1~0.2초마다 거의 같은 자리를 두드려서
+  //   예전 기준(0.25초 조용 + 10px)엔 하나도 안 걸림 → 그 구간 터치가 통째로 빠짐. 눌러 놓은 손가락의 움직임은 거의 매 프레임(16ms) 오니
+  //   70ms 넘게 조용하다가 4px 넘게 옮겨 온 건 새로 누른 것으로 봄
   const held = new Map();
   canvas.addEventListener(
     'touchmove',
@@ -16036,7 +16039,7 @@ function bindGameInput() {
       e.preventDefault();
       for (const t of e.changedTouches) {
         const h = held.get(t.identifier);
-        const revived = !h || (e.timeStamp - h.at > 250 && Math.hypot(t.clientX - h.x, t.clientY - h.y) > 10);
+        const revived = !h || (e.timeStamp - h.at > 70 && Math.hypot(t.clientX - h.x, t.clientY - h.y) > 4);
         held.set(t.identifier, { at: e.timeStamp, x: t.clientX, y: t.clientY });
         if (revived && state.game) tapAt(t.clientX, t.clientY, e.timeStamp);
       }
