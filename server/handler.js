@@ -1079,7 +1079,7 @@ export function createHandler(cfg, { store }) {
         // 등수는 기록이 올랐을 때만 셈 (D1 읽기 아끼기)
         const mine = out.improved ? await store.rankOf(em.slot, pl.igsid) : null;
         const best = endlessParts(out.best);
-        return json(200, wc({ improved: out.improved, best: best.score, rounds: best.rounds, rank: mine ? mine.rank : null, kept: !out.improved }));
+        return json(200, wc({ improved: out.improved, best: best.score, rounds: best.rounds, rank: mine ? mine.rank : null, over: !!(mine && mine.over), kept: !out.improved }));
       }
       const v = validateScore(body, cfg);
       if (!v.ok) return json(400, wc({ error: v.error }));
@@ -1089,7 +1089,7 @@ export function createHandler(cfg, { store }) {
       if (v.level.id > 0) await Promise.resolve().then(() => store.addTry(pl.igsid, v.level.id, 0, 1)).catch(() => {});
       if (seasonAt().n > 1 && v.level.id > 0 && v.level.id <= LAST_LEVEL_ID) await store.recordSeasonScore(seasonAt().n, pl.igsid, v.level.id, v.score);
       const mine = out.improved ? await store.rankOf(v.level.id, pl.igsid) : null;
-      return json(200, wc({ ...out, rank: mine ? mine.rank : null, kept: !out.improved }));
+      return json(200, wc({ ...out, rank: mine ? mine.rank : null, over: !!(mine && mine.over), kept: !out.improved }));
     }
 
     // 🏛 명예의 전당: 이번 시즌 총합 랭킹(단계·무제한) + 끝난 시즌 1·2·3등(사진 포함)
@@ -1138,7 +1138,7 @@ export function createHandler(cfg, { store }) {
       const entries = lb.rows.map((r) => ({ rank: r.rank, username: r.username, ...endlessParts(r.score), me: pl ? r.igsid === pl.igsid : false }));
       const inTop = pl && lb.rows.find((r) => r.igsid === pl.igsid);
       const mine = inTop ? { rank: inTop.rank, score: inTop.score } : pl ? await store.rankOf(lbEndless.slot, pl.igsid) : null;
-      return json(200, { level: lbEndless.id, entries, me: mine ? { rank: mine.rank, ...endlessParts(mine.score) } : null });
+      return json(200, { level: lbEndless.id, entries, me: mine ? { rank: mine.rank, over: !!mine.over, ...endlessParts(mine.score) } : null });
     }
 
     if (p === '/api/leaderboard' && m === 'GET') {
@@ -1149,7 +1149,7 @@ export function createHandler(cfg, { store }) {
       const entries = lb.rows.map((r) => ({ rank: r.rank, username: r.username, score: r.score, grade: r.grade, me: pl ? r.igsid === pl.igsid : false }));
       const inTop = pl && lb.rows.find((r) => r.igsid === pl.igsid);
       const mine = inTop ? { rank: inTop.rank, score: inTop.score } : pl ? await store.rankOf(level.id, pl.igsid) : null;
-      return json(200, { level: level.id, entries, me: mine ? { rank: mine.rank, score: mine.score } : null });
+      return json(200, { level: level.id, entries, me: mine ? { rank: mine.rank, over: !!mine.over, score: mine.score } : null });
     }
 
     return json(404, { error: 'not_found' });

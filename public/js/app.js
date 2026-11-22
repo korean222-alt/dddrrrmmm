@@ -14964,8 +14964,8 @@ async function submitRank(r = state.lastResult) {
     backupOffline(r.levelId).then((ok) =>
       say(
         ok
-          ? '✅ 기록을 <b>이 폰</b>과 <b>서버 보관함</b>에 저장했어요<small>서버가 돌아오면 랭킹에 자동으로 올라가요</small>'
-          : '📴 기록을 <b>이 폰</b>에 저장했어요<small>서버가 돌아오면 이 폰에서 게임을 한 번 열어 주세요 · 방문 기록·사이트 데이터는 지우지 마세요</small>'
+          ? '✅ 기록을 <b>이 폰</b>과 <b>서버 보관함</b>에 저장했어요<small>오전 9시부터 랭킹에 자동으로 올라가요</small>'
+          : '📴 기록을 <b>이 폰</b>에 저장했어요<small>오전 9시 뒤에 이 폰에서 게임을 한 번 열어 주세요 · 방문 기록·사이트 데이터는 지우지 마세요</small>'
       )
     );
   };
@@ -14986,6 +14986,7 @@ async function submitRank(r = state.lastResult) {
     r.submitted = true;
     // kept: 기록이 안 올라서 서버가 등수를 안 셈 (D1 읽기 아끼기)
     if (out.kept && out.rank == null) toast(endless ? `내 최고 기록(Lv.${out.rounds} 클리어)이 그대로 유지돼요` : `내 최고 기록(${fmt(out.best)})이 그대로 유지돼요`, 3000);
+    else if (out.over) toast(endless ? `무제한 랭킹에 올라갔어요! Lv.${out.rounds} 클리어 · 200위 밖` : '랭킹에 올라갔어요! 200위 밖', 3000);
     else if (out.rank == null) toast('팔로우 확인이 안 돼서 지금은 랭킹에 안 보여요. 위 ⚠️ 버튼을 눌러 주세요', 3200);
     else if (endless) toast(out.improved ? `무제한 랭킹에 올라갔어요! Lv.${out.rounds} 클리어 · ${out.rank}위 🏆` : `내 최고 기록(Lv.${out.rounds} 클리어)이 그대로 유지돼요 · ${out.rank}위`, 3200);
     else toast(out.improved ? `랭킹에 올라갔어요! 현재 ${out.rank}위 🏆` : `내 최고 기록(${fmt(out.best)})이 그대로 유지돼요 · ${out.rank}위`, 3000);
@@ -15136,7 +15137,7 @@ async function loadRank() {
       const foot = [];
       foot.push(board === 'endless' ? '무제한 판(그리그·단계별 무제한) 점수를 모두 더한 점수예요.' : '단계별 최고점을 모두 더한 점수예요. 더 많은 단계를 높은 점수로 칠수록 올라가요!');
       if (data.season.n > 1) foot.push(`시즌 ${data.season.n}에 친 기록만 세요.`);
-      if (data.me) foot.push(`내 순위: ${data.me.rank}위.`);
+      if (data.me) foot.push(data.me.rank ? `내 순위: ${data.me.rank}위.` : '내 순위: 200위 밖.');
       rankFootJoin(foot);
       return;
     }
@@ -15160,7 +15161,7 @@ async function loadRank() {
       const eb = levelEndlessBase(want);
       foot.push(`${eb ? `${eb.id}단계 ${escapeHtml(eb.name)} 무제한` : '그리그 무제한 모드'} 랭킹이에요. 더 높은 단계(Lv.)까지 깬 사람이 위, 같으면 점수가 높은 사람이 위예요.`);
     }
-    if (data.me) foot.push(`내 순위: ${data.me.rank}위.`);
+    if (data.me) foot.push(data.me.rank ? `내 순위: ${data.me.rank}위.` : '내 순위: 200위 밖.');
     rankFootJoin(foot);
   } catch {
     list.innerHTML = '<div class="rank-empty">랭킹을 불러오지 못했어요.</div>';

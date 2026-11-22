@@ -14,6 +14,7 @@ export function toSqlite(text) {
 
 /** D1 은 undefined·boolean 을 못 받음 */
 /** 접속 통계를 다시 쓰는 최소 간격 */
+export const RANK_CAP = 200;
 export const SESSION_WRITE_EVERY_MS = 10 * 60 * 1000;
 
 const val = (v) => (v === undefined ? null : v === true ? 1 : v === false ? 0 : v);
@@ -140,14 +141,33 @@ export class D1Store extends PgStore {
   async resetEliseRanking() {}
 
   async cleanup(now = Date.now()) {
-    const old = now - 400 * 24 * 3600 * 1000;
     await this.batch([
       // 판 토큰(하루 약 1.1만)은 지우지 않음: 지우는 것도 한 줄씩 쓰기로 셈 → 하루 쓰기 1.1만 줄 아낌 (1년 약 400만 줄·200MB, D1 무료 저장 5GB)
       ['DELETE FROM rooms WHERE expires_at < $1', [now]],
       ['DELETE FROM transfers WHERE expires_at < $1', [now]],
-      ['DELETE FROM plays WHERE started_at < $1', [old]],
-      ['DELETE FROM sessions WHERE started_at < $1', [old]],
+      // 통계(plays·sessions) 400일 지난 것 지우기는 뺌: 색인이 없어 지울 때마다 표 전체를 읽음(2026-11-22 한 번에 2만 줄),
+      //   지울 게 생기는 건 2027-12 부터 → 그때 따로 (예: 하루 한 번 Actions 에서)
     ]);
+  }
+
+  /**
+   * 내 등수: 내 위 사람을 RANK_CAP 명까지만 셈 (2026-11-22: 등수 세기가 하루 D1 읽기의 75% — 1번에 1천~1.5천 줄)
+   *   점수 색인(scores_rank)을 내 점수부터 위로 훑다 RANK_CAP 명에서 멈춤 → 넘으면 { rank: null, over: true }
+   */
+  async rankOf(level, igsid) {
+    const r = await this.one(
+      `WITH mine AS (
+         SELECT s.score, s.at FROM scores s JOIN players p ON p.igsid = s.igsid
+         WHERE s.igsid = $1 AND s.level = $2 AND p.hidden_at IS NULL AND p.checked_at IS NOT NULL)
+       SELECT mine.score, (SELECT COUNT(*) FROM (SELECT 1 FROM scores s JOIN players p ON p.igsid = s.igsid
+           WHERE s.level = $2 AND s.score >= mine.score AND (s.score > mine.score OR s.at < mine.at)
+             AND p.username IS NOT NULL AND p.hidden_at IS NULL AND p.checked_at IS NOT NULL LIMIT ${RANK_CAP})) AS n
+       FROM mine`,
+      [igsid, level]
+    );
+    if (!r) return null;
+    const n = Number(r.n);
+    return n >= RANK_CAP ? { rank: null, over: true, score: Number(r.score) } : { rank: n + 1, score: Number(r.score) };
   }
 
   /** 최고점이면 바꿈. 한 번에 (예전 점수 읽기 + 저장) */

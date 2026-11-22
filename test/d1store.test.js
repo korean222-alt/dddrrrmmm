@@ -169,3 +169,19 @@ test('D1 통계는 덜 씀: 시작만 한 판은 안 남고, 접속은 10분 넘
   // 통계 표엔 색인 없음 (쓰기 아끼기)
   assert.deepEqual((await lite.q("SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name IN ('plays', 'sessions') AND name NOT LIKE 'sqlite_%'")), []);
 });
+
+test('D1 등수는 위 사람을 RANK_CAP 명까지만 셈 (읽기 아끼기) · 같은 점수는 먼저 낸 사람이 위', async () => {
+  const { RANK_CAP } = await import('../server/d1store.js');
+  const lite = d1Local(new DatabaseSync(':memory:'));
+  const d1 = await new D1Store(lite).init();
+  const n = RANK_CAP + 5;
+  for (let i = 0; i < n; i++) {
+    await lite.q('INSERT INTO players (igsid, username, created_at, checked_at) VALUES (?1, ?2, 1, 1)', ['p' + i, 'n' + i]);
+    await lite.q('INSERT INTO scores (igsid, level, score, at) VALUES (?1, 4, ?2, ?3)', ['p' + i, 1000 - (i >> 1), i]);
+  }
+  assert.deepEqual(await d1.rankOf(4, 'p0'), { rank: 1, score: 1000 });
+  assert.deepEqual(await d1.rankOf(4, 'p1'), { rank: 2, score: 1000 });
+  assert.deepEqual(await d1.rankOf(4, 'p10'), { rank: 11, score: 995 });
+  assert.deepEqual(await d1.rankOf(4, 'p' + (RANK_CAP - 1)), { rank: RANK_CAP, score: 1000 - ((RANK_CAP - 1) >> 1) });
+  assert.equal((await d1.rankOf(4, 'p' + (n - 1))).over, true);
+});
