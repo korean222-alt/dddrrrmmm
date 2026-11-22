@@ -1932,6 +1932,7 @@ const MAP_LIMITS = { minBars: 2, maxBars: 64, minBpm: 60, maxBpm: 180, nameMax: 
 const DRUM_RE = /^[KSHCBJX.]{16}$/;
 const LOW = 36; // C2
 const HIGH = 96; // C7
+const LOW_LH = 24; // C1 (왼손 베이스는 더 낮게)
 
 // ---------- 음이름 ----------
 const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -2126,7 +2127,16 @@ function cleanMap(raw) {
   } catch {
     return null;
   }
-  return { name, bpm, bars: [...bars], melody: melody.map((m) => m.trim().replace(/\s+/g, ' ')), prog: prog.map((p) => String(p).trim().replace(/\s+/g, ' ')) };
+  const out = { name, bpm, bars: [...bars], melody: melody.map((m) => m.trim().replace(/\s+/g, ' ')), prog: prog.map((p) => String(p).trim().replace(/\s+/g, ' ')) };
+  // 🎹 왼손(아래 줄, 악보에서) — 있으면 자동 베이스 대신 이걸 침. 이상하면 빼고 맵은 그대로
+  const low = raw.low;
+  if (Array.isArray(low) && low.length === bars.length && low.every((m) => typeof m === 'string' && m.length <= 200)) {
+    try {
+      const ns = parseMelody(low);
+      if (ns.length && ns.every((n) => n.midi >= LOW_LH && n.midi <= HIGH)) out.low = low.map((m) => m.trim().replace(/\s+/g, ' '));
+    } catch {}
+  }
+  return out;
 }
 
 /** 노트 수로 어림한 난이도 1~5 (초당 노트) */
@@ -2164,9 +2174,11 @@ function mapLevel(map, { id = 'um', by = '', mapId = null } = {}) {
     song: {
       prog: map.prog,
       melody: map.melody,
+      // 🎹 악보 왼손(있을 때만) — 자동 베이스는 끄고 이걸 피아노로
+      low: map.low || null,
       hat: '................',
       // 🥁 드럼만 맵(멜로디가 다 쉼)은 베이스·화음도 안 깔고 드럼만
-      bass: isDrumOnly(map) ? '................' : 'x.......x.......',
+      bass: isDrumOnly(map) || map.low ? '................' : 'x.......x.......',
       chord: isDrumOnly(map) ? '................' : 'x.......x.......',
     },
   };
@@ -4651,7 +4663,36 @@ function scoreToMap(score, { melody = null, start = null, bars = MAP_LIMITS.maxB
       }
     if (hits >= 4) drums = Array.from({ length: n }, (_, b) => cells.slice(b * STEPS_PER_BAR, (b + 1) * STEPS_PER_BAR).join(''));
   }
-  return { bpm: Math.round(info.bpm), mel, prog, drums, found, bars: n, start: s0, melodyIndex: mIdx };
+  // 🎹 왼손(아래 줄): 멜로디 말고 다른 트랙(드럼 빼고)에서 16분 칸마다 시작하는 가장 낮은 음 → 다음 음 전까지
+  //   한 트랙 피아노(MIDI)면 멜로디 트랙의 안 쓴 음 중 가온 도(C4) 아래만
+  const bot = new Map();
+  score.tracks.forEach((t, i) => {
+    if (t.isDrum) return;
+    for (const nn of t.notes) {
+      if (i === mIdx && (used.has(nn) || nn.midi >= 60)) continue;
+      const s = q(nn.tick);
+      if (s < from || s >= to) continue;
+      const cur = bot.get(s);
+      if (!cur || nn.midi < cur.midi) bot.set(s, { midi: nn.midi, end: Math.max(s + 1, q(nn.tick + nn.dur)) });
+    }
+  });
+  let low = null;
+  if (bot.size >= 4) {
+    const lb = Array.from({ length: n }, () => []);
+    const ls = [...bot.keys()].sort((a, b) => a - b);
+    ls.forEach((s, i) => {
+      const t = bot.get(s);
+      const next = i + 1 < ls.length ? ls[i + 1] : to;
+      const rel = s - from;
+      const b = Math.floor(rel / STEPS_PER_BAR);
+      let midi = t.midi;
+      while (midi < 28) midi += 12;
+      while (midi > 72) midi -= 12;
+      lb[b].push({ step: rel % STEPS_PER_BAR, midi, len: Math.max(1, Math.min(t.end, next, (b + 1) * STEPS_PER_BAR + from) - s) });
+    });
+    low = lb;
+  }
+  return { bpm: Math.round(info.bpm), mel, prog, drums, low, found, bars: n, start: s0, melodyIndex: mIdx };
 }
 
 /** 추천 시작 마디: 고른 멜로디가 처음 나오는 마디 (멜로디 없는 전주는 건너뜀) */
@@ -5256,6 +5297,9 @@ class AudioEngine {
     this.ctx = null;
     this._streamDest = null;
     this._clock = null;
+    // 옛 엔진에 붙어 있던 노드는 새 엔진에 못 이음 (잇는 순간 오류 → 쿵만 안 눌리던 것)
+    this._sat = null;
+    this._tickBus = null;
     this.frozen = false;
     try {
       if (old) old.close().catch(() => {});
@@ -5327,7 +5371,7 @@ class AudioEngine {
     o.connect(g).connect(dest);
     o.start(t);
     o.stop(t + 0.52);
-    if (!this._sat) {
+    if (!this._sat || this._sat.context !== ctx) {
       this._sat = ctx.createWaveShaper();
       const c = new Float32Array(1024);
       for (let i = 0; i < 1024; i++) c[i] = Math.tanh((i / 512 - 1) * 2.2);
@@ -5596,7 +5640,7 @@ class AudioEngine {
   /** 점수 올라가는 '따라라라' 한 알. p = 0~1 (갈수록 높아짐) */
   tick(t, p = 0) {
     const ctx = this.ctx;
-    if (!this._tickBus) {
+    if (!this._tickBus || this._tickBus.context !== ctx) {
       this._tickBus = ctx.createGain();
       this._tickBus.connect(this.sfxBus);
     }
@@ -5785,6 +5829,12 @@ class SongPlayer {
     this.tempo = tempoOf(level);
     this.step = 0;
     this.melody = parseMelody(level.song.melody || []);
+    // 🎹 유저 맵 왼손 (악보 아래 줄)
+    try {
+      this.lowNotes = level.song.low ? parseMelody(level.song.low) : [];
+    } catch {
+      this.lowNotes = [];
+    }
     this.melodyBars = (level.song.melody || []).length;
     const lanes = levelLanes(level);
     this.mineCrash = lanes.includes(CRASH); // 크래시를 내가 치면 반주 크래시는 쉼
@@ -5916,6 +5966,12 @@ class SongPlayer {
     }
     // 화음
     if (song.chord[s] === 'x') a.pluck(t, ch.notes, sd * 3, this.bus, orch ? 0.6 : 1);
+    // 🎹 유저 맵 왼손: 악보 아래 줄 그대로
+    if (this.lowNotes && this.lowNotes.length) for (const n of this.lowNotes) if (n.bar === mb && n.step === s) {
+          const d = Math.max(0.2, n.len * sd * 0.95);
+          if (a.piano) a.pianoNote(t, n.midi, d, 0.8, this.bus);
+          else a.bass(t, n.midi, d, this.bus);
+        }
     // 🎹 두 손 피아노 왼손: 베이스 + 펼친 화음 (pianoLH 곡)
     if (song.pianoLH) {
       const lh = pianoLeftHand(song, mb, s);
@@ -7328,6 +7384,37 @@ const THEMES = {
       cym: 'gold',
     },
   },
+  // 📷 내 사진 배경 (설정 → 꾸미기). 하늘·땅 대신 사진을 깔고, 길은 반투명이라 사진이 비침. 단계 묶음엔 안 씀
+  photo: {
+    key: 'photo',
+    name: '내 사진',
+    icon: 'spot',
+    sky: ['#0A0814', '#14102A', '#221A40'],
+    ground: ['#120E22', '#06040C'],
+    glow: '255,240,220',
+    hot: '255,200,140',
+    laneBase: 'rgba(12,10,24,0.34)',
+    laneTint: 0.85,
+    rail: null,
+    beat: '255,255,255',
+    fog: '0,0,0',
+    fogA: 0.2,
+    spots: ['255,240,220', '200,220,255', '255,200,230', '220,255,240'],
+    particle: 'gold',
+    kit: {
+      shell: ['#5A5E6A', '#17181E', '#000000'],
+      finish: 'gloss',
+      snare: ['#FFFFFF', '#AEB4C0', '#3C414C'],
+      snareFinish: 'metal',
+      hoop: ['#FFFFFF', '#B9BEC8', '#5A606C'],
+      inlay: '#E8E9EE',
+      hw: 'chrome',
+      head: '#FAFAFA',
+      emblem: '#17181E',
+      emblemText: '#17181E',
+      cym: 'silver',
+    },
+  },
   space: {
     key: 'space',
     name: '우주 무대',
@@ -8534,18 +8621,41 @@ const LANE = [
   { key: 'crash', main: '#C38BFF', light: '#EBDDFF', dark: '#7F4CCF', rgb: '195,139,255', thumb: '왼쪽 엄지', word: '크래시 (챙)', short: '챙' },
   { key: 'tom', main: '#4FE0A6', light: '#C9FBE6', dark: '#1F9E70', rgb: '79,224,166', thumb: '왼쪽 엄지', word: '탐탐 (둥)', short: '둥' },
 ];
+
+// 🎨 콩(노트) 색 고르기 (설정 → 꾸미기). 줄 순서: 쿵·짝·하이햇·크래시·탐탐 [main, light, dark]
+const NOTE_PALETTES = {
+  basic: { name: '기본', c: null },
+  candy: { name: '사탕', c: [['#FF6FA8', '#FFC2DA', '#C93A76'], ['#7FD8FF', '#D9F4FF', '#3B9FD1'], ['#FFE066', '#FFF6C4', '#C9A21F'], ['#B98BFF', '#E7DAFF', '#7A4CD0'], ['#7CF0C0', '#D3FCEB', '#2FB585']] },
+  neon: { name: '네온', c: [['#FF2BD6', '#FFA8F0', '#A3008A'], ['#00E5FF', '#A8F7FF', '#008CA3'], ['#C6FF00', '#EEFFA8', '#7A9E00'], ['#8C5CFF', '#D2C2FF', '#4A1FC2'], ['#00FF9C', '#B0FFDD', '#00A365']] },
+  ocean: { name: '바다', c: [['#2E9BFF', '#B5DCFF', '#145FB0'], ['#36E0D0', '#C0F7F1', '#13968A'], ['#9AD8FF', '#E6F6FF', '#4C93BF'], ['#6F7BFF', '#D0D4FF', '#3A44BF'], ['#3FD6A0', '#C6F5E3', '#1A8F66']] },
+  fire: { name: '불꽃', c: [['#FF4A2E', '#FFB3A6', '#B3200E'], ['#FF9F1C', '#FFDDA8', '#B86600'], ['#FFD93A', '#FFF3B0', '#B88F00'], ['#FF5E7E', '#FFC2CE', '#B32446'], ['#FF7A3A', '#FFCBA8', '#B3450E']] },
+  mono: { name: '흑백', c: [['#F2F2F2', '#FFFFFF', '#9A9A9A'], ['#BFC4CC', '#EEF0F3', '#6E747E'], ['#E6E6E6', '#FFFFFF', '#8E8E8E'], ['#A8ADB5', '#E2E4E8', '#5E636B'], ['#D0D0D0', '#F5F5F5', '#7A7A7A']] },
+};
+const LANE_BASE = LANE.map((l) => ({ main: l.main, light: l.light, dark: l.dark, rgb: l.rgb }));
+const hexRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)).join(',');
+/** 콩 색 바꾸기 (LANE 을 바꿔 둠 → 다음 resize 때 노트 그림이 새로 만들어짐) */
+function applyNoteColors(key) {
+  const p = (NOTE_PALETTES[key] || NOTE_PALETTES.basic).c;
+  LANE.forEach((l, i) => {
+    if (!p) return Object.assign(l, LANE_BASE[i]);
+    const [main, light, dark] = p[i];
+    Object.assign(l, { main, light, dark, rgb: hexRgb(main) });
+  });
+}
 const KICK = 0;
 const SNARE = 1;
 const HAT = 2;
 const CRASH = 3;
 const TOM = 4;
 
+// 판정 글자: 한눈에 구분되게 크기·색·빛을 다르게 (11-22 '글자 구분이 잘 됐으면')
+//   PERFECT = 제일 크게 금빛 그라데이션 + 빛 / GREAT = 초록 보통 / GOOD = 작게 하늘색
 const JUDGE_STYLE = {
-  perfect: { text: 'PERFECT', color: '#FFE45C' },
-  great: { text: 'GREAT', color: '#7CF5B4' },
-  good: { text: 'GOOD', color: '#9CC8FF' },
-  miss: { text: 'MISS', color: '#FF6B8A' },
-  wrong: { text: '헛침!', color: '#FF6B8A' },
+  perfect: { text: 'PERFECT', color: '#FFE45C', grad: ['#FFFBE0', '#FFD93A', '#FF9F1C'], scale: 1.2, glow: '255,210,60' },
+  great: { text: 'GREAT', color: '#4DF08A', scale: 1, glow: '60,240,130' },
+  good: { text: 'GOOD', color: '#8FB8FF', scale: 0.78 },
+  miss: { text: 'MISS', color: '#FF6B8A', scale: 0.9 },
+  wrong: { text: '헛침!', color: '#FF6B8A', scale: 0.9 },
 };
 
 const INK = '#2B1D3A';
@@ -8636,7 +8746,16 @@ class Renderer {
 
   /** 이 판의 맵 정하기 (단계 묶음별). 화면 크기가 정해진 뒤 resize() 가 그림을 만듦 */
   setTheme(lv) {
-    const t = themeForLevel(lv);
+    // 🎨 설정에서 고른 배경 (영상 찍기는 원래 맵 그대로)
+    let pick = !this.studio && this.bgPick && THEMES[this.bgPick] ? this.bgPick : null;
+    if (pick === 'photo' && !this.bgPhoto) pick = null; // 사진이 없으면(지웠거나 못 읽음) 원래 맵
+    // 같은 맵 키여도 사진·밝기가 바뀌었으면 배경을 다시 그림
+    const pk = pick === 'photo' ? `${this.bgPhoto && this.bgPhoto.src}|${this.photoDim}` : '';
+    if (pk !== this._photoKey) {
+      this._photoKey = pk;
+      this._themeDirty = true;
+    }
+    const t = pick ? { key: pick, cycle: false } : themeForLevel(lv);
     this.themeBase = t.key;
     this.themeCycle = t.cycle;
     if (this.themeKey !== t.key) {
@@ -8664,8 +8783,10 @@ class Renderer {
 
   _buildKit() {
     const L = this.L;
+    // 🎨 설정에서 고른 드럼 세트 (영상 찍기는 맵 드럼 그대로)
+    const kp = !this.studio && this.kitPick && THEMES[this.kitPick];
     this.kit = buildKit(
-      this.theme,
+      kp ? { ...this.theme, kit: kp.kit } : this.theme,
       { instR: L.instR, padR: L.padR, barW: L.barW, barH: L.barH, cymR: L.cymR, dpr: L.dpr, standTo: L.H - L.strikeY },
       LANE
     );
@@ -8813,6 +8934,27 @@ class Renderer {
     g.closePath();
   }
 
+  _paintPhoto(g, L) {
+    const img = this.bgPhoto;
+    const iw = img.naturalWidth || img.width;
+    const ih = img.naturalHeight || img.height;
+    const k = Math.max(L.W / iw, L.H / ih);
+    const w = iw * k;
+    const h = ih * k;
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, L.W, L.H);
+    try {
+      g.drawImage(img, (L.W - w) / 2, (L.H - h) / 2, w, h);
+    } catch {}
+    const d = Math.max(0, Math.min(0.85, this.photoDim ?? 0.4));
+    const gr = g.createLinearGradient(0, 0, 0, L.H);
+    gr.addColorStop(0, `rgba(0,0,0,${d * 0.6})`);
+    gr.addColorStop(0.5, `rgba(0,0,0,${d})`);
+    gr.addColorStop(1, `rgba(0,0,0,${Math.min(0.9, d * 1.2)})`);
+    g.fillStyle = gr;
+    g.fillRect(0, 0, L.W, L.H);
+  }
+
   _drawStatic() {
     const L = this.L;
     const T = this.theme;
@@ -8821,8 +8963,9 @@ class Renderer {
     c.height = this.canvas.height;
     const g = c.getContext('2d');
     g.setTransform(L.dpr, 0, 0, L.dpr, 0, 0);
-    // 맵 배경 (하늘·땅·장식)
-    paintScenery(g, L, T);
+    // 맵 배경 (하늘·땅·장식). 📷 내 사진이면 사진을 화면에 꽉 차게 + 노트가 잘 보이게 어둡게
+    if (T.key === 'photo' && this.bgPhoto) this._paintPhoto(g, L);
+    else paintScenery(g, L, T);
     // 원근 길(레인): 위(먼 곳)는 좁고 아래(가까운 곳)는 넓음. 줄 전체가 버튼
     const y0 = L.topY;
     const padTop = L.strikeY - L.instR * 1.45;
@@ -8904,7 +9047,7 @@ class Renderer {
     g.fillRect(this._px(L.x0, L.sFar), y0 - 1, (L.x1 - L.x0) * L.sFar, 2);
     // 먼 곳 안개
     const fog = g.createLinearGradient(0, y0 - 2, 0, y0 + (L.strikeY - y0) * 0.22);
-    fog.addColorStop(0, `rgba(${T.fog},0.75)`);
+    fog.addColorStop(0, `rgba(${T.fog},${T.fogA ?? 0.75})`);
     fog.addColorStop(1, `rgba(${T.fog},0)`);
     g.fillStyle = fog;
     g.fillRect(this._px(L.x0, L.sFar) - 20, y0 - 2, (L.x1 - L.x0) * L.sFar + 40, (L.strikeY - y0) * 0.22 + 2);
@@ -8943,7 +9086,7 @@ class Renderer {
   onJudge(lane, judge, rt, early) {
     const L = this.L;
     const style = JUDGE_STYLE[judge];
-    this.fx.judges.push({ lane, text: style.text, color: style.color, t0: rt, sub: judge === 'perfect' || judge === 'miss' || judge === 'wrong' ? '' : early ? 'FAST' : 'SLOW' });
+    this.fx.judges.push({ lane, text: style.text, color: style.color, grad: style.grad, scale: style.scale || 1, glow: style.glow, t0: rt, sub: judge === 'perfect' || judge === 'miss' || judge === 'wrong' ? '' : early ? 'FAST' : 'SLOW' });
     if (judge === 'miss' || judge === 'wrong') {
       this.missAt[lane] = rt;
       return;
@@ -9821,7 +9964,7 @@ class Renderer {
       const sc = t < 0.12 ? 1.3 - (t / 0.12) * 0.3 : 1;
       const x = L.laneX[j.lane];
       const y = L.strikeY - L.instR * 1.75 - t * L.GW * 0.02;
-      const size = Math.min(L.GW * 0.055, L.laneW * 0.2) * sc;
+      const size = Math.min(L.GW * 0.055, L.laneW * 0.2) * sc * (j.scale || 1);
       ctx.save();
       ctx.globalAlpha = t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4;
       ctx.font = `${Math.round(size)}px ${FONT}`;
@@ -9830,8 +9973,19 @@ class Renderer {
       ctx.lineJoin = 'round';
       ctx.lineWidth = size * 0.22;
       ctx.strokeStyle = INK;
+      if (j.glow && !this.lite) {
+        ctx.shadowColor = `rgba(${j.glow},0.9)`;
+        ctx.shadowBlur = size * 0.6;
+      }
       ctx.strokeText(j.text, x, y);
-      ctx.fillStyle = j.color;
+      ctx.shadowBlur = 0;
+      if (j.grad) {
+        const g = ctx.createLinearGradient(0, y - size * 0.5, 0, y + size * 0.5);
+        g.addColorStop(0, j.grad[0]);
+        g.addColorStop(0.5, j.grad[1]);
+        g.addColorStop(1, j.grad[2]);
+        ctx.fillStyle = g;
+      } else ctx.fillStyle = j.color;
       ctx.fillText(j.text, x, y);
       if (j.sub) {
         ctx.font = `${Math.round(size * 0.55)}px ${FONT}`;
@@ -10350,7 +10504,279 @@ function shrinkBuddies(imgs, px) {
   return out;
 }
 
-return { LANE, JUDGE_STYLE, Renderer };
+return { LANE, NOTE_PALETTES, applyNoteColors, JUDGE_STYLE, Renderer };
+})();
+
+// ---- storage.js ----
+const __m_storage = (() => {
+// localStorage 래퍼 (인앱 브라우저/사생활 모드에서 막혀도 게임은 돌아가게)
+
+const { shiftOldLevelKey } = __m_charts;
+
+// 이름을 바꾸면서 접두사도 바꿈 → 출시 전 테스트하며 쌓인 기록·설정은 전부 초기화
+const PREFIX = 'okaystra:';
+
+function load(key, fallback) {
+  try {
+    const v = localStorage.getItem(PREFIX + key);
+    return v == null ? fallback : JSON.parse(v);
+  } catch {
+    return fallback;
+  }
+}
+
+function save(key, value) {
+  try {
+    localStorage.setItem(PREFIX + key, JSON.stringify(value));
+  } catch {}
+}
+
+function remove(key) {
+  try {
+    localStorage.removeItem(PREFIX + key);
+  } catch {}
+}
+
+const DEFAULT_SETTINGS = {
+  music: 0.8,
+  sfx: 1,
+  noteSpeed: 1,
+  offsetMs: 0,
+  vibrate: true,
+  // 저사양 모드: 그림 해상도 낮추고 반짝이·조명 효과 끔 (렉 걸리는 폰용)
+  lite: false,
+  // 반주: 'orch' = 오케스트라(현악·금관·팀파니 + 피아노) / 'piano' = 피아노만
+  band: 'orch',
+  // 🎨 꾸미기: 배경·드럼 세트 = 'auto'(단계 맵 따라) 또는 themes.js 맵 키, 콩 색 = render.js NOTE_PALETTES 키
+  bg: 'auto',
+  kit: 'auto',
+  notes: 'basic',
+  // 📷 내 사진 배경 어둡게 (0~0.85). 사진 파일 자체는 IndexedDB (photoSave)
+  photoDim: 0.4,
+};
+
+function loadSettings() {
+  return { ...DEFAULT_SETTINGS, ...load('settings', {}) };
+}
+function saveSettings(s) {
+  save('settings', s);
+}
+
+/** 레벨별 내 최고 기록 { [levelId]: {score, grade, stars, accuracy, maxCombo, fullCombo, at} }
+ *  별은 점수와 따로, 지금까지 받은 최고 개수를 기억합니다.
+ *  무제한 모드('endless')는 별 대신 diamonds(다이아)와 roundsCleared(깬 단계 수)도 최고값으로 기억. */
+function loadBests() {
+  return load('bests', {});
+}
+function saveBest(result) {
+  const bests = loadBests();
+  const prev = bests[result.levelId];
+  const stars = Math.max(result.stars || 0, (prev && prev.stars) || 0);
+  const diamonds = Math.max(result.diamonds || 0, (prev && prev.diamonds) || 0);
+  const roundsCleared = Math.max(result.roundsCleared || 0, (prev && prev.roundsCleared) || 0);
+  const extra = result.challenge ? { diamonds, roundsCleared } : {};
+  if (!prev || result.score > prev.score) {
+    bests[result.levelId] = {
+      score: result.score,
+      grade: result.grade,
+      stars,
+      accuracy: result.accuracy,
+      maxCombo: result.maxCombo,
+      fullCombo: result.fullCombo,
+      ...extra,
+      at: Date.now(),
+    };
+    save('bests', bests);
+    return { isNew: true, prev };
+  }
+  if (stars !== (prev.stars || 0) || (result.challenge && (diamonds !== (prev.diamonds || 0) || roundsCleared !== (prev.roundsCleared || 0)))) {
+    Object.assign(prev, { stars }, extra);
+    save('bests', bests);
+  }
+  return { isNew: false, prev };
+}
+
+/** 18단계 = 엘리제를 위하여 (2026-11-21). 이 브라우저에 남은 그 전 18번(빼 버린 찬송가) 기록은 한 번 지움 */
+const ELISE_FROM = Date.parse('2026-11-21T06:15:00Z');
+function resetOldLevel18() {
+  if (load('level18V2', false)) return;
+  for (const key of ['bests', 'mockBoard']) {
+    const old = load(key, null);
+    if (!old || typeof old !== 'object') continue;
+    let changed = false;
+    for (const k of ['18', 'e18']) {
+      const v = old[k];
+      if (v && !(v.at >= ELISE_FROM)) { delete old[k]; changed = true; }
+    }
+    if (changed) save(key, old);
+  }
+  save('level18V2', true);
+}
+
+/** 8단계에 새 곡이 끼면서 예전 8~14단계가 9~15단계로 밀림 → 이 브라우저에 쌓인 기록·설정을 한 번만 옮김 */
+function migrateLevelOrder() {
+  if (load('levelOrderV2', false)) return;
+  for (const key of ['bests', 'mockBoard']) {
+    const old = load(key, null);
+    if (!old || typeof old !== 'object') continue;
+    const next = {};
+    for (const [k, v] of Object.entries(old)) next[shiftOldLevelKey(k)] = v;
+    // 예전 8단계 이후를 깬 사람이 새 8단계 때문에 길이 막히지 않게, 새 8단계는 깬 걸로 쳐 줌
+    if (key === 'bests' && next[9] && (next[9].stars || 0) >= 1 && !next[8]) next[8] = { score: 0, grade: 'D', stars: 1, at: Date.now() };
+    save(key, next);
+  }
+  const st = load('studio', null);
+  if (st && Number(st.level) >= 8 && Number(st.level) <= 14) save('studio', { ...st, level: Number(st.level) + 1 });
+  save('levelOrderV2', true);
+}
+
+// ---------------- 📷 내 사진 배경: 이 폰의 IndexedDB 에만 (서버로 안 감) ----------------
+function idb() {
+  return new Promise((res, rej) => {
+    try {
+      const r = indexedDB.open('okaystra', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('files');
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    } catch (e) {
+      rej(e);
+    }
+  });
+}
+async function idbDo(mode, fn) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('files', mode);
+    const req = fn(tx.objectStore('files'));
+    tx.oncomplete = () => res(req && req.result);
+    tx.onerror = tx.onabort = () => rej(tx.error);
+  });
+}
+/** 사진(Blob) 저장. IndexedDB 가 막힌 브라우저면 작을 때만 localStorage 에 */
+async function photoSave(blob) {
+  try {
+    await idbDo('readwrite', (st) => st.put(blob, 'bgPhoto'));
+    remove('bgPhotoUrl');
+    return true;
+  } catch {
+    if (blob.size > 1.5e6) return false;
+    const url = await new Promise((r) => {
+      const fr = new FileReader();
+      fr.onload = () => r(fr.result);
+      fr.onerror = () => r(null);
+      fr.readAsDataURL(blob);
+    });
+    if (!url) return false;
+    try {
+      localStorage.setItem(PREFIX + 'bgPhotoUrl', JSON.stringify(url));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+/** 저장된 사진 → 이미지 주소(objectURL 또는 data URL), 없으면 null */
+async function photoLoad() {
+  try {
+    const b = await idbDo('readonly', (st) => st.get('bgPhoto'));
+    if (b) return URL.createObjectURL(b);
+  } catch {}
+  return load('bgPhotoUrl', null);
+}
+async function photoDelete() {
+  try {
+    await idbDo('readwrite', (st) => st.delete('bgPhoto'));
+  } catch {}
+  remove('bgPhotoUrl');
+}
+
+return { load, save, remove, DEFAULT_SETTINGS, loadSettings, saveSettings, loadBests, saveBest, resetOldLevel18, migrateLevelOrder, photoSave, photoLoad, photoDelete };
+})();
+
+// ---- coins.js ----
+const __m_coins = (() => {
+// 🪙 코인 (2026-11-22)
+//   맞힌 콩(PERFECT·GREAT·GOOD) 1개 + 연타 1번 = 1코인. 잔액은 서버 지갑(팔로워 인증한 계정)에 보관.
+//   판이 끝나면 폰에 모아 두었다가 다음 판 시작(/api/runs)·점수 등록(/api/scores) 요청에 얹어 보냄 → 요청 수 그대로.
+//   · 판 토큰이 있는 판 → runs [{tok, n}] (서버가 그 곡 콩 수로 상한 확인)
+//   · 토큰 없는 판(연습·멀티·유저 맵·내 노래…) → free (서버가 하루 한도)
+//   · 인증 전(계정 없음)에 번 코인 → 폰 'coins' 에 → 인증하면 init 으로 한 번 올림
+const { load, save } = __m_storage;
+
+let account = false; // 서버 지갑을 쓰는 계정인가 (팔로워 인증 완료)
+let onChange = () => {};
+
+const int = (v) => (Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
+const queue = () => {
+  const q = load('coinQ', []);
+  return Array.isArray(q) ? q.filter((x) => x && typeof x.tok === 'string' && x.n > 0) : [];
+};
+
+function coinsInit({ changed } = {}) {
+  if (changed) onChange = changed;
+  // 보내다 끊긴 것(앱을 닫음 등)은 다시 줄에 넣음 (서버가 같은 판은 한 번만 받음)
+  const s = load('coinSending', null);
+  if (s) {
+    save('coinQ', [...(s.runs || []), ...queue()].slice(-40));
+    save('coinFree', int(load('coinFree', 0)) + int(s.free));
+    save('coinSending', null);
+  }
+}
+
+/** 인증 상태가 바뀌면 (me 받을 때마다) */
+function setCoinAccount(on, serverCoins) {
+  account = !!on;
+  if (account && Number.isFinite(serverCoins)) save('coinSrv', int(serverCoins));
+  onChange();
+}
+
+/** 화면에 보일 잔액 */
+function coinTotal() {
+  const local = int(load('coins', 0));
+  if (!account) return local;
+  const sending = load('coinSending', null);
+  const pend = queue().reduce((a, x) => a + int(x.n), 0) + int(load('coinFree', 0));
+  const inFlight = sending ? (sending.runs || []).reduce((a, x) => a + int(x.n), 0) + int(sending.free) + int(sending.init) : 0;
+  return int(load('coinSrv', 0)) + pend + inFlight + (load('coinInit', false) ? 0 : local);
+}
+
+/** 판 하나 끝: n 코인 (tok = 그 판의 서버 판 토큰, 없으면 null) */
+function addRunCoins(n, tok) {
+  n = int(n);
+  if (!n) return;
+  if (!account) save('coins', int(load('coins', 0)) + n);
+  else if (tok) save('coinQ', [...queue(), { tok, n }].slice(-40));
+  else save('coinFree', int(load('coinFree', 0)) + n);
+  onChange();
+}
+
+/** 요청에 얹을 것 (없으면 undefined). 보내는 중인 게 있으면 겹쳐 보내지 않음 */
+function takeCoins() {
+  if (!account || load('coinSending', null)) return undefined;
+  const runs = queue();
+  const free = int(load('coinFree', 0));
+  const init = load('coinInit', false) ? null : int(load('coins', 0));
+  if (!runs.length && !free && init == null) return undefined;
+  const c = { runs, free };
+  if (init != null) c.init = init;
+  save('coinSending', c);
+  save('coinQ', []);
+  save('coinFree', 0);
+  return c;
+}
+
+/** 응답이 왔음: data.coins 가 있으면 서버가 받은 것 → 보낸 것 비우고 잔액 갱신, 없으면 다시 줄에 */
+function coinsResult(data) {
+  const s = load('coinSending', null);
+  if (data && Number.isFinite(data.coins)) {
+    save('coinSrv', int(data.coins));
+    if (s && s.init != null) save('coinInit', true);
+    save('coinSending', null);
+  } else if (s) coinsInit();
+  onChange();
+}
+
+return { coinsInit, setCoinAccount, coinTotal, addRunCoins, takeCoins, coinsResult };
 })();
 
 // ---- game.js ----
@@ -10672,9 +11098,12 @@ class Game {
     const t = playing ? this.songTime(perfMs) : 0;
     const touched = lane;
     if (playing && near && near.length) lane = this._pickLane(lane, t, near, pos);
-    if (this.level.tapMelody && lane === SNARE) {
-      if (playing) this._playMelodyTap(t);
-    } else if (!this.auto) this.audio.playLane(lane);
+    // 소리가 오류 나도 판정은 꼭 함 (예전에 소리 엔진을 새로 만든 뒤 쿵 소리만 오류 나서 쿵 판정이 통째로 빠졌음)
+    try {
+      if (this.level.tapMelody && lane === SNARE) {
+        if (playing) this._playMelodyTap(t);
+      } else if (!this.auto) this.audio.playLane(lane);
+    } catch {}
     this.r.onTap(lane, rt);
     if (!playing) return;
     this._tapAt[lane] = t;
@@ -11346,126 +11775,6 @@ async function showRewarded(cfg, hooks = {}) {
 return { initAds, showRewarded };
 })();
 
-// ---- storage.js ----
-const __m_storage = (() => {
-// localStorage 래퍼 (인앱 브라우저/사생활 모드에서 막혀도 게임은 돌아가게)
-
-const { shiftOldLevelKey } = __m_charts;
-
-// 이름을 바꾸면서 접두사도 바꿈 → 출시 전 테스트하며 쌓인 기록·설정은 전부 초기화
-const PREFIX = 'okaystra:';
-
-function load(key, fallback) {
-  try {
-    const v = localStorage.getItem(PREFIX + key);
-    return v == null ? fallback : JSON.parse(v);
-  } catch {
-    return fallback;
-  }
-}
-
-function save(key, value) {
-  try {
-    localStorage.setItem(PREFIX + key, JSON.stringify(value));
-  } catch {}
-}
-
-function remove(key) {
-  try {
-    localStorage.removeItem(PREFIX + key);
-  } catch {}
-}
-
-const DEFAULT_SETTINGS = {
-  music: 0.8,
-  sfx: 1,
-  noteSpeed: 1,
-  offsetMs: 0,
-  vibrate: true,
-  // 저사양 모드: 그림 해상도 낮추고 반짝이·조명 효과 끔 (렉 걸리는 폰용)
-  lite: false,
-  // 반주: 'orch' = 오케스트라(현악·금관·팀파니 + 피아노) / 'piano' = 피아노만
-  band: 'orch',
-};
-
-function loadSettings() {
-  return { ...DEFAULT_SETTINGS, ...load('settings', {}) };
-}
-function saveSettings(s) {
-  save('settings', s);
-}
-
-/** 레벨별 내 최고 기록 { [levelId]: {score, grade, stars, accuracy, maxCombo, fullCombo, at} }
- *  별은 점수와 따로, 지금까지 받은 최고 개수를 기억합니다.
- *  무제한 모드('endless')는 별 대신 diamonds(다이아)와 roundsCleared(깬 단계 수)도 최고값으로 기억. */
-function loadBests() {
-  return load('bests', {});
-}
-function saveBest(result) {
-  const bests = loadBests();
-  const prev = bests[result.levelId];
-  const stars = Math.max(result.stars || 0, (prev && prev.stars) || 0);
-  const diamonds = Math.max(result.diamonds || 0, (prev && prev.diamonds) || 0);
-  const roundsCleared = Math.max(result.roundsCleared || 0, (prev && prev.roundsCleared) || 0);
-  const extra = result.challenge ? { diamonds, roundsCleared } : {};
-  if (!prev || result.score > prev.score) {
-    bests[result.levelId] = {
-      score: result.score,
-      grade: result.grade,
-      stars,
-      accuracy: result.accuracy,
-      maxCombo: result.maxCombo,
-      fullCombo: result.fullCombo,
-      ...extra,
-      at: Date.now(),
-    };
-    save('bests', bests);
-    return { isNew: true, prev };
-  }
-  if (stars !== (prev.stars || 0) || (result.challenge && (diamonds !== (prev.diamonds || 0) || roundsCleared !== (prev.roundsCleared || 0)))) {
-    Object.assign(prev, { stars }, extra);
-    save('bests', bests);
-  }
-  return { isNew: false, prev };
-}
-
-/** 18단계 = 엘리제를 위하여 (2026-11-21). 이 브라우저에 남은 그 전 18번(빼 버린 찬송가) 기록은 한 번 지움 */
-const ELISE_FROM = Date.parse('2026-11-21T06:15:00Z');
-function resetOldLevel18() {
-  if (load('level18V2', false)) return;
-  for (const key of ['bests', 'mockBoard']) {
-    const old = load(key, null);
-    if (!old || typeof old !== 'object') continue;
-    let changed = false;
-    for (const k of ['18', 'e18']) {
-      const v = old[k];
-      if (v && !(v.at >= ELISE_FROM)) { delete old[k]; changed = true; }
-    }
-    if (changed) save(key, old);
-  }
-  save('level18V2', true);
-}
-
-/** 8단계에 새 곡이 끼면서 예전 8~14단계가 9~15단계로 밀림 → 이 브라우저에 쌓인 기록·설정을 한 번만 옮김 */
-function migrateLevelOrder() {
-  if (load('levelOrderV2', false)) return;
-  for (const key of ['bests', 'mockBoard']) {
-    const old = load(key, null);
-    if (!old || typeof old !== 'object') continue;
-    const next = {};
-    for (const [k, v] of Object.entries(old)) next[shiftOldLevelKey(k)] = v;
-    // 예전 8단계 이후를 깬 사람이 새 8단계 때문에 길이 막히지 않게, 새 8단계는 깬 걸로 쳐 줌
-    if (key === 'bests' && next[9] && (next[9].stars || 0) >= 1 && !next[8]) next[8] = { score: 0, grade: 'D', stars: 1, at: Date.now() };
-    save(key, next);
-  }
-  const st = load('studio', null);
-  if (st && Number(st.level) >= 8 && Number(st.level) <= 14) save('studio', { ...st, level: Number(st.level) + 1 });
-  save('levelOrderV2', true);
-}
-
-return { load, save, remove, DEFAULT_SETTINGS, loadSettings, saveSettings, loadBests, saveBest, resetOldLevel18, migrateLevelOrder };
-})();
-
 // ---- track.js ----
 const __m_track = (() => {
 // 익명 이용 통계: 접속 시간(실제로 화면을 보고 만진 시간)과 곡 시작/끝을 서버에 모읍니다.
@@ -11671,6 +11980,7 @@ const __m_api = (() => {
 const { load, save } = __m_storage;
 const { gradeFor } = __m_charts;
 const { takeTrack } = __m_track;
+const { takeCoins, coinsResult } = __m_coins;
 const { seasonAt } = __m_season;
 
 async function http(method, url, body) {
@@ -11691,6 +12001,20 @@ async function http(method, url, body) {
     throw err;
   }
   return data;
+}
+
+function withCoins(send) {
+  const coins = takeCoins();
+  return send(coins).then(
+    (r) => {
+      if (coins) coinsResult(r);
+      return r;
+    },
+    (e) => {
+      if (coins) coinsResult(e && e.data);
+      throw e;
+    }
+  );
 }
 
 const LB_CACHE_MS = 60 * 1000;
@@ -11721,10 +12045,11 @@ function serverApi(boot = null) {
     guest: (name, ig) => http('POST', '/api/guest', { name, ig }),
     verifyPassword: (body) => http('POST', '/api/verify/password', body),
     // 이용 통계는 따로 안 보내고 이 요청들에 얹어 보냄 (요청 수 아끼기)
-    startRun: (level) => http('POST', '/api/runs', { level, track: takeTrack() }),
+    // 🪙 코인도 얹어 보냄 (coins.js). 응답에 잔액이 오면 받은 것, 아니면 다음에 다시
+    startRun: (level) => withCoins((coins) => http('POST', '/api/runs', { level, track: takeTrack(), coins })),
     submitScore: (payload) => {
       lbCache.clear();
-      return http('POST', '/api/scores', { ...payload, track: takeTrack() });
+      return withCoins((coins) => http('POST', '/api/scores', { ...payload, track: takeTrack(), coins }));
     },
     // 랭킹은 1분 동안 같은 걸 다시 씀 (탭을 왔다 갔다 해도 요청 안 함). 점수 올리면 비움
     leaderboard: (level) => {
@@ -11935,12 +12260,23 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-21q',
+    id: '2026-11-22c',
+    date: '11월 22일',
+    title: '🪙 코인 · 판정 글자',
+    items: [
+      '<b>🪙 코인</b> — 콩을 맞힐 때마다 코인이 쌓여요! 첫 화면 위에서 확인',
+      '곧 <b>상점</b>이 열려요 — 코인으로 배경·드럼 세트·콩 색·📷 내 사진 배경을 꾸며요',
+      'PERFECT·GREAT·GOOD 글자를 크기·색으로 더 잘 구분되게 바꿨어요',
+    ],
+  },
+  {
+    id: '2026-11-21u',
     date: '11월 21일',
     title: '🎲 랜덤 대결 · 🎹 18단계 엘리제를 위하여 · 🏛 명예의 전당 · 🎭 장거리 · 🎼 악보로 맵',
     items: [
-      '<b>🎹 유저 맵: 악보 파일(MIDI·MusicXML)로 바로 만들 수 있어요!</b> 🎹 멜로디 탭 → 🎼 악보 파일로 — 악보의 음·박자 그대로, 드럼 트랙이 있으면 드럼도 그대로. 멜로디 트랙·시작 마디는 <b>자동으로 추천</b>해 줘요',
-      '<b>⚔️ 멀티 → 🎲 랜덤 대결</b>이 생겼어요! 모르는 사람과 바로 붙어서 4~18단계 무작위 곡 — 둘 다 깨면 다른 곡이 바로 이어지고, <b>먼저 쓰러지는 쪽이 져요</b>',
+      '<b>🥁 쿵이 가끔 안 눌리던 것 고쳤어요!</b> 다른 앱에 갔다 오거나 소리가 끊긴 뒤 쿵만 안 쳐지던 문제예요',
+      '<b>🎹 유저 맵: 악보 파일(MIDI·MusicXML)로 바로 만들 수 있어요!</b> 🎹 멜로디 탭 → 🎼 악보 파일로 — 악보의 음·박자 그대로, 드럼 트랙이 있으면 드럼도 그대로. 멜로디 트랙·시작 마디는 <b>자동으로 추천</b>해 주고, 악보 <b>왼손(아래 줄)</b>도 그대로 피아노로 쳐요',
+      '<b>⚔️ 멀티 → 🎲 랜덤 대결</b>이 생겼어요! 모르는 사람과 바로 붙어서 4~18단계 무작위 곡 — 둘 다 깨면 다른 곡이 바로 이어지고(<b>한 곡마다 점점 빨라져요 ⚡</b>), <b>먼저 쓰러지는 쪽이 져요</b>',
       '<b>18단계 엘리제를 위하여</b>(베토벤 · 지옥)가 새로 생겼어요! 게임에서 <b>가장 어려운 곡</b> — 미레미레미시레도 질주에 하이햇 트릴 연타까지',
       '<b>🏛 명예의 전당</b>이 생겼어요! 🏆 랭킹 → 🎵 단계 총합 / 💎 무제한 총합',
       '<b>시즌 1은 11월 26일 밤 11시 59분에 끝나요.</b> 1·2·3등은 명예의 전당에 영원히 기록되고, 프로필 사진도 올릴 수 있어요',
@@ -11948,6 +12284,7 @@ const NEWS = [
       '왼쪽 엄지는 <b>쿵</b>, 오른쪽은 <b>🎹 피아노</b> — 누르면 그 음의 건반이 눌리며 피아노 화음이 울려요. 놓치면 그 음은 안 들려요!',
       '<b>🎹 유저 맵 노래 파일 음 따기</b>가 훨씬 좋아졌어요: 목소리 멜로디에, 목소리 없는 곳·반주만 있는 곡은 <b>악기 음을 듣는 AI</b>로 악기 멜로디를, <b>코드·드럼까지 노래에서</b> 따고, <b>노래 끝까지</b>(최대 64마디) 따요. 아이폰 화면 녹화 영상도 끝까지 바로 읽어요',
       '드럼 탭 맨 위 <b>⚡ 자동 드럼</b>(쉬움·보통·어려움)으로 직접 안 쳐도 바로 드럼이 생겨요',
+      '<b>🥁 드럼 탭 칸 고치기</b>: 아래 칸에서 점을 누르면 지워지고, 빈 칸을 누르고 드럼을 치면 거기에 들어가요',
       '<b>🎹 맵 만들기</b>가 탭으로 바뀌었어요: <b>🥁 드럼</b>은 진짜 드럼 세트처럼 쳐서 녹음(겹쳐 치기 가능), <b>🎹 멜로디</b>에서 그 위에 피아노를 얹어요. 드럼만 올려도 돼요!'
     ],
   },
@@ -13040,20 +13377,21 @@ const { readScoreFile, scoreInfo, scoreToMap, recommendStart } = __m_scorefile;
 const { videoToAac } = __m_mp4audio;
 const { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmonize, autoDrums, cleanMap, mapLevel } = __m_usermap;
 const { AudioEngine, playMetronome } = __m_audio;
-const { Renderer } = __m_render;
+const { Renderer, NOTE_PALETTES, LANE, applyNoteColors } = __m_render;
+const { coinsInit, setCoinAccount, coinTotal, addRunCoins } = __m_coins;
 const { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } = __m_game;
 const { initAds, showRewarded } = __m_ads;
 const { createApi } = __m_api;
 const { initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay } = __m_track;
 const { CONFIG } = __m_config;
 const { buddyUrl, loadBuddies } = __m_buddies;
-const { groupStarting } = __m_themes;
+const { groupStarting, THEMES } = __m_themes;
 const { NEWS, LATEST_NEWS } = __m_news;
 const { RoomClient, roomOutcome, survivalOutcome } = __m_room;
 const { makeReelCover } = __m_cover;
 const { detectBeat, monoOf, songChart } = __m_beatsync;
 const { seasonLeftText, BOARD_LABEL } = __m_season;
-const { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder, resetOldLevel18 } = __m_storage;
+const { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder, resetOldLevel18, photoSave, photoLoad, photoDelete } = __m_storage;
 
 resetOldLevel18(); // 18번 = 엘리제를 위하여 (그 전 찬송가 기록 지움)
 migrateLevelOrder(); // 8단계에 새 곡이 끼면서 밀린 번호를 이 브라우저 기록에도 반영 (아래 state 보다 먼저)
@@ -13461,6 +13799,8 @@ function refreshFollowChip() {
 
 function refreshTitle() {
   refreshFollowChip();
+  syncCoinAccount();
+  refreshCoins();
   // 🆓 임시 인증 기간 안내 (인스타 DM 막힘)
   const fp = $('#free-pass-note');
   fp.hidden = !(state.api && state.api.mode === 'server' && freePass());
@@ -13639,6 +13979,10 @@ async function fontsReady(extra = '') {
 // 먼저 만든 쪽이 카운트인 중에 이미 진행되던 버그가 있었음 → 마지막 호출만 살리고 앞선 호출은 중단
 let startSeq = 0;
 /** 🐢 느리게 연습: 같은 채보를 rate 배 빠르기로 (목숨·기록·랭킹 없음) */
+/** 🎲 랜덤 대결 N곡째 빠르기: 1곡째 그대로, 한 곡마다 +7%, 최대 1.5배 */
+function rushSpeed(round) {
+  return Math.min(1.5, 1 + 0.07 * Math.max(0, (round | 0) - 1));
+}
 function practiceLevel(lv, rate) {
   return { ...lv, bpm: Math.round(lv.bpm * rate * 10) / 10, practice: rate };
 }
@@ -13650,7 +13994,9 @@ async function startLevel(id, opts = {}) {
   if (!base) return;
   const practice = !opts.room && opts.practice && canPractice(base) ? opts.practice : 0;
   state.practice = practice;
-  const lv = practice ? practiceLevel(base, practice) : base;
+  // 🎲 랜덤 대결: 곡이 넘어갈수록 빨라짐 (두 사람 다 round 로 같은 빠르기)
+  const rushRate = opts.room && opts.room.rush ? rushSpeed(opts.room.round) : 1;
+  const lv = practice ? practiceLevel(base, practice) : rushRate > 1 ? { ...base, bpm: Math.round(base.bpm * rushRate * 10) / 10 } : base;
   // 친구 대결 방 판: { startAt(내 시계 ms), mode } — 같은 시각에 시작, 랭킹엔 안 올림
   // 🏆 랭킹전 판: 실시간 { startAt(내 시계 ms), mode, round } / 고스트 { ghost, gid } — 랭킹엔 안 올림
   const room = opts.room || null;
@@ -13673,7 +14019,7 @@ async function startLevel(id, opts = {}) {
   show('screen-game');
   $('#hud-lv').textContent = practice ? `🐢 연습 ${Math.round(practice * 100)}%` : lv.userMap ? '🎹 유저 맵' : lv.custom ? '🎵 내 노래' : lv.survival ? '⚔️ 서바이벌' : lv.challenge ? (lv.endless ? '무제한' : '챌린지') : lv.studioOnly ? '🎬 릴스용' : levelLabel(lv);
   $('#hud-name').textContent = lv.challenge ? `${lv.songName} · ${lv.composer}` : `${lv.name} · ${lv.composer}`;
-  if (room && room.rush) $('#hud-lv').textContent = `🎲 ${room.round}곡째`;
+  if (room && room.rush) $('#hud-lv').textContent = `🎲 ${room.round}곡째${rushRate > 1 ? ` · ⚡${rushRate.toFixed(2).replace(/0$/, '')}배` : ''}`;
   $('#hud-score').textContent = '0';
   $('#hud-progress').style.width = '0%';
   closeModal('modal-continue');
@@ -13710,14 +14056,19 @@ async function startLevel(id, opts = {}) {
   const cw = $('#game-canvas').clientWidth || window.innerWidth;
   await renderer.resize(st.active ? Math.min(3, Math.max(2, 1080 / cw)) : 2);
   if (stale()) return;
+  awardRunCoins(state.game); // 판 도중에 다시 시작하면 그때까지 맞힌 만큼 (새 판 토큰을 받기 전에)
   if (state.game) state.game.stop();
   state.runToken = null;
   // 영상 찍기는 팔로우 잠금 없이 (계정 주인이 촬영용으로 씀) → 서버 판 토큰도 안 받음
   // 인증 안 한 사람이 1~3단계를 칠 땐 랭킹에 못 올리니 판 토큰도 안 받음 (서버 요청 아끼기, 통계는 5분마다 따로 감)
   const canRank = isConfirmed() || state.cfg.gateMode === 'open' || isClosed(id);
+  syncCoinAccount();
   if ((!lv.challenge || lv.endless) && !st.active && !room && !practice && !lv.custom && canRank) state.api
     .startRun(id)
-    .then((r) => (state.runToken = r.runToken))
+    .then((r) => {
+      state.runToken = r.runToken;
+      if (state.game && state.game.level.id === id && !state.game._coined) state.game._runToken = r.runToken;
+    })
     .catch((e) => {
       if (e.status === 403 && state.game && state.game.level.id === id) {
         state.game.stop();
@@ -13737,7 +14088,17 @@ async function startLevel(id, opts = {}) {
         toast('판을 시작하지 못했어요. 다시 해 보세요', 2600);
       }
     });
-  const last = { score: -1, p: -1, op: -1, lives: MAX_LIVES, stars: -1 };
+  const last = { score: -1, p: -1, op: -1, lives: MAX_LIVES, stars: -1, shown: -1 };
+  // 실시간 대결: 상대 점수는 몇 초 늦게 옴 → 내 점수도 '상대가 보낸 진행 위치' 때의 점수로 보여 줘야 같은 지점끼리 비교됨
+  const myHist = []; // [진행, 점수] (진행 순)
+  const myScoreAt = (p) => {
+    let lo = 0, hi = myHist.length - 1, ans = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (myHist[mid][0] <= p) { ans = myHist[mid][1]; lo = mid + 1; } else hi = mid - 1;
+    }
+    return ans;
+  };
   const starBox = $('#hud-stars');
   starBox.hidden = !!lv.endless;
   starBox.innerHTML = starsHTML(0);
@@ -13768,12 +14129,18 @@ async function startLevel(id, opts = {}) {
           $('#vs-name').textContent = (rtNow ? '⚡' : '') + roomOtherName();
           last.rt = rtNow;
         }
-        if (op !== last.op || h.score !== last.score) {
-          $('#vs-me').textContent = fmt(h.score);
+        const seq = !lv.endless && !lv.roundProgress;
+        if (seq && (!myHist.length || h.progress > myHist[myHist.length - 1][0])) myHist.push([h.progress, h.score]);
+        else if (seq && myHist.length) myHist[myHist.length - 1][1] = h.score;
+        // 상대가 끝냈으면(final) 지금 내 점수, 아니면 상대가 보낸 진행 위치 때의 내 점수
+        const me = seq && o && !o.final && o.live && o.live.progress < h.progress ? myScoreAt(o.live.progress) : h.score;
+        if (op !== last.op || me !== last.shown) {
+          $('#vs-me').textContent = fmt(me);
           const ol = o && o.live && o.live.lives != null ? ` ♥${o.live.lives}` : '';
           $('#vs-op').textContent = room.mode === 'team' ? `${fmt(op)} · 팀 ${fmt(h.score + op)}` : fmt(op) + ol;
-          const tot = h.score + op;
-          $('#vs-fill').style.width = (tot ? (h.score / tot) * 100 : 50).toFixed(1) + '%';
+          const tot = me + op;
+          $('#vs-fill').style.width = (tot ? (me / tot) * 100 : 50).toFixed(1) + '%';
+          last.shown = me;
         }
         last.op = op;
       } else if (vs) {
@@ -13804,6 +14171,7 @@ async function startLevel(id, opts = {}) {
       last.p = p;
     },
     onEnd: (res) => {
+      res.coins = awardRunCoins(state.game);
       if (lv.custom) return lv.userMap ? umFinish(res) : myFinish(res);
       if (room) rk.game = null;
       if (!state.studio.active && !res.auto && !res.practice) trackPlayEnd({ result: res.failed || res.died ? 'fail' : 'clear', score: res.score, stars: res.stars });
@@ -13825,7 +14193,7 @@ async function startLevel(id, opts = {}) {
     // 상대와 같은 시각에 시작: 남은 시간 카운트다운 (Game.start 가 0.35초 뒤에 첫 박을 놓음)
     const box = $('#studio-count');
     box.hidden = false;
-    $('#studio-count-msg').textContent = room.rush ? `🎲 ${room.round}곡째! ${roomOtherName()} 님과 대결` : room.ranked ? `🏆 ${roomOtherName()} 님과 랭킹전!` : room.mode === 'team' ? '🤝 팀전! 둘이 같이 깨 봐요' : `⚔️ ${roomOtherName()} 님과 대결!`;
+    $('#studio-count-msg').textContent = room.rush ? `🎲 ${room.round}곡째${rushSpeed(room.round) > 1 ? ` (⚡${Math.round(rushSpeed(room.round) * 100)}% 빠르기)` : ''}! ${roomOtherName()} 님과 대결` : room.ranked ? `🏆 ${roomOtherName()} 님과 랭킹전!` : room.mode === 'team' ? '🤝 팀전! 둘이 같이 깨 봐요' : `⚔️ ${roomOtherName()} 님과 대결!`;
     const g = state.game;
     // 기다리는 동안 무대(맵)를 그려 둠
     renderer.draw({ now: -1, notes: g.notes, approach: g.approach, beatDur: g.beat, combo: 0, score: 0, playing: false }, performance.now() / 1000);
@@ -13855,6 +14223,7 @@ async function startLevel(id, opts = {}) {
     await stopRecorder(); // 다시 치기: 앞 판 녹화가 남아 있으면 버림
     startRecorder();
   }
+  if (state.runToken && !state.game._runToken) state.game._runToken = state.runToken;
   state.game.start();
   if (lv.synced && st.active) scheduleSyncRec(state.game);
   // 영상 찍기·자동 연주·내 노래는 통계에 안 셈
@@ -13865,6 +14234,7 @@ async function startLevel(id, opts = {}) {
 function setKit(lv) {
   renderer.laneOrder = levelLanes(lv);
   renderer.newLane = lv.newInstrument ?? -1;
+  applyDeco();
   renderer.setTheme(lv); // 단계 묶음마다 맵 분위기가 다름 (themes.js)
   // 마우스·키보드 쓰는 컴퓨터면 줄마다 키 글자를 보여줌 (폰·태블릿은 안 보임)
   renderer.keyLabels = null;
@@ -14080,6 +14450,12 @@ function giveUp() {
 }
 
 // ---------------- 결과 ----------------
+function showResCoins(res) {
+  const el = $('#res-coins');
+  el.hidden = !(res.coins > 0);
+  if (res.coins > 0) el.innerHTML = `<i class="coin-ico"></i> +${fmt(res.coins)} <small>모은 코인 ${fmt(getCoins())}</small>`;
+}
+
 function showResult(res) {
   if (state.suggestLite && !state.settings.lite) {
     state.suggestLite = false;
@@ -14125,6 +14501,7 @@ function showResult(res) {
         ? `아쉬워요! 별 1개: ${STAR_RULES[2].text}`
         : `별 ${nextRule.stars}개: ${nextRule.text}`;
   $('#res-new').hidden = !best.isNew;
+  showResCoins(res);
   const badge = $('#res-badge');
   badge.hidden = !res.fullCombo;
   badge.textContent = res.counts.perfect === res.total && !res.counts.wrong ? 'ALL PERFECT' : 'FULL COMBO';
@@ -14188,6 +14565,7 @@ function showChallengeResult(res) {
       ? `다이아 3개! 진짜 드러머예요 💎💎💎`
       : `${res.roundsCleared ? `Lv.${res.roundsCleared}까지 클리어` : 'Lv.1부터 다시 도전!'} · 다음 💎: ${next.text}`;
   $('#res-new').hidden = !best.isNew;
+  showResCoins(res);
   $('#res-badge').hidden = true;
   for (const k of ['perfect', 'great', 'good', 'miss', 'wrong']) $('#res-' + k).textContent = res.counts[k] || 0;
   const face = res.diamonds === 0 ? 'miss' : res.diamonds === 1 ? 'idle' : 'cheer';
@@ -14661,6 +15039,7 @@ function openSettings() {
   $('#set-lite').checked = !!s.lite;
   $$('#set-band button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.band === (s.band || 'orch')));
   updateSettingLabels();
+  renderDeco();
   $('#settings-account').innerHTML = state.me.guest
     ? `랭킹 닉네임: <b>${escapeHtml(state.me.player?.username)}</b> · <button class="link" data-action="logout">닉네임 지우기</button>`
     : `랭킹은 팔로워 인증을 받은 사람만 올라가요 · <button class="link" data-action="rank-join">팔로워 인증 받기</button>`;
@@ -14691,7 +15070,7 @@ function mergeBests(mine, theirs) {
 async function transferMake() {
   if (!(await reconnectServer({ force: true }))) return toast('지금은 서버에 연결이 안 돼요. 잠시 후 다시 해 주세요');
   const { offsetMs, ...settings } = state.settings;
-  const data = { bests: loadBests(), nick: load('nick', ''), lastNick: load('lastNick', ''), lastIg: load('lastIg', ''), settings };
+  const data = { bests: loadBests(), nick: load('nick', ''), lastNick: load('lastNick', ''), lastIg: load('lastIg', ''), settings, coins: load('coins', 0), decoOwned: load('decoOwned', []) };
   try {
     const r = await state.api.transfer({ op: 'make', data });
     $('#transfer-code-num').textContent = `${r.code.slice(0, 3)} ${r.code.slice(3)}`;
@@ -14704,6 +15083,10 @@ async function transferMake() {
 function applyTransfer(data, me) {
   save('bests', mergeBests(loadBests(), data.bests));
   for (const f of ['nick', 'lastNick', 'lastIg']) if (data[f] && !load(f, '')) save(f, data[f]);
+  // 🪙 인증 전에 폰에 모은 코인은 많은 쪽(계정 코인은 서버에 있어서 그대로), 산 꾸미기는 합침
+  if (Number.isFinite(data.coins) && data.coins > load('coins', 0)) save('coins', Math.floor(data.coins));
+  if (Array.isArray(data.decoOwned)) save('decoOwned', [...new Set([...(load('decoOwned', []) || []), ...data.decoOwned])]);
+  refreshCoins();
   if (data.settings || data.calib) {
     state.settings = { ...state.settings, ...(data.settings || {}) };
     if (data.calib) {
@@ -14832,6 +15215,189 @@ async function checkReq({ manual = false } = {}) {
   }
 }
 
+// ---------------- 🪙 코인 (2026-11-22) ----------------
+//   맞힌 콩(PERFECT·GREAT·GOOD) 1개 = 1코인, 연타 1번 = 1코인. 판이 끝나거나 그만둘 때 한 번 더함.
+//   잔액은 서버 지갑(인증한 계정)에, 판 시작·점수 요청에 얹어 보냄 → 새 요청 없음 (coins.js). 자동 연주·영상 찍기는 0.
+//   곧 상점에서 꾸미기(배경·드럼·콩 색·내 사진)를 사는 데 씀 → 산 것은 load('decoOwned') 목록
+/** 인증 상태·서버 잔액을 coins.js 에 알림 (me 를 새로 받았을 때 그 잔액은 한 번만 씀) */
+function syncCoinAccount() {
+  const me = state.me || {};
+  const fresh = Number.isFinite(me.coins) && !me._coinsUsed;
+  if (fresh) me._coinsUsed = true;
+  setCoinAccount(isConfirmed(), fresh ? me.coins : undefined);
+}
+const getCoins = () => coinTotal();
+function refreshCoins() {
+  const el = $('#coin-num');
+  if (el) el.textContent = fmt(getCoins());
+}
+/** 이 판에서 받은 코인을 더하고 개수를 돌려줌 (한 판에 한 번만) */
+function awardRunCoins(g) {
+  if (!g || g._coined) return 0;
+  g._coined = true;
+  if (state.auto || g.auto || state.studio.active) return 0;
+  const c = g.counts || {};
+  const n = Math.max(0, Math.min(20000, (c.perfect || 0) + (c.great || 0) + (c.good || 0) + (g.rollHits || 0)));
+  syncCoinAccount();
+  // 판 토큰은 이 판 것일 때만 (다음 판을 시작하며 부르면 state.runToken 은 이미 비어 있음)
+  if (n > 0) addRunCoins(n, g._runToken || null);
+  return n;
+}
+
+// ---------------- 🎨 꾸미기 (배경·드럼 세트·콩 색) ----------------
+//   11-22 사용자 결정: 원래 배경(단계별)·맵 드럼·기본 콩 색만 무료, 나머지(다른 배경·드럼·콩 색·📷 내 사진)는
+//   🔒 잠금 → 곧 상점에서 코인으로 엶. 열린 건 load('decoOwned') = ['bg:city', 'kit:lava', 'notes:neon', 'bg:photo' …]
+const DECO_FREE = { bg: 'auto', kit: 'auto', notes: 'basic' };
+function decoOpen(type, key) {
+  if (!key || key === DECO_FREE[type]) return true;
+  const owned = load('decoOwned', []);
+  return Array.isArray(owned) && owned.includes(`${type}:${key}`);
+}
+const decoPick = (type) => {
+  const k = state.settings[type] || DECO_FREE[type];
+  return decoOpen(type, k) ? k : DECO_FREE[type];
+};
+//   이 폰에만 저장(설정). 서버 요청 없음. 영상 찍기는 원래 맵 그대로(render.js)
+const DECO_THEMES = ['sunset', 'city', 'hall', 'void', 'lava', 'aurora', 'xmas', 'space'];
+function applyDeco() {
+  const s = state.settings;
+  const bg = decoPick('bg');
+  const kit = decoPick('kit');
+  renderer.bgPick = bg !== 'auto' ? bg : null;
+  renderer.kitPick = kit !== 'auto' ? kit : null;
+  renderer.photoDim = s.photoDim ?? 0.4;
+  applyNoteColors(renderer.studio ? 'basic' : decoPick('notes'));
+}
+function renderDeco() {
+  const s = { ...state.settings, bg: decoPick('bg'), kit: decoPick('kit'), notes: decoPick('notes') };
+  const chip = (attr, key, label, bg, on) => {
+    const open = decoOpen(attr, key);
+    return `<button class="chip ${open ? '' : 'locked'}" data-${attr}="${key}" aria-pressed="${open && on}"><i style="background:${bg}"></i>${label}${open ? '' : ' 🔒'}</button>`;
+  };
+  const auto = 'conic-gradient(#FF9A6B,#6A1B78,#7A2A1C,#1C4A5E,#FF9A6B)';
+  const ph = photo.url ? `center/cover url('${photo.url}')` : '#555';
+  $('#set-bg').innerHTML =
+    chip('bg', 'auto', '단계별', auto, !s.bg || s.bg === 'auto') +
+    chip('bg', 'photo', photo.url ? '📷 내 사진' : '📷 사진 넣기', ph, s.bg === 'photo' && !!photo.url) +
+    DECO_THEMES.map((k) => chip('bg', k, THEMES[k].name, `linear-gradient(${THEMES[k].sky.join(',')})`, s.bg === k)).join('');
+  $('#set-kit').innerHTML =
+    chip('kit', 'auto', '맵 따라', auto, !s.kit || s.kit === 'auto') +
+    DECO_THEMES.map((k) => {
+      const sh = THEMES[k].kit.shell;
+      return chip('kit', k, THEMES[k].name, `radial-gradient(circle at 35% 30%,${sh[0]},${sh[1]} 55%,${sh[2]})`, s.kit === k);
+    }).join('');
+  const lanes = (p) => (p.c ? p.c.slice(0, 4).map((c) => c[0]) : LANE_DEFAULT);
+  $('#set-notes').innerHTML = Object.entries(NOTE_PALETTES)
+    .map(([k, p]) => chip('notes', k, p.name, `conic-gradient(${lanes(p).join(',')})`, (s.notes || 'basic') === k))
+    .join('');
+  $('#set-photo-opts').hidden = !(decoPick('bg') === 'photo' && photo.url);
+  $('#set-photo-dim').value = s.photoDim ?? 0.4;
+}
+
+// 📷 내 사진 배경: 고른 사진을 긴 쪽 1600px JPEG 로 줄여 이 폰(IndexedDB)에만 저장. 서버로 안 보냄
+const photo = { url: null };
+function setPhotoImage(url) {
+  if (photo.url && photo.url.startsWith('blob:') && photo.url !== url) URL.revokeObjectURL(photo.url);
+  photo.url = url;
+  if (!url) {
+    renderer.bgPhoto = null;
+    return Promise.resolve(false);
+  }
+  return new Promise((res) => {
+    const img = new Image();
+    img.onload = () => {
+      renderer.bgPhoto = img;
+      res(true);
+    };
+    img.onerror = () => {
+      renderer.bgPhoto = null;
+      res(false);
+    };
+    img.src = url;
+  });
+}
+async function loadPhotoBg() {
+  try {
+    const url = await photoLoad();
+    if (url) await setPhotoImage(url);
+  } catch {}
+}
+async function shrinkPhoto(file) {
+  const src = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = rej;
+      i.src = src;
+    });
+    const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(img.naturalWidth * k));
+    c.height = Math.max(1, Math.round(img.naturalHeight * k));
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.85));
+  } finally {
+    URL.revokeObjectURL(src);
+  }
+}
+async function pickPhoto(file) {
+  if (!file || !decoOpen('bg', 'photo')) return;
+  let blob = null;
+  try {
+    blob = await shrinkPhoto(file);
+  } catch {}
+  if (!blob) return toast('이 사진은 못 읽었어요 · 다른 사진으로 해 보세요', 2800);
+  if (!(await photoSave(blob))) return toast('사진을 저장하지 못했어요 (브라우저 저장 공간이 막혀 있어요)', 3200);
+  await setPhotoImage(await photoLoad());
+  state.settings.bg = 'photo';
+  saveSettings(state.settings);
+  applyDeco();
+  renderDeco();
+  toast('📷 배경으로 넣었어요! 다음 판부터 보여요', 2400);
+}
+const LANE_DEFAULT = LANE.slice(0, 4).map((l) => l.main);
+function bindDeco() {
+  loadPhotoBg();
+  $('#set-photo-file').addEventListener('change', (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    pickPhoto(f);
+  });
+  $('#set-photo-dim').addEventListener('input', (e) => {
+    state.settings.photoDim = Number(e.target.value);
+    saveSettings(state.settings);
+    applyDeco();
+  });
+  $('#set-photo-opts').addEventListener('click', async (e) => {
+    const a = e.target.closest('[data-photo-act]');
+    if (!a) return;
+    if (a.dataset.photoAct === 'change') return $('#set-photo-file').click();
+    await photoDelete();
+    await setPhotoImage(null);
+    state.settings.bg = 'auto';
+    saveSettings(state.settings);
+    applyDeco();
+    renderDeco();
+    toast('사진을 지웠어요', 1800);
+  });
+  $('#set-deco').addEventListener('click', (e) => {
+    const b = e.target.closest('.chip');
+    if (!b) return;
+    const s = state.settings;
+    const [type, key] = Object.entries(DECO_FREE).map(([t]) => [t, b.dataset[t]]).find(([, k]) => k) || [];
+    if (!decoOpen(type, key)) return toast('🔒 곧 상점에서 코인으로 열 수 있어요! 콩을 맞힐수록 코인이 쌓여요', 2800);
+    if (b.dataset.bg === 'photo' && !photo.url) return $('#set-photo-file').click();
+    if (b.dataset.bg) s.bg = b.dataset.bg;
+    if (b.dataset.kit) s.kit = b.dataset.kit;
+    if (b.dataset.notes) s.notes = b.dataset.notes;
+    saveSettings(s);
+    applyDeco();
+    renderDeco();
+    audio.unlock().then(() => audio.snare()).catch(() => {});
+  });
+}
+
 function updateSettingLabels() {
   const s = state.settings;
   $('#set-offset-val').textContent = s.offsetMs === 0 ? '0ms' : `${s.offsetMs > 0 ? '+' : ''}${s.offsetMs}ms`;
@@ -14849,6 +15415,7 @@ function applyLite() {
   if ($('#screen-game').classList.contains('active')) renderer.resize();
 }
 function bindSettings() {
+  bindDeco();
   const upd = () => {
     const s = state.settings;
     s.music = Number($('#set-music').value);
@@ -15154,7 +15721,7 @@ const mkSave = () => save('mapDraft', mk);
 /** ↩ 되돌리기: 녹음·자동 채우기 직전 모습 하나 (폰에 저장 안 함) */
 let mkUndo = null;
 const mkSnap = () => {
-  mkUndo = JSON.stringify({ mel: mk.mel, drums: mk.drums, drumsAuto: mk.drumsAuto, bpm: mk.bpm, prog: mk.prog || null, songDrums: mk.songDrums || null });
+  mkUndo = JSON.stringify({ mel: mk.mel, drums: mk.drums, drumsAuto: mk.drumsAuto, bpm: mk.bpm, prog: mk.prog || null, songDrums: mk.songDrums || null, low: mk.low || null });
   $('#mk-undo').disabled = false;
 };
 const umLikes = () => load('mapLikes', {});
@@ -15262,7 +15829,7 @@ async function playMap(id) {
 }
 /** 🛡 무적 / ❤ 하트 5개 고르기 + 모드별 1~3등 (맵 받을 때 같이 온 것) */
 function mapTopHTML(list) {
-  if (!list || !list.length) return '<li class="mm-empty">아직 기록 없음 · 1등 해 보세요!</li>';
+  if (!list || !list.length) return '<li class="mm-empty">아직 기록 없음</li>';
   const medal = ['🥇', '🥈', '🥉'];
   return list.map((r, i) => `<li><span>${medal[i]}</span><em>${escapeHtml(r.nick || '익명')}</em><b>${fmt(r.score)}</b></li>`).join('');
 }
@@ -15376,6 +15943,12 @@ function mkFixBars() {
   if (mk.drumsAuto === 'song' && !(Array.isArray(mk.songDrums) && mk.songDrums.length === mk.mel.length)) mk.drumsAuto = null;
   if (mk.drumsAuto === 'song') mk.drums = [...mk.songDrums];
   else if (mk.drumsAuto) mk.drums = autoDrums(mk.mel, mk.drumsAuto);
+  // 🎹 왼손(악보 아래 줄): 마디 수를 멜로디에 맞춤
+  if (Array.isArray(mk.low)) {
+    while (mk.low.length < mk.mel.length) mk.low.push([]);
+    mk.low.length = mk.mel.length;
+    if (!mk.low.some((b) => b.length)) mk.low = null;
+  }
   mk.bar = Math.max(0, Math.min(mk.mel.length - 1, mk.bar));
   mk.cur = Math.max(0, Math.min(STEPS_PER_BAR - 1, mk.cur));
   mkSave();
@@ -15430,7 +16003,7 @@ function mkDroll(head = null) {
   if (!cv || !cv.clientWidth) return;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const w = cv.clientWidth;
-  const h = 88;
+  const h = 120;
   if (cv.width !== Math.round(w * dpr)) cv.width = Math.round(w * dpr);
   if (cv.height !== Math.round(h * dpr)) cv.height = Math.round(h * dpr);
   const g = cv.getContext('2d');
@@ -15449,6 +16022,14 @@ function mkDroll(head = null) {
   for (let st = 0; st <= STEPS_PER_BAR; st++) {
     g.fillStyle = st % 4 === 0 ? 'rgba(59,42,74,0.35)' : 'rgba(59,42,74,0.1)';
     g.fillRect(lx + Math.round(st * cw) - (st % 4 === 0 ? 1 : 0), 0, st % 4 === 0 ? 2 : 1, h);
+  }
+  // 고른 칸 (패드를 치면 여기에 들어감)
+  if (mk.dsel != null && !drec.on) {
+    g.fillStyle = 'rgba(255,47,125,0.16)';
+    g.fillRect(lx + mk.dsel * cw, 0, cw, h);
+    g.strokeStyle = '#ff2f7d';
+    g.lineWidth = 2;
+    g.strokeRect(lx + mk.dsel * cw + 1, 1, cw - 2, h - 2);
   }
   const bar = mk.drums[mk.bar] || '';
   [...bar].forEach((ch, st) => {
@@ -15759,8 +16340,13 @@ function mkPlayStep(i, t, bus, prog, sd, drums) {
   const partLen = STEPS_PER_BAR / parts.length;
   if (s % partLen === 0) {
     const ch = parseChord(parts[s / partLen]);
-    audio.bass(t, ch.root - 24, partLen * sd * 0.9, bus);
+    if (!mk.low) audio.bass(t, ch.root - 24, partLen * sd * 0.9, bus);
     if (s % 8 === 0 || partLen === 8) audio.pluck(t, ch.notes, partLen * sd * 0.8, bus, 0.5);
+  }
+  // 🎹 왼손(악보 아래 줄)
+  if (mk.low) for (const n of mk.low[b] || []) if (n.step === s) {
+    if (audio.piano) audio.pianoNote(t, n.midi, Math.max(0.2, n.len * sd * 0.95), 0.8, bus);
+    else audio.bass(t, n.midi, n.len * sd * 0.9, bus);
   }
   if (drums) for (const l of CHAR_LANES[(mk.drums[b] || '')[s]] || []) audio.playLane(l, t, bus);
 }
@@ -15810,6 +16396,7 @@ function drecToggle() {
     drec.next = -STEPS_PER_BAR;
     drec.bar = -1;
     drec.on = true;
+    mk.dsel = null;
     mk.drumsAuto = null;
     mk.bar = drec.startBar;
     while (mk.mel.length <= mk.bar) mk.mel.push([]), mk.drums.push('................');
@@ -15856,7 +16443,18 @@ function drecToggle() {
 /** 패드 침: 소리는 바로, 녹음 중이면 가까운 칸에 노트 */
 function padHit(inst) {
   mkSound(() => audio.playLane(LANE_OF[inst], audio.ctx.currentTime + 0.003));
-  if (!drec.on) return;
+  if (!drec.on) {
+    // 아래 칸을 골라 뒀으면 그 칸에 노트
+    if (mk.dsel == null || !mk.drums[mk.bar]) return;
+    const cells = [...mk.drums[mk.bar]];
+    if (drumCell(cells[mk.dsel])[inst]) return;
+    cells[mk.dsel] = toggleDrum(cells[mk.dsel], inst);
+    mk.drums[mk.bar] = cells.join('');
+    mk.drumsAuto = null;
+    mkSave();
+    mkRender();
+    return;
+  }
   const pos = (audio.heardTime(performance.now()) - (state.settings.offsetMs || 0) / 1000 - drec.t0) / drec.sd;
   const q = Math.round(pos / drec.q) * drec.q;
   if (q < 0) return;
@@ -16040,6 +16638,7 @@ function mkMap(strict = true) {
   mk.name = $('#mk-name').value.trim();
   mkSave();
   const raw = { name: mk.name || (strict ? '' : '내 맵'), bpm: mk.bpm, bars: mk.drums, melody: mk.mel.map(barToMelody), prog: mkProg() };
+  if (Array.isArray(mk.low) && mk.low.length === mk.mel.length) raw.low = mk.low.map(barToMelody);
   const map = cleanMap(raw);
   if (map) return map;
   if (!raw.name) toast('곡 이름을 적어 주세요', 1800);
@@ -16224,6 +16823,7 @@ async function mkTranscribe() {
   // confirm() 은 앱 안 브라우저에서 안 뜰 수 있어서 묻지 않음 (↩ 되돌리기 가능)
   mkSnap();
   mk.mel = t.bars;
+  mk.low = null;
   mk.bpm = Math.round(bpm);
   // 코드·드럼도 노래에서 (곡의 진짜 코드 · 곡의 쿵짝 자리)
   mk.prog = Array.isArray(t.prog) && t.prog.length === bars ? t.prog : null;
@@ -16360,6 +16960,7 @@ function mkScoreMake() {
   const hadDraft = mk.mel.some((b) => b.length) || mk.drumsAuto !== 'easy';
   mkSnap();
   mk.mel = r.mel;
+  mk.low = r.low || null;
   mk.bpm = Math.max(MAP_LIMITS.minBpm, Math.min(MAP_LIMITS.maxBpm, r.bpm));
   mk.prog = r.prog;
   if (r.drums) {
@@ -16377,7 +16978,7 @@ function mkScoreMake() {
   mkRender();
   st.innerHTML =
     `<b>${r.mel.length}마디</b>(${r.start + 1}마디부터)로 만들었어요 · 멜로디 음 <b>${r.found}개</b> · ${mk.bpm} BPM` +
-    `<br>${[r.prog ? '코드는 반주 트랙에서' : '코드는 멜로디로 짐작', r.drums ? '드럼은 악보 드럼 그대로' : '드럼은 자동'].join(' · ')}` +
+    `<br>${[r.prog ? '코드는 반주 트랙에서' : '코드는 멜로디로 짐작', r.low ? '🎹 왼손(아래 줄)도 악보 그대로' : '', r.drums ? '드럼은 악보 드럼 그대로' : '드럼은 자동'].filter(Boolean).join(' · ')}` +
     '<br>위 「처음부터 듣기」로 들어 보고, 고칠 곳은 「자세히 고치기」에서 손봐요' +
     (hadDraft ? '<br>전에 만들던 건 위 「↩ 되돌리기」로 되돌릴 수 있어요' : '');
   toast('🎼 악보로 맵을 만들었어요');
@@ -17847,8 +18448,8 @@ function openSuggest() {
   $('#suggest-text').value = load('suggestDraft', '');
   $('#suggest-contact').value = load('suggestContact', '');
   $('#suggest-count').textContent = `${[...$('#suggest-text').value].length} / 500`;
+  // 자주 묻는 질문이 먼저 보이게 입력칸에 바로 포커스 주지 않음(폰 자판이 가림)
   openModal('modal-suggest');
-  setTimeout(() => $('#suggest-text').focus(), 50);
 }
 async function sendSuggest() {
   const text = $('#suggest-text').value.trim();
@@ -18090,7 +18691,11 @@ const ACTIONS = {
         state.roomClient.send({ final: { score: state.game.score, stars: 0, grade: 'F', failed: true, died: true, maxCombo: state.game.maxCombo, accuracy: 0 } }, true);
     }
     document.body.classList.remove('room-game');
-    if (state.game) state.game.stop();
+    if (state.game) {
+      const n = awardRunCoins(state.game);
+      if (n > 0) toast(`코인 +${fmt(n)}`, 1800);
+      state.game.stop();
+    }
     if (state.levelId === MY_ID) {
       stopRecorder();
       openMysong();
@@ -18407,6 +19012,29 @@ function bindActions() {
     const c = e.target.closest('.mk-cell');
     if (c) mkDrumTap(Number(c.dataset.step), c.dataset.inst);
   });
+  // 드럼 칸 그림: 점을 누르면 지움, 빈 곳을 누르면 그 칸을 고름 (패드를 치면 거기에 들어감)
+  $('#mk-droll').addEventListener('pointerdown', (e) => {
+    if (drec.on) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    const lx = 44;
+    const x = e.clientX - r.left;
+    if (x < lx) return void ((mk.dsel = null), mkDroll());
+    const st = Math.max(0, Math.min(STEPS_PER_BAR - 1, Math.floor(((x - lx) / (r.width - lx)) * STEPS_PER_BAR)));
+    const row = Math.max(0, Math.min(DROLL_ROWS.length - 1, Math.floor(((e.clientY - r.top) / r.height) * DROLL_ROWS.length)));
+    const inst = { [CRASH]: 'C', [HAT]: 'H', [SNARE]: 'S', [KICK]: 'K' }[DROLL_ROWS[row][0]];
+    const cells = [...(mk.drums[mk.bar] || '')];
+    if (cells.length && drumCell(cells[st])[inst]) {
+      cells[st] = toggleDrum(cells[st], inst);
+      mk.drums[mk.bar] = cells.join('');
+      mk.drumsAuto = null;
+      mk.dsel = st;
+      mkSave();
+      mkRender();
+      return;
+    }
+    mk.dsel = mk.dsel === st ? null : st;
+    mkDroll();
+  });
   $('#mk-roll').addEventListener('pointerdown', (e) => {
     const r = e.currentTarget.getBoundingClientRect();
     mk.cur = Math.max(0, Math.min(STEPS_PER_BAR - 1, Math.floor(((e.clientX - r.left) / r.width) * STEPS_PER_BAR)));
@@ -18514,6 +19142,7 @@ async function boot() {
   buildTitle();
   bindActions();
   bindGameInput();
+  coinsInit({ changed: refreshCoins });
   bindSettings();
   applyLite();
   audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx });

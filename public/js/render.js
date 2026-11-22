@@ -17,18 +17,41 @@ export const LANE = [
   { key: 'crash', main: '#C38BFF', light: '#EBDDFF', dark: '#7F4CCF', rgb: '195,139,255', thumb: '왼쪽 엄지', word: '크래시 (챙)', short: '챙' },
   { key: 'tom', main: '#4FE0A6', light: '#C9FBE6', dark: '#1F9E70', rgb: '79,224,166', thumb: '왼쪽 엄지', word: '탐탐 (둥)', short: '둥' },
 ];
+
+// 🎨 콩(노트) 색 고르기 (설정 → 꾸미기). 줄 순서: 쿵·짝·하이햇·크래시·탐탐 [main, light, dark]
+export const NOTE_PALETTES = {
+  basic: { name: '기본', c: null },
+  candy: { name: '사탕', c: [['#FF6FA8', '#FFC2DA', '#C93A76'], ['#7FD8FF', '#D9F4FF', '#3B9FD1'], ['#FFE066', '#FFF6C4', '#C9A21F'], ['#B98BFF', '#E7DAFF', '#7A4CD0'], ['#7CF0C0', '#D3FCEB', '#2FB585']] },
+  neon: { name: '네온', c: [['#FF2BD6', '#FFA8F0', '#A3008A'], ['#00E5FF', '#A8F7FF', '#008CA3'], ['#C6FF00', '#EEFFA8', '#7A9E00'], ['#8C5CFF', '#D2C2FF', '#4A1FC2'], ['#00FF9C', '#B0FFDD', '#00A365']] },
+  ocean: { name: '바다', c: [['#2E9BFF', '#B5DCFF', '#145FB0'], ['#36E0D0', '#C0F7F1', '#13968A'], ['#9AD8FF', '#E6F6FF', '#4C93BF'], ['#6F7BFF', '#D0D4FF', '#3A44BF'], ['#3FD6A0', '#C6F5E3', '#1A8F66']] },
+  fire: { name: '불꽃', c: [['#FF4A2E', '#FFB3A6', '#B3200E'], ['#FF9F1C', '#FFDDA8', '#B86600'], ['#FFD93A', '#FFF3B0', '#B88F00'], ['#FF5E7E', '#FFC2CE', '#B32446'], ['#FF7A3A', '#FFCBA8', '#B3450E']] },
+  mono: { name: '흑백', c: [['#F2F2F2', '#FFFFFF', '#9A9A9A'], ['#BFC4CC', '#EEF0F3', '#6E747E'], ['#E6E6E6', '#FFFFFF', '#8E8E8E'], ['#A8ADB5', '#E2E4E8', '#5E636B'], ['#D0D0D0', '#F5F5F5', '#7A7A7A']] },
+};
+const LANE_BASE = LANE.map((l) => ({ main: l.main, light: l.light, dark: l.dark, rgb: l.rgb }));
+const hexRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)).join(',');
+/** 콩 색 바꾸기 (LANE 을 바꿔 둠 → 다음 resize 때 노트 그림이 새로 만들어짐) */
+export function applyNoteColors(key) {
+  const p = (NOTE_PALETTES[key] || NOTE_PALETTES.basic).c;
+  LANE.forEach((l, i) => {
+    if (!p) return Object.assign(l, LANE_BASE[i]);
+    const [main, light, dark] = p[i];
+    Object.assign(l, { main, light, dark, rgb: hexRgb(main) });
+  });
+}
 const KICK = 0;
 const SNARE = 1;
 const HAT = 2;
 const CRASH = 3;
 const TOM = 4;
 
+// 판정 글자: 한눈에 구분되게 크기·색·빛을 다르게 (11-22 '글자 구분이 잘 됐으면')
+//   PERFECT = 제일 크게 금빛 그라데이션 + 빛 / GREAT = 초록 보통 / GOOD = 작게 하늘색
 export const JUDGE_STYLE = {
-  perfect: { text: 'PERFECT', color: '#FFE45C' },
-  great: { text: 'GREAT', color: '#7CF5B4' },
-  good: { text: 'GOOD', color: '#9CC8FF' },
-  miss: { text: 'MISS', color: '#FF6B8A' },
-  wrong: { text: '헛침!', color: '#FF6B8A' },
+  perfect: { text: 'PERFECT', color: '#FFE45C', grad: ['#FFFBE0', '#FFD93A', '#FF9F1C'], scale: 1.2, glow: '255,210,60' },
+  great: { text: 'GREAT', color: '#4DF08A', scale: 1, glow: '60,240,130' },
+  good: { text: 'GOOD', color: '#8FB8FF', scale: 0.78 },
+  miss: { text: 'MISS', color: '#FF6B8A', scale: 0.9 },
+  wrong: { text: '헛침!', color: '#FF6B8A', scale: 0.9 },
 };
 
 const INK = '#2B1D3A';
@@ -119,7 +142,16 @@ export class Renderer {
 
   /** 이 판의 맵 정하기 (단계 묶음별). 화면 크기가 정해진 뒤 resize() 가 그림을 만듦 */
   setTheme(lv) {
-    const t = themeForLevel(lv);
+    // 🎨 설정에서 고른 배경 (영상 찍기는 원래 맵 그대로)
+    let pick = !this.studio && this.bgPick && THEMES[this.bgPick] ? this.bgPick : null;
+    if (pick === 'photo' && !this.bgPhoto) pick = null; // 사진이 없으면(지웠거나 못 읽음) 원래 맵
+    // 같은 맵 키여도 사진·밝기가 바뀌었으면 배경을 다시 그림
+    const pk = pick === 'photo' ? `${this.bgPhoto && this.bgPhoto.src}|${this.photoDim}` : '';
+    if (pk !== this._photoKey) {
+      this._photoKey = pk;
+      this._themeDirty = true;
+    }
+    const t = pick ? { key: pick, cycle: false } : themeForLevel(lv);
     this.themeBase = t.key;
     this.themeCycle = t.cycle;
     if (this.themeKey !== t.key) {
@@ -147,8 +179,10 @@ export class Renderer {
 
   _buildKit() {
     const L = this.L;
+    // 🎨 설정에서 고른 드럼 세트 (영상 찍기는 맵 드럼 그대로)
+    const kp = !this.studio && this.kitPick && THEMES[this.kitPick];
     this.kit = buildKit(
-      this.theme,
+      kp ? { ...this.theme, kit: kp.kit } : this.theme,
       { instR: L.instR, padR: L.padR, barW: L.barW, barH: L.barH, cymR: L.cymR, dpr: L.dpr, standTo: L.H - L.strikeY },
       LANE
     );
@@ -296,6 +330,27 @@ export class Renderer {
     g.closePath();
   }
 
+  _paintPhoto(g, L) {
+    const img = this.bgPhoto;
+    const iw = img.naturalWidth || img.width;
+    const ih = img.naturalHeight || img.height;
+    const k = Math.max(L.W / iw, L.H / ih);
+    const w = iw * k;
+    const h = ih * k;
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, L.W, L.H);
+    try {
+      g.drawImage(img, (L.W - w) / 2, (L.H - h) / 2, w, h);
+    } catch {}
+    const d = Math.max(0, Math.min(0.85, this.photoDim ?? 0.4));
+    const gr = g.createLinearGradient(0, 0, 0, L.H);
+    gr.addColorStop(0, `rgba(0,0,0,${d * 0.6})`);
+    gr.addColorStop(0.5, `rgba(0,0,0,${d})`);
+    gr.addColorStop(1, `rgba(0,0,0,${Math.min(0.9, d * 1.2)})`);
+    g.fillStyle = gr;
+    g.fillRect(0, 0, L.W, L.H);
+  }
+
   _drawStatic() {
     const L = this.L;
     const T = this.theme;
@@ -304,8 +359,9 @@ export class Renderer {
     c.height = this.canvas.height;
     const g = c.getContext('2d');
     g.setTransform(L.dpr, 0, 0, L.dpr, 0, 0);
-    // 맵 배경 (하늘·땅·장식)
-    paintScenery(g, L, T);
+    // 맵 배경 (하늘·땅·장식). 📷 내 사진이면 사진을 화면에 꽉 차게 + 노트가 잘 보이게 어둡게
+    if (T.key === 'photo' && this.bgPhoto) this._paintPhoto(g, L);
+    else paintScenery(g, L, T);
     // 원근 길(레인): 위(먼 곳)는 좁고 아래(가까운 곳)는 넓음. 줄 전체가 버튼
     const y0 = L.topY;
     const padTop = L.strikeY - L.instR * 1.45;
@@ -387,7 +443,7 @@ export class Renderer {
     g.fillRect(this._px(L.x0, L.sFar), y0 - 1, (L.x1 - L.x0) * L.sFar, 2);
     // 먼 곳 안개
     const fog = g.createLinearGradient(0, y0 - 2, 0, y0 + (L.strikeY - y0) * 0.22);
-    fog.addColorStop(0, `rgba(${T.fog},0.75)`);
+    fog.addColorStop(0, `rgba(${T.fog},${T.fogA ?? 0.75})`);
     fog.addColorStop(1, `rgba(${T.fog},0)`);
     g.fillStyle = fog;
     g.fillRect(this._px(L.x0, L.sFar) - 20, y0 - 2, (L.x1 - L.x0) * L.sFar + 40, (L.strikeY - y0) * 0.22 + 2);
@@ -426,7 +482,7 @@ export class Renderer {
   onJudge(lane, judge, rt, early) {
     const L = this.L;
     const style = JUDGE_STYLE[judge];
-    this.fx.judges.push({ lane, text: style.text, color: style.color, t0: rt, sub: judge === 'perfect' || judge === 'miss' || judge === 'wrong' ? '' : early ? 'FAST' : 'SLOW' });
+    this.fx.judges.push({ lane, text: style.text, color: style.color, grad: style.grad, scale: style.scale || 1, glow: style.glow, t0: rt, sub: judge === 'perfect' || judge === 'miss' || judge === 'wrong' ? '' : early ? 'FAST' : 'SLOW' });
     if (judge === 'miss' || judge === 'wrong') {
       this.missAt[lane] = rt;
       return;
@@ -1304,7 +1360,7 @@ export class Renderer {
       const sc = t < 0.12 ? 1.3 - (t / 0.12) * 0.3 : 1;
       const x = L.laneX[j.lane];
       const y = L.strikeY - L.instR * 1.75 - t * L.GW * 0.02;
-      const size = Math.min(L.GW * 0.055, L.laneW * 0.2) * sc;
+      const size = Math.min(L.GW * 0.055, L.laneW * 0.2) * sc * (j.scale || 1);
       ctx.save();
       ctx.globalAlpha = t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4;
       ctx.font = `${Math.round(size)}px ${FONT}`;
@@ -1313,8 +1369,19 @@ export class Renderer {
       ctx.lineJoin = 'round';
       ctx.lineWidth = size * 0.22;
       ctx.strokeStyle = INK;
+      if (j.glow && !this.lite) {
+        ctx.shadowColor = `rgba(${j.glow},0.9)`;
+        ctx.shadowBlur = size * 0.6;
+      }
       ctx.strokeText(j.text, x, y);
-      ctx.fillStyle = j.color;
+      ctx.shadowBlur = 0;
+      if (j.grad) {
+        const g = ctx.createLinearGradient(0, y - size * 0.5, 0, y + size * 0.5);
+        g.addColorStop(0, j.grad[0]);
+        g.addColorStop(0.5, j.grad[1]);
+        g.addColorStop(1, j.grad[2]);
+        ctx.fillStyle = g;
+      } else ctx.fillStyle = j.color;
       ctx.fillText(j.text, x, y);
       if (j.sub) {
         ctx.font = `${Math.round(size * 0.55)}px ${FONT}`;

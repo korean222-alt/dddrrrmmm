@@ -25,6 +25,7 @@ const val = (v) => (v === undefined ? null : v === true ? 1 : v === false ? 0 : 
  *     (players·scores·maps 등은 11-21 미리 복사 때 이미 보통 표로 만들어져 그대로 둠 — 바꾸려면 다시 써야 해서 쓰기 한도를 또 씀)
  */
 export const D1_SCHEMA = [
+  `CREATE TABLE IF NOT EXISTS wallet (igsid TEXT PRIMARY KEY, coins INTEGER NOT NULL DEFAULT 0, t INTEGER NOT NULL DEFAULT 0, fday TEXT, fn INTEGER NOT NULL DEFAULT 0, init INTEGER NOT NULL DEFAULT 0) WITHOUT ROWID`,
   `CREATE TABLE IF NOT EXISTS players (igsid TEXT PRIMARY KEY, username TEXT, follow_verified_at INTEGER, ig TEXT, created_at INTEGER, checked_at INTEGER, hidden_at INTEGER)`,
   `CREATE TABLE IF NOT EXISTS scores (igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, grade TEXT, max_combo INTEGER, at INTEGER NOT NULL, chk TEXT, PRIMARY KEY (igsid, level))`,
   `CREATE INDEX IF NOT EXISTS scores_rank ON scores (level, score DESC, at)`,
@@ -53,7 +54,7 @@ export const D1_SCHEMA = [
 ];
 
 /** 이미 있는 표에 열 더하기 — SQLite 엔 'IF NOT EXISTS' 가 없어서 하나씩 해 보고, 이미 있으면 오류를 그냥 넘김 */
-const D1_ALTERS = [
+export const D1_ALTERS = [
   // 핵 의심 확인용 JSON (2026-11-21, pgstore SCHEMA 와 같음)
   'ALTER TABLE scores ADD COLUMN chk TEXT',
 ];

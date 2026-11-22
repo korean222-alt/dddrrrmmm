@@ -15,20 +15,21 @@ import { readScoreFile, scoreInfo, scoreToMap, recommendStart } from './scorefil
 import { videoToAac } from './mp4audio.js';
 import { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmonize, autoDrums, cleanMap, mapLevel } from './usermap.js';
 import { AudioEngine, playMetronome } from './audio.js';
-import { Renderer } from './render.js';
+import { Renderer, NOTE_PALETTES, LANE, applyNoteColors } from './render.js';
+import { coinsInit, setCoinAccount, coinTotal, addRunCoins } from './coins.js';
 import { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } from './game.js';
 import { initAds, showRewarded } from './ads.js';
 import { createApi } from './api.js';
 import { initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay } from './track.js';
 import { CONFIG } from './config.js';
 import { buddyUrl, loadBuddies } from './buddies.js';
-import { groupStarting } from './themes.js';
+import { groupStarting, THEMES } from './themes.js';
 import { NEWS, LATEST_NEWS } from './news.js';
 import { RoomClient, roomOutcome, survivalOutcome } from './room.js';
 import { makeReelCover } from './cover.js';
 import { detectBeat, monoOf, songChart } from './beatsync.js';
 import { seasonLeftText, BOARD_LABEL } from './season.js';
-import { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder, resetOldLevel18 } from './storage.js';
+import { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder, resetOldLevel18, photoSave, photoLoad, photoDelete } from './storage.js';
 
 resetOldLevel18(); // 18번 = 엘리제를 위하여 (그 전 찬송가 기록 지움)
 migrateLevelOrder(); // 8단계에 새 곡이 끼면서 밀린 번호를 이 브라우저 기록에도 반영 (아래 state 보다 먼저)
@@ -436,6 +437,8 @@ function refreshFollowChip() {
 
 function refreshTitle() {
   refreshFollowChip();
+  syncCoinAccount();
+  refreshCoins();
   // 🆓 임시 인증 기간 안내 (인스타 DM 막힘)
   const fp = $('#free-pass-note');
   fp.hidden = !(state.api && state.api.mode === 'server' && freePass());
@@ -614,6 +617,10 @@ async function fontsReady(extra = '') {
 // 먼저 만든 쪽이 카운트인 중에 이미 진행되던 버그가 있었음 → 마지막 호출만 살리고 앞선 호출은 중단
 let startSeq = 0;
 /** 🐢 느리게 연습: 같은 채보를 rate 배 빠르기로 (목숨·기록·랭킹 없음) */
+/** 🎲 랜덤 대결 N곡째 빠르기: 1곡째 그대로, 한 곡마다 +7%, 최대 1.5배 */
+function rushSpeed(round) {
+  return Math.min(1.5, 1 + 0.07 * Math.max(0, (round | 0) - 1));
+}
 function practiceLevel(lv, rate) {
   return { ...lv, bpm: Math.round(lv.bpm * rate * 10) / 10, practice: rate };
 }
@@ -625,7 +632,9 @@ async function startLevel(id, opts = {}) {
   if (!base) return;
   const practice = !opts.room && opts.practice && canPractice(base) ? opts.practice : 0;
   state.practice = practice;
-  const lv = practice ? practiceLevel(base, practice) : base;
+  // 🎲 랜덤 대결: 곡이 넘어갈수록 빨라짐 (두 사람 다 round 로 같은 빠르기)
+  const rushRate = opts.room && opts.room.rush ? rushSpeed(opts.room.round) : 1;
+  const lv = practice ? practiceLevel(base, practice) : rushRate > 1 ? { ...base, bpm: Math.round(base.bpm * rushRate * 10) / 10 } : base;
   // 친구 대결 방 판: { startAt(내 시계 ms), mode } — 같은 시각에 시작, 랭킹엔 안 올림
   // 🏆 랭킹전 판: 실시간 { startAt(내 시계 ms), mode, round } / 고스트 { ghost, gid } — 랭킹엔 안 올림
   const room = opts.room || null;
@@ -648,7 +657,7 @@ async function startLevel(id, opts = {}) {
   show('screen-game');
   $('#hud-lv').textContent = practice ? `🐢 연습 ${Math.round(practice * 100)}%` : lv.userMap ? '🎹 유저 맵' : lv.custom ? '🎵 내 노래' : lv.survival ? '⚔️ 서바이벌' : lv.challenge ? (lv.endless ? '무제한' : '챌린지') : lv.studioOnly ? '🎬 릴스용' : levelLabel(lv);
   $('#hud-name').textContent = lv.challenge ? `${lv.songName} · ${lv.composer}` : `${lv.name} · ${lv.composer}`;
-  if (room && room.rush) $('#hud-lv').textContent = `🎲 ${room.round}곡째`;
+  if (room && room.rush) $('#hud-lv').textContent = `🎲 ${room.round}곡째${rushRate > 1 ? ` · ⚡${rushRate.toFixed(2).replace(/0$/, '')}배` : ''}`;
   $('#hud-score').textContent = '0';
   $('#hud-progress').style.width = '0%';
   closeModal('modal-continue');
@@ -685,14 +694,19 @@ async function startLevel(id, opts = {}) {
   const cw = $('#game-canvas').clientWidth || window.innerWidth;
   await renderer.resize(st.active ? Math.min(3, Math.max(2, 1080 / cw)) : 2);
   if (stale()) return;
+  awardRunCoins(state.game); // 판 도중에 다시 시작하면 그때까지 맞힌 만큼 (새 판 토큰을 받기 전에)
   if (state.game) state.game.stop();
   state.runToken = null;
   // 영상 찍기는 팔로우 잠금 없이 (계정 주인이 촬영용으로 씀) → 서버 판 토큰도 안 받음
   // 인증 안 한 사람이 1~3단계를 칠 땐 랭킹에 못 올리니 판 토큰도 안 받음 (서버 요청 아끼기, 통계는 5분마다 따로 감)
   const canRank = isConfirmed() || state.cfg.gateMode === 'open' || isClosed(id);
+  syncCoinAccount();
   if ((!lv.challenge || lv.endless) && !st.active && !room && !practice && !lv.custom && canRank) state.api
     .startRun(id)
-    .then((r) => (state.runToken = r.runToken))
+    .then((r) => {
+      state.runToken = r.runToken;
+      if (state.game && state.game.level.id === id && !state.game._coined) state.game._runToken = r.runToken;
+    })
     .catch((e) => {
       if (e.status === 403 && state.game && state.game.level.id === id) {
         state.game.stop();
@@ -712,7 +726,17 @@ async function startLevel(id, opts = {}) {
         toast('판을 시작하지 못했어요. 다시 해 보세요', 2600);
       }
     });
-  const last = { score: -1, p: -1, op: -1, lives: MAX_LIVES, stars: -1 };
+  const last = { score: -1, p: -1, op: -1, lives: MAX_LIVES, stars: -1, shown: -1 };
+  // 실시간 대결: 상대 점수는 몇 초 늦게 옴 → 내 점수도 '상대가 보낸 진행 위치' 때의 점수로 보여 줘야 같은 지점끼리 비교됨
+  const myHist = []; // [진행, 점수] (진행 순)
+  const myScoreAt = (p) => {
+    let lo = 0, hi = myHist.length - 1, ans = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (myHist[mid][0] <= p) { ans = myHist[mid][1]; lo = mid + 1; } else hi = mid - 1;
+    }
+    return ans;
+  };
   const starBox = $('#hud-stars');
   starBox.hidden = !!lv.endless;
   starBox.innerHTML = starsHTML(0);
@@ -743,12 +767,18 @@ async function startLevel(id, opts = {}) {
           $('#vs-name').textContent = (rtNow ? '⚡' : '') + roomOtherName();
           last.rt = rtNow;
         }
-        if (op !== last.op || h.score !== last.score) {
-          $('#vs-me').textContent = fmt(h.score);
+        const seq = !lv.endless && !lv.roundProgress;
+        if (seq && (!myHist.length || h.progress > myHist[myHist.length - 1][0])) myHist.push([h.progress, h.score]);
+        else if (seq && myHist.length) myHist[myHist.length - 1][1] = h.score;
+        // 상대가 끝냈으면(final) 지금 내 점수, 아니면 상대가 보낸 진행 위치 때의 내 점수
+        const me = seq && o && !o.final && o.live && o.live.progress < h.progress ? myScoreAt(o.live.progress) : h.score;
+        if (op !== last.op || me !== last.shown) {
+          $('#vs-me').textContent = fmt(me);
           const ol = o && o.live && o.live.lives != null ? ` ♥${o.live.lives}` : '';
           $('#vs-op').textContent = room.mode === 'team' ? `${fmt(op)} · 팀 ${fmt(h.score + op)}` : fmt(op) + ol;
-          const tot = h.score + op;
-          $('#vs-fill').style.width = (tot ? (h.score / tot) * 100 : 50).toFixed(1) + '%';
+          const tot = me + op;
+          $('#vs-fill').style.width = (tot ? (me / tot) * 100 : 50).toFixed(1) + '%';
+          last.shown = me;
         }
         last.op = op;
       } else if (vs) {
@@ -779,6 +809,7 @@ async function startLevel(id, opts = {}) {
       last.p = p;
     },
     onEnd: (res) => {
+      res.coins = awardRunCoins(state.game);
       if (lv.custom) return lv.userMap ? umFinish(res) : myFinish(res);
       if (room) rk.game = null;
       if (!state.studio.active && !res.auto && !res.practice) trackPlayEnd({ result: res.failed || res.died ? 'fail' : 'clear', score: res.score, stars: res.stars });
@@ -800,7 +831,7 @@ async function startLevel(id, opts = {}) {
     // 상대와 같은 시각에 시작: 남은 시간 카운트다운 (Game.start 가 0.35초 뒤에 첫 박을 놓음)
     const box = $('#studio-count');
     box.hidden = false;
-    $('#studio-count-msg').textContent = room.rush ? `🎲 ${room.round}곡째! ${roomOtherName()} 님과 대결` : room.ranked ? `🏆 ${roomOtherName()} 님과 랭킹전!` : room.mode === 'team' ? '🤝 팀전! 둘이 같이 깨 봐요' : `⚔️ ${roomOtherName()} 님과 대결!`;
+    $('#studio-count-msg').textContent = room.rush ? `🎲 ${room.round}곡째${rushSpeed(room.round) > 1 ? ` (⚡${Math.round(rushSpeed(room.round) * 100)}% 빠르기)` : ''}! ${roomOtherName()} 님과 대결` : room.ranked ? `🏆 ${roomOtherName()} 님과 랭킹전!` : room.mode === 'team' ? '🤝 팀전! 둘이 같이 깨 봐요' : `⚔️ ${roomOtherName()} 님과 대결!`;
     const g = state.game;
     // 기다리는 동안 무대(맵)를 그려 둠
     renderer.draw({ now: -1, notes: g.notes, approach: g.approach, beatDur: g.beat, combo: 0, score: 0, playing: false }, performance.now() / 1000);
@@ -830,6 +861,7 @@ async function startLevel(id, opts = {}) {
     await stopRecorder(); // 다시 치기: 앞 판 녹화가 남아 있으면 버림
     startRecorder();
   }
+  if (state.runToken && !state.game._runToken) state.game._runToken = state.runToken;
   state.game.start();
   if (lv.synced && st.active) scheduleSyncRec(state.game);
   // 영상 찍기·자동 연주·내 노래는 통계에 안 셈
@@ -840,6 +872,7 @@ async function startLevel(id, opts = {}) {
 function setKit(lv) {
   renderer.laneOrder = levelLanes(lv);
   renderer.newLane = lv.newInstrument ?? -1;
+  applyDeco();
   renderer.setTheme(lv); // 단계 묶음마다 맵 분위기가 다름 (themes.js)
   // 마우스·키보드 쓰는 컴퓨터면 줄마다 키 글자를 보여줌 (폰·태블릿은 안 보임)
   renderer.keyLabels = null;
@@ -1055,6 +1088,12 @@ function giveUp() {
 }
 
 // ---------------- 결과 ----------------
+function showResCoins(res) {
+  const el = $('#res-coins');
+  el.hidden = !(res.coins > 0);
+  if (res.coins > 0) el.innerHTML = `<i class="coin-ico"></i> +${fmt(res.coins)} <small>모은 코인 ${fmt(getCoins())}</small>`;
+}
+
 function showResult(res) {
   if (state.suggestLite && !state.settings.lite) {
     state.suggestLite = false;
@@ -1100,6 +1139,7 @@ function showResult(res) {
         ? `아쉬워요! 별 1개: ${STAR_RULES[2].text}`
         : `별 ${nextRule.stars}개: ${nextRule.text}`;
   $('#res-new').hidden = !best.isNew;
+  showResCoins(res);
   const badge = $('#res-badge');
   badge.hidden = !res.fullCombo;
   badge.textContent = res.counts.perfect === res.total && !res.counts.wrong ? 'ALL PERFECT' : 'FULL COMBO';
@@ -1163,6 +1203,7 @@ function showChallengeResult(res) {
       ? `다이아 3개! 진짜 드러머예요 💎💎💎`
       : `${res.roundsCleared ? `Lv.${res.roundsCleared}까지 클리어` : 'Lv.1부터 다시 도전!'} · 다음 💎: ${next.text}`;
   $('#res-new').hidden = !best.isNew;
+  showResCoins(res);
   $('#res-badge').hidden = true;
   for (const k of ['perfect', 'great', 'good', 'miss', 'wrong']) $('#res-' + k).textContent = res.counts[k] || 0;
   const face = res.diamonds === 0 ? 'miss' : res.diamonds === 1 ? 'idle' : 'cheer';
@@ -1636,6 +1677,7 @@ function openSettings() {
   $('#set-lite').checked = !!s.lite;
   $$('#set-band button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.band === (s.band || 'orch')));
   updateSettingLabels();
+  renderDeco();
   $('#settings-account').innerHTML = state.me.guest
     ? `랭킹 닉네임: <b>${escapeHtml(state.me.player?.username)}</b> · <button class="link" data-action="logout">닉네임 지우기</button>`
     : `랭킹은 팔로워 인증을 받은 사람만 올라가요 · <button class="link" data-action="rank-join">팔로워 인증 받기</button>`;
@@ -1666,7 +1708,7 @@ function mergeBests(mine, theirs) {
 async function transferMake() {
   if (!(await reconnectServer({ force: true }))) return toast('지금은 서버에 연결이 안 돼요. 잠시 후 다시 해 주세요');
   const { offsetMs, ...settings } = state.settings;
-  const data = { bests: loadBests(), nick: load('nick', ''), lastNick: load('lastNick', ''), lastIg: load('lastIg', ''), settings };
+  const data = { bests: loadBests(), nick: load('nick', ''), lastNick: load('lastNick', ''), lastIg: load('lastIg', ''), settings, coins: load('coins', 0), decoOwned: load('decoOwned', []) };
   try {
     const r = await state.api.transfer({ op: 'make', data });
     $('#transfer-code-num').textContent = `${r.code.slice(0, 3)} ${r.code.slice(3)}`;
@@ -1679,6 +1721,10 @@ async function transferMake() {
 function applyTransfer(data, me) {
   save('bests', mergeBests(loadBests(), data.bests));
   for (const f of ['nick', 'lastNick', 'lastIg']) if (data[f] && !load(f, '')) save(f, data[f]);
+  // 🪙 인증 전에 폰에 모은 코인은 많은 쪽(계정 코인은 서버에 있어서 그대로), 산 꾸미기는 합침
+  if (Number.isFinite(data.coins) && data.coins > load('coins', 0)) save('coins', Math.floor(data.coins));
+  if (Array.isArray(data.decoOwned)) save('decoOwned', [...new Set([...(load('decoOwned', []) || []), ...data.decoOwned])]);
+  refreshCoins();
   if (data.settings || data.calib) {
     state.settings = { ...state.settings, ...(data.settings || {}) };
     if (data.calib) {
@@ -1807,6 +1853,189 @@ async function checkReq({ manual = false } = {}) {
   }
 }
 
+// ---------------- 🪙 코인 (2026-11-22) ----------------
+//   맞힌 콩(PERFECT·GREAT·GOOD) 1개 = 1코인, 연타 1번 = 1코인. 판이 끝나거나 그만둘 때 한 번 더함.
+//   잔액은 서버 지갑(인증한 계정)에, 판 시작·점수 요청에 얹어 보냄 → 새 요청 없음 (coins.js). 자동 연주·영상 찍기는 0.
+//   곧 상점에서 꾸미기(배경·드럼·콩 색·내 사진)를 사는 데 씀 → 산 것은 load('decoOwned') 목록
+/** 인증 상태·서버 잔액을 coins.js 에 알림 (me 를 새로 받았을 때 그 잔액은 한 번만 씀) */
+function syncCoinAccount() {
+  const me = state.me || {};
+  const fresh = Number.isFinite(me.coins) && !me._coinsUsed;
+  if (fresh) me._coinsUsed = true;
+  setCoinAccount(isConfirmed(), fresh ? me.coins : undefined);
+}
+const getCoins = () => coinTotal();
+function refreshCoins() {
+  const el = $('#coin-num');
+  if (el) el.textContent = fmt(getCoins());
+}
+/** 이 판에서 받은 코인을 더하고 개수를 돌려줌 (한 판에 한 번만) */
+function awardRunCoins(g) {
+  if (!g || g._coined) return 0;
+  g._coined = true;
+  if (state.auto || g.auto || state.studio.active) return 0;
+  const c = g.counts || {};
+  const n = Math.max(0, Math.min(20000, (c.perfect || 0) + (c.great || 0) + (c.good || 0) + (g.rollHits || 0)));
+  syncCoinAccount();
+  // 판 토큰은 이 판 것일 때만 (다음 판을 시작하며 부르면 state.runToken 은 이미 비어 있음)
+  if (n > 0) addRunCoins(n, g._runToken || null);
+  return n;
+}
+
+// ---------------- 🎨 꾸미기 (배경·드럼 세트·콩 색) ----------------
+//   11-22 사용자 결정: 원래 배경(단계별)·맵 드럼·기본 콩 색만 무료, 나머지(다른 배경·드럼·콩 색·📷 내 사진)는
+//   🔒 잠금 → 곧 상점에서 코인으로 엶. 열린 건 load('decoOwned') = ['bg:city', 'kit:lava', 'notes:neon', 'bg:photo' …]
+const DECO_FREE = { bg: 'auto', kit: 'auto', notes: 'basic' };
+function decoOpen(type, key) {
+  if (!key || key === DECO_FREE[type]) return true;
+  const owned = load('decoOwned', []);
+  return Array.isArray(owned) && owned.includes(`${type}:${key}`);
+}
+const decoPick = (type) => {
+  const k = state.settings[type] || DECO_FREE[type];
+  return decoOpen(type, k) ? k : DECO_FREE[type];
+};
+//   이 폰에만 저장(설정). 서버 요청 없음. 영상 찍기는 원래 맵 그대로(render.js)
+const DECO_THEMES = ['sunset', 'city', 'hall', 'void', 'lava', 'aurora', 'xmas', 'space'];
+function applyDeco() {
+  const s = state.settings;
+  const bg = decoPick('bg');
+  const kit = decoPick('kit');
+  renderer.bgPick = bg !== 'auto' ? bg : null;
+  renderer.kitPick = kit !== 'auto' ? kit : null;
+  renderer.photoDim = s.photoDim ?? 0.4;
+  applyNoteColors(renderer.studio ? 'basic' : decoPick('notes'));
+}
+function renderDeco() {
+  const s = { ...state.settings, bg: decoPick('bg'), kit: decoPick('kit'), notes: decoPick('notes') };
+  const chip = (attr, key, label, bg, on) => {
+    const open = decoOpen(attr, key);
+    return `<button class="chip ${open ? '' : 'locked'}" data-${attr}="${key}" aria-pressed="${open && on}"><i style="background:${bg}"></i>${label}${open ? '' : ' 🔒'}</button>`;
+  };
+  const auto = 'conic-gradient(#FF9A6B,#6A1B78,#7A2A1C,#1C4A5E,#FF9A6B)';
+  const ph = photo.url ? `center/cover url('${photo.url}')` : '#555';
+  $('#set-bg').innerHTML =
+    chip('bg', 'auto', '단계별', auto, !s.bg || s.bg === 'auto') +
+    chip('bg', 'photo', photo.url ? '📷 내 사진' : '📷 사진 넣기', ph, s.bg === 'photo' && !!photo.url) +
+    DECO_THEMES.map((k) => chip('bg', k, THEMES[k].name, `linear-gradient(${THEMES[k].sky.join(',')})`, s.bg === k)).join('');
+  $('#set-kit').innerHTML =
+    chip('kit', 'auto', '맵 따라', auto, !s.kit || s.kit === 'auto') +
+    DECO_THEMES.map((k) => {
+      const sh = THEMES[k].kit.shell;
+      return chip('kit', k, THEMES[k].name, `radial-gradient(circle at 35% 30%,${sh[0]},${sh[1]} 55%,${sh[2]})`, s.kit === k);
+    }).join('');
+  const lanes = (p) => (p.c ? p.c.slice(0, 4).map((c) => c[0]) : LANE_DEFAULT);
+  $('#set-notes').innerHTML = Object.entries(NOTE_PALETTES)
+    .map(([k, p]) => chip('notes', k, p.name, `conic-gradient(${lanes(p).join(',')})`, (s.notes || 'basic') === k))
+    .join('');
+  $('#set-photo-opts').hidden = !(decoPick('bg') === 'photo' && photo.url);
+  $('#set-photo-dim').value = s.photoDim ?? 0.4;
+}
+
+// 📷 내 사진 배경: 고른 사진을 긴 쪽 1600px JPEG 로 줄여 이 폰(IndexedDB)에만 저장. 서버로 안 보냄
+const photo = { url: null };
+function setPhotoImage(url) {
+  if (photo.url && photo.url.startsWith('blob:') && photo.url !== url) URL.revokeObjectURL(photo.url);
+  photo.url = url;
+  if (!url) {
+    renderer.bgPhoto = null;
+    return Promise.resolve(false);
+  }
+  return new Promise((res) => {
+    const img = new Image();
+    img.onload = () => {
+      renderer.bgPhoto = img;
+      res(true);
+    };
+    img.onerror = () => {
+      renderer.bgPhoto = null;
+      res(false);
+    };
+    img.src = url;
+  });
+}
+async function loadPhotoBg() {
+  try {
+    const url = await photoLoad();
+    if (url) await setPhotoImage(url);
+  } catch {}
+}
+async function shrinkPhoto(file) {
+  const src = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = rej;
+      i.src = src;
+    });
+    const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(img.naturalWidth * k));
+    c.height = Math.max(1, Math.round(img.naturalHeight * k));
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.85));
+  } finally {
+    URL.revokeObjectURL(src);
+  }
+}
+async function pickPhoto(file) {
+  if (!file || !decoOpen('bg', 'photo')) return;
+  let blob = null;
+  try {
+    blob = await shrinkPhoto(file);
+  } catch {}
+  if (!blob) return toast('이 사진은 못 읽었어요 · 다른 사진으로 해 보세요', 2800);
+  if (!(await photoSave(blob))) return toast('사진을 저장하지 못했어요 (브라우저 저장 공간이 막혀 있어요)', 3200);
+  await setPhotoImage(await photoLoad());
+  state.settings.bg = 'photo';
+  saveSettings(state.settings);
+  applyDeco();
+  renderDeco();
+  toast('📷 배경으로 넣었어요! 다음 판부터 보여요', 2400);
+}
+const LANE_DEFAULT = LANE.slice(0, 4).map((l) => l.main);
+function bindDeco() {
+  loadPhotoBg();
+  $('#set-photo-file').addEventListener('change', (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    pickPhoto(f);
+  });
+  $('#set-photo-dim').addEventListener('input', (e) => {
+    state.settings.photoDim = Number(e.target.value);
+    saveSettings(state.settings);
+    applyDeco();
+  });
+  $('#set-photo-opts').addEventListener('click', async (e) => {
+    const a = e.target.closest('[data-photo-act]');
+    if (!a) return;
+    if (a.dataset.photoAct === 'change') return $('#set-photo-file').click();
+    await photoDelete();
+    await setPhotoImage(null);
+    state.settings.bg = 'auto';
+    saveSettings(state.settings);
+    applyDeco();
+    renderDeco();
+    toast('사진을 지웠어요', 1800);
+  });
+  $('#set-deco').addEventListener('click', (e) => {
+    const b = e.target.closest('.chip');
+    if (!b) return;
+    const s = state.settings;
+    const [type, key] = Object.entries(DECO_FREE).map(([t]) => [t, b.dataset[t]]).find(([, k]) => k) || [];
+    if (!decoOpen(type, key)) return toast('🔒 곧 상점에서 코인으로 열 수 있어요! 콩을 맞힐수록 코인이 쌓여요', 2800);
+    if (b.dataset.bg === 'photo' && !photo.url) return $('#set-photo-file').click();
+    if (b.dataset.bg) s.bg = b.dataset.bg;
+    if (b.dataset.kit) s.kit = b.dataset.kit;
+    if (b.dataset.notes) s.notes = b.dataset.notes;
+    saveSettings(s);
+    applyDeco();
+    renderDeco();
+    audio.unlock().then(() => audio.snare()).catch(() => {});
+  });
+}
+
 function updateSettingLabels() {
   const s = state.settings;
   $('#set-offset-val').textContent = s.offsetMs === 0 ? '0ms' : `${s.offsetMs > 0 ? '+' : ''}${s.offsetMs}ms`;
@@ -1824,6 +2053,7 @@ function applyLite() {
   if ($('#screen-game').classList.contains('active')) renderer.resize();
 }
 function bindSettings() {
+  bindDeco();
   const upd = () => {
     const s = state.settings;
     s.music = Number($('#set-music').value);
@@ -2129,7 +2359,7 @@ const mkSave = () => save('mapDraft', mk);
 /** ↩ 되돌리기: 녹음·자동 채우기 직전 모습 하나 (폰에 저장 안 함) */
 let mkUndo = null;
 const mkSnap = () => {
-  mkUndo = JSON.stringify({ mel: mk.mel, drums: mk.drums, drumsAuto: mk.drumsAuto, bpm: mk.bpm, prog: mk.prog || null, songDrums: mk.songDrums || null });
+  mkUndo = JSON.stringify({ mel: mk.mel, drums: mk.drums, drumsAuto: mk.drumsAuto, bpm: mk.bpm, prog: mk.prog || null, songDrums: mk.songDrums || null, low: mk.low || null });
   $('#mk-undo').disabled = false;
 };
 const umLikes = () => load('mapLikes', {});
@@ -2237,7 +2467,7 @@ async function playMap(id) {
 }
 /** 🛡 무적 / ❤ 하트 5개 고르기 + 모드별 1~3등 (맵 받을 때 같이 온 것) */
 function mapTopHTML(list) {
-  if (!list || !list.length) return '<li class="mm-empty">아직 기록 없음 · 1등 해 보세요!</li>';
+  if (!list || !list.length) return '<li class="mm-empty">아직 기록 없음</li>';
   const medal = ['🥇', '🥈', '🥉'];
   return list.map((r, i) => `<li><span>${medal[i]}</span><em>${escapeHtml(r.nick || '익명')}</em><b>${fmt(r.score)}</b></li>`).join('');
 }
@@ -2351,6 +2581,12 @@ function mkFixBars() {
   if (mk.drumsAuto === 'song' && !(Array.isArray(mk.songDrums) && mk.songDrums.length === mk.mel.length)) mk.drumsAuto = null;
   if (mk.drumsAuto === 'song') mk.drums = [...mk.songDrums];
   else if (mk.drumsAuto) mk.drums = autoDrums(mk.mel, mk.drumsAuto);
+  // 🎹 왼손(악보 아래 줄): 마디 수를 멜로디에 맞춤
+  if (Array.isArray(mk.low)) {
+    while (mk.low.length < mk.mel.length) mk.low.push([]);
+    mk.low.length = mk.mel.length;
+    if (!mk.low.some((b) => b.length)) mk.low = null;
+  }
   mk.bar = Math.max(0, Math.min(mk.mel.length - 1, mk.bar));
   mk.cur = Math.max(0, Math.min(STEPS_PER_BAR - 1, mk.cur));
   mkSave();
@@ -2405,7 +2641,7 @@ function mkDroll(head = null) {
   if (!cv || !cv.clientWidth) return;
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const w = cv.clientWidth;
-  const h = 88;
+  const h = 120;
   if (cv.width !== Math.round(w * dpr)) cv.width = Math.round(w * dpr);
   if (cv.height !== Math.round(h * dpr)) cv.height = Math.round(h * dpr);
   const g = cv.getContext('2d');
@@ -2424,6 +2660,14 @@ function mkDroll(head = null) {
   for (let st = 0; st <= STEPS_PER_BAR; st++) {
     g.fillStyle = st % 4 === 0 ? 'rgba(59,42,74,0.35)' : 'rgba(59,42,74,0.1)';
     g.fillRect(lx + Math.round(st * cw) - (st % 4 === 0 ? 1 : 0), 0, st % 4 === 0 ? 2 : 1, h);
+  }
+  // 고른 칸 (패드를 치면 여기에 들어감)
+  if (mk.dsel != null && !drec.on) {
+    g.fillStyle = 'rgba(255,47,125,0.16)';
+    g.fillRect(lx + mk.dsel * cw, 0, cw, h);
+    g.strokeStyle = '#ff2f7d';
+    g.lineWidth = 2;
+    g.strokeRect(lx + mk.dsel * cw + 1, 1, cw - 2, h - 2);
   }
   const bar = mk.drums[mk.bar] || '';
   [...bar].forEach((ch, st) => {
@@ -2734,8 +2978,13 @@ function mkPlayStep(i, t, bus, prog, sd, drums) {
   const partLen = STEPS_PER_BAR / parts.length;
   if (s % partLen === 0) {
     const ch = parseChord(parts[s / partLen]);
-    audio.bass(t, ch.root - 24, partLen * sd * 0.9, bus);
+    if (!mk.low) audio.bass(t, ch.root - 24, partLen * sd * 0.9, bus);
     if (s % 8 === 0 || partLen === 8) audio.pluck(t, ch.notes, partLen * sd * 0.8, bus, 0.5);
+  }
+  // 🎹 왼손(악보 아래 줄)
+  if (mk.low) for (const n of mk.low[b] || []) if (n.step === s) {
+    if (audio.piano) audio.pianoNote(t, n.midi, Math.max(0.2, n.len * sd * 0.95), 0.8, bus);
+    else audio.bass(t, n.midi, n.len * sd * 0.9, bus);
   }
   if (drums) for (const l of CHAR_LANES[(mk.drums[b] || '')[s]] || []) audio.playLane(l, t, bus);
 }
@@ -2785,6 +3034,7 @@ function drecToggle() {
     drec.next = -STEPS_PER_BAR;
     drec.bar = -1;
     drec.on = true;
+    mk.dsel = null;
     mk.drumsAuto = null;
     mk.bar = drec.startBar;
     while (mk.mel.length <= mk.bar) mk.mel.push([]), mk.drums.push('................');
@@ -2831,7 +3081,18 @@ function drecToggle() {
 /** 패드 침: 소리는 바로, 녹음 중이면 가까운 칸에 노트 */
 function padHit(inst) {
   mkSound(() => audio.playLane(LANE_OF[inst], audio.ctx.currentTime + 0.003));
-  if (!drec.on) return;
+  if (!drec.on) {
+    // 아래 칸을 골라 뒀으면 그 칸에 노트
+    if (mk.dsel == null || !mk.drums[mk.bar]) return;
+    const cells = [...mk.drums[mk.bar]];
+    if (drumCell(cells[mk.dsel])[inst]) return;
+    cells[mk.dsel] = toggleDrum(cells[mk.dsel], inst);
+    mk.drums[mk.bar] = cells.join('');
+    mk.drumsAuto = null;
+    mkSave();
+    mkRender();
+    return;
+  }
   const pos = (audio.heardTime(performance.now()) - (state.settings.offsetMs || 0) / 1000 - drec.t0) / drec.sd;
   const q = Math.round(pos / drec.q) * drec.q;
   if (q < 0) return;
@@ -3015,6 +3276,7 @@ function mkMap(strict = true) {
   mk.name = $('#mk-name').value.trim();
   mkSave();
   const raw = { name: mk.name || (strict ? '' : '내 맵'), bpm: mk.bpm, bars: mk.drums, melody: mk.mel.map(barToMelody), prog: mkProg() };
+  if (Array.isArray(mk.low) && mk.low.length === mk.mel.length) raw.low = mk.low.map(barToMelody);
   const map = cleanMap(raw);
   if (map) return map;
   if (!raw.name) toast('곡 이름을 적어 주세요', 1800);
@@ -3199,6 +3461,7 @@ async function mkTranscribe() {
   // confirm() 은 앱 안 브라우저에서 안 뜰 수 있어서 묻지 않음 (↩ 되돌리기 가능)
   mkSnap();
   mk.mel = t.bars;
+  mk.low = null;
   mk.bpm = Math.round(bpm);
   // 코드·드럼도 노래에서 (곡의 진짜 코드 · 곡의 쿵짝 자리)
   mk.prog = Array.isArray(t.prog) && t.prog.length === bars ? t.prog : null;
@@ -3335,6 +3598,7 @@ function mkScoreMake() {
   const hadDraft = mk.mel.some((b) => b.length) || mk.drumsAuto !== 'easy';
   mkSnap();
   mk.mel = r.mel;
+  mk.low = r.low || null;
   mk.bpm = Math.max(MAP_LIMITS.minBpm, Math.min(MAP_LIMITS.maxBpm, r.bpm));
   mk.prog = r.prog;
   if (r.drums) {
@@ -3352,7 +3616,7 @@ function mkScoreMake() {
   mkRender();
   st.innerHTML =
     `<b>${r.mel.length}마디</b>(${r.start + 1}마디부터)로 만들었어요 · 멜로디 음 <b>${r.found}개</b> · ${mk.bpm} BPM` +
-    `<br>${[r.prog ? '코드는 반주 트랙에서' : '코드는 멜로디로 짐작', r.drums ? '드럼은 악보 드럼 그대로' : '드럼은 자동'].join(' · ')}` +
+    `<br>${[r.prog ? '코드는 반주 트랙에서' : '코드는 멜로디로 짐작', r.low ? '🎹 왼손(아래 줄)도 악보 그대로' : '', r.drums ? '드럼은 악보 드럼 그대로' : '드럼은 자동'].filter(Boolean).join(' · ')}` +
     '<br>위 「처음부터 듣기」로 들어 보고, 고칠 곳은 「자세히 고치기」에서 손봐요' +
     (hadDraft ? '<br>전에 만들던 건 위 「↩ 되돌리기」로 되돌릴 수 있어요' : '');
   toast('🎼 악보로 맵을 만들었어요');
@@ -4822,8 +5086,8 @@ function openSuggest() {
   $('#suggest-text').value = load('suggestDraft', '');
   $('#suggest-contact').value = load('suggestContact', '');
   $('#suggest-count').textContent = `${[...$('#suggest-text').value].length} / 500`;
+  // 자주 묻는 질문이 먼저 보이게 입력칸에 바로 포커스 주지 않음(폰 자판이 가림)
   openModal('modal-suggest');
-  setTimeout(() => $('#suggest-text').focus(), 50);
 }
 async function sendSuggest() {
   const text = $('#suggest-text').value.trim();
@@ -5065,7 +5329,11 @@ const ACTIONS = {
         state.roomClient.send({ final: { score: state.game.score, stars: 0, grade: 'F', failed: true, died: true, maxCombo: state.game.maxCombo, accuracy: 0 } }, true);
     }
     document.body.classList.remove('room-game');
-    if (state.game) state.game.stop();
+    if (state.game) {
+      const n = awardRunCoins(state.game);
+      if (n > 0) toast(`코인 +${fmt(n)}`, 1800);
+      state.game.stop();
+    }
     if (state.levelId === MY_ID) {
       stopRecorder();
       openMysong();
@@ -5382,6 +5650,29 @@ function bindActions() {
     const c = e.target.closest('.mk-cell');
     if (c) mkDrumTap(Number(c.dataset.step), c.dataset.inst);
   });
+  // 드럼 칸 그림: 점을 누르면 지움, 빈 곳을 누르면 그 칸을 고름 (패드를 치면 거기에 들어감)
+  $('#mk-droll').addEventListener('pointerdown', (e) => {
+    if (drec.on) return;
+    const r = e.currentTarget.getBoundingClientRect();
+    const lx = 44;
+    const x = e.clientX - r.left;
+    if (x < lx) return void ((mk.dsel = null), mkDroll());
+    const st = Math.max(0, Math.min(STEPS_PER_BAR - 1, Math.floor(((x - lx) / (r.width - lx)) * STEPS_PER_BAR)));
+    const row = Math.max(0, Math.min(DROLL_ROWS.length - 1, Math.floor(((e.clientY - r.top) / r.height) * DROLL_ROWS.length)));
+    const inst = { [CRASH]: 'C', [HAT]: 'H', [SNARE]: 'S', [KICK]: 'K' }[DROLL_ROWS[row][0]];
+    const cells = [...(mk.drums[mk.bar] || '')];
+    if (cells.length && drumCell(cells[st])[inst]) {
+      cells[st] = toggleDrum(cells[st], inst);
+      mk.drums[mk.bar] = cells.join('');
+      mk.drumsAuto = null;
+      mk.dsel = st;
+      mkSave();
+      mkRender();
+      return;
+    }
+    mk.dsel = mk.dsel === st ? null : st;
+    mkDroll();
+  });
   $('#mk-roll').addEventListener('pointerdown', (e) => {
     const r = e.currentTarget.getBoundingClientRect();
     mk.cur = Math.max(0, Math.min(STEPS_PER_BAR - 1, Math.floor(((e.clientX - r.left) / r.width) * STEPS_PER_BAR)));
@@ -5489,6 +5780,7 @@ async function boot() {
   buildTitle();
   bindActions();
   bindGameInput();
+  coinsInit({ changed: refreshCoins });
   bindSettings();
   applyLite();
   audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx });

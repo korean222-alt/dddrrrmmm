@@ -11,6 +11,7 @@ export const MAP_LIMITS = { minBars: 2, maxBars: 64, minBpm: 60, maxBpm: 180, na
 const DRUM_RE = /^[KSHCBJX.]{16}$/;
 const LOW = 36; // C2
 const HIGH = 96; // C7
+const LOW_LH = 24; // C1 (왼손 베이스는 더 낮게)
 
 // ---------- 음이름 ----------
 const NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -205,7 +206,16 @@ export function cleanMap(raw) {
   } catch {
     return null;
   }
-  return { name, bpm, bars: [...bars], melody: melody.map((m) => m.trim().replace(/\s+/g, ' ')), prog: prog.map((p) => String(p).trim().replace(/\s+/g, ' ')) };
+  const out = { name, bpm, bars: [...bars], melody: melody.map((m) => m.trim().replace(/\s+/g, ' ')), prog: prog.map((p) => String(p).trim().replace(/\s+/g, ' ')) };
+  // 🎹 왼손(아래 줄, 악보에서) — 있으면 자동 베이스 대신 이걸 침. 이상하면 빼고 맵은 그대로
+  const low = raw.low;
+  if (Array.isArray(low) && low.length === bars.length && low.every((m) => typeof m === 'string' && m.length <= 200)) {
+    try {
+      const ns = parseMelody(low);
+      if (ns.length && ns.every((n) => n.midi >= LOW_LH && n.midi <= HIGH)) out.low = low.map((m) => m.trim().replace(/\s+/g, ' '));
+    } catch {}
+  }
+  return out;
 }
 
 /** 노트 수로 어림한 난이도 1~5 (초당 노트) */
@@ -243,9 +253,11 @@ export function mapLevel(map, { id = 'um', by = '', mapId = null } = {}) {
     song: {
       prog: map.prog,
       melody: map.melody,
+      // 🎹 악보 왼손(있을 때만) — 자동 베이스는 끄고 이걸 피아노로
+      low: map.low || null,
       hat: '................',
       // 🥁 드럼만 맵(멜로디가 다 쉼)은 베이스·화음도 안 깔고 드럼만
-      bass: isDrumOnly(map) ? '................' : 'x.......x.......',
+      bass: isDrumOnly(map) || map.low ? '................' : 'x.......x.......',
       chord: isDrumOnly(map) ? '................' : 'x.......x.......',
     },
   };

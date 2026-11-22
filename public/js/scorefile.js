@@ -593,7 +593,36 @@ export function scoreToMap(score, { melody = null, start = null, bars = MAP_LIMI
       }
     if (hits >= 4) drums = Array.from({ length: n }, (_, b) => cells.slice(b * STEPS_PER_BAR, (b + 1) * STEPS_PER_BAR).join(''));
   }
-  return { bpm: Math.round(info.bpm), mel, prog, drums, found, bars: n, start: s0, melodyIndex: mIdx };
+  // 🎹 왼손(아래 줄): 멜로디 말고 다른 트랙(드럼 빼고)에서 16분 칸마다 시작하는 가장 낮은 음 → 다음 음 전까지
+  //   한 트랙 피아노(MIDI)면 멜로디 트랙의 안 쓴 음 중 가온 도(C4) 아래만
+  const bot = new Map();
+  score.tracks.forEach((t, i) => {
+    if (t.isDrum) return;
+    for (const nn of t.notes) {
+      if (i === mIdx && (used.has(nn) || nn.midi >= 60)) continue;
+      const s = q(nn.tick);
+      if (s < from || s >= to) continue;
+      const cur = bot.get(s);
+      if (!cur || nn.midi < cur.midi) bot.set(s, { midi: nn.midi, end: Math.max(s + 1, q(nn.tick + nn.dur)) });
+    }
+  });
+  let low = null;
+  if (bot.size >= 4) {
+    const lb = Array.from({ length: n }, () => []);
+    const ls = [...bot.keys()].sort((a, b) => a - b);
+    ls.forEach((s, i) => {
+      const t = bot.get(s);
+      const next = i + 1 < ls.length ? ls[i + 1] : to;
+      const rel = s - from;
+      const b = Math.floor(rel / STEPS_PER_BAR);
+      let midi = t.midi;
+      while (midi < 28) midi += 12;
+      while (midi > 72) midi -= 12;
+      lb[b].push({ step: rel % STEPS_PER_BAR, midi, len: Math.max(1, Math.min(t.end, next, (b + 1) * STEPS_PER_BAR + from) - s) });
+    });
+    low = lb;
+  }
+  return { bpm: Math.round(info.bpm), mel, prog, drums, low, found, bars: n, start: s0, melodyIndex: mIdx };
 }
 
 /** 추천 시작 마디: 고른 멜로디가 처음 나오는 마디 (멜로디 없는 전주는 건너뜀) */

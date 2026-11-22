@@ -15,7 +15,7 @@
 //   표마다: cols(열·형 i 정수 r 실수 t 글자 j JSON) · pk · ts(바뀐 시각 SQL, 따라잡기 기준) · merge(따라잡기 때 이미 있으면)
 //   전체 복사는 Neon 값이 이김(D1 은 아직 아무도 안 씀), 따라잡기는 '더 높은 점수·더 늦은 시각·빈 칸만 채움' 처럼 둘 다 살림
 
-import { D1_SCHEMA } from '../server/d1store.js';
+import { D1_SCHEMA, D1_ALTERS } from '../server/d1store.js';
 
 /** 통계 표 (backfill 로 따로 옮김) */
 const MAIN = (list) => list.filter((t) => !t.backfill);
@@ -24,6 +24,9 @@ export const TABLES = [
   {
     name: 'settings', cols: { key: 't', value: 't' }, pk: ['key'], ts: null,
     merge: 'NOTHING',
+    // d1:* · d1schema:* 는 옮기기 상태 표시(D1 에만 있어야 함) → 두 DB 사이에 주고받지 않음
+    //   (11-22 되돌릴 때 d1:switched_at 이 Neon 으로 갔다가 다음 복사 때 D1 로 돌아와 '이미 쓰는 중' 으로 멈췄음)
+    only: "key NOT LIKE 'd1:%' AND key NOT LIKE 'd1schema:%'",
   },
   {
     name: 'players', cols: { igsid: 't', username: 't', follow_verified_at: 'i', ig: 't', created_at: 'i', checked_at: 'i', hidden_at: 'i' }, pk: ['igsid'],
@@ -190,7 +193,12 @@ export async function localPg(pglite) {
 
 // ---------------------------------------------------------------- 읽기 · 쓰기
 /** since 뒤에 바뀐 줄만 (ts 가 없는 작은 표는 늘 전부) */
-const sinceSql = (t, since) => (since && t.ts ? `WHERE ${t.ts.replaceAll('$S', String(Math.floor(since)))}` : '');
+const sinceSql = (t, since) => {
+  const conds = [];
+  if (t.only) conds.push(`(${t.only})`);
+  if (since && t.ts) conds.push(`(${t.ts.replaceAll('$S', String(Math.floor(since)))})`);
+  return conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+};
 
 /** 표 전부(또는 since 뒤에 바뀐 줄) 읽기 — pk 순서로 나눠서 */
 export async function readTable(db, t, { since = 0, cols = Object.keys(t.cols) } = {}) {
@@ -257,6 +265,19 @@ export async function writeRows(db, t, rows, mode) {
   return n;
 }
 
+/** pk 로 줄 지우기 (200줄씩) */
+export async function deleteRows(db, t, rows) {
+  let n = 0;
+  for (let i = 0; i < rows.length; i += 200) {
+    const part = rows.slice(i, i + 200);
+    // OR 로 이으면 D1 의 '식 깊이 100' 에 걸림 → (주 키) IN (VALUES …)
+    const vals = part.map((r) => '(' + t.pk.map((c) => lit(r[c], t.cols[c])).join(', ') + ')').join(', ');
+    await db.q(`DELETE FROM ${t.name} WHERE (${t.pk.join(', ')}) IN (VALUES ${vals})`);
+    n += part.length;
+  }
+  return n;
+}
+
 // ---------------------------------------------------------------- 맞춰 보기
 const keyOf = (t, r) => t.pk.map((c) => norm(r[c], t.cols[c])).join('\u0001');
 const rowOf = (t, r) => Object.keys(t.cols).map((c) => norm(r[c], t.cols[c])).join('\u0001');
@@ -290,7 +311,9 @@ export async function compare(src, dst, { late = Infinity, tables = MAIN(TABLES)
       }
       bm.delete(k);
     }
-    report.push({ table: t.name, src: a.length, dst: b.length, missing, diff, extra: bm.size, notLate, missingLate, samples, fix });
+    // dst 에만 있는 줄 (src 에서 지워진 것). settings 의 d1:* 표시는 옮기기용이라 뺌
+    const extraRows = [...bm.values()].filter((r) => !(t.name === 'settings' && /^d1(:|schema:)/.test(r.key)));
+    report.push({ table: t.name, src: a.length, dst: b.length, missing, diff, extra: bm.size, extraRows, notLate, missingLate, samples, fix });
   }
   return report;
 }
@@ -322,6 +345,8 @@ export async function createSchema(d1) {
     else console.log(`  ⚠ ${t}: 보통 표인데 ${n}줄 있어서 그대로 둠`);
   }
   for (const s of D1_SCHEMA) await d1.q(s);
+  // 나중에 더한 열 (이미 미리 복사해 둔 표엔 없음). 이미 있으면 오류 → 넘어감
+  for (const a of D1_ALTERS) await d1.q(a).catch(() => {});
 }
 
 export async function copyAll(neonDb, d1, { since = 0, mode = 'replace', log = console.log, tables = MAIN(TABLES) } = {}) {
@@ -341,6 +366,11 @@ const getFlag = async (db, key) => ((await db.q(`SELECT value FROM settings WHER
  */
 export async function runCopy(neonDb, d1, { log = console.log } = {}) {
   await createSchema(d1);
+  // 되돌린 적이 있으면(그 뒤로 D1 을 안 씀) 남은 switched_at 은 옛 표시 → 지움
+  const sw = Number(await getFlag(d1, 'd1:switched_at'));
+  if (sw && Number(await getFlag(d1, 'd1:rolled_back_at')) > sw) await d1.q(`DELETE FROM settings WHERE key = 'd1:switched_at'`);
+  // 예전에 Neon 으로 잘못 넘어간 옮기기 표시 지우기
+  await neonDb.q(`DELETE FROM settings WHERE key LIKE 'd1:%' OR key LIKE 'd1schema:%'`);
   if (await getFlag(d1, 'd1:switched_at')) throw new Error('D1 이 이미 쓰이는 중(d1:switched_at 있음) — 전체 복사로 덮으면 D1 기록이 사라짐. catchup 을 쓰세요');
   const start = Date.now() - 60_000;
   const prev = Number(await getFlag(d1, 'd1:copied_at'));
@@ -356,18 +386,19 @@ export async function runCopy(neonDb, d1, { log = console.log } = {}) {
     const late = Date.now();
     report = await compare(neonDb, d1, { late });
     printReport(`맞춰 보기 ${round}`, report);
-    const bad = report.filter((r) => r.missing || r.diff);
+    const bad = report.filter((r) => r.missing || r.diff || r.extraRows.length);
     if (!bad.length) break;
-    // 다르거나 빠진 줄만 다시 (복사 중에 바뀐 것, 시각이 안 바뀌는 고침(아이디 변경 등))
     for (const r of bad) {
       const t = TABLES.find((x) => x.name === r.table);
-      const n = await writeRows(d1, t, r.fix, 'replace');
-      log(`  ${r.table}: ${n}줄 다시 넣음`);
+      // 다르거나 빠진 줄만 다시 (복사 중에 바뀐 것, 시각이 안 바뀌는 고침(아이디 변경 등))
+      if (r.fix.length) log(`  ${r.table}: ${await writeRows(d1, t, r.fix, 'replace')}줄 다시 넣음`);
+      // 미리 복사한 뒤 Neon 에서 지워진 줄(계정 합치기·운영자 삭제 등)은 D1 에서도 지움 — 아직 사이트는 Neon 이라 Neon 이 기준
+      if (r.extraRows.length) log(`  ${r.table}: Neon 에서 지워진 ${await deleteRows(d1, t, r.extraRows)}줄 지움`);
     }
   }
   const secret = await sameSessionSecret(neonDb, d1);
   log(`secret:session (로그인 쿠키 키): Neon ${secret.neon ? '있음' : '없음'} · D1 ${secret.d1 ? '있음' : '없음'} · ${secret.same ? '같음 ✅' : '다름 ❌'}`);
-  const stuck = report.filter((r) => r.notLate);
+  const stuck = report.filter((r) => r.notLate || r.extraRows.length);
   if (!secret.same) throw new Error('secret:session 이 안 맞음 — 바꾸면 모두 로그아웃됨');
   if (stuck.length) throw new Error(`안 맞는 표: ${stuck.map((r) => r.table).join(', ')}`);
   await setFlag(d1, 'd1:copied_at', start);
@@ -532,6 +563,16 @@ async function main() {
     console.log(`D1 오늘(UTC) 쓴 줄 ${when}: ${w == null ? '못 읽음' : w.toLocaleString()} / 100,000`);
     return w;
   };
+  if (cmd === 'usage') {
+    // 오늘(UTC 0시 = 한국 9시부터) D1 쓴 줄 + 시간당 속도로 하루 끝 어림
+    const w = await usage('지금');
+    if (w != null) {
+      const now = new Date();
+      const hours = (now - Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())) / 3600000;
+      console.log(`UTC 0시부터 ${hours.toFixed(1)}시간 · 시간당 약 ${Math.round(w / hours).toLocaleString()}줄 · 이 속도면 하루 약 ${Math.round((w / hours) * 24).toLocaleString()}줄`);
+    }
+    return;
+  }
   if (cmd === 'backfill') {
     if (!(await d1.find()) || !(await getFlag(d1, 'd1:switched_at').catch(() => null))) return void console.log('아직 D1 로 안 바꿈 — 할 일 없음');
     const w = await usage('지금');
@@ -551,6 +592,26 @@ async function main() {
   if (cmd === 'back') return void (await runBack(neonDbConn, d1));
   if (cmd === 'verify') {
     printReport('Neon → D1 비교', await compare(neonDbConn, d1));
+    // 같은 랭킹 쿼리를 두 DB 에 돌려 다른 줄 찍기 (11-22 줄은 같은데 D1 랭킹만 달랐던 것 찾기)
+    const lbSql = (lv) => `SELECT s.igsid, p.username, s.score, s.at, p.checked_at, p.hidden_at FROM scores s JOIN players p ON p.igsid = s.igsid
+      WHERE s.level = ${lv} AND p.username IS NOT NULL AND p.hidden_at IS NULL AND p.checked_at IS NOT NULL ORDER BY s.score DESC, s.at ASC LIMIT 50`;
+    for (const lv of [9, 12, 16, 18]) {
+      const [a, b] = await Promise.all([neonDbConn.q(lbSql(lv)), d1.q(lbSql(lv))]);
+      const key = (r) => `${r.igsid}|${Number(r.score)}`;
+      const ka = new Set(a.map(key)), kb = new Set(b.map(key));
+      const onlyA = a.filter((r) => !kb.has(key(r))), onlyB = b.filter((r) => !ka.has(key(r)));
+      console.log(`\n${lv}단계 랭킹: Neon ${a.length}줄 · D1 ${b.length}줄 · Neon에만 ${onlyA.length} · D1에만 ${onlyB.length}`);
+      const show = (r) => `${String(r.igsid).slice(0, 8)}… ${r.username} ${r.score} at=${r.at} chk=${r.checked_at} hid=${r.hidden_at} [types ${typeof r.score}/${typeof r.at}]`;
+      for (const r of onlyA.slice(0, 5)) console.log('  Neon에만', show(r));
+      for (const r of onlyB.slice(0, 5)) console.log('  D1에만  ', show(r));
+      if (onlyB.length) {
+        // D1 에만 있는 사람이 Neon 에선 어떤 모습인지
+        for (const r of onlyB.slice(0, 3)) {
+          const n = (await neonDbConn.q(`SELECT s.score, s.at, p.username, p.checked_at, p.hidden_at FROM scores s JOIN players p ON p.igsid = s.igsid WHERE s.level = ${lv} AND s.igsid = ${lit(r.igsid, 't')}`))[0];
+          console.log('    → Neon 쪽:', JSON.stringify(n));
+        }
+      }
+    }
     const s = await sameSessionSecret(neonDbConn, d1);
     console.log(`secret:session: ${s.same ? '같음 ✅' : '다름 ❌'}`);
     return;

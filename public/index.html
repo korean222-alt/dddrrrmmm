@@ -17,14 +17,17 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=1ffd82a078" />
+  <link rel="stylesheet" href="css/style.css?v=2c05cf55db" />
 </head>
 <body>
   <div id="app">
     <!-- 타이틀 -->
     <section id="screen-title" class="screen active" aria-label="시작 화면">
       <div class="title-top">
-        <button class="icon-btn gear-btn" data-action="settings" aria-label="설정"><img src="assets/gear.png" alt="" width="40" height="40" /></button>
+        <div class="title-left">
+          <button class="icon-btn gear-btn" data-action="settings" aria-label="설정"><img src="assets/gear.png" alt="" width="40" height="40" /></button>
+          <div class="coin-chip" id="coin-chip" title="콩을 맞힌 만큼 쌓이는 코인"><i class="coin-ico"></i><b id="coin-num">0</b></div>
+        </div>
         <button class="follow-chip" data-action="rank-join" hidden></button>
         <button class="icon-btn" data-action="ranking" aria-label="랭킹"><span data-icon="trophy"></span></button>
       </div>
@@ -214,7 +217,8 @@
             <button type="button" class="kpad drum pad-s" data-inst="S" aria-label="짝 (스네어)"><img src="/assets/kit/snare.webp?v=1" alt="" draggable="false" /><span>짝</span></button>
             <button type="button" class="kpad drum pad-k" data-inst="K" aria-label="쿵 (베이스 드럼)"><img src="/assets/kit/kick.webp?v=1" alt="" draggable="false" /><span>쿵</span></button>
           </div>
-          <canvas id="mk-droll" class="mk-droll" height="88"></canvas>
+          <canvas id="mk-droll" class="mk-droll" height="120"></canvas>
+          <p class="hint mk-droll-hint">점을 누르면 지워져요 · 빈 칸을 누르고 드럼을 치면 거기에 들어가요</p>
           <div class="mk-barnav">
             <button class="mk-mini" type="button" data-action="mk-bar" data-d="-1" aria-label="앞 마디"><span data-icon="back"></span></button>
             <b class="mk-barno">1 / 4 마디</b>
@@ -475,6 +479,7 @@
         <div class="res-grade" id="res-grade">S</div>
         <div class="res-badge" id="res-badge" hidden>FULL COMBO</div>
         <div class="res-score" id="res-score">0</div>
+        <div class="res-coins" id="res-coins" hidden></div>
         <div class="res-vs" id="res-vs" hidden></div>
         <div class="res-room" id="res-room" hidden></div>
         <div class="res-star-hint" id="res-star-hint"></div>
@@ -543,11 +548,11 @@
       <p class="muted small">어떻게 칠까요? 모드마다 랭킹이 따로예요</p>
       <div class="mm-modes">
         <button class="mm-mode" type="button" data-action="mm-start" data-mm="free">
-          <b>🛡 무적</b><small>틀려도 끝까지 쳐요</small>
+          <b>🛡 무적</b>
           <ol class="mm-top" id="mm-top-free"></ol>
         </button>
         <button class="mm-mode" type="button" data-action="mm-start" data-mm="hearts">
-          <b>❤ 하트 5개</b><small>다 쓰면 끝 · 끝까지 가야 기록</small>
+          <b>❤ 하트 5개</b>
           <ol class="mm-top" id="mm-top-hearts"></ol>
         </button>
       </div>
@@ -682,6 +687,17 @@
           <button data-band="orch" aria-pressed="true"><b>오케스트라</b><small>현악·금관·팀파니 + 피아노</small></button>
           <button data-band="piano" aria-pressed="false"><b>피아노만</b><small>가볍게 (데이터 절약)</small></button>
         </div>
+      </div>
+      <div class="deco" id="set-deco">
+        <h4>🎨 꾸미기 <small class="muted">🔒 곧 상점에서 코인으로</small></h4>
+        <div class="field"><span>배경</span><div class="chips" id="set-bg"></div></div>
+        <div class="photo-opts" id="set-photo-opts" hidden>
+          <label class="field"><span>사진 어둡게</span><input type="range" min="0" max="0.85" step="0.05" id="set-photo-dim" /></label>
+          <p class="muted small">사진은 이 폰에만 저장돼요 · <button class="link" data-photo-act="change">사진 바꾸기</button> · <button class="link" data-photo-act="del">지우기</button></p>
+        </div>
+        <input type="file" accept="image/*" id="set-photo-file" hidden />
+        <div class="field"><span>드럼 세트</span><div class="chips" id="set-kit"></div></div>
+        <div class="field"><span>콩 색</span><div class="chips" id="set-notes"></div></div>
       </div>
       <label class="field check"><input type="checkbox" id="set-lite" /><span>저사양 모드 <small class="muted">렉이 걸리면 켜 보세요 · 화질·반짝이 효과를 줄여요</small></span></label>
       <label class="field check"><input type="checkbox" id="set-vibrate" /><span>진동 (안드로이드)</span></label>
@@ -902,6 +918,19 @@
     <div class="sheet small">
       <button class="icon-btn close" data-action="close-suggest" aria-label="닫기"><span data-icon="close"></span></button>
       <h3><span data-icon="chat" data-e></span> 건의하기</h3>
+      <div class="faq">
+        <p class="faq-head">❓ 자주 묻는 질문</p>
+        <details>
+          <summary>드럼(콩)을 눌러도 안 눌려요</summary>
+          <p><b>새로고침 한 번</b> 하면 대부분 풀려요. (화면을 아래로 당기거나, 앱을 껐다 다시 열어 주세요)</p>
+        </details>
+        <details>
+          <summary>게임이 시작이 안 되거나 카운트 '1'에서 멈춰요</summary>
+          <p>다른 앱이나 다른 사이트에서 <b>소리가 나오고 있으면</b>(유튜브·음악·영상 등) 꺼 주세요. 소리가 켜진 다른 탭·사이트도 닫아 주세요.</p>
+          <p>그래도 안 되면 <b>새로고침 한 번</b> 해 주세요.</p>
+        </details>
+        <p class="muted small">그래도 안 되면 아래 <b>버그</b>로 알려 주세요 (폰 종류를 같이 적어 주면 빨리 고칠 수 있어요)</p>
+      </div>
       <p class="muted">넣었으면 하는 곡, 불편한 점, 버그 무엇이든! 운영자가 매일 읽어요.</p>
       <div class="chips" id="suggest-kind" role="radiogroup">
         <button data-kind="song" aria-pressed="true"><span data-icon="note" data-e></span> 곡 추천</button>
@@ -921,6 +950,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=0c408c9e53" defer></script>
+  <script src="js/app.js?v=538d7084cc" defer></script>
 </body>
 </html>

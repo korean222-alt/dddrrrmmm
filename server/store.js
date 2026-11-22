@@ -24,7 +24,7 @@ export const sortPlayers = (rows) => rows.sort((a, b) => !!a.hiddenAt - !!b.hidd
 export class JsonStore {
   constructor(file) {
     this.file = file;
-    this.data = { players: {}, usedRuns: {}, sessions: {}, plays: {}, settings: {}, suggestions: [], rooms: {}, transfers: {}, recoverRequests: [], maps: {}, mapVotes: {}, mapScores: {}, ranked: {}, rankedRuns: {}, seasonScores: {}, hall: [] };
+    this.data = { players: {}, usedRuns: {}, sessions: {}, plays: {}, settings: {}, suggestions: [], rooms: {}, transfers: {}, recoverRequests: [], maps: {}, mapVotes: {}, mapScores: {}, ranked: {}, rankedRuns: {}, seasonScores: {}, hall: [], wallet: {} };
     this._timer = null;
   }
 
@@ -32,7 +32,7 @@ export class JsonStore {
     try {
       const raw = fs.readFileSync(this.file, 'utf8');
       const d = JSON.parse(raw);
-      this.data = { players: d.players || {}, usedRuns: d.usedRuns || {}, sessions: d.sessions || {}, plays: d.plays || {}, settings: d.settings || {}, suggestions: d.suggestions || [], rooms: d.rooms || {}, transfers: d.transfers || {}, recoverRequests: d.recoverRequests || [], maps: d.maps || {}, mapVotes: d.mapVotes || {}, mapScores: d.mapScores || {}, ranked: d.ranked || {}, rankedRuns: d.rankedRuns || {}, seasonScores: d.seasonScores || {}, hall: d.hall || [] };
+      this.data = { players: d.players || {}, usedRuns: d.usedRuns || {}, sessions: d.sessions || {}, plays: d.plays || {}, settings: d.settings || {}, suggestions: d.suggestions || [], rooms: d.rooms || {}, transfers: d.transfers || {}, recoverRequests: d.recoverRequests || [], maps: d.maps || {}, mapVotes: d.mapVotes || {}, mapScores: d.mapScores || {}, ranked: d.ranked || {}, rankedRuns: d.rankedRuns || {}, seasonScores: d.seasonScores || {}, hall: d.hall || [], wallet: d.wallet || {} };
       // 인스타 아이디 등록 기능을 없앴으므로, 예전에 인증된 인스타 계정 기록과 인증 코드는 지움
       for (const [k, p] of Object.entries(this.data.players)) if (p.followVerifiedAt) delete this.data.players[k];
       // 무제한 기록(level <= 0): 예전 방식(깬 단계 × 100만 + 점수) → 새 방식(× 10억)
@@ -104,6 +104,16 @@ export class JsonStore {
   }
   setSetting(key, value) {
     this.data.settings[key] = String(value);
+    this._save();
+  }
+
+  // ----- 🪙 코인 지갑 -----
+  getWallet(igsid) {
+    const w = this.data.wallet[igsid];
+    return w ? { ...w } : null;
+  }
+  putWallet(igsid, w) {
+    this.data.wallet[igsid] = { coins: w.coins, t: w.t, fday: w.fday, fn: w.fn, init: w.init };
     this._save();
   }
 

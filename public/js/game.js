@@ -320,9 +320,12 @@ export class Game {
     const t = playing ? this.songTime(perfMs) : 0;
     const touched = lane;
     if (playing && near && near.length) lane = this._pickLane(lane, t, near, pos);
-    if (this.level.tapMelody && lane === SNARE) {
-      if (playing) this._playMelodyTap(t);
-    } else if (!this.auto) this.audio.playLane(lane);
+    // 소리가 오류 나도 판정은 꼭 함 (예전에 소리 엔진을 새로 만든 뒤 쿵 소리만 오류 나서 쿵 판정이 통째로 빠졌음)
+    try {
+      if (this.level.tapMelody && lane === SNARE) {
+        if (playing) this._playMelodyTap(t);
+      } else if (!this.auto) this.audio.playLane(lane);
+    } catch {}
     this.r.onTap(lane, rt);
     if (!playing) return;
     this._tapAt[lane] = t;

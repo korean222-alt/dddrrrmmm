@@ -5,6 +5,7 @@
 import { load, save } from './storage.js';
 import { gradeFor } from './charts.js';
 import { takeTrack } from './track.js';
+import { takeCoins, coinsResult } from './coins.js';
 import { seasonAt } from './season.js';
 
 async function http(method, url, body) {
@@ -25,6 +26,20 @@ async function http(method, url, body) {
     throw err;
   }
   return data;
+}
+
+function withCoins(send) {
+  const coins = takeCoins();
+  return send(coins).then(
+    (r) => {
+      if (coins) coinsResult(r);
+      return r;
+    },
+    (e) => {
+      if (coins) coinsResult(e && e.data);
+      throw e;
+    }
+  );
 }
 
 const LB_CACHE_MS = 60 * 1000;
@@ -55,10 +70,11 @@ function serverApi(boot = null) {
     guest: (name, ig) => http('POST', '/api/guest', { name, ig }),
     verifyPassword: (body) => http('POST', '/api/verify/password', body),
     // 이용 통계는 따로 안 보내고 이 요청들에 얹어 보냄 (요청 수 아끼기)
-    startRun: (level) => http('POST', '/api/runs', { level, track: takeTrack() }),
+    // 🪙 코인도 얹어 보냄 (coins.js). 응답에 잔액이 오면 받은 것, 아니면 다음에 다시
+    startRun: (level) => withCoins((coins) => http('POST', '/api/runs', { level, track: takeTrack(), coins })),
     submitScore: (payload) => {
       lbCache.clear();
-      return http('POST', '/api/scores', { ...payload, track: takeTrack() });
+      return withCoins((coins) => http('POST', '/api/scores', { ...payload, track: takeTrack(), coins }));
     },
     // 랭킹은 1분 동안 같은 걸 다시 씀 (탭을 왔다 갔다 해도 요청 안 함). 점수 올리면 비움
     leaderboard: (level) => {

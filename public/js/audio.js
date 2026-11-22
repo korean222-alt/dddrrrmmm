@@ -366,6 +366,9 @@ export class AudioEngine {
     this.ctx = null;
     this._streamDest = null;
     this._clock = null;
+    // 옛 엔진에 붙어 있던 노드는 새 엔진에 못 이음 (잇는 순간 오류 → 쿵만 안 눌리던 것)
+    this._sat = null;
+    this._tickBus = null;
     this.frozen = false;
     try {
       if (old) old.close().catch(() => {});
@@ -437,7 +440,7 @@ export class AudioEngine {
     o.connect(g).connect(dest);
     o.start(t);
     o.stop(t + 0.52);
-    if (!this._sat) {
+    if (!this._sat || this._sat.context !== ctx) {
       this._sat = ctx.createWaveShaper();
       const c = new Float32Array(1024);
       for (let i = 0; i < 1024; i++) c[i] = Math.tanh((i / 512 - 1) * 2.2);
@@ -706,7 +709,7 @@ export class AudioEngine {
   /** 점수 올라가는 '따라라라' 한 알. p = 0~1 (갈수록 높아짐) */
   tick(t, p = 0) {
     const ctx = this.ctx;
-    if (!this._tickBus) {
+    if (!this._tickBus || this._tickBus.context !== ctx) {
       this._tickBus = ctx.createGain();
       this._tickBus.connect(this.sfxBus);
     }
@@ -895,6 +898,12 @@ export class SongPlayer {
     this.tempo = tempoOf(level);
     this.step = 0;
     this.melody = parseMelody(level.song.melody || []);
+    // 🎹 유저 맵 왼손 (악보 아래 줄)
+    try {
+      this.lowNotes = level.song.low ? parseMelody(level.song.low) : [];
+    } catch {
+      this.lowNotes = [];
+    }
     this.melodyBars = (level.song.melody || []).length;
     const lanes = levelLanes(level);
     this.mineCrash = lanes.includes(CRASH); // 크래시를 내가 치면 반주 크래시는 쉼
@@ -1026,6 +1035,12 @@ export class SongPlayer {
     }
     // 화음
     if (song.chord[s] === 'x') a.pluck(t, ch.notes, sd * 3, this.bus, orch ? 0.6 : 1);
+    // 🎹 유저 맵 왼손: 악보 아래 줄 그대로
+    if (this.lowNotes && this.lowNotes.length) for (const n of this.lowNotes) if (n.bar === mb && n.step === s) {
+          const d = Math.max(0.2, n.len * sd * 0.95);
+          if (a.piano) a.pianoNote(t, n.midi, d, 0.8, this.bus);
+          else a.bass(t, n.midi, d, this.bus);
+        }
     // 🎹 두 손 피아노 왼손: 베이스 + 펼친 화음 (pianoLH 곡)
     if (song.pianoLH) {
       const lh = pianoLeftHand(song, mb, s);

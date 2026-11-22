@@ -5,6 +5,8 @@
 import { LAST_LEVEL_ID } from '../public/js/charts.js';
 
 const SCHEMA = [
+  // 🪙 코인 지갑 (2026-11-22): coins 잔액, t = 마지막으로 받은 판 토큰 시각(같은 판 두 번 못 받게), fday·fn = 토큰 없는 코인 하루 한도, init = 폰에 있던 코인 한 번 올림
+  `CREATE TABLE IF NOT EXISTS wallet (igsid TEXT PRIMARY KEY, coins BIGINT NOT NULL DEFAULT 0, t BIGINT NOT NULL DEFAULT 0, fday TEXT, fn INTEGER NOT NULL DEFAULT 0, init INTEGER NOT NULL DEFAULT 0)`,
   `CREATE TABLE IF NOT EXISTS players (igsid TEXT PRIMARY KEY, username TEXT, follow_verified_at BIGINT)`,
   // ig = 인스타 아이디(랭킹 참여 때 받음), checked_at = 운영자가 팔로우를 확인한 시각
   `ALTER TABLE players ADD COLUMN IF NOT EXISTS ig TEXT`,
@@ -317,6 +319,19 @@ END $$`);
   }
   async setSetting(key, value) {
     await this.q('INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', ['set:' + key, String(value)]);
+  }
+
+  // ----- 🪙 코인 지갑 -----
+  async getWallet(igsid) {
+    const r = await this.one('SELECT coins, t, fday, fn, init FROM wallet WHERE igsid = $1', [igsid]);
+    return r ? { coins: num(r.coins), t: num(r.t), fday: r.fday || '', fn: num(r.fn), init: num(r.init) } : null;
+  }
+  async putWallet(igsid, w) {
+    await this.q(
+      `INSERT INTO wallet (igsid, coins, t, fday, fn, init) VALUES ($1, $2, $3, $4, $5, $6)
+       ON CONFLICT (igsid) DO UPDATE SET coins = EXCLUDED.coins, t = EXCLUDED.t, fday = EXCLUDED.fday, fn = EXCLUDED.fn, init = EXCLUDED.init`,
+      [igsid, w.coins, w.t, w.fday, w.fn, w.init]
+    );
   }
 
   // ----- players -----
