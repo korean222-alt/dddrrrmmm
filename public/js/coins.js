@@ -62,15 +62,18 @@ export function addRunCoins(n, tok) {
   onChange();
 }
 
-/** 요청에 얹을 것 (없으면 undefined). 보내는 중인 게 있으면 겹쳐 보내지 않음 */
-export function takeCoins() {
+/**
+ * 요청에 얹을 것 (없으면 undefined). 보내는 중인 게 있으면 겹쳐 보내지 않음
+ *   force: 10분 기다림 없이 지금 다 (🛒 상점에서 살 때 — 구매 요청에 얹으면 서버가 먼저 더하고 그다음 차감)
+ */
+export function takeCoins({ force = false } = {}) {
   if (!account || load('coinSending', null)) return undefined;
   const runs = queue();
   const free = int(load('coinFree', 0));
   const init = load('coinInit', false) ? null : int(load('coins', 0));
   if (!runs.length && !free && init == null) return undefined;
   const last = Number(load('coinSentAt', 0)) || 0;
-  if (init == null && Date.now() - last < SEND_EVERY_MS && runs.length < 25) return undefined;
+  if (!force && init == null && Date.now() - last < SEND_EVERY_MS && runs.length < 25) return undefined;
   const c = { runs, free };
   if (init != null) c.init = init;
   save('coinSending', c);
