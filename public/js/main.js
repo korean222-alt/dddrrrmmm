@@ -2179,33 +2179,10 @@ function applyDeco() {
   audio.uiSet = live ? 'live' : null; // 세트 버튼 소리
   applyNoteColors(renderer.studio || live ? 'basic' : decoPick('notes'));
 }
+// 2026-11-22 사용자: 설정의 꾸미기 칸은 없애고 상점 한 곳에서 (장착 중 표시 + 「내 것」 탭)
 function renderDeco() {
-  const s = { ...state.settings, bg: decoPick('bg'), kit: decoPick('kit'), notes: decoPick('notes'), ui: decoPick('ui') };
-  const chip = (attr, key, label, bg, on) => {
-    const open = decoOpen(attr, key);
-    return `<button class="chip ${open ? '' : 'locked'}" data-${attr}="${key}" aria-pressed="${open && on}"><i style="background:${bg}"></i>${label}${open ? '' : ' 🔒'}</button>`;
-  };
-  const auto = 'conic-gradient(#FF9A6B,#6A1B78,#7A2A1C,#1C4A5E,#FF9A6B)';
-  const ph = photo.url ? `center/cover url('${photo.url}')` : '#555';
-  $('#set-bg').innerHTML =
-    chip('bg', 'auto', '단계별', auto, !s.bg || s.bg === 'auto') +
-    chip('bg', 'photo', photo.url ? '📷 내 사진' : '📷 사진 넣기', ph, s.bg === 'photo' && !!photo.url) +
-    DECO_THEMES.map((k) => chip('bg', k, THEMES[k].name, `linear-gradient(${THEMES[k].sky.join(',')})`, s.bg === k)).join('') +
-    SHOP_BGS.map((k) => chip('bg', k, THEMES[k].name, shopSwatch('bg', k), s.bg === k)).join('');
-  $('#set-kit').innerHTML =
-    chip('kit', 'auto', '맵 따라', auto, !s.kit || s.kit === 'auto') +
-    DECO_THEMES.map((k) => {
-      const sh = THEMES[k].kit.shell;
-      return chip('kit', k, THEMES[k].name, `radial-gradient(circle at 35% 30%,${sh[0]},${sh[1]} 55%,${sh[2]})`, s.kit === k);
-    }).join('') +
-    Object.keys(SHOP_KITS).map((k) => chip('kit', k, SHOP_KITS[k].name, shopSwatch('kit', k), s.kit === k)).join('');
-  const lanes = (p) => (p.c ? p.c.slice(0, 4).map((c) => c[0]) : LANE_DEFAULT);
-  $('#set-notes').innerHTML = Object.entries(NOTE_PALETTES)
-    .map(([k, p]) => chip('notes', k, p.name, p.shop ? shopSwatch('notes', k) : `conic-gradient(${lanes(p).join(',')})`, (s.notes || 'basic') === k))
-    .join('');
-  $('#set-ui').innerHTML = chip('ui', 'basic', '기본', 'linear-gradient(#FF9A6B,#6A1B78)', s.ui !== 'live') + chip('ui', 'live', shopName('ui', 'live'), shopSwatch('ui', 'live'), s.ui === 'live');
-  $('#set-photo-opts').hidden = !(decoPick('bg') === 'photo' && photo.url);
-  $('#set-photo-dim').value = s.photoDim ?? 0.4;
+  renderPhotoOpts();
+  if (!$('#modal-shop').hidden) renderShop();
 }
 
 // 📷 내 사진 배경: 고른 사진을 긴 쪽 1600px JPEG 로 줄여 이 폰(IndexedDB)에만 저장. 서버로 안 보냄
@@ -2321,57 +2298,89 @@ const SHOP_DESC = {
   photo: '내 사진을 무대 배경으로 깔아요',
   ui: '판정선·콩·판정 글자·콤보·무대·버튼 소리가 리듬게임 라이브 화면처럼 한 번에 바뀌어요',
   basic: '처음 화면 그대로예요 · 누르면 이 분야만 기본으로 돌아가요',
+  free: '무료예요',
 };
 const isBasicId = (id) => {
   const [type, key] = String(id || '').split(':');
   return key != null && DECO_FREE[type] === key;
 };
+/** 무료 꾸미기 (맵 배경·맵 드럼·색만 바꾸는 콩) — 예전 설정 칸에 있던 것, 이제 상점에 「무료」로 */
+const isFreeId = (id) => {
+  const [type, key] = String(id || '').split(':');
+  return ((type === 'bg' || type === 'kit') && DECO_THEMES.includes(key)) || (type === 'notes' && NOTE_FREE.includes(key));
+};
+const SHOP_TYPES = [['ui', '🎤 세트'], ['notes', '✨ 콩'], ['bg', '🌄 배경'], ['kit', '🥁 드럼']];
+/** 한 분야의 상점 칸: [id, 값(무료 0), 등급('' = 무료)] — 기본 → 상점 물건 → 무료 */
+function shopRow(type) {
+  return [
+    [`${type}:${DECO_FREE[type]}`, 0, ''],
+    ...SHOP_ITEMS.filter(([id]) => id.startsWith(type + ':')),
+    ...(type === 'notes' ? NOTE_FREE : type === 'ui' ? [] : DECO_THEMES).map((k) => [`${type}:${k}`, 0, '']),
+  ];
+}
+var shopTab = 'all';
 function renderShop() {
   $('#shop-coins').textContent = fmt(getCoins());
   $('#shop-closed').hidden = shopIsOpen();
+  const live = decoPick('ui') === 'live';
+  // 👕 지금 장착 중 (세트를 끼면 배경·드럼·콩은 세트 것)
+  $('#shop-now').innerHTML =
+    `<b>장착 중</b><div class="now-row">` +
+    SHOP_TYPES.map(([type, label]) => {
+      const key = decoPick(type);
+      const off = live && type !== 'ui';
+      return `<button class="now-item ${off ? 'off' : ''}" data-shop="${type}:${key}"><i style="background:${shopSwatch(type, key)}"></i><small>${label}</small><span>${escapeHtml(shopName(type, key))}</span></button>`;
+    }).join('') +
+    `</div>` +
+    (live ? '<p class="muted small">세트를 끼면 배경·드럼·콩은 세트 것</p>' : '');
+  $$('#shop-tabs [data-shop-tab]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.shopTab === shopTab)));
   const item = ([id, price, rare]) => {
     const [type, key] = id.split(':');
     const own = decoOpen(type, key);
-    return `<button class="shop-item r-${rare} ${own ? 'owned' : ''}" data-shop="${id}">
-      <em class="rar">${RARITY_NAME[rare]}</em>
+    const using = own && decoPick(type) === key;
+    const tag = rare ? RARITY_NAME[rare] : '무료';
+    const label = using ? '✓ 장착 중' : !rare ? '' : own ? '보유' : `<i class="coin-ico"></i>${fmt(price)}`;
+    return `<button class="shop-item ${rare ? 'r-' + rare : 'r-free'} ${own ? 'owned' : ''} ${using ? 'using' : ''}" data-shop="${id}">
+      <em class="rar">${tag}</em>
       <i style="background:${shopSwatch(type, key)}"></i><b>${escapeHtml(shopName(type, key))}</b>
-      <span>${own ? '보유' : `<i class="coin-ico"></i>${fmt(price)}`}</span></button>`;
+      <span>${label}</span></button>`;
   };
-  // 분야마다 맨 앞에 「기본」 (2026-11-22 사용자 '기본은 각각 분야에') — 누르면 미리보기 + 기본으로 바꾸기
-  const basic = (type) => {
-    const id = `${type}:${DECO_FREE[type]}`;
-    const on = decoPick(type) === DECO_FREE[type];
-    return `<button class="shop-item owned" data-shop="${id}">
-      <em class="rar">무료</em>
-      <i style="background:${shopSwatch(type, DECO_FREE[type])}"></i><b>${escapeHtml(shopName(type, DECO_FREE[type]))}</b>
-      <span>${on ? '✓ 쓰는 중' : '기본'}</span></button>`;
+  const mine = shopTab === 'mine';
+  const sec = ([type, title]) => {
+    const rows = shopRow(type).filter(([id]) => !mine || decoOpen(...id.split(':')));
+    return rows.length ? `<h4>${title}</h4><div class="shop-grid">${rows.map(item).join('')}</div>` : '';
   };
-  const sec = (title, type) => `<h4>${title}</h4><div class="shop-grid">${basic(type)}${SHOP_ITEMS.filter(([id]) => id.startsWith(type + ':')).map(item).join('')}</div>`;
-  $('#shop-list').innerHTML = sec('🎤 세트', 'ui') + sec('✨ 콩 스킨', 'notes') + sec('🌄 배경', 'bg') + sec('🥁 드럼 세트', 'kit');
+  $('#shop-list').innerHTML = SHOP_TYPES.map(sec).join('');
+  renderPhotoOpts();
+}
+function renderPhotoOpts() {
+  $('#set-photo-opts').hidden = !(decoPick('bg') === 'photo' && photo.url);
+  $('#set-photo-dim').value = state.settings.photoDim ?? 0.4;
 }
 function openShop(focus) {
   renderShop();
   openModal('modal-shop');
-  if (typeof focus === 'string' && priceOf(focus) != null) previewShop(focus);
+  if (typeof focus === 'string' && (priceOf(focus) != null || isFreeId(focus))) previewShop(focus);
 }
 // 👀 미리보기 팝업: 실제 게임 화면. 고른 것만 바꾸고 나머지는 지금 꾸미기 그대로
 var shopPrevId = null;
 function previewShop(id) {
   const [type, key] = id.split(':');
   const basic = isBasicId(id);
-  if (priceOf(id) == null && !basic) return;
+  const free = isFreeId(id);
+  if (priceOf(id) == null && !basic && !free) return;
   shopPrevId = id;
   const own = decoOpen(type, key);
-  const rare = basic ? '' : RARITY[id];
-  $('#shopitem-rar').textContent = basic ? '무료' : RARITY_NAME[rare] || '';
-  $('#shopitem-rar').className = 'rar r-' + rare;
+  const rare = basic || free ? '' : RARITY[id];
+  $('#shopitem-rar').textContent = basic || free ? '무료' : RARITY_NAME[rare] || '';
+  $('#shopitem-rar').className = 'rar r-' + (rare || 'free');
   $('#shopitem-name').textContent = shopName(type, key);
-  $('#shopitem-desc').textContent = basic ? SHOP_DESC.basic : key === 'photo' ? SHOP_DESC.photo : SHOP_DESC[type];
+  $('#shopitem-desc').textContent = basic ? SHOP_DESC.basic : free ? SHOP_DESC.free : key === 'photo' ? SHOP_DESC.photo : SHOP_DESC[type];
   const b = $('#shopitem-buy');
   const using = own && decoPick(type) === key;
   if (own) {
     // 기본으로 돌아가는 건 분야마다 맨 앞 「기본」 칸으로 (2026-11-22)
-    b.innerHTML = using ? '✓ 쓰는 중' : '이걸로 바꾸기';
+    b.innerHTML = using ? '✓ 장착 중' : '장착하기';
     b.disabled = using;
   } else if (!shopIsOpen()) {
     b.innerHTML = `🔒 판매 준비 중 · <i class="coin-ico"></i> ${fmt(priceOf(id))}`;
@@ -2496,23 +2505,17 @@ function bindDeco() {
     equipDeco(id);
     renderShop();
     previewShop(id);
-    toast(`${shopName(type, key)}(으)로 바꿨어요`, 1800);
+    toast(`${shopName(type, key)} 장착했어요`, 1800);
   });
-  $('#set-deco').addEventListener('click', (e) => {
-    const b = e.target.closest('.chip');
+  $('#shop-tabs').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-shop-tab]');
     if (!b) return;
-    const s = state.settings;
-    const [type, key] = Object.entries(DECO_FREE).map(([t]) => [t, b.dataset[t]]).find(([, k]) => k) || [];
-    if (!decoOpen(type, key)) return openShop(`${type}:${key}`);
-    if (b.dataset.bg === 'photo' && !photo.url) return $('#set-photo-file').click();
-    if (b.dataset.bg) s.bg = b.dataset.bg;
-    if (b.dataset.kit) s.kit = b.dataset.kit;
-    if (b.dataset.notes) s.notes = b.dataset.notes;
-    if (b.dataset.ui) s.ui = b.dataset.ui;
-    saveSettings(s);
-    applyDeco();
-    renderDeco();
-    audio.unlock().then(() => audio.snare()).catch(() => {});
+    shopTab = b.dataset.shopTab;
+    renderShop();
+  });
+  $('#shop-now').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-shop]');
+    if (b) previewShop(b.dataset.shop);
   });
 }
 
@@ -6441,7 +6444,7 @@ async function boot() {
     setTimeout(() => {
       if (shopTest === 'okay') {
         openShop();
-        toast('🛒 이 기기에서 상점 물건을 전부 써 볼 수 있어요 · 설정 → 꾸미기에서 바꿔요', 3600);
+        toast('🛒 이 기기에서 상점 물건을 전부 써 볼 수 있어요 · 상점에서 장착해요', 3600);
       } else toast('🛒 상점 시험 모드를 껐어요', 2000);
     }, 300);
   }

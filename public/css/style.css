@@ -966,7 +966,6 @@ button.coin-chip { font: inherit; cursor: pointer; }
 .shop-item b { font-weight: 400; font-size: 13px; line-height: 1.2; text-align: center; }
 .shop-item span { display: inline-flex; align-items: center; gap: 3px; font-size: 13px; color: #b06a00; }
 .shop-item span .coin-ico { width: 14px; height: 14px; }
-.shop-item.owned { opacity: 0.6; background: #eef7ee; }
 .shop-item.owned span { color: var(--grass); }
 .shop-item.focus { box-shadow: 0 0 0 3px #ffb020; }
 .shop-item:active:not(:disabled) { transform: translateY(2px); }
@@ -1007,6 +1006,23 @@ button.coin-chip { font: inherit; cursor: pointer; }
 .gift-photo-row { display: flex; align-items: center; gap: 12px; }
 .gift-photo { width: 64px; height: 64px; border-radius: 50%; border: 2px solid var(--ink); background: #eee center/cover no-repeat; flex: none; }
 .shop-item:disabled { cursor: default; }
+/* 👕 장착 중 · 「내 것」 탭 (2026-11-22) */
+.deco-go { margin: 4px 0 10px; }
+.shop-now { margin: 10px 0 4px; padding: 8px 10px; border: 2px solid var(--ink); border-radius: 14px; background: #f3fbf3; }
+.shop-now > b { font-weight: 400; font-size: 14px; }
+.shop-now p { margin: 4px 0 0; }
+.now-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 6px; }
+.now-item { display: grid; justify-items: center; gap: 2px; padding: 4px 2px; border: 0; border-radius: 10px; background: #fff; color: var(--ink); font: inherit; min-width: 0; }
+.now-item > i { width: 30px; height: 30px; border-radius: 50%; border: 2px solid var(--ink); background-size: cover !important; }
+.now-item small { font-size: 11px; color: var(--muted); }
+.now-item span { font-size: 12px; line-height: 1.2; text-align: center; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; }
+.now-item.off { opacity: 0.45; }
+.shop-tabs { display: flex; gap: 6px; margin: 8px 0 0; }
+.shop-tabs button { flex: 1; padding: 7px 0; border: 2px solid var(--ink); border-radius: 99px; background: #fff; color: var(--ink); font: inherit; font-size: 14px; }
+.shop-tabs button[aria-pressed="true"] { background: var(--ink); color: #fff; }
+.shop-item.r-free .rar { background: #8a93a6; }
+.shop-item.using { box-shadow: 0 0 0 3px #2fa84f; }
+.shop-item.using span { color: #2fa84f; }
 
 
 /* ---------- 🎤 라이브 스테이지 세트 (상점 ui:live): 게임 위 정보 칸·결과 화면 ---------- */
