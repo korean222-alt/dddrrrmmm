@@ -983,11 +983,28 @@ button.coin-chip { font: inherit; cursor: pointer; }
 #gift-msg-box h4 { margin: 4px 0 0; font-weight: 400; }
 #gift-msg { font: inherit; padding: 10px 12px; border: 2px solid var(--ink); border-radius: 12px; width: 100%; box-sizing: border-box; }
 .hall-msg { font-size: 12px; line-height: 1.3; color: var(--ink); background: #fff; border-radius: 10px; padding: 4px 8px; max-width: 100%; word-break: keep-all; overflow-wrap: anywhere; }
-.shop-prev { display: flex; gap: 12px; align-items: stretch; margin: 6px 0 4px; }
-.shop-prev canvas { width: 150px; height: 266px; flex: none; border: 2px solid var(--ink); border-radius: 14px; background: #1a1030; }
-.shop-prev-side { display: flex; flex-direction: column; gap: 8px; justify-content: center; min-width: 0; flex: 1; }
-.shop-prev-side b { font-weight: 400; font-size: 18px; }
-.shop-prev-side .btn { width: 100%; }
-.shop-prev-side .btn .coin-ico { width: 16px; height: 16px; vertical-align: -2px; }
+.shop-closed { margin: 4px 0 0; padding: 8px 12px; border-radius: 12px; background: #fff4d6; color: #8a5a00; font-size: 14px; text-align: center; }
+.shop-item { position: relative; }
+.shop-item .rar, .shopitem-head .rar { font-style: normal; font-size: 11px; line-height: 1; padding: 3px 7px; border-radius: 99px; color: #fff; background: #4f8cff; }
+.shop-item .rar { position: absolute; top: -7px; left: 50%; transform: translateX(-50%); white-space: nowrap; }
+.rar.r-epic, .shop-item.r-epic .rar { background: #a24bff; }
+.rar.r-legend, .shop-item.r-legend .rar { background: linear-gradient(90deg, #ff9a1f, #ff3d8b); }
+.shop-item.r-epic { background: linear-gradient(160deg, #fff, #f2e6ff); }
+.shop-item.r-legend { background: linear-gradient(160deg, #fff8dc, #ffe0ef); box-shadow: 0 0 0 2px #ffb020 inset; }
+.shop-item > i { background-size: cover !important; }
+.shopitem-sheet { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
+.shopitem-head { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.shopitem-head h3 { margin: 0; }
+.shopitem-desc { margin: 0; font-size: 14px; }
+#shopitem-kit { width: min(80vw, 300px); height: 130px; border: 2px solid var(--ink); border-radius: 16px; }
+#shopitem-kit[hidden] { display: none; }
+#shopitem-cv { width: min(62vw, 240px); aspect-ratio: 9 / 16; border: 2px solid var(--ink); border-radius: 16px; background: #1a1030; }
+.shopitem-sheet .btn { width: 100%; }
+.shopitem-sheet .btn .coin-ico { width: 16px; height: 16px; vertical-align: -2px; }
+#gift-photo-box { display: flex; flex-direction: column; gap: 6px; text-align: left; }
+#gift-photo-box[hidden] { display: none; }
+#gift-photo-box h4 { margin: 4px 0 0; font-weight: 400; }
+.gift-photo-row { display: flex; align-items: center; gap: 12px; }
+.gift-photo { width: 64px; height: 64px; border-radius: 50%; border: 2px solid var(--ink); background: #eee center/cover no-repeat; flex: none; }
 .shop-item:disabled { cursor: default; }
-.shop-premium + .shop-grid .shop-item { background: linear-gradient(160deg, #fff8dc, #ffe9b0); }
+

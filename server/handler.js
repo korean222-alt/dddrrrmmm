@@ -10,7 +10,7 @@ import { findSuspects, suspectReport } from './suspect.js';
 import { createRoomHandler } from './rooms.js';
 import { createRankedHandler } from './ranked.js';
 import { cleanMap, mapDifficulty, mapLevel } from '../public/js/usermap.js';
-import { buyItem, cleanOwned } from '../public/js/shop.js';
+import { buyItem, cleanOwned, legacyRefund, seasonRewards } from '../public/js/shop.js';
 import { seasonAt, endedSeasons, HALL_BOARDS, cleanHallImage } from '../public/js/season.js';
 import { LEVELS, LAST_LEVEL_ID, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur, ENDLESS_ID, ROUND_BARS, roundBpm, pointsFor, levelEndlessBase, LEVEL_ENDLESS_STEP, needsVerify, isClosed, diamondsFor } from '../public/js/charts.js';
 
@@ -309,9 +309,21 @@ export function createHandler(cfg, { store, meter = null }) {
       if (hallDone.has(n)) continue;
       const flag = `hall:done:${n}`;
       if (!(await store.getSetting(flag))) {
+        const boards = {};
         for (const board of HALL_BOARDS) {
-          const top = await store.seasonBoard(n, board, 3);
-          await store.hallInsert(top.rows.map((r) => ({ ...r, season: n, board })));
+          const top = await store.seasonBoard(n, board, 100);
+          boards[board] = top.rows;
+          await store.hallInsert(top.rows.filter((r) => r.rank <= 3).map((r) => ({ ...r, season: n, board })));
+        }
+        // 🏆 시즌 보상 (2026-11-22): 위 100명에게 코인 + 다음 접속 때 팝업(1·2·3등은 한마디·사진 칸). 다른 인스턴스와 겹쳐도 한 번만(claimSetting)
+        if (await store.claimSetting(`reward:done:${n}`, String(now))) {
+          const BN = { stage: '🎵 단계 총합', endless: '💎 무제한 총합' };
+          const list = seasonRewards(boards).map((r) => ({
+            igsid: r.igsid,
+            coins: r.coins,
+            gift: { coins: r.coins, note: `🏆 시즌 ${n} ${BN[r.board]} ${r.rank}등 보상이에요!`, hall: r.rank <= 3 ? { season: n, board: r.board, rank: r.rank } : null, reward: n, at: now },
+          }));
+          await store.giveCoinsMany(list);
         }
         await store.setSetting(flag, String(now));
         memo.delete('hall:list');
@@ -524,9 +536,26 @@ export function createHandler(cfg, { store, meter = null }) {
   /** 내 지갑 { coins, owned } (인증 전이면 null) — 🛒 산 것도 같이 (폰을 바꿔도 그대로) */
   const walletOf = async (pl) => {
     if (!pl || !isConfirmed(pl)) return { coins: null, owned: undefined };
-    const w = (await store.getWallet(pl.igsid)) || { coins: 0 };
+    let w = (await store.getWallet(pl.igsid)) || { coins: 0 };
+    // 🛒 상점 개편(11-22 밤): 예전에 산 맵 배경·맵 드럼·색 콩은 이제 무료 → 값 돌려주고 알림 (한 번, 쓰기 2줄)
+    const { refund, keep } = legacyRefund(w.owned);
+    if (refund > 0) {
+      const g0 = w.gift || null;
+      const rn = '상점이 새로 바뀌어서, 예전에 산 꾸미기 값을 돌려드려요 (그건 이제 무료!)';
+      const gift = { coins: refund + ((g0 && Number(g0.coins)) || 0), note: g0 && g0.note ? `${g0.note} + ${rn}` : rn, hall: (g0 && g0.hall) || null, at: Date.now() };
+      await store.putWallet(pl.igsid, { ...w, owned: keep });
+      await store.giveCoins(pl.igsid, refund, gift);
+      w = { ...w, coins: (w.coins || 0) + refund, owned: keep, gift };
+    }
     return { coins: w.coins, owned: cleanOwned(w.owned), ...(w.gift ? { gift: giftOut(w.gift) } : {}) };
   };
+  /** 🛒 상점 열림 (운영자가 admin 에서 켬). 인스턴스마다 1분 기억 */
+  let shopCache = { at: 0, open: false };
+  async function shopOpen(fresh = false) {
+    const now = Date.now();
+    if (fresh || now - shopCache.at > 60 * 1000) shopCache = { at: now, open: (await store.getSetting('shopOpen')) === '1' };
+    return shopCache.open;
+  }
   /** 🎁 폰에 보낼 선물 알림 (명예의 전당 칸이면 한마디 칸 정보도) */
   const giftOut = (g) => ({ coins: Number(g.coins) || 0, note: g.note || '', hall: g.hall || null });
 
@@ -751,7 +780,7 @@ export function createHandler(cfg, { store, meter = null }) {
       return json(200, {
         ok: true,
         app: 'okaystra',
-        config: { gateMode: cfg.gateMode, instagramHandle: cfg.instagramHandle, siteUrl: cfg.siteUrl, freePassUntil: (await freePassOn()) ? await freePassUntil() : 0 },
+        config: { gateMode: cfg.gateMode, instagramHandle: cfg.instagramHandle, siteUrl: cfg.siteUrl, freePassUntil: (await freePassOn()) ? await freePassUntil() : 0, shopOpen: await shopOpen() },
         me: pl ? { ...meOf(pl), ...(await walletOf(pl)) } : { verified: false },
       });
     }
@@ -762,6 +791,7 @@ export function createHandler(cfg, { store, meter = null }) {
         instagramHandle: cfg.instagramHandle,
         siteUrl: cfg.siteUrl,
         freePassUntil: (await freePassOn()) ? await freePassUntil() : 0,
+        shopOpen: await shopOpen(),
       });
     }
 
@@ -1294,6 +1324,13 @@ export function createHandler(cfg, { store, meter = null }) {
         const until = await freePassUntil(true);
         return json(200, { until, on: Date.now() < until });
       }
+      // 🛒 상점 열기·닫기 (닫혀 있으면 구경만)
+      if (p === '/api/admin/shop' && m === 'GET') return json(200, { open: await shopOpen(true) });
+      if (p === '/api/admin/shop' && m === 'POST') {
+        const b = await readJson(request);
+        await store.setSetting('shopOpen', b.open ? '1' : '0');
+        return json(200, { open: await shopOpen(true) });
+      }
       // 🧯 오늘 쓴 양·브레이크 단계
       if (p === '/api/admin/usage' && m === 'GET') {
         usageAt = 0;
@@ -1354,6 +1391,11 @@ export function createHandler(cfg, { store, meter = null }) {
       if (!pl || !isConfirmed(pl)) return json(403, { error: 'verify_required' });
       const w0 = (await store.getWallet(pl.igsid)) || null;
       const { wallet: w1, changed } = body.coins && typeof body.coins === 'object' ? applyCoins(w0, body.coins, cfg.sessionSecret) : { wallet: { coins: 0, t: 0, tn: 0, fday: '', fn: 0, init: 0, ...(w0 || {}) }, changed: false };
+      // 상점이 닫혀 있으면 못 삼 (보낸 코인은 받아 둠)
+      if (!(await shopOpen())) {
+        if (changed) await store.putWallet(pl.igsid, w1);
+        return json(403, { error: 'shop_closed', coins: w1.coins, owned: cleanOwned(w1.owned) });
+      }
       const r = buyItem(w1, String(body.item || ''));
       if (r.ok && !r.already) await store.putWallet(pl.igsid, r.wallet);
       else if (changed) await store.putWallet(pl.igsid, { ...w1, owned: r.wallet.owned });

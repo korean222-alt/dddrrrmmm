@@ -348,6 +348,11 @@ END $$`);
   async setSetting(key, value) {
     await this.q('INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value', ['set:' + key, String(value)]);
   }
+  /** 아직 없을 때만 적음 → 처음 적은 쪽만 true (시즌 보상 한 번만) */
+  async claimSetting(key, value) {
+    const rows = await this.q('INSERT INTO settings (key, value) VALUES ($1, $2) ON CONFLICT (key) DO NOTHING RETURNING key', ['set:' + key, String(value)]);
+    return rows.length > 0;
+  }
 
   // ----- 🪙 코인 지갑 -----
   async getWallet(igsid) {
@@ -360,6 +365,22 @@ END $$`);
       `INSERT INTO wallet (igsid, coins, gift) VALUES ($1, $2, $3) ON CONFLICT (igsid) DO UPDATE SET coins = wallet.coins + EXCLUDED.coins, gift = EXCLUDED.gift`,
       [igsid, coins, gift ? JSON.stringify(gift) : null]
     );
+  }
+  /** 🏆 여러 사람에게 한꺼번에 (시즌 보상). D1 은 쿼리당 값 100개까지라 30명씩 */
+  async giveCoinsMany(list) {
+    for (let i = 0; i < list.length; i += 30) {
+      const part = list.slice(i, i + 30);
+      const params = [];
+      const vals = part.map((r) => {
+        params.push(r.igsid, r.coins, r.gift ? JSON.stringify(r.gift) : null);
+        const k = params.length;
+        return `($${k - 2}, $${k - 1}, $${k})`;
+      });
+      await this.q(
+        `INSERT INTO wallet (igsid, coins, gift) VALUES ${vals.join(', ')} ON CONFLICT (igsid) DO UPDATE SET coins = wallet.coins + EXCLUDED.coins, gift = EXCLUDED.gift`,
+        params
+      );
+    }
   }
   /** 🎁 알림 지우기 (폰이 봤음) */
   async clearGift(igsid) {

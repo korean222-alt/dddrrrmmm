@@ -7,7 +7,7 @@
 import { buildRasters } from './mascot.js';
 import { loadBuddies } from './buddies.js';
 import { buildKit, SNARE_RY } from './kit3d.js';
-import { THEMES, themeForLevel, cycleTheme } from './themes.js';
+import { THEMES, SHOP_KITS, themeForLevel, cycleTheme } from './themes.js';
 import { paintScenery, SceneFx } from './scenery.js';
 
 export const LANE = [
@@ -26,14 +26,23 @@ export const NOTE_PALETTES = {
   ocean: { name: '바다', c: [['#2E9BFF', '#B5DCFF', '#145FB0'], ['#36E0D0', '#C0F7F1', '#13968A'], ['#9AD8FF', '#E6F6FF', '#4C93BF'], ['#6F7BFF', '#D0D4FF', '#3A44BF'], ['#3FD6A0', '#C6F5E3', '#1A8F66']] },
   fire: { name: '불꽃', c: [['#FF4A2E', '#FFB3A6', '#B3200E'], ['#FF9F1C', '#FFDDA8', '#B86600'], ['#FFD93A', '#FFF3B0', '#B88F00'], ['#FF5E7E', '#FFC2CE', '#B32446'], ['#FF7A3A', '#FFCBA8', '#B3450E']] },
   mono: { name: '흑백', c: [['#F2F2F2', '#FFFFFF', '#9A9A9A'], ['#BFC4CC', '#EEF0F3', '#6E747E'], ['#E6E6E6', '#FFFFFF', '#8E8E8E'], ['#A8ADB5', '#E2E4E8', '#5E636B'], ['#D0D0D0', '#F5F5F5', '#7A7A7A']] },
-  // ✨ 상점 특별 콩 색 (비쌈, 2026-11-22)
-  gold: { name: '👑 황금', premium: true, c: [['#FFC83D', '#FFF1B8', '#B07A00'], ['#E9EEF5', '#FFFFFF', '#8D96A3'], ['#FFE07A', '#FFF8D6', '#B89520'], ['#F2A97E', '#FFE2D1', '#A85A32'], ['#D9B45A', '#F7EBC7', '#8C6C1E']] },
-  galaxy: { name: '🌌 은하수', premium: true, c: [['#B26BFF', '#E6D0FF', '#6A22C2'], ['#4FD8FF', '#CFF5FF', '#1688B0'], ['#FF7AD9', '#FFD3F2', '#B8338F'], ['#7C8CFF', '#D9DEFF', '#3B46C2'], ['#5CFFC8', '#CCFFEE', '#1FA67A']] },
+  // ✨ 상점 콩 스킨 (2026-11-22 밤 개편: 색만이 아니라 질감 tex + 꼬리 trail + 빛 aura + 반짝이 spark). shop = 산 사람만 설정에 보임
+  //   trail·aura 는 'r,g,b', trail 'rainbow' = 무지개로 흐름
+  ice: { name: '💎 크리스탈', shop: true, fx: { tex: 'ice', trail: '150,230,255', aura: '170,240,255', spark: '#FFFFFF' }, c: [['#7FE3FF', '#E6FBFF', '#2E8FBF'], ['#B9F1FF', '#FFFFFF', '#5FB3D6'], ['#D6F6FF', '#FFFFFF', '#7FB8CC'], ['#9CCBFF', '#E8F3FF', '#4C7FC2'], ['#8FF0E6', '#E2FFFB', '#2E9E92']] },
+  flame: { name: '🔥 불꽃', shop: true, fx: { tex: 'flame', trail: '255,110,20', aura: '255,90,20', spark: '#FFD27A', flicker: true }, c: [['#FF5A1F', '#FFC08A', '#A8200A'], ['#FF8A1F', '#FFD9A8', '#B04A00'], ['#FFC53A', '#FFF0B0', '#B07A00'], ['#FF3D3D', '#FFB0A8', '#9E0E0E'], ['#FF7A3A', '#FFCBA8', '#B3450E']] },
+  heart: { name: '💖 러블리', shop: true, fx: { tex: 'heart', trail: '255,120,190', aura: '255,140,200', spark: '#FFFFFF', heart: true }, c: [['#FF5FA2', '#FFD0E4', '#C21E66'], ['#FF8FC8', '#FFE2F1', '#C24E8A'], ['#FFB3D9', '#FFF0F7', '#C27A9E'], ['#E86BFF', '#F7D6FF', '#9E2EB8'], ['#FF7AB0', '#FFD6E7', '#C23E74']] },
+  cyber: { name: '⚡ 사이버', shop: true, fx: { tex: 'cyber', trail: '0,240,255', trail2: '255,40,220', aura: '0,240,255', spark: '#E8FFFF', glitch: true }, c: [['#00F0FF', '#B8FCFF', '#007A8A'], ['#FF2BD6', '#FFB8F2', '#8A0072'], ['#C6FF00', '#F0FFB0', '#6A8A00'], ['#8C5CFF', '#D8CCFF', '#3A1FA8'], ['#00FF9C', '#B0FFDD', '#00A365']] },
+  gold: { name: '👑 황금', shop: true, fx: { tex: 'gold', trail: '255,200,60', aura: '255,210,80', spark: '#FFFDE0', big: true }, c: [['#FFC83D', '#FFF1B8', '#B07A00'], ['#FFD75A', '#FFF6CC', '#B8860B'], ['#FFE07A', '#FFF8D6', '#B89520'], ['#F2B84A', '#FFE9BF', '#A8701E'], ['#D9B45A', '#F7EBC7', '#8C6C1E']] },
+  galaxy: { name: '🌌 은하수', shop: true, fx: { tex: 'galaxy', trail: 'rainbow', aura: '180,120,255', spark: '#FFFFFF', big: true }, c: [['#B26BFF', '#E6D0FF', '#6A22C2'], ['#4FD8FF', '#CFF5FF', '#1688B0'], ['#FF7AD9', '#FFD3F2', '#B8338F'], ['#7C8CFF', '#D9DEFF', '#3B46C2'], ['#5CFFC8', '#CCFFEE', '#1FA67A']] },
 };
+let noteSkin = 'basic';
+/** 지금 콩 스킨의 효과 (없으면 null) */
+const skinFx = () => (NOTE_PALETTES[noteSkin] || {}).fx || null;
 const LANE_BASE = LANE.map((l) => ({ main: l.main, light: l.light, dark: l.dark, rgb: l.rgb }));
 const hexRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)).join(',');
 /** 콩 색 바꾸기 (LANE 을 바꿔 둠 → 다음 resize 때 노트 그림이 새로 만들어짐) */
 export function applyNoteColors(key) {
+  noteSkin = NOTE_PALETTES[key] ? key : 'basic';
   const p = (NOTE_PALETTES[key] || NOTE_PALETTES.basic).c;
   LANE.forEach((l, i) => {
     if (!p) return Object.assign(l, LANE_BASE[i]);
@@ -183,12 +192,16 @@ export class Renderer {
   _buildKit() {
     const L = this.L;
     // 🎨 설정에서 고른 드럼 세트 (영상 찍기는 맵 드럼 그대로)
-    const kp = !this.studio && this.kitPick && THEMES[this.kitPick];
+    const kp = !this.studio && this.kitPick && (THEMES[this.kitPick] || SHOP_KITS[this.kitPick]);
     this.kit = buildKit(
       kp ? { ...this.theme, kit: kp.kit } : this.theme,
       { instR: L.instR, padR: L.padR, barW: L.barW, barH: L.barH, cymR: L.cymR, dpr: L.dpr, standTo: L.H - L.strikeY },
       LANE
     );
+    // ✨ 콩 스킨 질감 (영상 찍기는 기본 콩)
+    const fx = !this.studio && skinFx();
+    this._skinFx = fx;
+    if (fx && fx.tex) for (const [lane, sp] of Object.entries(this.kit.notes.live)) this.kit.notes.live[lane] = { ...sp, img: skinTexture(sp.img, fx.tex, Number(lane)) };
   }
 
   /** 레벨업 챌린지: 새 단계 (화면 가운데 "Lv.3" 크게) */
@@ -333,8 +346,7 @@ export class Renderer {
     g.closePath();
   }
 
-  _paintPhoto(g, L) {
-    const img = this.bgPhoto;
+  _paintPhoto(g, L, img = this.bgPhoto, dim = this.photoDim) {
     const iw = img.naturalWidth || img.width;
     const ih = img.naturalHeight || img.height;
     const k = Math.max(L.W / iw, L.H / ih);
@@ -345,7 +357,7 @@ export class Renderer {
     try {
       g.drawImage(img, (L.W - w) / 2, (L.H - h) / 2, w, h);
     } catch {}
-    const d = Math.max(0, Math.min(0.85, this.photoDim ?? 0.4));
+    const d = Math.max(0, Math.min(0.85, dim ?? 0.4));
     const gr = g.createLinearGradient(0, 0, 0, L.H);
     gr.addColorStop(0, `rgba(0,0,0,${d * 0.6})`);
     gr.addColorStop(0.5, `rgba(0,0,0,${d})`);
@@ -363,7 +375,10 @@ export class Renderer {
     const g = c.getContext('2d');
     g.setTransform(L.dpr, 0, 0, L.dpr, 0, 0);
     // 맵 배경 (하늘·땅·장식). 📷 내 사진이면 사진을 화면에 꽉 차게 + 노트가 잘 보이게 어둡게
+    // 🛒 상점 배경 그림: 받아 두었으면 사진처럼, 아직이면 받고 나서 다시 그림
+    const bgImg = T.img ? shopBg(T.img, () => this.theme === T && this.L && this._drawStatic()) : null;
     if (T.key === 'photo' && this.bgPhoto) this._paintPhoto(g, L);
+    else if (bgImg) this._paintPhoto(g, L, bgImg, T.imgDim);
     else paintScenery(g, L, T);
     // 원근 길(레인): 위(먼 곳)는 좁고 아래(가까운 곳)는 넓음. 줄 전체가 버튼
     const y0 = L.topY;
@@ -961,8 +976,17 @@ export class Renderer {
         ctx.globalCompositeOperation = 'source-over';
       }
       const img = gold ? this.kit.notes.gold[n.lane] : sp;
+      const fx = !n.judged && this._skinFx;
+      if (fx) {
+        ctx.restore();
+        this._skinBack(n, dt, ps, x, y, sp, a, st, fx);
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(ps, ps * (0.82 + 0.18 * Math.min(1, ps)));
+      }
       ctx.globalAlpha = a;
       ctx.drawImage(img.img, -img.ax, -img.ay, img.w, img.h);
+      if (fx) this._skinFront(n, img, a, fx);
       // 🎭 멜로디 콩: 계이름 (도·레·미)
       if (n.sol && !n.judged) {
         const fs = Math.max(12, Math.round(img.h * 0.5));
@@ -979,6 +1003,79 @@ export class Renderer {
       }
       ctx.restore();
     }
+  }
+
+  /** ✨ 콩 스킨: 콩 뒤 꼬리(지나온 길) + 빛 (화면 좌표) */
+  _skinBack(n, dt, ps, x, y, sp, a, st, fx) {
+    const ctx = this.ctx;
+    const L = this.L;
+    const t = performance.now() / 1000;
+    const len = fx.big ? 0.26 : 0.18;
+    const ps2 = this._s(dt + len, st.approach);
+    const y2 = this._py(ps2);
+    const x2 = this._px(L.laneX[n.lane], ps2);
+    const w0 = Math.min(sp.w, sp.h * 1.6) * 0.42 * ps * (fx.flicker ? 0.85 + 0.25 * Math.sin(t * 31 + n.id) : 1);
+    const w2 = w0 * 0.25;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    const drawTrail = (rgb, k, off) => {
+      const gr = ctx.createLinearGradient(0, y, 0, y2);
+      if (rgb === 'rainbow') {
+        const h = (t * 120 + n.id * 40) % 360;
+        gr.addColorStop(0, `hsla(${h},100%,65%,${0.75 * a})`);
+        gr.addColorStop(0.5, `hsla(${(h + 80) % 360},100%,65%,${0.4 * a})`);
+        gr.addColorStop(1, `hsla(${(h + 160) % 360},100%,65%,0)`);
+      } else {
+        gr.addColorStop(0, `rgba(${rgb},${0.7 * a * k})`);
+        gr.addColorStop(1, `rgba(${rgb},0)`);
+      }
+      ctx.fillStyle = gr;
+      ctx.beginPath();
+      ctx.moveTo(x - w0 + off, y);
+      ctx.lineTo(x + w0 + off, y);
+      ctx.lineTo(x2 + w2 + off, y2);
+      ctx.lineTo(x2 - w2 + off, y2);
+      ctx.closePath();
+      ctx.fill();
+    };
+    if (fx.trail2) {
+      const j = fx.glitch && Math.sin(t * 23 + n.id * 3) > 0.85 ? 4 * ps : 1.5 * ps;
+      drawTrail(fx.trail, 0.9, -j);
+      drawTrail(fx.trail2, 0.9, j);
+    } else drawTrail(fx.trail, 1, 0);
+    // 빛 (숨 쉬듯)
+    const R = Math.max(sp.w, sp.h) * ps * (fx.big ? 0.95 : 0.75);
+    const pulse = 0.7 + 0.3 * Math.sin(t * 5 + n.id);
+    const gl = ctx.createRadialGradient(x, y, 0, x, y, R);
+    gl.addColorStop(0, `rgba(${fx.aura},${0.55 * a * pulse})`);
+    gl.addColorStop(1, `rgba(${fx.aura},0)`);
+    ctx.fillStyle = gl;
+    ctx.beginPath();
+    ctx.ellipse(x, y, R, R * 0.62, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  /** ✨ 콩 스킨: 콩 위 반짝이 (콩 좌표, 이미 translate·scale 된 상태) */
+  _skinFront(n, img, a, fx) {
+    const ctx = this.ctx;
+    const t = performance.now() / 1000;
+    const cnt = fx.big ? 3 : 2;
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < cnt; i++) {
+      const ph = (t * (1.3 + i * 0.4) + n.id * 0.37 + i * 0.31) % 1;
+      const tw = Math.sin(ph * Math.PI);
+      if (tw <= 0.05) continue;
+      const seed = (n.id * 7 + i * 13) % 17;
+      const px = -img.ax + img.w * (0.15 + ((seed * 0.13) % 0.7));
+      const py = -img.ay + img.h * (0.2 + ((seed * 0.29) % 0.45));
+      const s = img.h * (fx.big ? 0.32 : 0.24) * tw;
+      ctx.globalAlpha = a * tw;
+      ctx.fillStyle = fx.spark;
+      if (fx.heart) drawHeart(ctx, px, py, s * 0.7);
+      else drawGlint(ctx, px, py, s);
+    }
+    ctx.restore();
   }
 
   _drawBursts(rt) {
@@ -2033,6 +2130,121 @@ export class Renderer {
     }
     ctx.restore();
   }
+}
+
+// ---------------- ✨ 콩 스킨 그림 (2026-11-22) ----------------
+function drawGlint(ctx, x, y, s) {
+  ctx.beginPath();
+  ctx.moveTo(x, y - s);
+  ctx.quadraticCurveTo(x, y, x + s, y);
+  ctx.quadraticCurveTo(x, y, x, y + s);
+  ctx.quadraticCurveTo(x, y, x - s, y);
+  ctx.quadraticCurveTo(x, y, x, y - s);
+  ctx.fill();
+}
+function drawHeart(ctx, x, y, s) {
+  ctx.beginPath();
+  ctx.moveTo(x, y + s * 0.9);
+  ctx.bezierCurveTo(x - s * 1.4, y - s * 0.1, x - s * 0.6, y - s * 1.1, x, y - s * 0.35);
+  ctx.bezierCurveTo(x + s * 0.6, y - s * 1.1, x + s * 1.4, y - s * 0.1, x, y + s * 0.9);
+  ctx.fill();
+}
+/** 노트 그림에 질감 입히기 (그림 모양 안쪽만: source-atop) */
+function skinTexture(src, tex, lane) {
+  const c = document.createElement('canvas');
+  const W = (c.width = src.width);
+  const H = (c.height = src.height);
+  const g = c.getContext('2d');
+  g.drawImage(src, 0, 0);
+  g.globalCompositeOperation = 'source-atop';
+  const lin = (stops, x0 = 0, y0 = 0, x1 = 0, y1 = H) => {
+    const gr = g.createLinearGradient(x0, y0, x1, y1);
+    stops.forEach(([o, col]) => gr.addColorStop(o, col));
+    g.fillStyle = gr;
+    g.fillRect(0, 0, W, H);
+  };
+  let seed = 7 + lane * 31;
+  const rnd = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+  if (tex === 'gold') {
+    lin([[0, 'rgba(255,250,205,0.92)'], [0.35, 'rgba(255,205,50,0.85)'], [0.6, 'rgba(190,120,0,0.85)'], [1, 'rgba(255,225,110,0.9)']]);
+  } else if (tex === 'galaxy') {
+    const gr = g.createRadialGradient(W * 0.35, H * 0.35, 0, W * 0.5, H * 0.5, Math.max(W, H) * 0.7);
+    gr.addColorStop(0, 'rgba(255,120,220,0.9)');
+    gr.addColorStop(0.45, 'rgba(110,50,220,0.92)');
+    gr.addColorStop(1, 'rgba(20,10,70,0.95)');
+    g.fillStyle = gr;
+    g.fillRect(0, 0, W, H);
+    g.fillStyle = '#FFFFFF';
+    for (let i = 0; i < (W * H) / 300; i++) {
+      g.globalAlpha = 0.4 + rnd() * 0.6;
+      const s = 0.6 + rnd() * 1.6;
+      g.fillRect(rnd() * W, rnd() * H, s, s);
+    }
+    g.globalAlpha = 1;
+  } else if (tex === 'ice') {
+    lin([[0, 'rgba(255,255,255,0.75)'], [0.5, 'rgba(160,230,255,0.5)'], [1, 'rgba(80,170,230,0.6)']], 0, 0, W, H);
+  } else if (tex === 'flame') {
+    lin([[0, 'rgba(255,240,140,0.85)'], [0.4, 'rgba(255,140,20,0.8)'], [1, 'rgba(200,20,0,0.85)']]);
+  } else if (tex === 'heart') {
+    lin([[0, 'rgba(255,230,245,0.8)'], [0.5, 'rgba(255,110,180,0.7)'], [1, 'rgba(200,40,120,0.75)']]);
+  } else if (tex === 'cyber') {
+    lin([[0, 'rgba(10,10,30,0.75)'], [1, 'rgba(10,10,30,0.85)']]);
+    g.globalCompositeOperation = 'source-atop';
+    g.strokeStyle = lane % 2 ? 'rgba(255,40,220,0.95)' : 'rgba(0,240,255,0.95)';
+    g.lineWidth = Math.max(1, H * 0.05);
+    for (let y = H * 0.25; y < H; y += H * 0.22) {
+      g.beginPath();
+      g.moveTo(0, y);
+      g.lineTo(W, y);
+      g.stroke();
+    }
+  }
+  // 빛 줄 (비스듬히)
+  g.globalCompositeOperation = 'source-atop';
+  const sh = g.createLinearGradient(W * 0.2, 0, W * 0.6, H);
+  sh.addColorStop(0, 'rgba(255,255,255,0)');
+  sh.addColorStop(0.45, `rgba(255,255,255,${tex === 'cyber' ? 0.15 : 0.55})`);
+  sh.addColorStop(0.55, 'rgba(255,255,255,0)');
+  g.fillStyle = sh;
+  g.fillRect(0, 0, W, H);
+  // 테두리 빛 (사이버·은하수)
+  if (tex === 'cyber' || tex === 'galaxy' || tex === 'gold') {
+    g.globalCompositeOperation = 'source-over';
+    g.save();
+    g.shadowColor = tex === 'cyber' ? (lane % 2 ? '#FF2BD6' : '#00F0FF') : tex === 'gold' ? '#FFE27A' : '#D9A8FF';
+    g.shadowBlur = H * 0.25;
+    g.globalCompositeOperation = 'destination-over';
+    g.drawImage(src, 0, 0);
+    g.restore();
+  }
+  return c;
+}
+
+// 🛒 상점 배경 그림 받아 두기 (한 번 받으면 계속 씀)
+const _shopBg = new Map();
+function shopBg(src, onLoad) {
+  let e = _shopBg.get(src);
+  if (!e) {
+    const img = new Image();
+    e = { img, ok: false, wait: [] };
+    _shopBg.set(src, e);
+    img.onload = () => {
+      e.ok = true;
+      const w = e.wait;
+      e.wait = [];
+      w.forEach((f) => f());
+    };
+    img.src = src;
+  }
+  if (e.ok) return e.img;
+  if (onLoad && e.wait.length < 4) e.wait.push(onLoad);
+  return null;
+}
+export function preloadShopBg(src) {
+  return new Promise((res) => {
+    if (shopBg(src, () => res(true))) res(true);
+    setTimeout(() => res(false), 6000);
+  });
 }
 
 let _goldGlow = null;

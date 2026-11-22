@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=6f4eba7d13" />
+  <link rel="stylesheet" href="css/style.css?v=0098bbb966" />
 </head>
 <body>
   <div id="app">
@@ -917,16 +917,19 @@
     <div class="sheet shop-sheet">
       <button class="icon-btn close" data-action="close-shop" aria-label="닫기"><span data-icon="close"></span></button>
       <h3>🛒 상점 <span class="shop-coins"><i class="coin-ico"></i><b id="shop-coins">0</b></span></h3>
-      <div class="shop-prev" id="shop-prev" hidden>
-        <canvas id="shop-prev-cv"></canvas>
-        <div class="shop-prev-side">
-          <b id="shop-prev-name"></b>
-          <small class="muted" id="shop-prev-sub"></small>
-          <button class="btn btn-primary" id="shop-prev-buy"></button>
-          <button class="btn btn-ghost btn-sm" data-action="shop-back">← 목록</button>
-        </div>
-      </div>
+      <p class="shop-closed" id="shop-closed" hidden>🔒 판매 준비 중이에요 · 눌러서 미리보기는 돼요</p>
       <div class="shop-list" id="shop-list"></div>
+    </div>
+  </div>
+
+  <div class="modal" id="modal-shopitem" hidden>
+    <div class="sheet shopitem-sheet">
+      <button class="icon-btn close" data-action="close-shopitem" aria-label="닫기"><span data-icon="close"></span></button>
+      <div class="shopitem-head"><em class="rar" id="shopitem-rar"></em><h3 id="shopitem-name"></h3></div>
+      <p class="muted shopitem-desc" id="shopitem-desc"></p>
+      <canvas id="shopitem-cv"></canvas>
+      <canvas id="shopitem-kit" hidden></canvas>
+      <button class="btn btn-primary" id="shopitem-buy"></button>
     </div>
   </div>
 
@@ -937,6 +940,10 @@
         <h3>선물이 왔어요!</h3>
         <p class="gift-coins" id="gift-coins-line"><i class="coin-ico"></i> <b id="gift-coins">0</b> 코인</p>
         <p class="gift-note" id="gift-note"></p>
+      </div>
+      <div id="gift-photo-box" hidden>
+        <h4>📷 명예의 전당 프로필 사진</h4>
+        <div class="gift-photo-row"><span class="gift-photo" id="gift-photo"></span><button class="btn btn-ghost btn-sm" id="gift-photo-btn">사진 고르기</button></div>
       </div>
       <div id="gift-msg-box" hidden>
         <h4 id="gift-msg-title">🏛 명예의 전당에 남길 한마디</h4>
@@ -992,6 +999,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=3e2e50170d" defer></script>
+  <script src="js/app.js?v=8d3fa8a1d1" defer></script>
 </body>
 </html>

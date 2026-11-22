@@ -754,29 +754,30 @@ test('🏆 랭킹전: 실시간으로 붙으면 바로 시작 · 결과로 엘�
   assert.equal(top.length, 3);
 });
 
-test('🛒 상점: 얹어 온 코인 먼저 더하고 차감 · 모자라면 402 · 이미 있으면 돈 안 냄 · 내 정보에 산 것', async () => {
+test('🛒 상점: 닫혀 있으면 못 삼(코인은 받음) · 열면 얹어 온 코인 먼저 더하고 차감 · 모자라면 402 · 이미 있으면 돈 안 냄', async () => {
   const C = await verifiedClient('상점손님', 'shop.guest');
-  const poor = await C('POST', '/api/shop/buy', { item: 'notes:neon' });
+  assert.equal((await C('GET', '/api/config')).json.shopOpen, false);
+  const closed = await C('POST', '/api/shop/buy', { item: 'bg:photo', coins: { free: 3000 } });
+  assert.equal(closed.status, 403);
+  assert.equal(closed.json.error, 'shop_closed');
+  assert.equal(closed.json.coins, 3000, '닫혀 있어도 보낸 코인은 받음');
+  assert.equal((await C('POST', '/api/admin/shop', { open: true })).status, 401);
+  assert.equal((await C('POST', '/api/admin/shop', { open: true }, adm)).json.open, true);
+  assert.equal((await C('GET', '/api/config')).json.shopOpen, true);
+  const poor = await C('POST', '/api/shop/buy', { item: 'kit:goldkit' });
   assert.equal(poor.status, 402);
-  assert.equal(poor.json.coins, 0);
-  // 폰에 모아 둔 코인을 같이 보내면 먼저 더하고 삼 (free 1500 → 1000 차감)
-  const r = await C('POST', '/api/shop/buy', { item: 'notes:neon', coins: { free: 1500 } });
+  const r = await C('POST', '/api/shop/buy', { item: 'bg:photo', coins: { free: 2000 } });
   assert.equal(r.status, 200);
-  assert.equal(r.json.coins, 500);
-  assert.deepEqual(r.json.owned, ['notes:neon']);
-  const again = await C('POST', '/api/shop/buy', { item: 'notes:neon' });
-  assert.equal(again.json.coins, 500, '이미 산 건 돈 안 냄');
-  const nope = await C('POST', '/api/shop/buy', { item: 'kit:lava', coins: { free: 100 } });
-  assert.equal(nope.status, 402);
-  assert.equal(nope.json.coins, 600, '못 사도 보낸 코인은 받음');
-  assert.equal((await C('POST', '/api/shop/buy', { item: 'notes:<b>' })).status, 400);
+  assert.equal(r.json.coins, 0);
+  assert.deepEqual(r.json.owned, ['bg:photo']);
+  const again = await C('POST', '/api/shop/buy', { item: 'bg:photo' });
+  assert.equal(again.json.coins, 0, '이미 산 건 돈 안 냄');
+  assert.equal((await C('POST', '/api/shop/buy', { item: 'notes:neon' })).status, 400, '예전 물건은 안 팜');
   const me = (await C('GET', '/api/me')).json;
-  assert.equal(me.coins, 600);
-  assert.deepEqual(me.owned, ['notes:neon']);
-  // 코인이 더 들어와도 산 것은 그대로
-  await C('POST', '/api/runs', { level: 1, coins: { free: 10 } });
-  assert.deepEqual((await C('GET', '/api/me')).json.owned, ['notes:neon']);
-  assert.equal((await client()('POST', '/api/shop/buy', { item: 'notes:neon' })).status, 403);
+  assert.equal(me.coins, 0);
+  assert.deepEqual(me.owned, ['bg:photo']);
+  assert.equal((await client()('POST', '/api/shop/buy', { item: 'bg:photo' })).status, 403);
+  await C('POST', '/api/admin/shop', { open: false }, adm);
 });
 
 test('🎁 운영자 코인 주기: 지갑에 바로 · 다음 접속에 알림 · 받기 하면 지움 · 전당에 없으면 한마디 요청 안 됨', async () => {

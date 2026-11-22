@@ -106,6 +106,11 @@ export class JsonStore {
     this.data.settings[key] = String(value);
     this._save();
   }
+  claimSetting(key, value) {
+    if (this.data.settings[key] != null) return false;
+    this.setSetting(key, value);
+    return true;
+  }
 
   // ----- 🪙 코인 지갑 -----
   getWallet(igsid) {
@@ -121,6 +126,9 @@ export class JsonStore {
     const w = this.data.wallet[igsid] || { coins: 0, t: 0, tn: 0, fday: '', fn: 0, init: 0, owned: [] };
     this.data.wallet[igsid] = { ...w, coins: (w.coins || 0) + coins, gift: gift ? { ...gift } : null };
     this._save();
+  }
+  giveCoinsMany(list) {
+    for (const r of list) this.giveCoins(r.igsid, r.coins, r.gift);
   }
   clearGift(igsid) {
     if (this.data.wallet[igsid]) this.data.wallet[igsid].gift = null;

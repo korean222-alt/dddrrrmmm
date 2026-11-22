@@ -68,6 +68,11 @@ function paintFinish(g, finish, colors, x0, x1, y0, y1, opt = {}) {
     g.fillStyle = gr;
   } else if (finish === 'metal') {
     g.fillStyle = metalGradFrom(g, x0, x1, colors);
+  } else if (finish === 'rainbow') {
+    // 🌈 상점 무지개 드럼: 가로로 무지개 + 위에 광택
+    const gr = g.createLinearGradient(x0, 0, x1, 0);
+    ['#FF4D6D', '#FF9F1C', '#FFE14D', '#3FD6A0', '#3FA9FF', '#9B6BFF', '#FF4D9E'].forEach((c, i, a) => gr.addColorStop(i / (a.length - 1), c));
+    g.fillStyle = gr;
   } else {
     g.fillStyle = base;
   }

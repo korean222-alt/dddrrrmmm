@@ -105,6 +105,17 @@ test('시즌 총합 랭킹(단계·무제한) · 시즌 2 는 그 시즌 기록�
     assert.equal(w.gift, null, name);
     assert.equal(w.coins, 5110, name);
 
+    // 🏆 시즌 보상: 여러 명 한꺼번에 (30명씩 나눠 씀) · 한 번만 (claimSetting)
+    assert.equal(await s.claimSetting('reward:done:9', '1'), true, name);
+    assert.equal(await s.claimSetting('reward:done:9', '2'), false, name);
+    const many = Array.from({ length: 70 }, (_, i) => ({ igsid: 'r' + i, coins: 3000, gift: { coins: 3000, note: 'x', hall: null } }));
+    many.push({ igsid: 'a', coins: 100000, gift: { coins: 100000, note: '1등', hall: { season: 1, board: 'stage', rank: 1 } } });
+    await s.giveCoinsMany(many);
+    assert.equal((await s.getWallet('r69')).coins, 3000, name);
+    w = await s.getWallet('a');
+    assert.equal(w.coins, 105110, name);
+    assert.equal(w.gift.hall.rank, 1, name);
+
     // 계정 합치기 때 시즌 기록도 옮김
     await s.moveScores('c', 'a');
     assert.deepEqual((await s.seasonBoard(2, 'stage', 50)).rows.map((r) => [r.username, r.score]), [['쿵왕', 500]], name);

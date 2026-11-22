@@ -2,7 +2,9 @@
 //   고른 물건만 바꾸고 나머지는 지금 쓰는 꾸미기 그대로. 콩이 내려와 저절로 PERFECT 로 맞음. 서버 요청 없음
 //   콩 색은 LANE 을 바꿔야 해서(applyNoteColors) 닫을 때 main 이 원래 색으로 돌려놓음
 
-import { Renderer, applyNoteColors } from './render.js';
+import { Renderer, applyNoteColors, LANE } from './render.js';
+import { buildKit } from './kit3d.js';
+import { THEMES, SHOP_KITS } from './themes.js';
 import { LEVELS, LAST_LEVEL_ID, levelLanes, buildNotes, tempoOf, COUNT_IN_BARS } from './charts.js';
 
 let cur = null; // { r, raf, cv }
@@ -110,4 +112,29 @@ export async function startShopPreview(cv, { bg, kit, notes, photo }) {
     me.raf = requestAnimationFrame(tick);
   };
   me.raf = requestAnimationFrame(tick);
+}
+
+/** 🥁 드럼 세트 크게 보기 (게임 화면에선 드럼이 작아서 차이가 잘 안 보임) */
+export function drawKitCloseup(cv, kitKey) {
+  const theme = SHOP_KITS[kitKey] ? { kit: SHOP_KITS[kitKey].kit } : THEMES[kitKey];
+  if (!theme) return;
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const W = cv.clientWidth || 240;
+  const H = cv.clientHeight || 120;
+  cv.width = Math.round(W * dpr);
+  cv.height = Math.round(H * dpr);
+  const g = cv.getContext('2d');
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const bg = g.createLinearGradient(0, 0, 0, H);
+  bg.addColorStop(0, '#2A1B4A');
+  bg.addColorStop(1, '#0E0820');
+  g.fillStyle = bg;
+  g.fillRect(0, 0, W, H);
+  const R = H * 0.3;
+  const kit = buildKit(theme, { instR: R, padR: R * 0.8, barW: R * 2, barH: R * 0.3, cymR: R * 1.1, dpr, standTo: H * 0.35 }, LANE);
+  const put = (sp, x, y, k = 1) => g.drawImage(sp.img, x - sp.ax * k, y - sp.ay * k, sp.w * k, sp.h * k);
+  put(kit.cym, W * 0.2, H * 0.3, 0.9);
+  put(kit.cym, W * 0.82, H * 0.24, 1);
+  put(kit.snare, W * 0.73, H * 0.55, 0.9);
+  put(kit.kick, W * 0.42, H * 0.5, 1);
 }
