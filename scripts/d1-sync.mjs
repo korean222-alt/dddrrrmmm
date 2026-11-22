@@ -24,6 +24,9 @@ export const TABLES = [
   {
     name: 'settings', cols: { key: 't', value: 't' }, pk: ['key'], ts: null,
     merge: 'NOTHING',
+    // d1:* · d1schema:* 는 옮기기 상태 표시(D1 에만 있어야 함) → 두 DB 사이에 주고받지 않음
+    //   (11-22 되돌릴 때 d1:switched_at 이 Neon 으로 갔다가 다음 복사 때 D1 로 돌아와 '이미 쓰는 중' 으로 멈췄음)
+    only: "key NOT LIKE 'd1:%' AND key NOT LIKE 'd1schema:%'",
   },
   {
     name: 'players', cols: { igsid: 't', username: 't', follow_verified_at: 'i', ig: 't', created_at: 'i', checked_at: 'i', hidden_at: 'i' }, pk: ['igsid'],
@@ -186,7 +189,12 @@ export async function localPg(pglite) {
 
 // ---------------------------------------------------------------- 읽기 · 쓰기
 /** since 뒤에 바뀐 줄만 (ts 가 없는 작은 표는 늘 전부) */
-const sinceSql = (t, since) => (since && t.ts ? `WHERE ${t.ts.replaceAll('$S', String(Math.floor(since)))}` : '');
+const sinceSql = (t, since) => {
+  const conds = [];
+  if (t.only) conds.push(`(${t.only})`);
+  if (since && t.ts) conds.push(`(${t.ts.replaceAll('$S', String(Math.floor(since)))})`);
+  return conds.length ? `WHERE ${conds.join(' AND ')}` : '';
+};
 
 /** 표 전부(또는 since 뒤에 바뀐 줄) 읽기 — pk 순서로 나눠서 */
 export async function readTable(db, t, { since = 0, cols = Object.keys(t.cols) } = {}) {
@@ -354,6 +362,11 @@ const getFlag = async (db, key) => ((await db.q(`SELECT value FROM settings WHER
  */
 export async function runCopy(neonDb, d1, { log = console.log } = {}) {
   await createSchema(d1);
+  // 되돌린 적이 있으면(그 뒤로 D1 을 안 씀) 남은 switched_at 은 옛 표시 → 지움
+  const sw = Number(await getFlag(d1, 'd1:switched_at'));
+  if (sw && Number(await getFlag(d1, 'd1:rolled_back_at')) > sw) await d1.q(`DELETE FROM settings WHERE key = 'd1:switched_at'`);
+  // 예전에 Neon 으로 잘못 넘어간 옮기기 표시 지우기
+  await neonDb.q(`DELETE FROM settings WHERE key LIKE 'd1:%' OR key LIKE 'd1schema:%'`);
   if (await getFlag(d1, 'd1:switched_at')) throw new Error('D1 이 이미 쓰이는 중(d1:switched_at 있음) — 전체 복사로 덮으면 D1 기록이 사라짐. catchup 을 쓰세요');
   const start = Date.now() - 60_000;
   const prev = Number(await getFlag(d1, 'd1:copied_at'));
