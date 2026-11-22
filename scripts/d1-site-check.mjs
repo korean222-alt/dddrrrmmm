@@ -22,6 +22,29 @@ async function get(path, cookie) {
   }
 }
 
+/**
+ * 랭킹 전·후 비교: 앞의 [닉네임, 점수] 가 뒤에도 같은 닉네임으로 같거나 높은 점수로 있어야 함 (위 50명에서 밀려난 건 괜찮음)
+ *   같은 닉네임이 여럿일 수 있어서(11-22 '예빈' 둘) 닉네임마다 점수를 높은 순으로 줄 세워 하나씩 짝지음
+ */
+export function boardDiff(before, after) {
+  const group = (list) => {
+    const m = new Map();
+    for (const [u, s] of list) m.set(u, [...(m.get(u) || []), s]);
+    for (const v of m.values()) v.sort((x, y) => y - x);
+    return m;
+  };
+  const b = group(before), a = group(after);
+  const min = after.length >= 50 ? Math.min(...after.map(([, s]) => s)) : -Infinity;
+  const out = [];
+  for (const [u, ss] of b)
+    ss.forEach((s, i) => {
+      const got = (a.get(u) || [])[i];
+      if (got !== undefined ? got >= s : s <= min) return;
+      out.push(`'${u}' ${s}점이 ${got !== undefined ? got + '점으로' : '없어짐'}`);
+    });
+  return out;
+}
+
 async function boards() {
   const out = {};
   for (let lv = 1; lv <= LAST_LEVEL_ID; lv++) out[lv] = (await get(`/api/leaderboard?level=${lv}`)).entries.map((e) => [e.username, e.score]);
@@ -80,12 +103,9 @@ async function main() {
         if (JSON.stringify(before[k]) !== JSON.stringify(after[k])) (bad++, console.log(`❌ 지난 시즌 명예의 전당이 다름`));
         continue;
       }
-      const a = new Map(after[k].map(([u, s]) => [u, s]));
-      const min = after[k].length >= 50 ? Math.min(...after[k].map(([, s]) => s)) : -Infinity;
-      for (const [u, s] of before[k]) {
-        if (a.has(u) ? a.get(u) >= s : s <= min) continue;
+      for (const msg of boardDiff(before[k], after[k])) {
         bad++;
-        console.log(`❌ ${k} 랭킹: '${u}' ${s}점이 ${a.has(u) ? a.get(u) + '점으로' : '없어짐'}`);
+        console.log(`❌ ${k} 랭킹: ${msg}`);
       }
     }
     console.log(`랭킹 비교: ${Object.keys(before).length}개 판 ${bad ? `❌ ${bad}곳 다름` : '전부 그대로 ✅'} (총 랭킹 ${after.total.length}명, 명예의 전당 ${after.hall.length}명)`);
@@ -97,7 +117,7 @@ async function main() {
   process.exit(2);
 }
 
-main().catch((e) => {
+if (import.meta.url === `file://${process.argv[1]}`) main().catch((e) => {
   console.error('❌', e.message);
   process.exit(1);
 });

@@ -170,3 +170,12 @@ test('createSchema: 비어 있는 예전 모양(보통 표) 통계·토큰 표�
   assert.equal(await store.useRun('n1', 1), false);
   fs.rmSync(tmp, { recursive: true, force: true });
 });
+
+test('사이트 랭킹 비교: 같은 닉네임이 여럿이어도 틀리게 안 잡음 · 점수가 내려가거나 사라지면 잡음', async () => {
+  const { boardDiff } = await import('../scripts/d1-site-check.mjs');
+  const before = [['예빈', 252926], ['가', 240000], ['예빈', 226518]];
+  assert.deepEqual(boardDiff(before, before), []);
+  assert.deepEqual(boardDiff(before, [['예빈', 252926], ['가', 241000], ['예빈', 226518]]), []);
+  assert.equal(boardDiff(before, [['예빈', 252926], ['가', 240000]]).length, 1); // 둘째 예빈 사라짐
+  assert.equal(boardDiff(before, [['예빈', 226518], ['가', 240000], ['예빈', 226518]]).length, 1); // 점수 내려감
+});
