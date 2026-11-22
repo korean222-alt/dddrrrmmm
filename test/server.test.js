@@ -255,6 +255,8 @@ test('닉네임 → 판 시작 → 점수 등록(조작 거부) → 랭킹', asy
   const l5 = rep.items.find((x) => x.level === 5);
   assert.equal(l5.sd, 3);
   assert.equal(l5.fake, 120);
+  assert.equal(l5.starts, 1);
+  assert.equal(l5.clears, 1);
   assert.ok(l5.bot && l5.realSec >= 0);
   assert.equal(rep.items.find((x) => x.level === 4).sd, null);
   assert.ok((await c('GET', '/api/admin/suspects', null, adm)).json.suspects.some((x) => x.igsid === me.igsid));

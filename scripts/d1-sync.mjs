@@ -36,6 +36,10 @@ export const TABLES = [
     merge: 'score = excluded.score, grade = excluded.grade, max_combo = excluded.max_combo, at = excluded.at, chk = excluded.chk WHERE excluded.score > scores.score',
   },
   {
+    name: 'level_tries', cols: { igsid: 't', level: 'i', starts: 'i', clears: 'i', last_at: 'i' }, pk: ['igsid', 'level'], ts: 'last_at >= $S',
+    merge: 'starts = MAX(level_tries.starts, excluded.starts), clears = MAX(level_tries.clears, excluded.clears), last_at = excluded.last_at',
+  },
+  {
     name: 'season_scores', cols: { season: 'i', igsid: 't', level: 'i', score: 'i', at: 'i' }, pk: ['season', 'igsid', 'level'], ts: 'at >= $S',
     merge: 'score = excluded.score, at = excluded.at WHERE excluded.score > season_scores.score',
   },

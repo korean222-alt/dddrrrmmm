@@ -320,13 +320,17 @@
       const p = r.data.report;
       const its = p.items;
       const ok = (cond, good, bad) => `<div>${cond ? '⚠️ ' + bad : '✅ ' + good}</div>`;
+      const rec = its.filter((x) => !x.noRecord);
       const ov = its.filter((x) => x.overlap).length;
       const nr = its.filter((x) => x.near);
+      const tryCell = (x) => `<td>${x.starts != null ? `${x.starts}판` : '-'}<div class="meta">${x.clears != null ? `깸 ${x.clears}번` : ''}</div></td>`;
       const rows = its.map((x) => {
+        if (x.noRecord) return `<tr><td>${esc(x.label)}</td><td colspan="4" class="meta">랭킹 기록 없음 (못 깼거나 올리기 전)</td>${tryCell(x)}<td colspan="2"></td></tr>`;
         const flag = x.overlap || x.bot || x.fake >= 5 ? ' style="background:rgba(255,80,80,.18)"' : x.near ? ' style="background:rgba(255,200,0,.15)"' : '';
         return `<tr${flag}><td>${esc(x.label)}</td><td>${fmtN(x.score)}<div class="meta">${x.pct}%${x.near ? ' 💯' : ''}</div></td>
           <td>${esc(x.grade || '-')}<div class="meta">콤보 ${x.maxCombo}/${x.notes}</div></td>
           <td>${x.rank}위<div class="meta">${x.players}명 중${x.near ? ` · 만점근처 ${x.nearCount}명${x.rare ? ' (드묾)' : ''}` : ''}</div></td>
+          ${tryCell(x)}
           <td>${x.realSec != null ? susSec(x.realSec) : '-'}<div class="meta">곡 ${susSec(x.playSec)}</div></td>
           <td>${x.sd != null ? `±${x.sd}ms${x.bot ? ' 🎯' : ''}` : '-'}<div class="meta">${x.sd != null ? `보통 ${x.sdMid != null ? '±' + x.sdMid + 'ms' : '-'}` : ''}${x.fake ? ` · 🤖 가짜 ${x.fake}` : ''}</div></td>
           <td>${fmtAt(x.at)}<div class="meta">${x.copied ? '한꺼번에 들어옴(옮기기·합치기)' : x.gapSec == null ? '첫 기록' : `직전과 ${susSec(x.gapSec)}${x.overlap ? ` ⏱ 곡은 ${susSec(x.playSec)}` : ''}`}</div></td></tr>`;
@@ -337,9 +341,9 @@
           ${ok(its.some((x) => x.fake >= 5), '가짜 입력 없음', `프로그램이 누른 가짜 입력 있음 (${its.filter((x) => x.fake).map((x) => x.level + '단계 ' + x.fake + '번').join(', ')})`)}
           ${ok(its.some((x) => x.bot), '박자 오차가 사람 손가락다움', '박자가 기계처럼 일정한 단계 있음 🎯')}
           ${ok(nr.length, `${10}단계 이상 만점 근처 없음`, `10단계 이상 만점 근처 ${nr.length}개 — 노란 줄 (드문 기록 ${nr.filter((x) => x.rare).length}개)`)}
-          <div>기록 ${its.length}단계 · 처음 ${fmtAt(its[0] && its[0].at)} · 마지막 ${fmtAt(its.length && its[its.length - 1].at)}</div>
-          <div class="muted">단계마다 '최고 기록'을 찍은 판만 남아요. 점수 %는 전부 PERFECT 대비. <b>친 시간</b> = 판 시작부터 점수 올릴 때까지 실제 걸린 시간(곡 길이보다 길면 정상, 멈춤 포함). <b>박자 오차</b> = 칠 때마다 박자에서 벗어난 정도의 퍼짐 — 사람 손가락은 보통 ±20~50ms, 자동 입력은 거의 0. '보통' 은 그 단계 다른 사람들 가운데값. 친 시간·박자 오차는 11/21 밤부터 새로 세운 최고 기록에만 있어요.</div></div>
-        ${its.length ? `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th>단계</th><th>점수</th><th>등급</th><th>등수</th><th>친 시간</th><th>박자 오차</th><th>기록 시각</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="muted">기록이 없어요.</p>'}</div>`;
+          <div>기록 ${rec.length}단계 · 처음 ${fmtAt(rec[0] && rec[0].at)} · 마지막 ${fmtAt(rec.length && rec[rec.length - 1].at)} · 판 수 합 ${fmtN(its.reduce((a, x) => a + (x.starts || 0), 0))}판 (깸 ${fmtN(its.reduce((a, x) => a + (x.clears || 0), 0))})</div>
+          <div class="muted">단계마다 '최고 기록'을 찍은 판만 남아요. 점수 %는 전부 PERFECT 대비. <b>친 시간</b> = 판 시작부터 점수 올릴 때까지 실제 걸린 시간(곡 길이보다 길면 정상, 멈춤 포함). <b>박자 오차</b> = 칠 때마다 박자에서 벗어난 정도의 퍼짐 — 사람 손가락은 보통 ±20~50ms, 자동 입력은 거의 0. '보통' 은 그 단계 다른 사람들 가운데값. 친 시간·박자 오차는 11/21 밤부터 새로 세운 최고 기록에만 있어요. <b>판 수</b> = 그 단계를 시작한 판 수(4단계부터) · 깨고 점수 올린 수, 11/22 부터 셈. 지옥 단계를 몇 판 안 하고 만점이면 눈여겨보세요.</div></div>
+        ${its.length ? `<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:13px"><thead><tr><th>단계</th><th>점수</th><th>등급</th><th>등수</th><th>판 수</th><th>친 시간</th><th>박자 오차</th><th>기록 시각</th></tr></thead><tbody>${rows}</tbody></table></div>` : '<p class="muted">기록이 없어요.</p>'}</div>`;
     }
     let susPlayers = null;
     $('#sus-q').addEventListener('input', async () => {
