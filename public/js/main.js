@@ -1027,7 +1027,12 @@ function bindGameInput() {
       for (const t of e.changedTouches) held.set(t.identifier, { at: e.timeStamp, x: t.clientX, y: t.clientY, u: state.game ? laneFromPoint(t.clientX, t.clientY).u : null });
       if (!state.game) return;
       if (!e.isTrusted) state.game.fakeTaps += e.changedTouches.length;
-      for (const t of e.changedTouches) tapAt(t.clientX, t.clientY, e.timeStamp);
+      // 한 터치에서 오류가 나도 같이 온 다른 엄지 터치는 꼭 침 (두 엄지가 동시에 닿으면 한 이벤트에 같이 옴)
+      for (const t of e.changedTouches) {
+        try {
+          tapAt(t.clientX, t.clientY, e.timeStamp);
+        } catch {}
+      }
     },
     { passive: false }
   );

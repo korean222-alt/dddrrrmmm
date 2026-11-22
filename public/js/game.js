@@ -538,7 +538,10 @@ export class Game {
       this.r.onLife(this.lives, +1, rt);
     }
     if (this.combo % 25 === 0) {
-      this.audio.crash(undefined, this.audio.sfxBus, 0.5);
+      // 소리 오류가 여기서 터지면 같은 터치 이벤트에 같이 온 다른 엄지 터치가 빠짐 → 막아 둠
+      try {
+        this.audio.crash(undefined, this.audio.sfxBus, 0.5);
+      } catch {}
       this.milestoneAt = this.songTime();
     }
     if (this.settings.vibrate && navigator.vibrate) {
