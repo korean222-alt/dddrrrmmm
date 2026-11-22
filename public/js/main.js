@@ -2321,8 +2321,9 @@ function previewShop(id) {
   const b = $('#shopitem-buy');
   const using = own && decoPick(type) === key;
   if (own) {
-    b.innerHTML = using ? '✓ 쓰는 중' : '이걸로 바꾸기';
-    b.disabled = using;
+    // 쓰는 중이면 기본으로 되돌리는 버튼 (2026-11-22 '세트 샀는데 기본으로도 돌아갈 수 있게')
+    b.innerHTML = using ? '✓ 쓰는 중 · 기본으로 돌리기' : '이걸로 바꾸기';
+    b.disabled = false;
   } else if (!shopIsOpen()) {
     b.innerHTML = `🔒 판매 준비 중 · <i class="coin-ico"></i> ${fmt(priceOf(id))}`;
     b.disabled = true;
@@ -2440,6 +2441,14 @@ function bindDeco() {
     if (!id) return;
     const [type, key] = id.split(':');
     if (!decoOpen(type, key)) return buyShop(id);
+    if (decoPick(type) === key) {
+      state.settings[type] = DECO_FREE[type];
+      saveSettings(state.settings);
+      applyDeco();
+      renderDeco();
+      previewShop(id);
+      return toast('기본으로 돌렸어요 · 다시 쓰려면 「이걸로 바꾸기」', 2000);
+    }
     equipDeco(id);
     previewShop(id);
     toast(`${shopName(type, key)}(으)로 바꿨어요`, 1800);

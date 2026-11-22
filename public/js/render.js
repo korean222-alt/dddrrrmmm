@@ -535,6 +535,7 @@ export class Renderer {
       }
       if (this.fx.coins.length > 40) this.fx.coins.splice(0, this.fx.coins.length - 40);
     }
+    this._lastJudgeAt = rt;
     this.fx.judges.push({ lane, text: style.text, color: style.color, grad: style.grad, scale: style.scale || 1, glow: style.glow, t0: rt, sub: judge === 'perfect' || judge === 'miss' || judge === 'wrong' ? '' : early ? 'FAST' : 'SLOW' });
     if (judge === 'miss' || judge === 'wrong') {
       this.missAt[lane] = rt;
@@ -1082,14 +1083,14 @@ export class Renderer {
       drawTrail(fx.trail2, 0.9, j);
     } else drawTrail(fx.trail, 1, 0);
     // 빛 (숨 쉬듯)
-    const R = Math.max(sp.w, sp.h) * ps * (fx.big ? 0.95 : 0.75);
+    const R = (sp.flat ? sp.w * 0.62 : Math.max(sp.w, sp.h)) * ps * (fx.big ? 0.95 : 0.75);
     const pulse = 0.7 + 0.3 * Math.sin(t * 5 + n.id);
     const gl = ctx.createRadialGradient(x, y, 0, x, y, R);
-    gl.addColorStop(0, `rgba(${fx.aura},${0.55 * a * pulse})`);
+    gl.addColorStop(0, `rgba(${fx.aura},${(sp.flat ? 0.4 : 0.55) * a * pulse})`);
     gl.addColorStop(1, `rgba(${fx.aura},0)`);
     ctx.fillStyle = gl;
     ctx.beginPath();
-    ctx.ellipse(x, y, R, R * 0.62, 0, 0, Math.PI * 2);
+    ctx.ellipse(x, y, R, sp.flat ? Math.min(R * 0.62, sp.h * ps * 0.75) : R * 0.62, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
@@ -1766,7 +1767,8 @@ export class Renderer {
       const gold = n.gold && !n.judged;
       const [light, main, dark] = n.judged ? ['#C4C8D2', '#8A8F9C', '#535764'] : gold ? ['#FFF8D0', '#FFD23F', '#C98A00'] : [C.light, C.main, C.dark];
       const rgb = n.judged ? '160,165,180' : gold ? '255,210,63' : C.rgb;
-      if (fx && !n.judged) this._skinBack(n, dt, ps, x, y, { w: N.w, h: N.h * 1.6 }, a, st, fx);
+      // 세트에선 빛을 막대에 붙은 납작한 모양으로 (큰 동그라미가 콩·판정 글자를 가린다는 신고 2026-11-22)
+      if (fx && !n.judged) this._skinBack(n, dt, ps, x, y, { w: N.w, h: N.h * 1.6, flat: true }, a, st, fx);
       ctx.save();
       ctx.globalAlpha = a;
       if (glow && !n.judged) {
@@ -1984,6 +1986,9 @@ export class Renderer {
     const ctx = this.ctx;
     const L = this.L;
     const { label, phase, fade } = st.countIn;
+    // 세트 화면: 첫 판정이 뜨면 안내(말풍선·물결·한 줄)는 바로 꺼짐 — 가운데 PERFECT·콩을 가려서 (2026-11-22)
+    if (label) this._ciLabelAt = rt;
+    if (this.live && !label && (this._lastJudgeAt || 0) > (this._ciLabelAt || 0)) return;
     ctx.save();
     ctx.globalAlpha = fade;
     ctx.textAlign = 'center';
