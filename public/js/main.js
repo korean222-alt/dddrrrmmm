@@ -1452,6 +1452,7 @@ async function submitRank(r = state.lastResult) {
     r.submitted = true;
     // kept: 기록이 안 올라서 서버가 등수를 안 셈 (D1 읽기 아끼기)
     if (out.kept && out.rank == null) toast(endless ? `내 최고 기록(Lv.${out.rounds} 클리어)이 그대로 유지돼요` : `내 최고 기록(${fmt(out.best)})이 그대로 유지돼요`, 3000);
+    else if (out.busy) toast(endless ? `무제한 랭킹에 올라갔어요! Lv.${out.rounds} 클리어` : '랭킹에 올라갔어요! 🏆', 3000);
     else if (out.over) toast(endless ? `무제한 랭킹에 올라갔어요! Lv.${out.rounds} 클리어 · 200위 밖` : '랭킹에 올라갔어요! 200위 밖', 3000);
     else if (out.rank == null) toast('팔로우 확인이 안 돼서 지금은 랭킹에 안 보여요. 위 ⚠️ 버튼을 눌러 주세요', 3200);
     else if (endless) toast(out.improved ? `무제한 랭킹에 올라갔어요! Lv.${out.rounds} 클리어 · ${out.rank}위 🏆` : `내 최고 기록(Lv.${out.rounds} 클리어)이 그대로 유지돼요 · ${out.rank}위`, 3200);
@@ -4532,6 +4533,7 @@ function roomErrText(e) {
   return (
     {
       rate_limited: '잠시 뒤 다시 해 주세요',
+      busy: '서버가 붐벼서 멀티는 잠시 쉬어요 · 혼자 치기는 그대로예요',
       no_server: '지금은 서버에 연결할 수 없어요',
       room_gone: '대결이 끝났어요',
       daily_limit: '오늘 랭킹전은 다 쳤어요! 내일 다시 만나요 (하루 30판)',

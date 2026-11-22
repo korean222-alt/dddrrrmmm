@@ -51,6 +51,8 @@ export const D1_SCHEMA = [
   `CREATE INDEX IF NOT EXISTS ranked_top ON ranked (season, rating DESC)`,
   `CREATE TABLE IF NOT EXISTS season_scores (season INTEGER NOT NULL, igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (season, igsid, level)) WITHOUT ROWID`,
   `CREATE TABLE IF NOT EXISTS hall (season INTEGER NOT NULL, board TEXT NOT NULL, rank INTEGER NOT NULL, igsid TEXT NOT NULL, username TEXT, score INTEGER NOT NULL, n INTEGER, rounds INTEGER, at INTEGER NOT NULL, image TEXT, PRIMARY KEY (season, board, rank)) WITHOUT ROWID`,
+  // 📊 오늘 쓴 양 (2026-11-22, 한도 브레이크용 — handler `brake`). 하루 한 줄
+  `CREATE TABLE IF NOT EXISTS usage_day (day TEXT PRIMARY KEY, r INTEGER NOT NULL DEFAULT 0, w INTEGER NOT NULL DEFAULT 0, q INTEGER NOT NULL DEFAULT 0) WITHOUT ROWID`,
   `CREATE TABLE IF NOT EXISTS ranked_runs (igsid TEXT NOT NULL, level INTEGER NOT NULL, rating INTEGER NOT NULL, at INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (igsid, level))`,
 ];
 
@@ -78,12 +80,19 @@ const D1_FLAG = (() => {
   return 'd1schema:' + h.toString(36);
 })();
 
-/** Worker 의 D1 바인딩 → { q, batch } */
-export function d1Binding(D1) {
+/** Worker 의 D1 바인딩 → { q, batch }. meter = { r, w } 가 있으면 D1 이 알려 준 읽은·쓴 줄 수를 더함 (한도 브레이크용) */
+export function d1Binding(D1, meter = null) {
   const prep = (text, params = []) => D1.prepare(text).bind(...params.map(val));
+  const tally = (res) => {
+    if (meter && res && res.meta) {
+      meter.r += Number(res.meta.rows_read) || 0;
+      meter.w += Number(res.meta.rows_written) || 0;
+    }
+    return res;
+  };
   return {
-    q: async (text, params) => (await prep(text, params).all()).results || [],
-    batch: async (list) => (await D1.batch(list.map(([t, p]) => prep(t, p)))).map((r) => r.results || []),
+    q: async (text, params) => tally(await prep(text, params).all()).results || [],
+    batch: async (list) => (await D1.batch(list.map(([t, p]) => prep(t, p)))).map((r) => tally(r).results || []),
   };
 }
 
@@ -168,6 +177,21 @@ export class D1Store extends PgStore {
     if (!r) return null;
     const n = Number(r.n);
     return n >= RANK_CAP ? { rank: null, over: true, score: Number(r.score) } : { rank: n + 1, score: Number(r.score) };
+  }
+
+  /** 📊 오늘 쓴 양 더하기 → 오늘 합계 { r, w, q } (add 가 다 0 이면 읽기만) */
+  async usageAdd(day, add) {
+    if (!add.r && !add.w && !add.q) {
+      const row = await this.one('SELECT r, w, q FROM usage_day WHERE day = $1', [day]);
+      return row ? { r: Number(row.r), w: Number(row.w), q: Number(row.q) } : { r: 0, w: 0, q: 0 };
+    }
+    const row = await this.one(
+      `INSERT INTO usage_day (day, r, w, q) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (day) DO UPDATE SET r = usage_day.r + excluded.r, w = usage_day.w + excluded.w, q = usage_day.q + excluded.q
+       RETURNING r, w, q`,
+      [day, add.r, add.w, add.q]
+    );
+    return { r: Number(row.r), w: Number(row.w), q: Number(row.q) };
   }
 
   /** 최고점이면 바꿈. 한 번에 (예전 점수 읽기 + 저장) */

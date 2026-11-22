@@ -33,13 +33,15 @@ const neonStore = (env) => {
   return new PgStore((text, params = []) => sql.query(text, params));
 };
 
+// 🧯 한도 브레이크용: 이 인스턴스가 읽은·쓴 D1 줄 수와 요청 수 (handler 가 몇 분마다 usage_day 에 합침)
+const meter = { r: 0, w: 0, q: 0 };
 let ready = null;
 function setup(env) {
   if (!ready) {
     ready = (async () => {
       let store;
       if (useD1(env)) {
-        store = await new D1Store(d1Binding(env.DB)).init();
+        store = await new D1Store(d1Binding(env.DB, meter)).init();
         // 옛 Vercel 다리(Neon)에서 만든 '기록 옮기기' 코드는 Neon 에 있음 → D1 에 없으면 Neon 에서 한 번 더 찾음
         if (dbUrl(env)) {
           const take = store.takeTransfer.bind(store);
@@ -79,7 +81,7 @@ function setup(env) {
       for (const [k, v] of Object.entries(env)) if (typeof v === 'string' && v !== '') vars[k] = v;
       const cfg = makeConfig(vars);
       if (!cfg.sessionSecret) cfg.sessionSecret = await store.secret('session');
-      return createHandler(cfg, { store });
+      return createHandler(cfg, { store, meter: useD1(env) ? meter : null });
     })().catch((e) => {
       ready = null;
       throw e;
@@ -118,7 +120,10 @@ async function offlineSave(request, env) {
 
 async function api(request, env) {
   const url = new URL(request.url);
-  if (url.pathname === '/api/offline-save') return offlineSave(request, env);
+  if (url.pathname === '/api/offline-save') {
+    meter.q++;
+    return offlineSave(request, env);
+  }
   const db = hasDb(env);
   // DB 가 연결 안 됐으면 '서버 없음' → 사이트는 서버 없는 모드로 돎
   if (url.pathname === '/api/health' && !(db && url.searchParams.get('boot') === '1')) {
@@ -153,7 +158,7 @@ export default {
     const sql = neon(dbUrl(env));
     const pg = (text, params = []) => sql.query(text, params);
     ctx.waitUntil(
-      backupFlush({ pg, d1: new D1Store(d1Binding(env.DB)) })
+      backupFlush({ pg, d1: new D1Store(d1Binding(env.DB, meter)) })
         .then((r) => r.moved + r.dropped && console.log('[cron] 서버 보관함 → D1', r))
         .catch((e) => console.error('[cron] 서버 보관함 옮기기 실패 (다음 예약 때 다시)', e))
     );

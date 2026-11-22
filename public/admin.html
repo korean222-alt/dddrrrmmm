@@ -67,6 +67,7 @@
     </div>
 
     <div id="app" hidden>
+      <div class="card" id="usage" style="padding:8px 12px;font-size:13px">오늘 서버 사용량 불러오는 중…</div>
       <div class="tabs" id="main-tabs">
         <button type="button" data-tab="stats" class="on">이용 통계</button>
         <button type="button" data-tab="players">랭킹 참여자</button>
@@ -178,7 +179,22 @@
     const pct = (a, b) => (b ? Math.round((a / b) * 100) + '%' : '-');
     let days = 7;
 
+    // 🧯 오늘 서버 사용량 (한도 브레이크: 40% 무거운 것 줄임 · 60% 새 멀티 막음 · 80% 서버 없는 모드 + 서버 보관함)
+    async function loadUsage() {
+      const r = await call('GET', '/api/admin/usage');
+      if (r.status !== 200) return;
+      const u = r.data;
+      if (!u.metered) {
+        $('#usage').textContent = '오늘 서버 사용량: 이 서버에선 안 셈 (D1 아님)';
+        return;
+      }
+      const p = (a, b) => Math.round((a / b) * 100) + '%';
+      const lv = ['보통', '🟡 1단계: 무거운 것 줄이는 중', '🟠 2단계: 새 멀티 막는 중', '🔴 3단계: 서버 없는 모드 (기록은 폰·서버 보관함)'][u.level] || '';
+      $('#usage').innerHTML = `오늘(UTC ${u.day}) 서버 사용량 · D1 읽기 <b>${p(u.r, u.limits.r)}</b> (${fmtN(u.r)}) · 쓰기 <b>${p(u.w, u.limits.w)}</b> · 요청 <b>${p(u.q, u.limits.q)}</b> · <b>${lv}</b>`;
+    }
+
     async function loadStats() {
+      loadUsage();
       const r = await call('GET', '/api/admin/stats?days=' + days);
       if (r.status === 401) return logout('비밀번호가 맞지 않아요.');
       if (r.status !== 200) {

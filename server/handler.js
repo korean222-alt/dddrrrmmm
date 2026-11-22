@@ -219,7 +219,19 @@ class HttpError extends Error {
  * @param {{store}} deps
  * @returns {(request: Request, opts?: {ip?: string}) => Promise<Response>}
  */
-export function createHandler(cfg, { store }) {
+// ---------------- 🧯 한도 브레이크 (2026-11-22, 사용자 요청 '다음부터는 한도 차는 일 없게, 보수적으로') ----------------
+//   Worker 가 D1 이 알려 주는 읽은·쓴 줄 수와 요청 수를 세서(meter) 몇 분마다 usage_day 한 줄에 더하고, 오늘 합계로 단계를 정함
+//   한도: D1 읽기 하루 500만 줄 · 쓰기 10만 줄 · Worker 요청 10만 건 (무료, UTC 0시 = 한국 오전 9시 초기화)
+//   1단계(40%): 무거운 건 덜 — 랭킹 창 '내 등수'(50등 밖)·단계별 판 수 세기 끔, 명예의 전당 캐시 6시간, admin 캐시 30분
+//   2단계(60%): + 점수 올릴 때 등수 안 셈, 새 멀티 방·랜덤 대결 막음 (혼자 치기·기록은 그대로)
+//   3단계(80%): 일부러 db_down → 폰은 서버 없는 모드(기록은 폰 + Neon 서버 보관함, 오전 9시에 랭킹으로) — 진짜 한도까지 안 감
+//   세는 건 인스턴스마다 하다가 몇 분·요청 몇 번마다 합침 → 덜 세질 수 있어서 단계를 낮게 잡음. Actions 스크립트가 읽는 건 안 셈
+export const USAGE_LIMITS = { r: 5_000_000, w: 100_000, q: 100_000 };
+export const BRAKE_AT = [0.4, 0.6, 0.8];
+const USAGE_FLUSH_MS = 2 * 60 * 1000;
+const utcDay = (t) => new Date(t).toISOString().slice(0, 10);
+
+export function createHandler(cfg, { store, meter = null }) {
   const limitGuest = rateLimiter(15, 10 * 60 * 1000);
   const limitScores = rateLimiter(60, 10 * 60 * 1000);
   const limitAdmin = rateLimiter(30, 10 * 60 * 1000);
@@ -313,15 +325,16 @@ export function createHandler(cfg, { store }) {
       try {
         const raw = await store.getSetting('cache:' + key);
         const c = raw ? JSON.parse(raw) : null;
-        if (c && c.exp > now && c.v !== undefined) {
-          memo.set(key, { v: c.v, exp: Math.min(c.exp, now + 60_000) });
+        // 만든 때(at)가 있으면 지금 ttl 로 판단 (브레이크 때 ttl 이 길어지면 예전 것도 그대로 씀)
+        if (c && c.v !== undefined && (c.at ? c.at + ttl > now : c.exp > now)) {
+          memo.set(key, { v: c.v, exp: Math.min(c.at ? c.at + ttl : c.exp, now + 60_000) });
           return c.v;
         }
       } catch {}
     }
     const v = await fn();
     memo.set(key, { v, exp: now + (shared ? Math.min(ttl, 60_000) : ttl) });
-    if (shared) await Promise.resolve().then(() => store.setSetting('cache:' + key, JSON.stringify({ exp: now + ttl, v }))).catch(() => {});
+    if (shared) await Promise.resolve().then(() => store.setSetting('cache:' + key, JSON.stringify({ exp: now + ttl, at: now, v }))).catch(() => {});
     return v;
   }
   async function uncache(key) {
@@ -340,15 +353,16 @@ export function createHandler(cfg, { store }) {
     };
     store[fn]._uncaches = true;
   }
-  const HALL_TTL = 60 * 60 * 1000; // 명예의 전당 전체 순위: 1시간마다 새로 (내 줄은 늘 새로 계산)
-  const ADMIN_TTL = 5 * 60 * 1000;
+  const HALL_TTL_BASE = 60 * 60 * 1000; // 명예의 전당 전체 순위: 1시간마다 새로 (내 줄은 늘 새로 계산), 브레이크 1단계부터 6시간
+  const ADMIN_TTL_BASE = 5 * 60 * 1000; // 브레이크 1단계부터 30분
+  const ttlOf = (base) => (brake() >= 1 ? base * 6 : base);
   const sortHall = (a, b) => b.score - a.score || a.at - b.at;
   /** 시즌 총합 전체(랭킹에 보이는 사람) — 1시간 캐시 */
   const hallRows = (n, board) =>
-    cached(`hall:${n}:${board}`, HALL_TTL, async () =>
+    cached(`hall:${n}:${board}`, ttlOf(HALL_TTL_BASE), async () =>
       (await store.seasonBoard(n, board, 1_000_000)).rows.map((r) => ({ igsid: r.igsid, username: r.username, score: r.score, n: r.n, rounds: r.rounds, at: r.at }))
     );
-  const adminPlayers = () => cached('admin:players', ADMIN_TTL, () => store.listPlayers());
+  const adminPlayers = () => cached('admin:players', ttlOf(ADMIN_TTL_BASE), () => store.listPlayers());
 
   const hallEntry = (r, pl) => ({ rank: r.rank, username: r.username, score: r.score, n: r.n, rounds: r.rounds, me: pl ? r.igsid === pl.igsid : false });
 
@@ -436,11 +450,52 @@ export function createHandler(cfg, { store }) {
   //   → 폰은 서버 없는 모드로 바뀌고(인증했던 폰은 4단계부터 그대로, 기록·코인은 폰에), 몇 분마다 다시 붙어 봄
   let dbDownUntil = 0;
   const DB_DOWN_MS = 5 * 60 * 1000;
+  // 🧯 한도 브레이크: usage = 마지막으로 합친 오늘 합계, meter = 이 인스턴스가 아직 안 보낸 몫
+  let usage = { day: '', r: 0, w: 0, q: 0 };
+  let usageAt = 0;
+  async function flushUsage(now) {
+    if (!meter || typeof store.usageAdd !== 'function') return;
+    const day = utcDay(now);
+    const big = meter.q >= 50 || meter.r >= 20000 || meter.w >= 200;
+    if (usage.day === day && !big && now - usageAt < USAGE_FLUSH_MS) return;
+    usageAt = now;
+    const add = { r: meter.r, w: meter.w, q: meter.q };
+    meter.r -= add.r;
+    meter.w -= add.w;
+    meter.q -= add.q;
+    try {
+      usage = { day, ...(await store.usageAdd(day, add)) };
+    } catch {
+      meter.r += add.r;
+      meter.w += add.w;
+      meter.q += add.q;
+    }
+  }
+  /** 지금 브레이크 단계 0~3 */
+  function brake(now = Date.now()) {
+    const same = usage.day === utcDay(now);
+    const m = meter || { r: 0, w: 0, q: 0 };
+    const f = Math.max(
+      ((same ? usage.r : 0) + m.r) / USAGE_LIMITS.r,
+      ((same ? usage.w : 0) + m.w) / USAGE_LIMITS.w,
+      ((same ? usage.q : 0) + m.q) / USAGE_LIMITS.q
+    );
+    return f >= BRAKE_AT[2] ? 3 : f >= BRAKE_AT[1] ? 2 : f >= BRAKE_AT[0] ? 1 : 0;
+  }
   const isDbError = (e) => !e.status && /D1_|SQLITE|exceed|limit|quota|too many|database|neon|fetch failed|network/i.test(String((e && e.message) || e));
 
   return async function handle(request, { ip = '?' } = {}) {
     const url = new URL(request.url);
     const setCookies = [];
+    if (meter) meter.q++;
+    if (url.pathname.startsWith('/api/')) await flushUsage(Date.now());
+    // 🧯 3단계: 한도 직전 → 일부러 db_down (운영자 화면은 그대로)
+    if (brake() >= 3 && url.pathname.startsWith('/api/') && !url.pathname.startsWith('/api/admin/')) {
+      return new Response(JSON.stringify({ error: 'db_down', brake: 3 }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+      });
+    }
     if (Date.now() < dbDownUntil && url.pathname.startsWith('/api/')) {
       return new Response(JSON.stringify({ error: 'db_down', retryAfter: Math.ceil((dbDownUntil - Date.now()) / 1000) }), {
         status: 503,
@@ -837,6 +892,8 @@ export function createHandler(cfg, { store }) {
       const b = await readJson(request);
       if (!limitRoom(ip)) return json(429, { error: 'rate_limited' });
       if ((b.action === 'create' || b.action === 'quick') && !limitRoomCreate(ip)) return json(429, { error: 'rate_limited' });
+      // 🧯 2단계: 새 방·랜덤 대결은 막음 (방이 2~5초마다 주고받아서 요청·읽기·쓰기를 많이 씀). 이미 하는 판은 그대로
+      if (['create', 'join', 'quick'].includes(b.action) && brake() >= 2) return json(503, { error: 'busy' });
       // 멀티(방 만들기·들어가기·빠른 대결)는 팔로워 인증한 사람만. 이미 들어온 방의 주고받기·나가기는 방 열쇠로
       if (cfg.gateMode !== 'open' && ['create', 'join', 'quick'].includes(b.action)) {
         const who = await getPlayer(request);
@@ -875,7 +932,7 @@ export function createHandler(cfg, { store }) {
       // 랭킹 참여자 (인스타 아이디로 팔로우 확인 → 안 했으면 삭제)
       if (p === '/api/admin/players' && m === 'GET') {
         // 5분 캐시 (참여자 목록은 기록 전체를 읽어서 무거움). admin 에서 뭘 바꾸면 비움
-        const players = await cached('admin:players', ADMIN_TTL, async () => {
+        const players = await cached('admin:players', ttlOf(ADMIN_TTL_BASE), async () => {
           await store.purgeHidden();
           if (store.cleanup) await store.cleanup();
           return store.listPlayers();
@@ -887,7 +944,7 @@ export function createHandler(cfg, { store }) {
       if (p === '/api/admin/suspects' && m === 'GET') {
         // ?igsid= 이면 그 사람 자세히, 없으면 강한 신호만 목록 (쿼리 2번)
         const players = await adminPlayers();
-        const rows = await cached('admin:scores', ADMIN_TTL, () => store.allScores(), { shared: false }); // 커서 settings 엔 안 넣음
+        const rows = await cached('admin:scores', ttlOf(ADMIN_TTL_BASE), () => store.allScores(), { shared: false }); // 커서 settings 엔 안 넣음
         const id = url.searchParams.get('igsid');
         if (id) {
           const pl = players.find((x) => x.igsid === id);
@@ -1011,6 +1068,13 @@ export function createHandler(cfg, { store }) {
         const until = await freePassUntil(true);
         return json(200, { until, on: Date.now() < until });
       }
+      // 🧯 오늘 쓴 양·브레이크 단계
+      if (p === '/api/admin/usage' && m === 'GET') {
+        usageAt = 0;
+        await flushUsage(Date.now());
+        const same = usage.day === utcDay(Date.now());
+        return json(200, { day: utcDay(Date.now()), r: same ? usage.r : 0, w: same ? usage.w : 0, q: same ? usage.q : 0, limits: USAGE_LIMITS, at: BRAKE_AT, level: brake(), metered: !!meter });
+      }
       if (p === '/api/admin/free-pass' && m === 'POST') {
         const b = await readJson(request);
         const until = Number(b.until) || 0;
@@ -1044,7 +1108,7 @@ export function createHandler(cfg, { store }) {
         if (needsVerify(level.id) && !isVerified(pl)) return json(403, { error: 'verify_required' });
       }
       // 🕵 단계마다 몇 판 시작했나 (누군지 이미 아는 판만 = 4단계부터. 1~3단계는 쿼리 늘리지 않으려고 안 셈)
-      if (runPl && runPl.igsid && level.id > 0) await Promise.resolve().then(() => store.addTry(runPl.igsid, level.id, 1, 0)).catch(() => {});
+      if (runPl && runPl.igsid && level.id > 0 && brake() < 1) await Promise.resolve().then(() => store.addTry(runPl.igsid, level.id, 1, 0)).catch(() => {});
       const runToken = sign({ l: level.id, t: Date.now(), n: newId() }, cfg.sessionSecret);
       const anyPl = body.coins || body.offline ? runPl || (await getPlayer(request)) : null;
       const coins = body.coins ? await takeCoins(anyPl, body.coins) : null;
@@ -1077,19 +1141,19 @@ export function createHandler(cfg, { store }) {
         const out = await store.recordScore(pl.igsid, em.slot, { score: endlessKey(e.rounds, e.score), grade: null, maxCombo: 0 });
         if (seasonAt().n > 1) await store.recordSeasonScore(seasonAt().n, pl.igsid, em.slot, endlessKey(e.rounds, e.score));
         // 등수는 기록이 올랐을 때만 셈 (D1 읽기 아끼기)
-        const mine = out.improved ? await store.rankOf(em.slot, pl.igsid) : null;
+        const mine = out.improved && brake() < 2 ? await store.rankOf(em.slot, pl.igsid) : null;
         const best = endlessParts(out.best);
-        return json(200, wc({ improved: out.improved, best: best.score, rounds: best.rounds, rank: mine ? mine.rank : null, over: !!(mine && mine.over), kept: !out.improved }));
+        return json(200, wc({ improved: out.improved, best: best.score, rounds: best.rounds, rank: mine ? mine.rank : null, over: !!(mine && mine.over), busy: out.improved && !mine, kept: !out.improved }));
       }
       const v = validateScore(body, cfg);
       if (!v.ok) return json(400, wc({ error: v.error }));
       if (!(await store.useRun(v.nonce, Date.now() + 2 * 24 * 3600 * 1000))) return json(409, wc({ error: 'run_used' }));
       await ensureHall();
       const out = await store.recordScore(pl.igsid, v.level.id, { score: v.score, grade: v.grade, maxCombo: v.maxCombo, chk: v.chk });
-      if (v.level.id > 0) await Promise.resolve().then(() => store.addTry(pl.igsid, v.level.id, 0, 1)).catch(() => {});
+      if (v.level.id > 0 && brake() < 1) await Promise.resolve().then(() => store.addTry(pl.igsid, v.level.id, 0, 1)).catch(() => {});
       if (seasonAt().n > 1 && v.level.id > 0 && v.level.id <= LAST_LEVEL_ID) await store.recordSeasonScore(seasonAt().n, pl.igsid, v.level.id, v.score);
-      const mine = out.improved ? await store.rankOf(v.level.id, pl.igsid) : null;
-      return json(200, wc({ ...out, rank: mine ? mine.rank : null, over: !!(mine && mine.over), kept: !out.improved }));
+      const mine = out.improved && brake() < 2 ? await store.rankOf(v.level.id, pl.igsid) : null;
+      return json(200, wc({ ...out, rank: mine ? mine.rank : null, over: !!(mine && mine.over), busy: !!out.improved && !mine, kept: !out.improved }));
     }
 
     // 🏛 명예의 전당: 이번 시즌 총합 랭킹(단계·무제한) + 끝난 시즌 1·2·3등(사진 포함)
@@ -1137,7 +1201,7 @@ export function createHandler(cfg, { store }) {
       const lb = await store.leaderboard(lbEndless.slot, 50);
       const entries = lb.rows.map((r) => ({ rank: r.rank, username: r.username, ...endlessParts(r.score), me: pl ? r.igsid === pl.igsid : false }));
       const inTop = pl && lb.rows.find((r) => r.igsid === pl.igsid);
-      const mine = inTop ? { rank: inTop.rank, score: inTop.score } : pl ? await store.rankOf(lbEndless.slot, pl.igsid) : null;
+      const mine = inTop ? { rank: inTop.rank, score: inTop.score } : pl && brake() < 1 ? await store.rankOf(lbEndless.slot, pl.igsid) : null;
       return json(200, { level: lbEndless.id, entries, me: mine ? { rank: mine.rank, over: !!mine.over, ...endlessParts(mine.score) } : null });
     }
 
@@ -1148,7 +1212,7 @@ export function createHandler(cfg, { store }) {
       const lb = await store.leaderboard(level.id, 50);
       const entries = lb.rows.map((r) => ({ rank: r.rank, username: r.username, score: r.score, grade: r.grade, me: pl ? r.igsid === pl.igsid : false }));
       const inTop = pl && lb.rows.find((r) => r.igsid === pl.igsid);
-      const mine = inTop ? { rank: inTop.rank, score: inTop.score } : pl ? await store.rankOf(level.id, pl.igsid) : null;
+      const mine = inTop ? { rank: inTop.rank, score: inTop.score } : pl && brake() < 1 ? await store.rankOf(level.id, pl.igsid) : null;
       return json(200, { level: level.id, entries, me: mine ? { rank: mine.rank, over: !!mine.over, score: mine.score } : null });
     }
 
