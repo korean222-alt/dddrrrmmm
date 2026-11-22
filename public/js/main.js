@@ -1382,6 +1382,7 @@ function animateResult(res, outcome, gems = false) {
     if (!sound || !audio.running) return;
     const t = audio.ctx.currentTime + 0.05;
     if (res.stars === 3 || outcome === 'win') audio.fanfare(t);
+    if (res.fullCombo && !res.failed) audio.sfxFile('cheer', 0.8); // 🔔 풀콤보 환호
     else if (res.stars === 0 || outcome === 'lose') audio.aww(t);
   };
   later(gradeMs, () => reveal(true));
@@ -2052,6 +2053,7 @@ function editHallMsg(season, board, rank, msg) {
 async function giftOk() {
   const mode = giftMode;
   if (!mode) return closeModal('modal-gift');
+  if (mode.gift) audio.unlock().then(() => audio.sfxFile('gift', 0.9)).catch(() => {}); // 🔔 선물 받기
   const msg = $('#gift-msg').value.trim();
   const b = $('#gift-ok');
   b.disabled = true;
@@ -2387,6 +2389,7 @@ async function buyShop(id) {
   refreshCoins();
   renderShop();
   equipDeco(id);
+  audio.unlock().then(() => audio.sfxFile('buy', 0.9)).catch(() => {}); // 🔔 구매
   if (shopPrevId === id) previewShop(id);
   toast(`🎉 ${name} 샀어요! 바로 적용했어요`, 2400);
 }

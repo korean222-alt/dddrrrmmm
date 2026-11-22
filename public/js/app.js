@@ -11045,6 +11045,35 @@ class AudioEngine {
     return p;
   }
 
+  /**
+   * 🔔 효과음 파일 (2026-11-22, ElevenLabs 로 만든 assets/sfx/*.mp3): combo 콤보 반짝 · cheer 풀콤보 환호 · buy 상점 구매 · gift 선물 받기
+   *   처음 부를 때 받아 두고(loadTrack 캐시), 아직 못 받았으면 이번엔 조용히 넘어감. 효과음 볼륨(sfxBus)을 따름
+   */
+  sfxFile(name, vol = 1) {
+    const src = `assets/sfx/${name}.mp3`;
+    const ctx = this.ctx;
+    const buf = this.trackBuffer(src);
+    if (!buf) {
+      const t0 = performance.now();
+      // 아직 안 받았으면 받고 나서 바로 (1.5초 넘게 걸리면 이번엔 건너뜀)
+      this.loadTrack(src).then((b) => b && performance.now() - t0 < 1500 && this.sfxFile(name, vol));
+      return;
+    }
+    if (!ctx || !this.sfxBus || this.sfxBus.context !== ctx) return;
+    try {
+      const s = ctx.createBufferSource();
+      const g = ctx.createGain();
+      s.buffer = buf;
+      g.gain.value = vol;
+      s.connect(g).connect(this.sfxBus);
+      s.start(ctx.currentTime + 0.01);
+    } catch {}
+  }
+  /** 효과음 파일 미리 받기 (첫 터치 뒤) */
+  prefetchSfx() {
+    for (const n of ['combo', 'cheer', 'buy', 'gift']) this.loadTrack(`assets/sfx/${n}.mp3`);
+  }
+
   /** 받아 둔 곡 (없으면 null) */
   trackBuffer(src) {
     return (this._trackBufs && this._trackBufs.get(src)) || null;
@@ -11139,6 +11168,7 @@ class AudioEngine {
       if (navigator.audioSession) navigator.audioSession.type = 'playback'; // iOS 무음 스위치 우회 (Safari 17+)
     } catch {}
     if (!this._unlocked) {
+      setTimeout(() => this.prefetchSfx(), 1500); // 🔔 효과음 파일 미리 (작은 정적 파일, 서버 요청 아님)
       const b = ctx.createBuffer(1, 1, 22050);
       const s = ctx.createBufferSource();
       s.buffer = b;
@@ -12858,6 +12888,8 @@ class Game {
     this.offsets.push(dt);
     this.r.onJudge(n.lane, res, rt, dt < 0);
     this.r.onCombo(this.combo, rt);
+    // 🔔 25콤보마다 '반짝' (치는 소리에 안 묻히게 작게)
+    if (this.combo > 0 && this.combo % 25 === 0) this.audio.sfxFile('combo', 0.35);
     if (this.livesOn && !(this.auto && this.level.failReel) && this.combo % LIFE_REGEN_COMBO === 0 && this.lives < MAX_LIVES) {
       this.lives++;
       this.r.onLife(this.lives, +1, rt);
@@ -16386,6 +16418,7 @@ function animateResult(res, outcome, gems = false) {
     if (!sound || !audio.running) return;
     const t = audio.ctx.currentTime + 0.05;
     if (res.stars === 3 || outcome === 'win') audio.fanfare(t);
+    if (res.fullCombo && !res.failed) audio.sfxFile('cheer', 0.8); // 🔔 풀콤보 환호
     else if (res.stars === 0 || outcome === 'lose') audio.aww(t);
   };
   later(gradeMs, () => reveal(true));
@@ -17056,6 +17089,7 @@ function editHallMsg(season, board, rank, msg) {
 async function giftOk() {
   const mode = giftMode;
   if (!mode) return closeModal('modal-gift');
+  if (mode.gift) audio.unlock().then(() => audio.sfxFile('gift', 0.9)).catch(() => {}); // 🔔 선물 받기
   const msg = $('#gift-msg').value.trim();
   const b = $('#gift-ok');
   b.disabled = true;
@@ -17391,6 +17425,7 @@ async function buyShop(id) {
   refreshCoins();
   renderShop();
   equipDeco(id);
+  audio.unlock().then(() => audio.sfxFile('buy', 0.9)).catch(() => {}); // 🔔 구매
   if (shopPrevId === id) previewShop(id);
   toast(`🎉 ${name} 샀어요! 바로 적용했어요`, 2400);
 }
