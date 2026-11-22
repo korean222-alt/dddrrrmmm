@@ -49,6 +49,8 @@ export const D1_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS maps (id TEXT PRIMARY KEY, igsid TEXT NOT NULL, nick TEXT, name TEXT NOT NULL, bpm REAL NOT NULL, bars INTEGER NOT NULL, diff INTEGER NOT NULL, data TEXT NOT NULL, at INTEGER NOT NULL, plays INTEGER NOT NULL DEFAULT 0, likes INTEGER NOT NULL DEFAULT 0, reports INTEGER NOT NULL DEFAULT 0, hidden_at INTEGER)`,
   `CREATE INDEX IF NOT EXISTS maps_at ON maps (at)`,
   `CREATE INDEX IF NOT EXISTS maps_igsid ON maps (igsid, at)`,
+  // 인기 맵 목록이 맵 표 전체를 정렬하지 않게 (좋아요가 바뀔 때만 색인 쓰기)
+  `CREATE INDEX IF NOT EXISTS maps_top ON maps (likes DESC, at DESC)`,
   `CREATE TABLE IF NOT EXISTS map_votes (map_id TEXT NOT NULL, who TEXT NOT NULL, kind TEXT NOT NULL, PRIMARY KEY (map_id, who, kind))`,
   `CREATE TABLE IF NOT EXISTS map_scores (map_id TEXT NOT NULL, mode TEXT NOT NULL, igsid TEXT NOT NULL, nick TEXT, score INTEGER NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (map_id, mode, igsid))`,
   `CREATE INDEX IF NOT EXISTS map_scores_top ON map_scores (map_id, mode, score DESC)`,

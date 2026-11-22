@@ -466,7 +466,7 @@ export class JsonStore {
   /** 목록 (data 빼고). sort: 'new' 최신 / 'top' 좋아요·플레이 */
   listMaps(sort = 'new', limit = 60) {
     const rows = Object.values(this.data.maps).filter((m) => !m.hiddenAt);
-    rows.sort(sort === 'top' ? (a, b) => b.likes - a.likes || b.plays - a.plays || b.at - a.at : (a, b) => b.at - a.at);
+    rows.sort(sort === 'top' ? (a, b) => b.likes - a.likes || b.at - a.at : (a, b) => b.at - a.at);
     return rows.slice(0, limit).map(({ data, hiddenAt, reports, ...m }) => ({ ...m }));
   }
   getMap(id, { play = false } = {}) {

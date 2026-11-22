@@ -671,13 +671,20 @@ async function main() {
         const g = j.data ? j.data.viewer.accounts[0].workersInvocationsAdaptive : null;
         console.log(`Worker 요청 ${label}(UTC ${day(d)}):`, g ? g.map((x) => `${x.dimensions.scriptName} ${Number(x.sum.requests).toLocaleString()}건 (오류 ${x.sum.errors})`).join(' · ') : JSON.stringify(j.errors).slice(0, 300));
       }
-      const since = new Date(Date.now() - 3600000).toISOString();
-      const j = await gql(`query($a: String!, $s: Time!) { viewer { accounts(filter: { accountTag: $a }) { httpRequestsAdaptiveGroups(limit: 25, filter: { datetime_geq: $s, requestSource: "eyeball" }, orderBy: [count_DESC]) { count dimensions { clientRequestPath } } } } }`, { a: env.CLOUDFLARE_ACCOUNT_ID, s: since });
-      const g = j.data ? j.data.viewer.accounts[0].httpRequestsAdaptiveGroups : null;
-      if (g) {
-        console.log('최근 1시간 많이 불린 주소 (/api 만):');
-        for (const x of g.filter((x) => x.dimensions.clientRequestPath.startsWith('/api'))) console.log(`  ${String(x.count).padStart(6)}  ${x.dimensions.clientRequestPath}`);
-      } else console.log('주소별 못 읽음', JSON.stringify(j.errors).slice(0, 300));
+      // 많이 불린 /api 주소: 최근 1시간 + 어제 같은 때 6시간 (서버가 쉬는 날이면 어제 것이 평소 모습)
+      for (const [label, from, to] of [['최근 1시간', 3600000, 0], ['어제 이맘때 6시간', 30 * 3600000, 24 * 3600000]]) {
+        const j = await gql(
+          `query($a: String!, $s: Time!, $e: Time!) { viewer { accounts(filter: { accountTag: $a }) { httpRequestsAdaptiveGroups(limit: 40, filter: { datetime_geq: $s, datetime_lt: $e, requestSource: "eyeball", clientRequestPath_like: "/api/%" }, orderBy: [count_DESC]) { count dimensions { clientRequestPath } } } } }`,
+          { a: env.CLOUDFLARE_ACCOUNT_ID, s: new Date(Date.now() - from).toISOString(), e: new Date(Date.now() - to).toISOString() }
+        );
+        const g = j.data ? j.data.viewer.accounts[0].httpRequestsAdaptiveGroups : null;
+        if (!g) {
+          console.log(`${label} 주소별 못 읽음`, JSON.stringify(j.errors).slice(0, 300));
+          continue;
+        }
+        console.log(`${label} 많이 불린 /api 주소 (합계 ${g.reduce((a, x) => a + x.count, 0).toLocaleString()}):`);
+        for (const x of g) console.log(`  ${String(x.count).padStart(6)}  ${x.dimensions.clientRequestPath}`);
+      }
     } catch (e) {
       console.log('요청 수 못 읽음', e.message);
     }

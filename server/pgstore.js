@@ -727,7 +727,8 @@ END $$`);
     return { id: r.id, igsid: r.igsid, nick: r.nick, name: r.name, bpm: Number(r.bpm), bars: Number(r.bars), diff: Number(r.diff), at: Number(r.at), plays: Number(r.plays), likes: Number(r.likes) };
   }
   async listMaps(sort = 'new', limit = 60) {
-    const order = sort === 'top' ? 'likes DESC, plays DESC, at DESC' : 'at DESC';
+    // 인기 = 좋아요 → 최근 (친 횟수는 판마다 바뀌어 색인에 넣으면 D1 쓰기가 늘어서 뺌, 2026-11-22)
+    const order = sort === 'top' ? 'likes DESC, at DESC' : 'at DESC';
     const rows = await this.q(`SELECT id, igsid, nick, name, bpm, bars, diff, at, plays, likes FROM maps WHERE hidden_at IS NULL ORDER BY ${order} LIMIT $1`, [limit]);
     return rows.map((r) => this._mapRow(r));
   }

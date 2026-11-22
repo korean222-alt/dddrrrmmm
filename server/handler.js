@@ -321,8 +321,11 @@ export function createHandler(cfg, { store, meter = null }) {
   //   무거운 결과(명예의 전당 전체 순위·admin 참여자 목록)는 settings 한 줄에 담아 두고 TTL 동안 같이 씀
   //   (읽기 1줄). 인스턴스 메모리에도 1분. 'set:cache:*' 키는 d1-sync 에서 뺌
   const memo = new Map();
-  async function cached(key, ttl, fn, { shared = true } = {}) {
+  async function cached(key, ttlOrFn, fn, { shared = true } = {}) {
     const now = Date.now();
+    // ttl 이 함수면 담긴 값을 보고 정함 (예: 명예의 전당은 계산할 때 읽은 줄 수에 맞춰 길게)
+    const ttlFor = (v) => (typeof ttlOrFn === 'function' ? ttlOrFn(v) : ttlOrFn);
+    let ttl = typeof ttlOrFn === 'function' ? 0 : ttlOrFn;
     if (memo.size > 3000) for (const [k, v] of memo) if (v.exp <= now) memo.delete(k);
     if (memo.size > 3000) memo.clear();
     const m = memo.get(key);
@@ -331,6 +334,7 @@ export function createHandler(cfg, { store, meter = null }) {
       try {
         const raw = await store.getSetting('cache:' + key);
         const c = raw ? JSON.parse(raw) : null;
+        if (c && c.v !== undefined) ttl = ttlFor(c.v);
         // 만든 때(at)가 있으면 지금 ttl 로 판단 (브레이크 때 ttl 이 길어지면 예전 것도 그대로 씀)
         if (c && c.v !== undefined && (c.at ? c.at + ttl > now : c.exp > now)) {
           memo.set(key, { v: c.v, exp: Math.min(c.at ? c.at + ttl : c.exp, now + 60_000) });
@@ -339,6 +343,7 @@ export function createHandler(cfg, { store, meter = null }) {
       } catch {}
     }
     const v = await fn();
+    ttl = ttlFor(v);
     memo.set(key, { v, exp: now + (shared ? Math.min(ttl, 60_000) : ttl) });
     if (shared) await Promise.resolve().then(() => store.setSetting('cache:' + key, JSON.stringify({ exp: now + ttl, at: now, v }))).catch(() => {});
     return v;
@@ -366,10 +371,14 @@ export function createHandler(cfg, { store, meter = null }) {
   const slimHall = (r) => ({ igsid: r.igsid, username: r.username, score: r.score, n: r.n, rounds: r.rounds, at: r.at });
   const hallKey = (n, board) => `hall2:${n}:${board}`;
   /** 시즌 총합: { top: 위 60명, ladder: 위 1000명 [점수, 시각], full: 1000명이 안 되면 true } — 6시간 캐시 */
+  //   다시 계산은 기록 표 전체를 읽음 → 사람이 늘어 한 번에 읽는 줄(cost)이 커지면 그만큼 드물게: 두 판 합쳐 하루 25만 줄(읽기 한도 5%) 안
+  const HALL_DAY_READS = 125_000;
+  const hallTtl = (v) => ttlOf(Math.max(HALL_TTL_BASE, Math.min(7 * 86400_000, ((v && v.cost) || 0) * 86400_000 / HALL_DAY_READS)));
   const hallData = (n, board) =>
-    cached(hallKey(n, board), ttlOf(HALL_TTL_BASE), async () => {
+    cached(hallKey(n, board), hallTtl, async () => {
+      const r0 = meter ? meter.r : 0;
       const rows = (await store.seasonBoard(n, board, HALL_LADDER)).rows;
-      return { top: rows.slice(0, HALL_TOP).map(slimHall), ladder: rows.map((r) => [r.score, r.at]), full: rows.length < HALL_LADDER };
+      return { top: rows.slice(0, HALL_TOP).map(slimHall), ladder: rows.map((r) => [r.score, r.at]), full: rows.length < HALL_LADDER, cost: meter ? meter.r - r0 : 0 };
     });
   /** 내 줄(mineNow)을 끼운 위 순위 + 내 등수 { list, mine } */
   function hallMerge(data, mineNow, pl) {
@@ -427,10 +436,9 @@ export function createHandler(cfg, { store, meter = null }) {
    */
   async function adminPlayers() {
     if (typeof store.playerTotals !== 'function') return store.listPlayers();
-    const [list, totals] = await Promise.all([
-      store.listPlayers(1_000_000, { totals: false }),
-      cached('admin:totals', ttlOf(30 * 60_000), () => store.playerTotals(), { shared: false }),
-    ]);
+    // 점수 합계는 기록 표 전체를 훑음 → 브레이크 1단계부터는 기억해 둔 것만 (없으면 0 으로)
+    const totalsOf = () => (brake() >= 1 && !memo.has('admin:totals') ? Promise.resolve({}) : cached('admin:totals', ttlOf(30 * 60_000), () => store.playerTotals(), { shared: false }));
+    const [list, totals] = await Promise.all([store.listPlayers(1_000_000, { totals: false }), totalsOf()]);
     return list.map((p) => ({ ...p, ...(totals[p.igsid] || { total: 0, levels: 0, top: 0, endless: null }) }));
   }
 
@@ -1089,6 +1097,8 @@ export function createHandler(cfg, { store, meter = null }) {
       if (p === '/api/admin/suspects' && m === 'GET') {
         // ?igsid= 이면 그 사람 자세히, 없으면 강한 신호만 목록 (쿼리 2번)
         const players = await adminPlayers();
+        // 기록 표 전체를 읽음 → 브레이크 1단계부터는 기억해 둔 게 없으면 나중에
+        if (brake() >= 1 && !memo.has('admin:scores')) return json(503, { error: 'busy' });
         const rows = await cached('admin:scores', ttlOf(15 * 60_000), () => store.allScores(), { shared: false }); // 점수 표 전체(수만 줄) → 15분 기억, settings 엔 안 넣음
         const id = url.searchParams.get('igsid');
         if (id) {
