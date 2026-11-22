@@ -8,7 +8,7 @@
   - 작업 브랜치에 커밋·푸시한 뒤, 기본 브랜치 `claude/eloquent-hamilton-5w1xwr` 로 fast-forward 푸시
     (`git push origin HEAD:claude/eloquent-hamilton-5w1xwr`). 푸시하면 GitHub Actions(`.github/workflows/deploy-cloudflare.yml`)가 Cloudflare 에 자동 배포 → **https://play.kongkong-drum.workers.dev**
   - **2026-11-18 Vercel 무료 한도 초과로 사이트가 멈춰서 Cloudflare 로 옮김.** 드럼 전용 Cloudflare 계정(Ekrb2309…, account `9a61013ac8fa9c59d599e97b4b0362ec`)만 쓴다. 다른 프로젝트가 쓰는 Cloudflare 계정·커넥터는 건드리지 않는다.
-    - 정적 파일(public/)은 Workers 정적 파일(무료·요청 수 무제한), `/api/*` 만 Worker(`worker/index.js` → `server/handler.js`, 하루 10만 건 무료) + Neon Postgres. 설정 `wrangler.jsonc`, 헤더 `public/_headers`.
+    - 정적 파일(public/)은 Workers 정적 파일(무료·요청 수 무제한), `/api/*` 만 Worker(`worker/index.js` → `server/handler.js`, 하루 10만 건 무료) + D1(11-22 부터, 예전엔 Neon Postgres). 설정 `wrangler.jsonc`, 헤더 `public/_headers`.
     - 서버 비밀값(DATABASE_URL·ADMIN_TOKEN·FOLLOW_PASSWORD·SUGGEST_BOT_TOKEN)은 Cloudflare 대시보드 → Workers → play → 설정 → 변수 및 비밀. 코드에 안 씀.
     - 이 작업 환경에선 프록시가 정적 파일 업로드 키를 덮어써서 `wrangler deploy` 가 안 됨 → 배포는 GitHub Actions 로만.
     - 옛 Vercel(`api/server.js`, `vercel.json`)은 **다리** 용도로만: Vercel 빌드에서 `public/bridge.html` 이 index.html 을 대신함 → 옛 주소로 온 폰의 기록·로그인을 '기록 옮기기'로 올리고 새 주소 `/?t=코드` 로 보냄(같은 Neon DB). Vercel 한도가 풀리면 기본 브랜치에 한 번 푸시해서 다리가 든 배포가 production 이 되게 할 것.
@@ -22,7 +22,7 @@
 - **서버(API) 요청은 Cloudflare 무료 하루 10만 건** (정적 파일은 무제한). Vercel 은 2026-11-18 월 100만 건을 넘겨 멈췄음. API 요청을 늘리는 건 최대한 피한다: 새 폴링·주기적 API 호출·파일 쪼개기 금지, 꼭 필요하면 간격을 넉넉히. 정적 파일은 버전(?v=) 붙여 오래 캐시.
   - 2026-11-18 줄인 것: 이용 통계(track)는 판 시작·점수 요청에 얹어 보냄(`takeTrack`), 따로는 5분마다·화면 떠날 때만 / 랭킹 1분 캐시 / 멀티 대기실 3초·치는 중 5초·빠른대결 대기 5초 / 앱 복귀 때 내 정보 확인은 인증 끝난 사람은 안 함, 나머지 10분에 한 번.
   - 2026-11-21 서버 점검: ⚠ Cloudflare 무료는 **요청 하나당 바깥 연결(Neon 쿼리) 50번까지** → 표 설계가 바뀐 뒤 첫 시작이 44번이라 터지기 직전이었음 → SCHEMA 를 DO 블록 하나로(`schemaBlock`, 이제 9번). 한 요청에서 쿼리를 수십 번 도는 코드 만들지 말 것. 판 토큰(used_runs)이 안 지워지고 쌓이던 것 → `cleanup()`(지난 토큰·방·옮기기 코드·1년 지난 통계, 접속 때 가끔). 대기실은 3분 변화 없으면 10초, 15분이면 30초 간격. 통계 5분 전송은 판 요청에 얹어 보냈으면 건너뜀. 서버 재연결은 실패할수록 최대 10분 간격. Neon 무료 = 월 100 CU-시간(0.25 CU 로 약 400시간, 5분 쉬면 잠듦) → 하루 13시간 넘게 계속 깨어 있으면 월말 전에 바닥날 수 있음, Neon 콘솔에서 사용량 확인할 것.
-  - 2026-11-21 Neon 이 무료 한도 못 버팀(전송 하루 0.36GB) → **D1 로 옮기기로 결정**, 토큰에 D1 권한 추가함. 계획 `tasks/D1-옮기기.md`. 11-21 코드·D1(okaystra) 준비 끝, 어느 DB 쓸지는 Cloudflare 비밀값 `DB_MODE`(d1/neon), 옮기기·되돌리기는 Actions 'D1 옮기기'.
+  - 2026-11-21 Neon 이 무료 한도 못 버팀(전송 하루 0.36GB) → **D1 로 옮기기로 결정**, 토큰에 D1 권한 추가함. 계획 `tasks/D1-옮기기.md`. **2026-11-22 09:49 KST 부터 사이트 DB = D1(okaystra)** (Neon 은 백업·옛 Vercel 다리용). 어느 DB 쓸지는 Cloudflare 비밀값 `DB_MODE`(d1/neon), 옮기기·되돌리기는 Actions 'D1 옮기기'. ⚠ D1 무료 쓰기 하루 10만 줄(색인·숨은 주 키 색인도 셈) → 쓰기 많은 기능 만들 때 줄 수 계산할 것, 표에 열 더하면 `D1_ALTERS`·`d1-sync.mjs TABLES` 도. 예전 통계는 매일 나눠 옮기는 중.
   - 사용량 보기: Cloudflare GraphQL `workersInvocationsAdaptive` (드럼 계정 account 9a61…). 첫날 8시간 1.27만 건, 피크 시간당 4.7천 건.
   - 2026-12-01 부터 Cloudflare 로그(Observability, `wrangler.jsonc` `observability`)가 용량 기준: 무료는 하루 0.5GB, 넘으면 로그만 멈춤(요금·게임 영향 없음). 지금 요청량이면 한도 아래라 그대로 둠.
   - 한도를 넘으면 `/api/*` 만 429, 게임 화면은 계속 뜨고 서버 없는 모드로 돎 (Vercel 처럼 사이트 전체가 멈추진 않음). 매일 UTC 0시(한국 오전 9시)에 풀림.
