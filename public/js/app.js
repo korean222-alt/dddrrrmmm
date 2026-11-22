@@ -8590,18 +8590,41 @@ const LANE = [
   { key: 'crash', main: '#C38BFF', light: '#EBDDFF', dark: '#7F4CCF', rgb: '195,139,255', thumb: '왼쪽 엄지', word: '크래시 (챙)', short: '챙' },
   { key: 'tom', main: '#4FE0A6', light: '#C9FBE6', dark: '#1F9E70', rgb: '79,224,166', thumb: '왼쪽 엄지', word: '탐탐 (둥)', short: '둥' },
 ];
+
+// 🎨 콩(노트) 색 고르기 (설정 → 꾸미기). 줄 순서: 쿵·짝·하이햇·크래시·탐탐 [main, light, dark]
+const NOTE_PALETTES = {
+  basic: { name: '기본', c: null },
+  candy: { name: '사탕', c: [['#FF6FA8', '#FFC2DA', '#C93A76'], ['#7FD8FF', '#D9F4FF', '#3B9FD1'], ['#FFE066', '#FFF6C4', '#C9A21F'], ['#B98BFF', '#E7DAFF', '#7A4CD0'], ['#7CF0C0', '#D3FCEB', '#2FB585']] },
+  neon: { name: '네온', c: [['#FF2BD6', '#FFA8F0', '#A3008A'], ['#00E5FF', '#A8F7FF', '#008CA3'], ['#C6FF00', '#EEFFA8', '#7A9E00'], ['#8C5CFF', '#D2C2FF', '#4A1FC2'], ['#00FF9C', '#B0FFDD', '#00A365']] },
+  ocean: { name: '바다', c: [['#2E9BFF', '#B5DCFF', '#145FB0'], ['#36E0D0', '#C0F7F1', '#13968A'], ['#9AD8FF', '#E6F6FF', '#4C93BF'], ['#6F7BFF', '#D0D4FF', '#3A44BF'], ['#3FD6A0', '#C6F5E3', '#1A8F66']] },
+  fire: { name: '불꽃', c: [['#FF4A2E', '#FFB3A6', '#B3200E'], ['#FF9F1C', '#FFDDA8', '#B86600'], ['#FFD93A', '#FFF3B0', '#B88F00'], ['#FF5E7E', '#FFC2CE', '#B32446'], ['#FF7A3A', '#FFCBA8', '#B3450E']] },
+  mono: { name: '흑백', c: [['#F2F2F2', '#FFFFFF', '#9A9A9A'], ['#BFC4CC', '#EEF0F3', '#6E747E'], ['#E6E6E6', '#FFFFFF', '#8E8E8E'], ['#A8ADB5', '#E2E4E8', '#5E636B'], ['#D0D0D0', '#F5F5F5', '#7A7A7A']] },
+};
+const LANE_BASE = LANE.map((l) => ({ main: l.main, light: l.light, dark: l.dark, rgb: l.rgb }));
+const hexRgb = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16)).join(',');
+/** 콩 색 바꾸기 (LANE 을 바꿔 둠 → 다음 resize 때 노트 그림이 새로 만들어짐) */
+function applyNoteColors(key) {
+  const p = (NOTE_PALETTES[key] || NOTE_PALETTES.basic).c;
+  LANE.forEach((l, i) => {
+    if (!p) return Object.assign(l, LANE_BASE[i]);
+    const [main, light, dark] = p[i];
+    Object.assign(l, { main, light, dark, rgb: hexRgb(main) });
+  });
+}
 const KICK = 0;
 const SNARE = 1;
 const HAT = 2;
 const CRASH = 3;
 const TOM = 4;
 
+// 판정 글자: 한눈에 구분되게 크기·색·빛을 다르게 (11-22 '글자 구분이 잘 됐으면')
+//   PERFECT = 제일 크게 금빛 그라데이션 + 빛 / GREAT = 초록 보통 / GOOD = 작게 하늘색
 const JUDGE_STYLE = {
-  perfect: { text: 'PERFECT', color: '#FFE45C' },
-  great: { text: 'GREAT', color: '#7CF5B4' },
-  good: { text: 'GOOD', color: '#9CC8FF' },
-  miss: { text: 'MISS', color: '#FF6B8A' },
-  wrong: { text: '헛침!', color: '#FF6B8A' },
+  perfect: { text: 'PERFECT', color: '#FFE45C', grad: ['#FFFBE0', '#FFD93A', '#FF9F1C'], scale: 1.2, glow: '255,210,60' },
+  great: { text: 'GREAT', color: '#4DF08A', scale: 1, glow: '60,240,130' },
+  good: { text: 'GOOD', color: '#8FB8FF', scale: 0.78 },
+  miss: { text: 'MISS', color: '#FF6B8A', scale: 0.9 },
+  wrong: { text: '헛침!', color: '#FF6B8A', scale: 0.9 },
 };
 
 const INK = '#2B1D3A';
@@ -8692,7 +8715,9 @@ class Renderer {
 
   /** 이 판의 맵 정하기 (단계 묶음별). 화면 크기가 정해진 뒤 resize() 가 그림을 만듦 */
   setTheme(lv) {
-    const t = themeForLevel(lv);
+    // 🎨 설정에서 고른 배경 (영상 찍기는 원래 맵 그대로)
+    const pick = !this.studio && this.bgPick && THEMES[this.bgPick] ? this.bgPick : null;
+    const t = pick ? { key: pick, cycle: false } : themeForLevel(lv);
     this.themeBase = t.key;
     this.themeCycle = t.cycle;
     if (this.themeKey !== t.key) {
@@ -8720,8 +8745,10 @@ class Renderer {
 
   _buildKit() {
     const L = this.L;
+    // 🎨 설정에서 고른 드럼 세트 (영상 찍기는 맵 드럼 그대로)
+    const kp = !this.studio && this.kitPick && THEMES[this.kitPick];
     this.kit = buildKit(
-      this.theme,
+      kp ? { ...this.theme, kit: kp.kit } : this.theme,
       { instR: L.instR, padR: L.padR, barW: L.barW, barH: L.barH, cymR: L.cymR, dpr: L.dpr, standTo: L.H - L.strikeY },
       LANE
     );
@@ -8999,7 +9026,7 @@ class Renderer {
   onJudge(lane, judge, rt, early) {
     const L = this.L;
     const style = JUDGE_STYLE[judge];
-    this.fx.judges.push({ lane, text: style.text, color: style.color, t0: rt, sub: judge === 'perfect' || judge === 'miss' || judge === 'wrong' ? '' : early ? 'FAST' : 'SLOW' });
+    this.fx.judges.push({ lane, text: style.text, color: style.color, grad: style.grad, scale: style.scale || 1, glow: style.glow, t0: rt, sub: judge === 'perfect' || judge === 'miss' || judge === 'wrong' ? '' : early ? 'FAST' : 'SLOW' });
     if (judge === 'miss' || judge === 'wrong') {
       this.missAt[lane] = rt;
       return;
@@ -9877,7 +9904,7 @@ class Renderer {
       const sc = t < 0.12 ? 1.3 - (t / 0.12) * 0.3 : 1;
       const x = L.laneX[j.lane];
       const y = L.strikeY - L.instR * 1.75 - t * L.GW * 0.02;
-      const size = Math.min(L.GW * 0.055, L.laneW * 0.2) * sc;
+      const size = Math.min(L.GW * 0.055, L.laneW * 0.2) * sc * (j.scale || 1);
       ctx.save();
       ctx.globalAlpha = t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4;
       ctx.font = `${Math.round(size)}px ${FONT}`;
@@ -9886,8 +9913,19 @@ class Renderer {
       ctx.lineJoin = 'round';
       ctx.lineWidth = size * 0.22;
       ctx.strokeStyle = INK;
+      if (j.glow && !this.lite) {
+        ctx.shadowColor = `rgba(${j.glow},0.9)`;
+        ctx.shadowBlur = size * 0.6;
+      }
       ctx.strokeText(j.text, x, y);
-      ctx.fillStyle = j.color;
+      ctx.shadowBlur = 0;
+      if (j.grad) {
+        const g = ctx.createLinearGradient(0, y - size * 0.5, 0, y + size * 0.5);
+        g.addColorStop(0, j.grad[0]);
+        g.addColorStop(0.5, j.grad[1]);
+        g.addColorStop(1, j.grad[2]);
+        ctx.fillStyle = g;
+      } else ctx.fillStyle = j.color;
       ctx.fillText(j.text, x, y);
       if (j.sub) {
         ctx.font = `${Math.round(size * 0.55)}px ${FONT}`;
@@ -10406,7 +10444,7 @@ function shrinkBuddies(imgs, px) {
   return out;
 }
 
-return { LANE, JUDGE_STYLE, Renderer };
+return { LANE, NOTE_PALETTES, applyNoteColors, JUDGE_STYLE, Renderer };
 })();
 
 // ---- game.js ----
@@ -11445,6 +11483,10 @@ const DEFAULT_SETTINGS = {
   lite: false,
   // 반주: 'orch' = 오케스트라(현악·금관·팀파니 + 피아노) / 'piano' = 피아노만
   band: 'orch',
+  // 🎨 꾸미기: 배경·드럼 세트 = 'auto'(단계 맵 따라) 또는 themes.js 맵 키, 콩 색 = render.js NOTE_PALETTES 키
+  bg: 'auto',
+  kit: 'auto',
+  notes: 'basic',
 };
 
 function loadSettings() {
@@ -11993,6 +12035,15 @@ const __m_news = (() => {
 //   짧게: 하루에 한 덩어리(같은 날 소식은 합침), 한 줄씩 2~5줄. 유저가 몰라도 되는 것(내부 구조·자잘한 수정·로딩 안내 등)은 안 씀
 
 const NEWS = [
+  {
+    id: '2026-11-22a',
+    date: '11월 22일',
+    title: '🎨 꾸미기 · 판정 글자',
+    items: [
+      '<b>🎨 꾸미기</b> — 설정에서 배경·드럼 세트·콩 색을 마음대로 골라요',
+      'PERFECT·GREAT·GOOD 글자를 크기·색으로 더 잘 구분되게 바꿨어요',
+    ],
+  },
   {
     id: '2026-11-21u',
     date: '11월 21일',
@@ -13101,14 +13152,14 @@ const { readScoreFile, scoreInfo, scoreToMap, recommendStart } = __m_scorefile;
 const { videoToAac } = __m_mp4audio;
 const { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmonize, autoDrums, cleanMap, mapLevel } = __m_usermap;
 const { AudioEngine, playMetronome } = __m_audio;
-const { Renderer } = __m_render;
+const { Renderer, NOTE_PALETTES, LANE, applyNoteColors } = __m_render;
 const { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } = __m_game;
 const { initAds, showRewarded } = __m_ads;
 const { createApi } = __m_api;
 const { initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay } = __m_track;
 const { CONFIG } = __m_config;
 const { buddyUrl, loadBuddies } = __m_buddies;
-const { groupStarting } = __m_themes;
+const { groupStarting, THEMES } = __m_themes;
 const { NEWS, LATEST_NEWS } = __m_news;
 const { RoomClient, roomOutcome, survivalOutcome } = __m_room;
 const { makeReelCover } = __m_cover;
@@ -13948,6 +13999,7 @@ async function startLevel(id, opts = {}) {
 function setKit(lv) {
   renderer.laneOrder = levelLanes(lv);
   renderer.newLane = lv.newInstrument ?? -1;
+  applyDeco();
   renderer.setTheme(lv); // 단계 묶음마다 맵 분위기가 다름 (themes.js)
   // 마우스·키보드 쓰는 컴퓨터면 줄마다 키 글자를 보여줌 (폰·태블릿은 안 보임)
   renderer.keyLabels = null;
@@ -14744,6 +14796,7 @@ function openSettings() {
   $('#set-lite').checked = !!s.lite;
   $$('#set-band button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.band === (s.band || 'orch')));
   updateSettingLabels();
+  renderDeco();
   $('#settings-account').innerHTML = state.me.guest
     ? `랭킹 닉네임: <b>${escapeHtml(state.me.player?.username)}</b> · <button class="link" data-action="logout">닉네임 지우기</button>`
     : `랭킹은 팔로워 인증을 받은 사람만 올라가요 · <button class="link" data-action="rank-join">팔로워 인증 받기</button>`;
@@ -14915,6 +14968,50 @@ async function checkReq({ manual = false } = {}) {
   }
 }
 
+// ---------------- 🎨 꾸미기 (배경·드럼 세트·콩 색) ----------------
+//   이 폰에만 저장(설정). 서버 요청 없음. 영상 찍기는 원래 맵 그대로(render.js)
+const DECO_THEMES = ['sunset', 'city', 'hall', 'void', 'lava', 'aurora', 'xmas', 'space'];
+function applyDeco() {
+  const s = state.settings;
+  renderer.bgPick = s.bg && s.bg !== 'auto' ? s.bg : null;
+  renderer.kitPick = s.kit && s.kit !== 'auto' ? s.kit : null;
+  applyNoteColors(renderer.studio ? 'basic' : s.notes || 'basic');
+}
+function renderDeco() {
+  const s = state.settings;
+  const chip = (attr, key, label, bg, on) =>
+    `<button class="chip" data-${attr}="${key}" aria-pressed="${on}"><i style="background:${bg}"></i>${label}</button>`;
+  const auto = 'conic-gradient(#FF9A6B,#6A1B78,#7A2A1C,#1C4A5E,#FF9A6B)';
+  $('#set-bg').innerHTML =
+    chip('bg', 'auto', '단계별', auto, !s.bg || s.bg === 'auto') +
+    DECO_THEMES.map((k) => chip('bg', k, THEMES[k].name, `linear-gradient(${THEMES[k].sky.join(',')})`, s.bg === k)).join('');
+  $('#set-kit').innerHTML =
+    chip('kit', 'auto', '맵 따라', auto, !s.kit || s.kit === 'auto') +
+    DECO_THEMES.map((k) => {
+      const sh = THEMES[k].kit.shell;
+      return chip('kit', k, THEMES[k].name, `radial-gradient(circle at 35% 30%,${sh[0]},${sh[1]} 55%,${sh[2]})`, s.kit === k);
+    }).join('');
+  const lanes = (p) => (p.c ? p.c.slice(0, 4).map((c) => c[0]) : LANE_DEFAULT);
+  $('#set-notes').innerHTML = Object.entries(NOTE_PALETTES)
+    .map(([k, p]) => chip('notes', k, p.name, `conic-gradient(${lanes(p).join(',')})`, (s.notes || 'basic') === k))
+    .join('');
+}
+const LANE_DEFAULT = LANE.slice(0, 4).map((l) => l.main);
+function bindDeco() {
+  $('#set-deco').addEventListener('click', (e) => {
+    const b = e.target.closest('.chip');
+    if (!b) return;
+    const s = state.settings;
+    if (b.dataset.bg) s.bg = b.dataset.bg;
+    if (b.dataset.kit) s.kit = b.dataset.kit;
+    if (b.dataset.notes) s.notes = b.dataset.notes;
+    saveSettings(s);
+    applyDeco();
+    renderDeco();
+    audio.unlock().then(() => audio.snare()).catch(() => {});
+  });
+}
+
 function updateSettingLabels() {
   const s = state.settings;
   $('#set-offset-val').textContent = s.offsetMs === 0 ? '0ms' : `${s.offsetMs > 0 ? '+' : ''}${s.offsetMs}ms`;
@@ -14932,6 +15029,7 @@ function applyLite() {
   if ($('#screen-game').classList.contains('active')) renderer.resize();
 }
 function bindSettings() {
+  bindDeco();
   const upd = () => {
     const s = state.settings;
     s.music = Number($('#set-music').value);

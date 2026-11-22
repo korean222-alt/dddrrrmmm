@@ -36,6 +36,10 @@ export const DEFAULT_SETTINGS = {
   lite: false,
   // 반주: 'orch' = 오케스트라(현악·금관·팀파니 + 피아노) / 'piano' = 피아노만
   band: 'orch',
+  // 🎨 꾸미기: 배경·드럼 세트 = 'auto'(단계 맵 따라) 또는 themes.js 맵 키, 콩 색 = render.js NOTE_PALETTES 키
+  bg: 'auto',
+  kit: 'auto',
+  notes: 'basic',
 };
 
 export function loadSettings() {

@@ -15,14 +15,14 @@ import { readScoreFile, scoreInfo, scoreToMap, recommendStart } from './scorefil
 import { videoToAac } from './mp4audio.js';
 import { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmonize, autoDrums, cleanMap, mapLevel } from './usermap.js';
 import { AudioEngine, playMetronome } from './audio.js';
-import { Renderer } from './render.js';
+import { Renderer, NOTE_PALETTES, LANE, applyNoteColors } from './render.js';
 import { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } from './game.js';
 import { initAds, showRewarded } from './ads.js';
 import { createApi } from './api.js';
 import { initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay } from './track.js';
 import { CONFIG } from './config.js';
 import { buddyUrl, loadBuddies } from './buddies.js';
-import { groupStarting } from './themes.js';
+import { groupStarting, THEMES } from './themes.js';
 import { NEWS, LATEST_NEWS } from './news.js';
 import { RoomClient, roomOutcome, survivalOutcome } from './room.js';
 import { makeReelCover } from './cover.js';
@@ -862,6 +862,7 @@ async function startLevel(id, opts = {}) {
 function setKit(lv) {
   renderer.laneOrder = levelLanes(lv);
   renderer.newLane = lv.newInstrument ?? -1;
+  applyDeco();
   renderer.setTheme(lv); // 단계 묶음마다 맵 분위기가 다름 (themes.js)
   // 마우스·키보드 쓰는 컴퓨터면 줄마다 키 글자를 보여줌 (폰·태블릿은 안 보임)
   renderer.keyLabels = null;
@@ -1658,6 +1659,7 @@ function openSettings() {
   $('#set-lite').checked = !!s.lite;
   $$('#set-band button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.band === (s.band || 'orch')));
   updateSettingLabels();
+  renderDeco();
   $('#settings-account').innerHTML = state.me.guest
     ? `랭킹 닉네임: <b>${escapeHtml(state.me.player?.username)}</b> · <button class="link" data-action="logout">닉네임 지우기</button>`
     : `랭킹은 팔로워 인증을 받은 사람만 올라가요 · <button class="link" data-action="rank-join">팔로워 인증 받기</button>`;
@@ -1829,6 +1831,50 @@ async function checkReq({ manual = false } = {}) {
   }
 }
 
+// ---------------- 🎨 꾸미기 (배경·드럼 세트·콩 색) ----------------
+//   이 폰에만 저장(설정). 서버 요청 없음. 영상 찍기는 원래 맵 그대로(render.js)
+const DECO_THEMES = ['sunset', 'city', 'hall', 'void', 'lava', 'aurora', 'xmas', 'space'];
+function applyDeco() {
+  const s = state.settings;
+  renderer.bgPick = s.bg && s.bg !== 'auto' ? s.bg : null;
+  renderer.kitPick = s.kit && s.kit !== 'auto' ? s.kit : null;
+  applyNoteColors(renderer.studio ? 'basic' : s.notes || 'basic');
+}
+function renderDeco() {
+  const s = state.settings;
+  const chip = (attr, key, label, bg, on) =>
+    `<button class="chip" data-${attr}="${key}" aria-pressed="${on}"><i style="background:${bg}"></i>${label}</button>`;
+  const auto = 'conic-gradient(#FF9A6B,#6A1B78,#7A2A1C,#1C4A5E,#FF9A6B)';
+  $('#set-bg').innerHTML =
+    chip('bg', 'auto', '단계별', auto, !s.bg || s.bg === 'auto') +
+    DECO_THEMES.map((k) => chip('bg', k, THEMES[k].name, `linear-gradient(${THEMES[k].sky.join(',')})`, s.bg === k)).join('');
+  $('#set-kit').innerHTML =
+    chip('kit', 'auto', '맵 따라', auto, !s.kit || s.kit === 'auto') +
+    DECO_THEMES.map((k) => {
+      const sh = THEMES[k].kit.shell;
+      return chip('kit', k, THEMES[k].name, `radial-gradient(circle at 35% 30%,${sh[0]},${sh[1]} 55%,${sh[2]})`, s.kit === k);
+    }).join('');
+  const lanes = (p) => (p.c ? p.c.slice(0, 4).map((c) => c[0]) : LANE_DEFAULT);
+  $('#set-notes').innerHTML = Object.entries(NOTE_PALETTES)
+    .map(([k, p]) => chip('notes', k, p.name, `conic-gradient(${lanes(p).join(',')})`, (s.notes || 'basic') === k))
+    .join('');
+}
+const LANE_DEFAULT = LANE.slice(0, 4).map((l) => l.main);
+function bindDeco() {
+  $('#set-deco').addEventListener('click', (e) => {
+    const b = e.target.closest('.chip');
+    if (!b) return;
+    const s = state.settings;
+    if (b.dataset.bg) s.bg = b.dataset.bg;
+    if (b.dataset.kit) s.kit = b.dataset.kit;
+    if (b.dataset.notes) s.notes = b.dataset.notes;
+    saveSettings(s);
+    applyDeco();
+    renderDeco();
+    audio.unlock().then(() => audio.snare()).catch(() => {});
+  });
+}
+
 function updateSettingLabels() {
   const s = state.settings;
   $('#set-offset-val').textContent = s.offsetMs === 0 ? '0ms' : `${s.offsetMs > 0 ? '+' : ''}${s.offsetMs}ms`;
@@ -1846,6 +1892,7 @@ function applyLite() {
   if ($('#screen-game').classList.contains('active')) renderer.resize();
 }
 function bindSettings() {
+  bindDeco();
   const upd = () => {
     const s = state.settings;
     s.music = Number($('#set-music').value);
