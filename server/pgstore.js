@@ -22,6 +22,8 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS scores_rank ON scores (level, score DESC, at)`,
   // chk = 핵 의심 확인용 JSON { ms 실제로 친 시간, sd·mean 박자 오차(ms), n 친 수, fake 가짜 입력 수 } (2026-11-21)
   `ALTER TABLE scores ADD COLUMN IF NOT EXISTS chk TEXT`,
+  // 단계마다 몇 판 했나 (핵 의심 확인용, 2026-11-22): starts = 판 시작(4단계부터만, 누군지 아는 판), clears = 깨고 점수 올린 판
+  `CREATE TABLE IF NOT EXISTS level_tries (igsid TEXT NOT NULL, level INTEGER NOT NULL, starts INTEGER NOT NULL DEFAULT 0, clears INTEGER NOT NULL DEFAULT 0, last_at BIGINT, PRIMARY KEY (igsid, level))`,
   // 무제한 기록(level <= 0)은 '깬 단계 × 10억 + 점수' 라 INTEGER(약 21억)를 넘음 → BIGINT
   `DO $$ BEGIN
      IF (SELECT data_type FROM information_schema.columns WHERE table_name = 'scores' AND column_name = 'score') = 'integer' THEN
@@ -372,6 +374,7 @@ END $$`);
   }
   async deletePlayer(igsid) {
     await this.q('DELETE FROM scores WHERE igsid = $1', [igsid]);
+    await this.q('DELETE FROM level_tries WHERE igsid = $1', [igsid]);
     await this.q('DELETE FROM season_scores WHERE igsid = $1', [igsid]);
     const r = await this.q('DELETE FROM players WHERE igsid = $1 RETURNING igsid', [igsid]);
     return r.length === 1;
@@ -558,6 +561,18 @@ END $$`);
     const rows = await this.q('SELECT igsid, level, score, grade, max_combo, at, chk FROM scores WHERE level > 0');
     return rows.map((r) => ({ igsid: r.igsid, level: Number(r.level), score: Number(r.score), grade: r.grade || null, maxCombo: Number(r.max_combo) || 0, at: Number(r.at) || 0, chk: parseChk(r.chk) }));
   }
+  /** 판 수 세기: 시작 starts·깸 clears 만큼 더함 (DB 왕복 1번) */
+  async addTry(igsid, level, starts, clears, now = Date.now()) {
+    await this.q(
+      `INSERT INTO level_tries (igsid, level, starts, clears, last_at) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (igsid, level) DO UPDATE SET starts = level_tries.starts + EXCLUDED.starts, clears = level_tries.clears + EXCLUDED.clears, last_at = EXCLUDED.last_at`,
+      [igsid, level, starts, clears, now]
+    );
+  }
+  async triesOf(igsid) {
+    const rows = await this.q('SELECT level, starts, clears, last_at FROM level_tries WHERE igsid = $1', [igsid]);
+    return rows.map((r) => ({ level: Number(r.level), starts: Number(r.starts), clears: Number(r.clears), at: Number(r.last_at) || 0 }));
+  }
   async scoresOf(igsid) {
     const rows = await this.q('SELECT level, score, grade, max_combo FROM scores WHERE igsid = $1', [igsid]);
     return rows.map((r) => ({ level: Number(r.level), score: Number(r.score), grade: r.grade || null, maxCombo: Number(r.max_combo) || 0 }));
@@ -574,6 +589,12 @@ END $$`);
       [from, to]
     );
     await this.q('DELETE FROM scores WHERE igsid = $1', [from]);
+    await this.q(
+      `INSERT INTO level_tries (igsid, level, starts, clears, last_at) SELECT $2, level, starts, clears, last_at FROM level_tries WHERE igsid = $1
+       ON CONFLICT (igsid, level) DO UPDATE SET starts = level_tries.starts + EXCLUDED.starts, clears = level_tries.clears + EXCLUDED.clears`,
+      [from, to]
+    );
+    await this.q('DELETE FROM level_tries WHERE igsid = $1', [from]);
     await this.q(
       `INSERT INTO season_scores (season, igsid, level, score, at)
        SELECT season, $2, level, score, at FROM season_scores WHERE igsid = $1

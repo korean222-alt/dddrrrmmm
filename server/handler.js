@@ -794,7 +794,7 @@ export function createHandler(cfg, { store }) {
         const id = url.searchParams.get('igsid');
         if (id) {
           const pl = players.find((x) => x.igsid === id);
-          return pl ? json(200, { report: suspectReport(pl, rows) }) : json(404, { error: 'not_found' });
+          return pl ? json(200, { report: suspectReport(pl, rows, await store.triesOf(id)) }) : json(404, { error: 'not_found' });
         }
         return json(200, { checked: players.length, suspects: findSuspects(players, rows) });
       }
@@ -940,11 +940,14 @@ export function createHandler(cfg, { store }) {
       if (!level) return json(400, { error: 'bad_level' });
       // 4단계부터와 무제한(그리그·단계별)은 팔로워 인증(암호 또는 운영자 확인)한 사람만
       // (GATE_MODE=open 이면 잠금 없음, 개발용)
+      let runPl = null;
       if (cfg.gateMode !== 'open' && (isClosed(level.id) || needsVerify(level.id))) {
-        const pl = await getPlayer(request);
+        const pl = (runPl = await getPlayer(request));
         if (isClosed(level.id) && !isConfirmed(pl)) return json(403, { error: isVerified(pl) ? 'confirm_pending' : 'confirm_required' });
         if (needsVerify(level.id) && !isVerified(pl)) return json(403, { error: 'verify_required' });
       }
+      // 🕵 단계마다 몇 판 시작했나 (누군지 이미 아는 판만 = 4단계부터. 1~3단계는 쿼리 늘리지 않으려고 안 셈)
+      if (runPl && runPl.igsid && level.id > 0) await Promise.resolve().then(() => store.addTry(runPl.igsid, level.id, 1, 0)).catch(() => {});
       const runToken = sign({ l: level.id, t: Date.now(), n: newId() }, cfg.sessionSecret);
       const coins = body.coins ? await takeCoins(await getPlayer(request), body.coins) : null;
       return json(200, coins == null ? { runToken } : { runToken, coins });
@@ -978,6 +981,7 @@ export function createHandler(cfg, { store }) {
       if (!(await store.useRun(v.nonce, Date.now() + 2 * 24 * 3600 * 1000))) return json(409, wc({ error: 'run_used' }));
       await ensureHall();
       const out = await store.recordScore(pl.igsid, v.level.id, { score: v.score, grade: v.grade, maxCombo: v.maxCombo, chk: v.chk });
+      if (v.level.id > 0) await Promise.resolve().then(() => store.addTry(pl.igsid, v.level.id, 0, 1)).catch(() => {});
       if (seasonAt().n > 1 && v.level.id > 0 && v.level.id <= LAST_LEVEL_ID) await store.recordSeasonScore(seasonAt().n, pl.igsid, v.level.id, v.score);
       const mine = await store.rankOf(v.level.id, pl.igsid);
       return json(200, wc({ ...out, rank: mine ? mine.rank : null }));

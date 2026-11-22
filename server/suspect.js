@@ -141,8 +141,20 @@ export function findSuspects(players, rows, { minRisk = LIST_MIN_RISK, limit = L
 }
 
 /** 한 사람 자세히 (의심받는 사람이 생겼을 때 운영자가 확인용) */
-export function suspectReport(player, rows) {
+export function suspectReport(player, rows, tries = []) {
   const st = levelStats(rows);
   const a = analyze(byPlayer(rows).get(player.igsid) || [], st);
+  // 단계마다 몇 판 했나 (11-22 부터 셈): 기록 없는 단계도 판 수가 있으면 줄을 만듦
+  const tm = new Map(tries.map((t) => [t.level, t]));
+  for (const it of a.items) {
+    const t = tm.get(it.level);
+    it.starts = t ? t.starts : null;
+    it.clears = t ? t.clears : null;
+    tm.delete(it.level);
+  }
+  for (const t of tm.values()) {
+    const lv = getLevel(t.level);
+    if (lv) a.items.push({ level: t.level, label: levelLabel(lv), noRecord: true, starts: t.starts, clears: t.clears, at: 0, playSec: Math.round(playSec(lv)) });
+  }
   return { igsid: player.igsid, username: player.username, ig: player.ig || null, risk: a.risk, listed: a.risk >= LIST_MIN_RISK, reasons: a.reasons, items: a.items };
 }

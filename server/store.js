@@ -321,6 +321,19 @@ export class JsonStore {
       .sort((a, b) => b.scores - a.scores || (a.createdAt ?? Infinity) - (b.createdAt ?? Infinity))
       .slice(0, 20);
   }
+  addTry(igsid, level, starts, clears, now = Date.now()) {
+    const p = this.data.players[igsid];
+    if (!p) return;
+    const t = ((p.tries ||= {})[level] ||= { starts: 0, clears: 0, at: 0 });
+    t.starts += starts;
+    t.clears += clears;
+    t.at = now;
+    this._save();
+  }
+  triesOf(igsid) {
+    const p = this.data.players[igsid];
+    return Object.entries((p && p.tries) || {}).map(([lv, t]) => ({ level: Number(lv), ...t }));
+  }
   /** 핵 의심 분석용: 모든 단계 최고 기록 (한 번에) */
   allScores() {
     const rows = [];
@@ -341,6 +354,13 @@ export class JsonStore {
     if (!a || !b || from === to) return;
     for (const [lv, e] of Object.entries(a.bests || {})) if (!b.bests[lv] || e.score > b.bests[lv].score) b.bests[lv] = e;
     a.bests = {};
+    for (const [lv, t] of Object.entries(a.tries || {})) {
+      const u = ((b.tries ||= {})[lv] ||= { starts: 0, clears: 0, at: 0 });
+      u.starts += t.starts;
+      u.clears += t.clears;
+      u.at = Math.max(u.at, t.at);
+    }
+    a.tries = {};
     for (const [k, m] of Object.entries(this.data.seasonScores)) {
       const [season, who] = k.split('|');
       if (who !== from) continue;
