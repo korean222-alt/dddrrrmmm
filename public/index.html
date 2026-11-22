@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=2bde0071a8" />
+  <link rel="stylesheet" href="css/style.css?v=7a023fd5bc" />
 </head>
 <body>
   <div id="app">
@@ -687,6 +687,11 @@
       <div class="deco" id="set-deco">
         <h4>🎨 꾸미기</h4>
         <div class="field"><span>배경</span><div class="chips" id="set-bg"></div></div>
+        <div class="photo-opts" id="set-photo-opts" hidden>
+          <label class="field"><span>사진 어둡게</span><input type="range" min="0" max="0.85" step="0.05" id="set-photo-dim" /></label>
+          <p class="muted small">사진은 이 폰에만 저장돼요 · <button class="link" data-photo-act="change">사진 바꾸기</button> · <button class="link" data-photo-act="del">지우기</button></p>
+        </div>
+        <input type="file" accept="image/*" id="set-photo-file" hidden />
         <div class="field"><span>드럼 세트</span><div class="chips" id="set-kit"></div></div>
         <div class="field"><span>콩 색</span><div class="chips" id="set-notes"></div></div>
       </div>
@@ -941,6 +946,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=217bc6b547" defer></script>
+  <script src="js/app.js?v=72971f5c29" defer></script>
 </body>
 </html>

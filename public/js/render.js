@@ -143,7 +143,14 @@ export class Renderer {
   /** 이 판의 맵 정하기 (단계 묶음별). 화면 크기가 정해진 뒤 resize() 가 그림을 만듦 */
   setTheme(lv) {
     // 🎨 설정에서 고른 배경 (영상 찍기는 원래 맵 그대로)
-    const pick = !this.studio && this.bgPick && THEMES[this.bgPick] ? this.bgPick : null;
+    let pick = !this.studio && this.bgPick && THEMES[this.bgPick] ? this.bgPick : null;
+    if (pick === 'photo' && !this.bgPhoto) pick = null; // 사진이 없으면(지웠거나 못 읽음) 원래 맵
+    // 같은 맵 키여도 사진·밝기가 바뀌었으면 배경을 다시 그림
+    const pk = pick === 'photo' ? `${this.bgPhoto && this.bgPhoto.src}|${this.photoDim}` : '';
+    if (pk !== this._photoKey) {
+      this._photoKey = pk;
+      this._themeDirty = true;
+    }
     const t = pick ? { key: pick, cycle: false } : themeForLevel(lv);
     this.themeBase = t.key;
     this.themeCycle = t.cycle;
@@ -323,6 +330,27 @@ export class Renderer {
     g.closePath();
   }
 
+  _paintPhoto(g, L) {
+    const img = this.bgPhoto;
+    const iw = img.naturalWidth || img.width;
+    const ih = img.naturalHeight || img.height;
+    const k = Math.max(L.W / iw, L.H / ih);
+    const w = iw * k;
+    const h = ih * k;
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, L.W, L.H);
+    try {
+      g.drawImage(img, (L.W - w) / 2, (L.H - h) / 2, w, h);
+    } catch {}
+    const d = Math.max(0, Math.min(0.85, this.photoDim ?? 0.4));
+    const gr = g.createLinearGradient(0, 0, 0, L.H);
+    gr.addColorStop(0, `rgba(0,0,0,${d * 0.6})`);
+    gr.addColorStop(0.5, `rgba(0,0,0,${d})`);
+    gr.addColorStop(1, `rgba(0,0,0,${Math.min(0.9, d * 1.2)})`);
+    g.fillStyle = gr;
+    g.fillRect(0, 0, L.W, L.H);
+  }
+
   _drawStatic() {
     const L = this.L;
     const T = this.theme;
@@ -331,8 +359,9 @@ export class Renderer {
     c.height = this.canvas.height;
     const g = c.getContext('2d');
     g.setTransform(L.dpr, 0, 0, L.dpr, 0, 0);
-    // 맵 배경 (하늘·땅·장식)
-    paintScenery(g, L, T);
+    // 맵 배경 (하늘·땅·장식). 📷 내 사진이면 사진을 화면에 꽉 차게 + 노트가 잘 보이게 어둡게
+    if (T.key === 'photo' && this.bgPhoto) this._paintPhoto(g, L);
+    else paintScenery(g, L, T);
     // 원근 길(레인): 위(먼 곳)는 좁고 아래(가까운 곳)는 넓음. 줄 전체가 버튼
     const y0 = L.topY;
     const padTop = L.strikeY - L.instR * 1.45;
@@ -414,7 +443,7 @@ export class Renderer {
     g.fillRect(this._px(L.x0, L.sFar), y0 - 1, (L.x1 - L.x0) * L.sFar, 2);
     // 먼 곳 안개
     const fog = g.createLinearGradient(0, y0 - 2, 0, y0 + (L.strikeY - y0) * 0.22);
-    fog.addColorStop(0, `rgba(${T.fog},0.75)`);
+    fog.addColorStop(0, `rgba(${T.fog},${T.fogA ?? 0.75})`);
     fog.addColorStop(1, `rgba(${T.fog},0)`);
     g.fillStyle = fog;
     g.fillRect(this._px(L.x0, L.sFar) - 20, y0 - 2, (L.x1 - L.x0) * L.sFar + 40, (L.strikeY - y0) * 0.22 + 2);

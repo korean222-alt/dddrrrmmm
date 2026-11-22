@@ -7384,6 +7384,37 @@ const THEMES = {
       cym: 'gold',
     },
   },
+  // 📷 내 사진 배경 (설정 → 꾸미기). 하늘·땅 대신 사진을 깔고, 길은 반투명이라 사진이 비침. 단계 묶음엔 안 씀
+  photo: {
+    key: 'photo',
+    name: '내 사진',
+    icon: 'spot',
+    sky: ['#0A0814', '#14102A', '#221A40'],
+    ground: ['#120E22', '#06040C'],
+    glow: '255,240,220',
+    hot: '255,200,140',
+    laneBase: 'rgba(12,10,24,0.34)',
+    laneTint: 0.85,
+    rail: null,
+    beat: '255,255,255',
+    fog: '0,0,0',
+    fogA: 0.2,
+    spots: ['255,240,220', '200,220,255', '255,200,230', '220,255,240'],
+    particle: 'gold',
+    kit: {
+      shell: ['#5A5E6A', '#17181E', '#000000'],
+      finish: 'gloss',
+      snare: ['#FFFFFF', '#AEB4C0', '#3C414C'],
+      snareFinish: 'metal',
+      hoop: ['#FFFFFF', '#B9BEC8', '#5A606C'],
+      inlay: '#E8E9EE',
+      hw: 'chrome',
+      head: '#FAFAFA',
+      emblem: '#17181E',
+      emblemText: '#17181E',
+      cym: 'silver',
+    },
+  },
   space: {
     key: 'space',
     name: '우주 무대',
@@ -8716,7 +8747,14 @@ class Renderer {
   /** 이 판의 맵 정하기 (단계 묶음별). 화면 크기가 정해진 뒤 resize() 가 그림을 만듦 */
   setTheme(lv) {
     // 🎨 설정에서 고른 배경 (영상 찍기는 원래 맵 그대로)
-    const pick = !this.studio && this.bgPick && THEMES[this.bgPick] ? this.bgPick : null;
+    let pick = !this.studio && this.bgPick && THEMES[this.bgPick] ? this.bgPick : null;
+    if (pick === 'photo' && !this.bgPhoto) pick = null; // 사진이 없으면(지웠거나 못 읽음) 원래 맵
+    // 같은 맵 키여도 사진·밝기가 바뀌었으면 배경을 다시 그림
+    const pk = pick === 'photo' ? `${this.bgPhoto && this.bgPhoto.src}|${this.photoDim}` : '';
+    if (pk !== this._photoKey) {
+      this._photoKey = pk;
+      this._themeDirty = true;
+    }
     const t = pick ? { key: pick, cycle: false } : themeForLevel(lv);
     this.themeBase = t.key;
     this.themeCycle = t.cycle;
@@ -8896,6 +8934,27 @@ class Renderer {
     g.closePath();
   }
 
+  _paintPhoto(g, L) {
+    const img = this.bgPhoto;
+    const iw = img.naturalWidth || img.width;
+    const ih = img.naturalHeight || img.height;
+    const k = Math.max(L.W / iw, L.H / ih);
+    const w = iw * k;
+    const h = ih * k;
+    g.fillStyle = '#000';
+    g.fillRect(0, 0, L.W, L.H);
+    try {
+      g.drawImage(img, (L.W - w) / 2, (L.H - h) / 2, w, h);
+    } catch {}
+    const d = Math.max(0, Math.min(0.85, this.photoDim ?? 0.4));
+    const gr = g.createLinearGradient(0, 0, 0, L.H);
+    gr.addColorStop(0, `rgba(0,0,0,${d * 0.6})`);
+    gr.addColorStop(0.5, `rgba(0,0,0,${d})`);
+    gr.addColorStop(1, `rgba(0,0,0,${Math.min(0.9, d * 1.2)})`);
+    g.fillStyle = gr;
+    g.fillRect(0, 0, L.W, L.H);
+  }
+
   _drawStatic() {
     const L = this.L;
     const T = this.theme;
@@ -8904,8 +8963,9 @@ class Renderer {
     c.height = this.canvas.height;
     const g = c.getContext('2d');
     g.setTransform(L.dpr, 0, 0, L.dpr, 0, 0);
-    // 맵 배경 (하늘·땅·장식)
-    paintScenery(g, L, T);
+    // 맵 배경 (하늘·땅·장식). 📷 내 사진이면 사진을 화면에 꽉 차게 + 노트가 잘 보이게 어둡게
+    if (T.key === 'photo' && this.bgPhoto) this._paintPhoto(g, L);
+    else paintScenery(g, L, T);
     // 원근 길(레인): 위(먼 곳)는 좁고 아래(가까운 곳)는 넓음. 줄 전체가 버튼
     const y0 = L.topY;
     const padTop = L.strikeY - L.instR * 1.45;
@@ -8987,7 +9047,7 @@ class Renderer {
     g.fillRect(this._px(L.x0, L.sFar), y0 - 1, (L.x1 - L.x0) * L.sFar, 2);
     // 먼 곳 안개
     const fog = g.createLinearGradient(0, y0 - 2, 0, y0 + (L.strikeY - y0) * 0.22);
-    fog.addColorStop(0, `rgba(${T.fog},0.75)`);
+    fog.addColorStop(0, `rgba(${T.fog},${T.fogA ?? 0.75})`);
     fog.addColorStop(1, `rgba(${T.fog},0)`);
     g.fillStyle = fog;
     g.fillRect(this._px(L.x0, L.sFar) - 20, y0 - 2, (L.x1 - L.x0) * L.sFar + 40, (L.strikeY - y0) * 0.22 + 2);
@@ -11487,6 +11547,8 @@ const DEFAULT_SETTINGS = {
   bg: 'auto',
   kit: 'auto',
   notes: 'basic',
+  // 📷 내 사진 배경 어둡게 (0~0.85). 사진 파일 자체는 IndexedDB (photoSave)
+  photoDim: 0.4,
 };
 
 function loadSettings() {
@@ -11564,7 +11626,67 @@ function migrateLevelOrder() {
   save('levelOrderV2', true);
 }
 
-return { load, save, remove, DEFAULT_SETTINGS, loadSettings, saveSettings, loadBests, saveBest, resetOldLevel18, migrateLevelOrder };
+// ---------------- 📷 내 사진 배경: 이 폰의 IndexedDB 에만 (서버로 안 감) ----------------
+function idb() {
+  return new Promise((res, rej) => {
+    try {
+      const r = indexedDB.open('okaystra', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('files');
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    } catch (e) {
+      rej(e);
+    }
+  });
+}
+async function idbDo(mode, fn) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('files', mode);
+    const req = fn(tx.objectStore('files'));
+    tx.oncomplete = () => res(req && req.result);
+    tx.onerror = tx.onabort = () => rej(tx.error);
+  });
+}
+/** 사진(Blob) 저장. IndexedDB 가 막힌 브라우저면 작을 때만 localStorage 에 */
+async function photoSave(blob) {
+  try {
+    await idbDo('readwrite', (st) => st.put(blob, 'bgPhoto'));
+    remove('bgPhotoUrl');
+    return true;
+  } catch {
+    if (blob.size > 1.5e6) return false;
+    const url = await new Promise((r) => {
+      const fr = new FileReader();
+      fr.onload = () => r(fr.result);
+      fr.onerror = () => r(null);
+      fr.readAsDataURL(blob);
+    });
+    if (!url) return false;
+    try {
+      localStorage.setItem(PREFIX + 'bgPhotoUrl', JSON.stringify(url));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+/** 저장된 사진 → 이미지 주소(objectURL 또는 data URL), 없으면 null */
+async function photoLoad() {
+  try {
+    const b = await idbDo('readonly', (st) => st.get('bgPhoto'));
+    if (b) return URL.createObjectURL(b);
+  } catch {}
+  return load('bgPhotoUrl', null);
+}
+async function photoDelete() {
+  try {
+    await idbDo('readwrite', (st) => st.delete('bgPhoto'));
+  } catch {}
+  remove('bgPhotoUrl');
+}
+
+return { load, save, remove, DEFAULT_SETTINGS, loadSettings, saveSettings, loadBests, saveBest, resetOldLevel18, migrateLevelOrder, photoSave, photoLoad, photoDelete };
 })();
 
 // ---- track.js ----
@@ -12036,11 +12158,12 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-22a',
+    id: '2026-11-22b',
     date: '11월 22일',
     title: '🎨 꾸미기 · 판정 글자',
     items: [
       '<b>🎨 꾸미기</b> — 설정에서 배경·드럼 세트·콩 색을 마음대로 골라요',
+      '<b>📷 내 사진 배경</b> — 앨범 사진을 게임 배경으로! 사진은 내 폰에만 저장돼요',
       'PERFECT·GREAT·GOOD 글자를 크기·색으로 더 잘 구분되게 바꿨어요',
     ],
   },
@@ -13165,7 +13288,7 @@ const { RoomClient, roomOutcome, survivalOutcome } = __m_room;
 const { makeReelCover } = __m_cover;
 const { detectBeat, monoOf, songChart } = __m_beatsync;
 const { seasonLeftText, BOARD_LABEL } = __m_season;
-const { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder, resetOldLevel18 } = __m_storage;
+const { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder, resetOldLevel18, photoSave, photoLoad, photoDelete } = __m_storage;
 
 resetOldLevel18(); // 18번 = 엘리제를 위하여 (그 전 찬송가 기록 지움)
 migrateLevelOrder(); // 8단계에 새 곡이 끼면서 밀린 번호를 이 브라우저 기록에도 반영 (아래 state 보다 먼저)
@@ -14975,6 +15098,7 @@ function applyDeco() {
   const s = state.settings;
   renderer.bgPick = s.bg && s.bg !== 'auto' ? s.bg : null;
   renderer.kitPick = s.kit && s.kit !== 'auto' ? s.kit : null;
+  renderer.photoDim = s.photoDim ?? 0.4;
   applyNoteColors(renderer.studio ? 'basic' : s.notes || 'basic');
 }
 function renderDeco() {
@@ -14982,8 +15106,10 @@ function renderDeco() {
   const chip = (attr, key, label, bg, on) =>
     `<button class="chip" data-${attr}="${key}" aria-pressed="${on}"><i style="background:${bg}"></i>${label}</button>`;
   const auto = 'conic-gradient(#FF9A6B,#6A1B78,#7A2A1C,#1C4A5E,#FF9A6B)';
+  const ph = photo.url ? `center/cover url('${photo.url}')` : '#555';
   $('#set-bg').innerHTML =
     chip('bg', 'auto', '단계별', auto, !s.bg || s.bg === 'auto') +
+    chip('bg', 'photo', photo.url ? '📷 내 사진' : '📷 사진 넣기', ph, s.bg === 'photo' && !!photo.url) +
     DECO_THEMES.map((k) => chip('bg', k, THEMES[k].name, `linear-gradient(${THEMES[k].sky.join(',')})`, s.bg === k)).join('');
   $('#set-kit').innerHTML =
     chip('kit', 'auto', '맵 따라', auto, !s.kit || s.kit === 'auto') +
@@ -14995,13 +15121,102 @@ function renderDeco() {
   $('#set-notes').innerHTML = Object.entries(NOTE_PALETTES)
     .map(([k, p]) => chip('notes', k, p.name, `conic-gradient(${lanes(p).join(',')})`, (s.notes || 'basic') === k))
     .join('');
+  $('#set-photo-opts').hidden = !(s.bg === 'photo' && photo.url);
+  $('#set-photo-dim').value = s.photoDim ?? 0.4;
+}
+
+// 📷 내 사진 배경: 고른 사진을 긴 쪽 1600px JPEG 로 줄여 이 폰(IndexedDB)에만 저장. 서버로 안 보냄
+const photo = { url: null };
+function setPhotoImage(url) {
+  if (photo.url && photo.url.startsWith('blob:') && photo.url !== url) URL.revokeObjectURL(photo.url);
+  photo.url = url;
+  if (!url) {
+    renderer.bgPhoto = null;
+    return Promise.resolve(false);
+  }
+  return new Promise((res) => {
+    const img = new Image();
+    img.onload = () => {
+      renderer.bgPhoto = img;
+      res(true);
+    };
+    img.onerror = () => {
+      renderer.bgPhoto = null;
+      res(false);
+    };
+    img.src = url;
+  });
+}
+async function loadPhotoBg() {
+  try {
+    const url = await photoLoad();
+    if (url) await setPhotoImage(url);
+  } catch {}
+}
+async function shrinkPhoto(file) {
+  const src = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = rej;
+      i.src = src;
+    });
+    const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(img.naturalWidth * k));
+    c.height = Math.max(1, Math.round(img.naturalHeight * k));
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.85));
+  } finally {
+    URL.revokeObjectURL(src);
+  }
+}
+async function pickPhoto(file) {
+  if (!file) return;
+  let blob = null;
+  try {
+    blob = await shrinkPhoto(file);
+  } catch {}
+  if (!blob) return toast('이 사진은 못 읽었어요 · 다른 사진으로 해 보세요', 2800);
+  if (!(await photoSave(blob))) return toast('사진을 저장하지 못했어요 (브라우저 저장 공간이 막혀 있어요)', 3200);
+  await setPhotoImage(await photoLoad());
+  state.settings.bg = 'photo';
+  saveSettings(state.settings);
+  applyDeco();
+  renderDeco();
+  toast('📷 배경으로 넣었어요! 다음 판부터 보여요', 2400);
 }
 const LANE_DEFAULT = LANE.slice(0, 4).map((l) => l.main);
 function bindDeco() {
+  loadPhotoBg();
+  $('#set-photo-file').addEventListener('change', (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    pickPhoto(f);
+  });
+  $('#set-photo-dim').addEventListener('input', (e) => {
+    state.settings.photoDim = Number(e.target.value);
+    saveSettings(state.settings);
+    applyDeco();
+  });
+  $('#set-photo-opts').addEventListener('click', async (e) => {
+    const a = e.target.closest('[data-photo-act]');
+    if (!a) return;
+    if (a.dataset.photoAct === 'change') return $('#set-photo-file').click();
+    await photoDelete();
+    await setPhotoImage(null);
+    state.settings.bg = 'auto';
+    saveSettings(state.settings);
+    applyDeco();
+    renderDeco();
+    toast('사진을 지웠어요', 1800);
+  });
   $('#set-deco').addEventListener('click', (e) => {
     const b = e.target.closest('.chip');
     if (!b) return;
     const s = state.settings;
+    if (b.dataset.bg === 'photo' && !photo.url) return $('#set-photo-file').click();
     if (b.dataset.bg) s.bg = b.dataset.bg;
     if (b.dataset.kit) s.kit = b.dataset.kit;
     if (b.dataset.notes) s.notes = b.dataset.notes;

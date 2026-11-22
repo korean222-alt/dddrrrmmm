@@ -40,6 +40,8 @@ export const DEFAULT_SETTINGS = {
   bg: 'auto',
   kit: 'auto',
   notes: 'basic',
+  // 📷 내 사진 배경 어둡게 (0~0.85). 사진 파일 자체는 IndexedDB (photoSave)
+  photoDim: 0.4,
 };
 
 export function loadSettings() {
@@ -115,4 +117,64 @@ export function migrateLevelOrder() {
   const st = load('studio', null);
   if (st && Number(st.level) >= 8 && Number(st.level) <= 14) save('studio', { ...st, level: Number(st.level) + 1 });
   save('levelOrderV2', true);
+}
+
+// ---------------- 📷 내 사진 배경: 이 폰의 IndexedDB 에만 (서버로 안 감) ----------------
+function idb() {
+  return new Promise((res, rej) => {
+    try {
+      const r = indexedDB.open('okaystra', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('files');
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    } catch (e) {
+      rej(e);
+    }
+  });
+}
+async function idbDo(mode, fn) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('files', mode);
+    const req = fn(tx.objectStore('files'));
+    tx.oncomplete = () => res(req && req.result);
+    tx.onerror = tx.onabort = () => rej(tx.error);
+  });
+}
+/** 사진(Blob) 저장. IndexedDB 가 막힌 브라우저면 작을 때만 localStorage 에 */
+export async function photoSave(blob) {
+  try {
+    await idbDo('readwrite', (st) => st.put(blob, 'bgPhoto'));
+    remove('bgPhotoUrl');
+    return true;
+  } catch {
+    if (blob.size > 1.5e6) return false;
+    const url = await new Promise((r) => {
+      const fr = new FileReader();
+      fr.onload = () => r(fr.result);
+      fr.onerror = () => r(null);
+      fr.readAsDataURL(blob);
+    });
+    if (!url) return false;
+    try {
+      localStorage.setItem(PREFIX + 'bgPhotoUrl', JSON.stringify(url));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+/** 저장된 사진 → 이미지 주소(objectURL 또는 data URL), 없으면 null */
+export async function photoLoad() {
+  try {
+    const b = await idbDo('readonly', (st) => st.get('bgPhoto'));
+    if (b) return URL.createObjectURL(b);
+  } catch {}
+  return load('bgPhotoUrl', null);
+}
+export async function photoDelete() {
+  try {
+    await idbDo('readwrite', (st) => st.delete('bgPhoto'));
+  } catch {}
+  remove('bgPhotoUrl');
 }

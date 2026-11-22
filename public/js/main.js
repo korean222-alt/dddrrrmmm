@@ -28,7 +28,7 @@ import { RoomClient, roomOutcome, survivalOutcome } from './room.js';
 import { makeReelCover } from './cover.js';
 import { detectBeat, monoOf, songChart } from './beatsync.js';
 import { seasonLeftText, BOARD_LABEL } from './season.js';
-import { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder, resetOldLevel18 } from './storage.js';
+import { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder, resetOldLevel18, photoSave, photoLoad, photoDelete } from './storage.js';
 
 resetOldLevel18(); // 18번 = 엘리제를 위하여 (그 전 찬송가 기록 지움)
 migrateLevelOrder(); // 8단계에 새 곡이 끼면서 밀린 번호를 이 브라우저 기록에도 반영 (아래 state 보다 먼저)
@@ -1838,6 +1838,7 @@ function applyDeco() {
   const s = state.settings;
   renderer.bgPick = s.bg && s.bg !== 'auto' ? s.bg : null;
   renderer.kitPick = s.kit && s.kit !== 'auto' ? s.kit : null;
+  renderer.photoDim = s.photoDim ?? 0.4;
   applyNoteColors(renderer.studio ? 'basic' : s.notes || 'basic');
 }
 function renderDeco() {
@@ -1845,8 +1846,10 @@ function renderDeco() {
   const chip = (attr, key, label, bg, on) =>
     `<button class="chip" data-${attr}="${key}" aria-pressed="${on}"><i style="background:${bg}"></i>${label}</button>`;
   const auto = 'conic-gradient(#FF9A6B,#6A1B78,#7A2A1C,#1C4A5E,#FF9A6B)';
+  const ph = photo.url ? `center/cover url('${photo.url}')` : '#555';
   $('#set-bg').innerHTML =
     chip('bg', 'auto', '단계별', auto, !s.bg || s.bg === 'auto') +
+    chip('bg', 'photo', photo.url ? '📷 내 사진' : '📷 사진 넣기', ph, s.bg === 'photo' && !!photo.url) +
     DECO_THEMES.map((k) => chip('bg', k, THEMES[k].name, `linear-gradient(${THEMES[k].sky.join(',')})`, s.bg === k)).join('');
   $('#set-kit').innerHTML =
     chip('kit', 'auto', '맵 따라', auto, !s.kit || s.kit === 'auto') +
@@ -1858,13 +1861,102 @@ function renderDeco() {
   $('#set-notes').innerHTML = Object.entries(NOTE_PALETTES)
     .map(([k, p]) => chip('notes', k, p.name, `conic-gradient(${lanes(p).join(',')})`, (s.notes || 'basic') === k))
     .join('');
+  $('#set-photo-opts').hidden = !(s.bg === 'photo' && photo.url);
+  $('#set-photo-dim').value = s.photoDim ?? 0.4;
+}
+
+// 📷 내 사진 배경: 고른 사진을 긴 쪽 1600px JPEG 로 줄여 이 폰(IndexedDB)에만 저장. 서버로 안 보냄
+const photo = { url: null };
+function setPhotoImage(url) {
+  if (photo.url && photo.url.startsWith('blob:') && photo.url !== url) URL.revokeObjectURL(photo.url);
+  photo.url = url;
+  if (!url) {
+    renderer.bgPhoto = null;
+    return Promise.resolve(false);
+  }
+  return new Promise((res) => {
+    const img = new Image();
+    img.onload = () => {
+      renderer.bgPhoto = img;
+      res(true);
+    };
+    img.onerror = () => {
+      renderer.bgPhoto = null;
+      res(false);
+    };
+    img.src = url;
+  });
+}
+async function loadPhotoBg() {
+  try {
+    const url = await photoLoad();
+    if (url) await setPhotoImage(url);
+  } catch {}
+}
+async function shrinkPhoto(file) {
+  const src = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => {
+      const i = new Image();
+      i.onload = () => res(i);
+      i.onerror = rej;
+      i.src = src;
+    });
+    const k = Math.min(1, 1600 / Math.max(img.naturalWidth, img.naturalHeight));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(img.naturalWidth * k));
+    c.height = Math.max(1, Math.round(img.naturalHeight * k));
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    return await new Promise((res) => c.toBlob(res, 'image/jpeg', 0.85));
+  } finally {
+    URL.revokeObjectURL(src);
+  }
+}
+async function pickPhoto(file) {
+  if (!file) return;
+  let blob = null;
+  try {
+    blob = await shrinkPhoto(file);
+  } catch {}
+  if (!blob) return toast('이 사진은 못 읽었어요 · 다른 사진으로 해 보세요', 2800);
+  if (!(await photoSave(blob))) return toast('사진을 저장하지 못했어요 (브라우저 저장 공간이 막혀 있어요)', 3200);
+  await setPhotoImage(await photoLoad());
+  state.settings.bg = 'photo';
+  saveSettings(state.settings);
+  applyDeco();
+  renderDeco();
+  toast('📷 배경으로 넣었어요! 다음 판부터 보여요', 2400);
 }
 const LANE_DEFAULT = LANE.slice(0, 4).map((l) => l.main);
 function bindDeco() {
+  loadPhotoBg();
+  $('#set-photo-file').addEventListener('change', (e) => {
+    const f = e.target.files && e.target.files[0];
+    e.target.value = '';
+    pickPhoto(f);
+  });
+  $('#set-photo-dim').addEventListener('input', (e) => {
+    state.settings.photoDim = Number(e.target.value);
+    saveSettings(state.settings);
+    applyDeco();
+  });
+  $('#set-photo-opts').addEventListener('click', async (e) => {
+    const a = e.target.closest('[data-photo-act]');
+    if (!a) return;
+    if (a.dataset.photoAct === 'change') return $('#set-photo-file').click();
+    await photoDelete();
+    await setPhotoImage(null);
+    state.settings.bg = 'auto';
+    saveSettings(state.settings);
+    applyDeco();
+    renderDeco();
+    toast('사진을 지웠어요', 1800);
+  });
   $('#set-deco').addEventListener('click', (e) => {
     const b = e.target.closest('.chip');
     if (!b) return;
     const s = state.settings;
+    if (b.dataset.bg === 'photo' && !photo.url) return $('#set-photo-file').click();
     if (b.dataset.bg) s.bg = b.dataset.bg;
     if (b.dataset.kit) s.kit = b.dataset.kit;
     if (b.dataset.notes) s.notes = b.dataset.notes;
