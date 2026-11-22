@@ -406,6 +406,35 @@ test('🖐 터치 씹힘(2026-11-22): 되살린 터치는 벌이 없고, 조금 
   assert.equal(g.counts.wrong, 0);
   assert.equal(k[1].judged, false);
   assert.equal(g.lives, before - 1, '하트는 하나만');
+
+  // 4) 윌리엄 텔 '쿵짝쿵'(0.104초 간격): 쿵 엄지가 가운데 선을 살짝 넘어 짝 줄을 눌러도 쿵, 그다음 진짜 짝은 짝
+  const { SNARE, getLevel } = await import('../public/js/charts.js');
+  g = make(getLevel(15));
+  const K = g.lanes[KICK];
+  const S = g.lanes[SNARE];
+  const kk = K.find((n) => S.some((s) => Math.abs(s.time - n.time - 0.104) < 0.01) && K.some((m) => Math.abs(m.time - n.time - 0.208) < 0.01));
+  assert.ok(kk, '쿵짝쿵 자리');
+  const ss = S.find((s) => Math.abs(s.time - kk.time - 0.104) < 0.01);
+  clock = kk.time + 0.01;
+  g.input(SNARE, 0, [{ lane: KICK, d: 0.2 }], 2.2); // 쿵 엄지가 짝 줄 경계 바로 안쪽
+  assert.equal(kk.judged, true, '쿵이 쳐져야 함');
+  assert.equal(ss.judged, false, '짝 콩을 일찍 가져가면 안 됨');
+  clock = ss.time - 0.01;
+  g.input(SNARE, 0, [{ lane: KICK, d: 0.6 }], 2.6); // 진짜 짝
+  assert.equal(ss.result, 'perfect');
+  // 짝 엄지가 쿵 줄 경계 안쪽을 눌러도 (다음 쿵이 0.1초 뒤에 있어도) 짝
+  const k2 = K.find((m) => Math.abs(m.time - kk.time - 0.208) < 0.01);
+  const ss2 = S.find((s) => s.time > k2.time && Math.abs(s.time - k2.time - 0.104) < 0.01) || null;
+  clock = k2.time;
+  g.input(KICK, 0, [{ lane: SNARE, d: 0.6 }], 1.4);
+  assert.equal(k2.result, 'perfect');
+  if (ss2) {
+    clock = ss2.time + 0.015;
+    g.input(KICK, 0, [{ lane: SNARE, d: 0.15 }], 1.85);
+    assert.equal(ss2.judged, true, '짝이 쳐져야 함');
+  }
+  assert.equal(g.counts.wrong, 0);
+  assert.equal(g.counts.miss, 0);
 });
 
 test('📦 랭킹 기록 → 깬 단계(별) 어림: 무제한은 다이아·깬 단계', async () => {

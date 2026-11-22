@@ -959,6 +959,7 @@ async function startLevel(id, opts = {}) {
 
 /** 단계에 맞게 화면 레인(악기) 세팅 */
 function setKit(lv) {
+  canvasRect = null;
   renderer.laneOrder = levelLanes(lv);
   renderer.newLane = lv.newInstrument ?? -1;
   applyDeco();
@@ -973,8 +974,14 @@ function setKit(lv) {
 }
 
 /** 누른 줄의 악기 (원근으로 비스듬한 줄 모양 그대로. 악기 그림을 정확히 안 눌러도 됨) */
+//   캔버스 자리는 기억해 둠 (손가락 움직임마다 getBoundingClientRect 로 화면 배치를 다시 계산하지 않게). 판 시작·화면 크기 바뀔 때 비움
+let canvasRect = null;
 function laneFromPoint(x, y) {
-  const r = $('#game-canvas').getBoundingClientRect();
+  let r = canvasRect;
+  if (!r) {
+    r = $('#game-canvas').getBoundingClientRect();
+    if (r.width > 0) canvasRect = r;
+  }
   return renderer.laneHit(x - r.left, y - r.top);
 }
 
@@ -1017,28 +1024,43 @@ function bindGameInput() {
     (e) => {
       e.preventDefault();
       // 게임 시작 전부터 대고 있던 손가락도 기억 (안 그러면 시작 뒤 첫 움직임이 '새 터치'로 잡힘)
-      for (const t of e.changedTouches) held.set(t.identifier, { at: e.timeStamp, x: t.clientX, y: t.clientY });
+      for (const t of e.changedTouches) held.set(t.identifier, { at: e.timeStamp, x: t.clientX, y: t.clientY, u: state.game ? laneFromPoint(t.clientX, t.clientY).u : null });
       if (!state.game) return;
       if (!e.isTrusted) state.game.fakeTaps += e.changedTouches.length;
       for (const t of e.changedTouches) tapAt(t.clientX, t.clientY, e.timeStamp);
     },
     { passive: false }
   );
-  // 아이폰: 손가락 하나의 '뗌'(touchend)을 놓치면 사파리가 그 손가락이 아직 붙어 있다고 여겨,
-  //   그 근처를 새로 눌러도 touchstart 대신 그 '유령 손가락'의 touchmove 로만 보낼 수 있음.
-  //   한동안(0.25초) 조용하던 손가락이 10px 넘게 다른 자리로 옮겨 오면 새로 누른 것일 수 있다고 보고 '부드러운 터치'(soft)로 넘김:
-  //   맞힐 콩이 GREAT 범위에 있을 때만 치고, 아니면 아무 일도 없음 (헛침·MISS 벌 없음, game._softTap).
-  //   ⚠ 2026-11-22 저녁 이 기준을 70ms·4px 로 줄이고 보통 터치처럼 셌더니, 누른 채 살짝 굴리며 떼는 손가락이
-  //   터치 한 번 더로 잡혀 헛침(하트)·MISS 가 쏟아짐 → '터치가 자꾸 씹혀요' 댓글 폭주. 기준을 줄이지 말 것
+  // 손가락 움직임(touchmove)이 사실은 '새로 누른 것'일 수 있는 두 경우 → '부드러운 터치'(soft)로 넘김:
+  //   맞힐 콩이 GREAT 범위에 있을 때만 치고, 아니면 아무 일도 없음 (헛침·MISS 벌 없음, game._softTap)
+  //   ① 아이폰이 손가락 하나의 '뗌'(touchend)을 놓치면, 그 근처를 새로 눌러도 그 '유령 손가락'의 움직임으로만 올 수 있음
+  //      → 한동안(0.25초) 조용하던 손가락이 10px 넘게 옮겨 옴
+  //   ② 두 엄지가 가까이(4줄 곡의 쿵·짝은 화면 가운데에 붙어 있음) 거의 동시에 닿으면 폰이 둘을 손가락 하나가 움직인 걸로 합쳐 보낼 수 있음
+  //      → 누른 손가락이 다른 줄로 넘어감 (줄 경계에서 줄 너비 0.15 넘게 들어가야, 경계에서 떨리는 건 안 셈)
+  //      (2026-11-22 '윌리엄 텔 쿵짝쿵에서 분명히 눌렀는데 쿵이나 짝 하나가 안 눌림' 문의)
+  //   ⚠ 2026-11-22 저녁 ①의 기준을 70ms·4px 로 줄이고 보통 터치처럼 셌더니, 누른 채 살짝 굴리며 떼는 손가락이
+  //   터치 한 번 더로 잡혀 헛침(하트)·MISS 가 쏟아짐 → '터치가 자꾸 씹혀요' 댓글 폭주. 같은 줄 기준을 줄이거나 벌을 주지 말 것
   canvas.addEventListener(
     'touchmove',
     (e) => {
       e.preventDefault();
+      if (!state.game) return;
       for (const t of e.changedTouches) {
         const h = held.get(t.identifier);
-        const revived = !h || (e.timeStamp - h.at > 250 && Math.hypot(t.clientX - h.x, t.clientY - h.y) > 10);
-        held.set(t.identifier, { at: e.timeStamp, x: t.clientX, y: t.clientY });
-        if (revived && state.game) tapAt(t.clientX, t.clientY, e.timeStamp, true);
+        const { u } = laneFromPoint(t.clientX, t.clientY);
+        let revived = !h || (e.timeStamp - h.at > 250 && Math.hypot(t.clientX - h.x, t.clientY - h.y) > 10);
+        let hu = h && h.u != null ? h.u : u;
+        if (!revived && u != null && hu != null) {
+          // 줄 경계에서 0.15 넘게 다른 줄 안으로 들어옴 (길 밖 가장자리는 맨 끝 줄로 봄)
+          const n = renderer.laneOrder.length;
+          const cl = (v) => Math.min(n - 1e-6, Math.max(0, v));
+          const pi = Math.floor(cl(hu));
+          const cu = cl(u);
+          if (cu >= pi + 1.15 || cu <= pi - 0.15) revived = true;
+        }
+        if (revived) hu = u;
+        held.set(t.identifier, { at: e.timeStamp, x: t.clientX, y: t.clientY, u: hu });
+        if (revived) tapAt(t.clientX, t.clientY, e.timeStamp, true);
       }
     },
     { passive: false }
@@ -6310,6 +6332,7 @@ function bindActions() {
   });
   let rz;
   window.addEventListener('resize', () => {
+    canvasRect = null;
     clearTimeout(rz);
     rz = setTimeout(() => {
       if ($('#screen-game').classList.contains('active')) renderer.resize();
