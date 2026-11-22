@@ -289,6 +289,12 @@ export class JsonStore {
   seasonRankOf(season, board, igsid) {
     return this._seasonAll(season, board).find((r) => r.igsid === igsid) || null;
   }
+  seasonMine(season, board, igsid) {
+    const r = this.seasonRankOf(season, board, igsid);
+    if (!r) return null;
+    const { rank, ...rest } = r;
+    return rest;
+  }
   hallList() {
     return [...this.data.hall].sort((a, b) => b.season - a.season || a.board.localeCompare(b.board) || a.rank - b.rank).map((r) => ({ image: null, ...r }));
   }

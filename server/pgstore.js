@@ -499,11 +499,27 @@ END $$`);
     const sum = board === 'endless' ? 'SUM(s.score % 1000000000)' : 'SUM(s.score)';
     const rounds = board === 'endless' ? 'SUM(s.score / 1000000000)' : '0';
     const where = board === 'endless' ? 's.level <= 0' : `s.level > 0 AND s.level <= ${LAST_LEVEL_ID}`;
+    // 사람별로 먼저 모은 뒤 players 와 합침 (D1 읽는 줄 줄이기, 2026-11-22)
     return `SELECT x.*, ROW_NUMBER() OVER (ORDER BY x.score DESC, x.at ASC) AS rank FROM (
-        SELECT s.igsid, p.username, ${sum} AS score, COUNT(*) AS n, ${rounds} AS rounds, MAX(s.at) AS at
-        FROM ${src} s JOIN players p ON p.igsid = s.igsid
-        WHERE ${where} AND p.username IS NOT NULL AND p.hidden_at IS NULL AND p.checked_at IS NOT NULL
-        GROUP BY s.igsid, p.username) x`;
+        SELECT t.igsid, p.username, t.score, t.n, t.rounds, t.at FROM (
+          SELECT s.igsid, ${sum} AS score, COUNT(*) AS n, ${rounds} AS rounds, MAX(s.at) AS at
+          FROM ${src} s WHERE ${where} GROUP BY s.igsid) t
+        JOIN players p ON p.igsid = t.igsid
+        WHERE p.username IS NOT NULL AND p.hidden_at IS NULL AND p.checked_at IS NOT NULL) x`;
+  }
+  /** 내 시즌 총합만 (내 기록 줄만 읽음). 랭킹에 안 보이는 사람이면 null */
+  async seasonMine(season, board, igsid) {
+    const sum = board === 'endless' ? 'SUM(s.score % 1000000000)' : 'SUM(s.score)';
+    const rounds = board === 'endless' ? 'SUM(s.score / 1000000000)' : '0';
+    const where = board === 'endless' ? 's.level <= 0' : `s.level > 0 AND s.level <= ${LAST_LEVEL_ID}`;
+    const r =
+      Number(season) === 1
+        ? await this.one(`SELECT ${sum} AS score, COUNT(*) AS n, ${rounds} AS rounds, MAX(s.at) AS at FROM scores s WHERE s.igsid = $1 AND ${where}`, [igsid])
+        : await this.one(`SELECT ${sum} AS score, COUNT(*) AS n, ${rounds} AS rounds, MAX(s.at) AS at FROM season_scores s WHERE s.season = $2 AND s.igsid = $1 AND ${where}`, [igsid, Math.floor(Number(season)) || 0]);
+    if (!r || r.score == null) return null;
+    const p = await this.getPlayer(igsid);
+    if (!p || !p.username || p.hiddenAt || !p.checkedAt) return null;
+    return { igsid, username: p.username, score: Number(r.score), n: Number(r.n), rounds: Number(r.rounds), at: Number(r.at) };
   }
   _seasonRow(r) {
     return { igsid: r.igsid, username: r.username, score: Number(r.score), n: Number(r.n), rounds: Number(r.rounds), at: Number(r.at), rank: Number(r.rank) };

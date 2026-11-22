@@ -1388,7 +1388,9 @@ async function submitRank(r = state.lastResult) {
         : { runToken: r.runToken, level: r.levelId, score: r.score, maxCombo: r.maxCombo, counts: r.counts, check: r.check }
     );
     r.submitted = true;
-    if (out.rank == null) toast('팔로우 확인이 안 돼서 지금은 랭킹에 안 보여요. 위 ⚠️ 버튼을 눌러 주세요', 3200);
+    // kept: 기록이 안 올라서 서버가 등수를 안 셈 (D1 읽기 아끼기)
+    if (out.kept && out.rank == null) toast(endless ? `내 최고 기록(Lv.${out.rounds} 클리어)이 그대로 유지돼요` : `내 최고 기록(${fmt(out.best)})이 그대로 유지돼요`, 3000);
+    else if (out.rank == null) toast('팔로우 확인이 안 돼서 지금은 랭킹에 안 보여요. 위 ⚠️ 버튼을 눌러 주세요', 3200);
     else if (endless) toast(out.improved ? `무제한 랭킹에 올라갔어요! Lv.${out.rounds} 클리어 · ${out.rank}위 🏆` : `내 최고 기록(Lv.${out.rounds} 클리어)이 그대로 유지돼요 · ${out.rank}위`, 3200);
     else toast(out.improved ? `랭킹에 올라갔어요! 현재 ${out.rank}위 🏆` : `내 최고 기록(${fmt(out.best)})이 그대로 유지돼요 · ${out.rank}위`, 3000);
   } catch (e) {

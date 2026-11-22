@@ -26,7 +26,7 @@ export const TABLES = [
     merge: 'NOTHING',
     // d1:* · d1schema:* 는 옮기기 상태 표시(D1 에만 있어야 함) → 두 DB 사이에 주고받지 않음
     //   (11-22 되돌릴 때 d1:switched_at 이 Neon 으로 갔다가 다음 복사 때 D1 로 돌아와 '이미 쓰는 중' 으로 멈췄음)
-    only: "key NOT LIKE 'd1:%' AND key NOT LIKE 'd1schema:%'",
+    only: "key NOT LIKE 'd1:%' AND key NOT LIKE 'd1schema:%' AND key NOT LIKE 'set:cache:%'",
   },
   {
     name: 'players', cols: { igsid: 't', username: 't', follow_verified_at: 'i', ig: 't', created_at: 'i', checked_at: 'i', hidden_at: 'i' }, pk: ['igsid'],

@@ -301,6 +301,55 @@ export function createHandler(cfg, { store }) {
       hallDone.add(n);
     }
   }
+  // ---------------- 📉 D1 읽는 줄 아끼기 (2026-11-22: 하루 500만 줄 한도의 77%를 오전에 씀) ----------------
+  //   무거운 결과(명예의 전당 전체 순위·admin 참여자 목록)는 settings 한 줄에 담아 두고 TTL 동안 같이 씀
+  //   (읽기 1줄). 인스턴스 메모리에도 1분. 'set:cache:*' 키는 d1-sync 에서 뺌
+  const memo = new Map();
+  async function cached(key, ttl, fn, { shared = true } = {}) {
+    const now = Date.now();
+    const m = memo.get(key);
+    if (m && m.exp > now) return m.v;
+    if (shared) {
+      try {
+        const raw = await store.getSetting('cache:' + key);
+        const c = raw ? JSON.parse(raw) : null;
+        if (c && c.exp > now && c.v !== undefined) {
+          memo.set(key, { v: c.v, exp: Math.min(c.exp, now + 60_000) });
+          return c.v;
+        }
+      } catch {}
+    }
+    const v = await fn();
+    memo.set(key, { v, exp: now + (shared ? Math.min(ttl, 60_000) : ttl) });
+    if (shared) await Promise.resolve().then(() => store.setSetting('cache:' + key, JSON.stringify({ exp: now + ttl, v }))).catch(() => {});
+    return v;
+  }
+  async function uncache(key) {
+    memo.delete(key);
+    await Promise.resolve().then(() => store.setSetting('cache:' + key, '{}')).catch(() => {});
+  }
+  // 참여자가 바뀌는 저장소 함수는 admin 참여자 목록 캐시를 비우게 감쌈 (가입·인증·숨김·삭제·계정 합치기)
+  for (const fn of ['upsertPlayer', 'setChecked', 'setHidden', 'deletePlayer', 'expireTempChecks', 'moveScores']) {
+    const orig = store[fn];
+    if (typeof orig !== 'function' || orig._uncaches) continue;
+    store[fn] = async function (...a) {
+      const r = await orig.apply(this, a);
+      await uncache('admin:players');
+      memo.delete('admin:scores');
+      return r;
+    };
+    store[fn]._uncaches = true;
+  }
+  const HALL_TTL = 60 * 60 * 1000; // 명예의 전당 전체 순위: 1시간마다 새로 (내 줄은 늘 새로 계산)
+  const ADMIN_TTL = 5 * 60 * 1000;
+  const sortHall = (a, b) => b.score - a.score || a.at - b.at;
+  /** 시즌 총합 전체(랭킹에 보이는 사람) — 1시간 캐시 */
+  const hallRows = (n, board) =>
+    cached(`hall:${n}:${board}`, HALL_TTL, async () =>
+      (await store.seasonBoard(n, board, 1_000_000)).rows.map((r) => ({ igsid: r.igsid, username: r.username, score: r.score, n: r.n, rounds: r.rounds, at: r.at }))
+    );
+  const adminPlayers = () => cached('admin:players', ADMIN_TTL, () => store.listPlayers());
+
   const hallEntry = (r, pl) => ({ rank: r.rank, username: r.username, score: r.score, n: r.n, rounds: r.rounds, me: pl ? r.igsid === pl.igsid : false });
 
   /** 관리자 비밀번호 확인 (길이 같을 때만 한 글자씩 비교) */
@@ -762,6 +811,11 @@ export function createHandler(cfg, { store }) {
     if (p.startsWith('/api/admin/')) {
       if (!isAdmin(request) && !limitAdmin(ip)) return json(429, { error: 'rate_limited' });
       if (!isAdmin(request)) return json(401, { error: 'admin_required' });
+      // 바꾸는 요청이면 캐시해 둔 참여자 목록·기록은 버림
+      if (m !== 'GET') {
+        await uncache('admin:players');
+        memo.delete('admin:scores');
+      }
       // 이용 통계: ?days=7 (1~90). 오늘 포함 최근 N일
       if (p === '/api/admin/stats' && m === 'GET') {
         const days = Math.min(90, Math.max(1, Math.floor(Number(url.searchParams.get('days'))) || 7));
@@ -781,16 +835,20 @@ export function createHandler(cfg, { store }) {
       }
       // 랭킹 참여자 (인스타 아이디로 팔로우 확인 → 안 했으면 삭제)
       if (p === '/api/admin/players' && m === 'GET') {
-        await store.purgeHidden();
-        if (store.cleanup) await store.cleanup();
-        return json(200, { players: await store.listPlayers(), keepDays: HIDE_KEEP_MS / 86400000 });
+        // 5분 캐시 (참여자 목록은 기록 전체를 읽어서 무거움). admin 에서 뭘 바꾸면 비움
+        const players = await cached('admin:players', ADMIN_TTL, async () => {
+          await store.purgeHidden();
+          if (store.cleanup) await store.cleanup();
+          return store.listPlayers();
+        });
+        return json(200, { players, keepDays: HIDE_KEEP_MS / 86400000 });
       }
       // 랭킹에서 내리기 (5일 뒤 자동 삭제, 그 사이 다시 들어와 아이디를 넣으면 돌아옴) / 되돌리기
       // 🕵 핵 의심 지표 (쿼리 2번: 참여자 목록 + 전체 기록)
       if (p === '/api/admin/suspects' && m === 'GET') {
         // ?igsid= 이면 그 사람 자세히, 없으면 강한 신호만 목록 (쿼리 2번)
-        const players = await store.listPlayers();
-        const rows = await store.allScores();
+        const players = await adminPlayers();
+        const rows = await cached('admin:scores', ADMIN_TTL, () => store.allScores(), { shared: false }); // 커서 settings 엔 안 넣음
         const id = url.searchParams.get('igsid');
         if (id) {
           const pl = players.find((x) => x.igsid === id);
@@ -812,7 +870,7 @@ export function createHandler(cfg, { store }) {
       if (p === '/api/admin/recover-requests' && m === 'GET') {
         const reqs = await store.listRecoverRequests(300);
         // 전부 봄: 예전 계정(인스타 아이디 없음)은 참여자 목록 맨 뒤라 1000명에서 자르면 못 찾음
-        const players = await store.listPlayers(1_000_000);
+        const players = await adminPlayers();
         const byId = new Map(players.map((x) => [x.igsid, x]));
         const norm = (s) => String(s || '').trim().toLowerCase();
         const squash = (s) => norm(s).replace(/[\s._\-·~!?]+/g, '');
@@ -972,9 +1030,10 @@ export function createHandler(cfg, { store }) {
         await ensureHall();
         const out = await store.recordScore(pl.igsid, em.slot, { score: endlessKey(e.rounds, e.score), grade: null, maxCombo: 0 });
         if (seasonAt().n > 1) await store.recordSeasonScore(seasonAt().n, pl.igsid, em.slot, endlessKey(e.rounds, e.score));
-        const mine = await store.rankOf(em.slot, pl.igsid);
+        // 등수는 기록이 올랐을 때만 셈 (D1 읽기 아끼기)
+        const mine = out.improved ? await store.rankOf(em.slot, pl.igsid) : null;
         const best = endlessParts(out.best);
-        return json(200, wc({ improved: out.improved, best: best.score, rounds: best.rounds, rank: mine ? mine.rank : null }));
+        return json(200, wc({ improved: out.improved, best: best.score, rounds: best.rounds, rank: mine ? mine.rank : null, kept: !out.improved }));
       }
       const v = validateScore(body, cfg);
       if (!v.ok) return json(400, wc({ error: v.error }));
@@ -983,8 +1042,8 @@ export function createHandler(cfg, { store }) {
       const out = await store.recordScore(pl.igsid, v.level.id, { score: v.score, grade: v.grade, maxCombo: v.maxCombo, chk: v.chk });
       if (v.level.id > 0) await Promise.resolve().then(() => store.addTry(pl.igsid, v.level.id, 0, 1)).catch(() => {});
       if (seasonAt().n > 1 && v.level.id > 0 && v.level.id <= LAST_LEVEL_ID) await store.recordSeasonScore(seasonAt().n, pl.igsid, v.level.id, v.score);
-      const mine = await store.rankOf(v.level.id, pl.igsid);
-      return json(200, wc({ ...out, rank: mine ? mine.rank : null }));
+      const mine = out.improved ? await store.rankOf(v.level.id, pl.igsid) : null;
+      return json(200, wc({ ...out, rank: mine ? mine.rank : null, kept: !out.improved }));
     }
 
     // 🏛 명예의 전당: 이번 시즌 총합 랭킹(단계·무제한) + 끝난 시즌 1·2·3등(사진 포함)
@@ -993,10 +1052,16 @@ export function createHandler(cfg, { store }) {
       await ensureHall();
       const pl = await getPlayer(request);
       const season = seasonAt();
-      const lb = await store.seasonBoard(season.n, board, 50);
-      const mine = pl ? await store.seasonRankOf(season.n, board, pl.igsid) : null;
+      // 전체 순위는 1시간 캐시, 내 줄만 새로 계산해서 끼워 넣음 (내 점수는 바로 보이게)
+      const all = await hallRows(season.n, board);
+      const mineNow = pl ? await store.seasonMine(season.n, board, pl.igsid) : null;
+      const list = pl ? all.filter((r) => r.igsid !== pl.igsid) : all.slice();
+      if (mineNow) list.push(mineNow);
+      list.sort(sortHall);
+      const top = list.slice(0, 50).map((r, i) => ({ ...r, rank: i + 1 }));
+      const mine = mineNow ? { ...mineNow, rank: list.indexOf(mineNow) + 1 } : null;
       const hall = (await store.hallList()).map((h) => ({ ...hallEntry(h, pl), season: h.season, board: h.board, image: h.image }));
-      return json(200, { season: { n: season.n, end: season.end }, board, levels: LAST_LEVEL_ID, entries: lb.rows.map((r) => hallEntry(r, pl)), me: mine ? hallEntry(mine, pl) : null, hall });
+      return json(200, { season: { n: season.n, end: season.end }, board, levels: LAST_LEVEL_ID, entries: top.map((r) => hallEntry(r, pl)), me: mine ? hallEntry(mine, pl) : null, hall });
     }
     // 명예의 전당에 오른 사람만 자기 칸에 프로필 사진 올리기 / 지우기 (image: null)
     if (p === '/api/hall/photo' && m === 'POST') {
@@ -1025,7 +1090,8 @@ export function createHandler(cfg, { store }) {
       const pl = await getPlayer(request);
       const lb = await store.leaderboard(lbEndless.slot, 50);
       const entries = lb.rows.map((r) => ({ rank: r.rank, username: r.username, ...endlessParts(r.score), me: pl ? r.igsid === pl.igsid : false }));
-      const mine = pl ? await store.rankOf(lbEndless.slot, pl.igsid) : null;
+      const inTop = pl && lb.rows.find((r) => r.igsid === pl.igsid);
+      const mine = inTop ? { rank: inTop.rank, score: inTop.score } : pl ? await store.rankOf(lbEndless.slot, pl.igsid) : null;
       return json(200, { level: lbEndless.id, entries, me: mine ? { rank: mine.rank, ...endlessParts(mine.score) } : null });
     }
 
@@ -1035,7 +1101,8 @@ export function createHandler(cfg, { store }) {
       const pl = await getPlayer(request);
       const lb = await store.leaderboard(level.id, 50);
       const entries = lb.rows.map((r) => ({ rank: r.rank, username: r.username, score: r.score, grade: r.grade, me: pl ? r.igsid === pl.igsid : false }));
-      const mine = pl ? await store.rankOf(level.id, pl.igsid) : null;
+      const inTop = pl && lb.rows.find((r) => r.igsid === pl.igsid);
+      const mine = inTop ? { rank: inTop.rank, score: inTop.score } : pl ? await store.rankOf(level.id, pl.igsid) : null;
       return json(200, { level: level.id, entries, me: mine ? { rank: mine.rank, score: mine.score } : null });
     }
 
