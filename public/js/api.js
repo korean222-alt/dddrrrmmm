@@ -140,6 +140,17 @@ function serverApi(boot = null) {
       lbCache.delete('hall:endless');
       return http('POST', '/api/hall/photo', body);
     },
+    // 💬 명예의 전당 한마디 / 🎁 운영자 선물 봤음(+ 한마디) (2026-11-22)
+    hallMsg: (body) => {
+      lbCache.delete('hall:stage');
+      lbCache.delete('hall:endless');
+      return http('POST', '/api/hall/msg', body);
+    },
+    giftAck: (msg) => {
+      lbCache.delete('hall:stage');
+      lbCache.delete('hall:endless');
+      return http('POST', '/api/gift/ack', { msg: msg || null });
+    },
     logout: () => http('POST', '/api/logout'),
     suggest: (kind, text, contact) => http('POST', '/api/suggestions', { kind, text, contact }),
     room: (body) => http('POST', '/api/rooms', body),
@@ -194,6 +205,12 @@ function mockApi(cfg) {
   return {
     mode: 'mock',
     async buy() {
+      throw Object.assign(new Error('no_server'), { status: 503 });
+    },
+    async hallMsg() {
+      throw Object.assign(new Error('no_server'), { status: 503 });
+    },
+    async giftAck() {
       throw Object.assign(new Error('no_server'), { status: 503 });
     },
     async config() {

@@ -14,6 +14,16 @@ const parseOwned = (v) => {
   }
 };
 
+/** 🎁 wallet.gift (JSON 글자) → 객체 */
+const parseGift = (v) => {
+  try {
+    const g = typeof v === 'string' ? JSON.parse(v) : v;
+    return g && typeof g === 'object' ? g : null;
+  } catch {
+    return null;
+  }
+};
+
 const SCHEMA = [
   // 🪙 코인 지갑 (2026-11-22): coins 잔액, t = 마지막으로 받은 판 토큰 시각(같은 판 두 번 못 받게), fday·fn = 토큰 없는 코인 하루 한도, init = 폰에 있던 코인 한 번 올림
   `CREATE TABLE IF NOT EXISTS wallet (igsid TEXT PRIMARY KEY, coins BIGINT NOT NULL DEFAULT 0, t BIGINT NOT NULL DEFAULT 0, fday TEXT, fn INTEGER NOT NULL DEFAULT 0, init INTEGER NOT NULL DEFAULT 0)`,
@@ -21,6 +31,8 @@ const SCHEMA = [
   `ALTER TABLE wallet ADD COLUMN IF NOT EXISTS tn INTEGER NOT NULL DEFAULT 0`,
   // owned = 🛒 상점에서 산 것 JSON 배열 ['bg:city', 'notes:gold' …] (2026-11-22)
   `ALTER TABLE wallet ADD COLUMN IF NOT EXISTS owned TEXT`,
+  // gift = 🎁 운영자가 준 코인 알림 JSON { coins, note, hall:{season,board,rank}, at } — 폰이 확인하면 비움 (2026-11-22)
+  `ALTER TABLE wallet ADD COLUMN IF NOT EXISTS gift TEXT`,
   `CREATE TABLE IF NOT EXISTS players (igsid TEXT PRIMARY KEY, username TEXT, follow_verified_at BIGINT)`,
   // ig = 인스타 아이디(랭킹 참여 때 받음), checked_at = 운영자가 팔로우를 확인한 시각
   `ALTER TABLE players ADD COLUMN IF NOT EXISTS ig TEXT`,
@@ -91,6 +103,8 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS season_scores (season INTEGER NOT NULL, igsid TEXT NOT NULL, level INTEGER NOT NULL, score BIGINT NOT NULL, at BIGINT NOT NULL, PRIMARY KEY (season, igsid, level))`,
   // 🏛 명예의 전당: 끝난 시즌의 1·2·3등 (영원히). image = 본인이 올린 프로필 사진(data URL)
   `CREATE TABLE IF NOT EXISTS hall (season INTEGER NOT NULL, board TEXT NOT NULL, rank INTEGER NOT NULL, igsid TEXT NOT NULL, username TEXT, score BIGINT NOT NULL, n INTEGER, rounds INTEGER, at BIGINT NOT NULL, image TEXT, PRIMARY KEY (season, board, rank))`,
+  // msg = 명예의 전당 한마디 (2026-11-22)
+  `ALTER TABLE hall ADD COLUMN IF NOT EXISTS msg TEXT`,
   `CREATE TABLE IF NOT EXISTS ranked_runs (igsid TEXT NOT NULL, level INTEGER NOT NULL, rating INTEGER NOT NULL, at BIGINT NOT NULL, data JSONB NOT NULL, PRIMARY KEY (igsid, level))`,
 ];
 
@@ -337,8 +351,19 @@ END $$`);
 
   // ----- 🪙 코인 지갑 -----
   async getWallet(igsid) {
-    const r = await this.one('SELECT coins, t, tn, fday, fn, init, owned FROM wallet WHERE igsid = $1', [igsid]);
-    return r ? { coins: num(r.coins), t: num(r.t), tn: num(r.tn) || 0, fday: r.fday || '', fn: num(r.fn), init: num(r.init), owned: parseOwned(r.owned) } : null;
+    const r = await this.one('SELECT coins, t, tn, fday, fn, init, owned, gift FROM wallet WHERE igsid = $1', [igsid]);
+    return r ? { coins: num(r.coins), t: num(r.t), tn: num(r.tn) || 0, fday: r.fday || '', fn: num(r.fn), init: num(r.init), owned: parseOwned(r.owned), gift: parseGift(r.gift) } : null;
+  }
+  /** 🎁 운영자가 코인 주기: 잔액에 바로 더하고(한 줄, 덮어쓰기 없이) 알림(gift)을 적음 */
+  async giveCoins(igsid, coins, gift) {
+    await this.q(
+      `INSERT INTO wallet (igsid, coins, gift) VALUES ($1, $2, $3) ON CONFLICT (igsid) DO UPDATE SET coins = wallet.coins + EXCLUDED.coins, gift = EXCLUDED.gift`,
+      [igsid, coins, gift ? JSON.stringify(gift) : null]
+    );
+  }
+  /** 🎁 알림 지우기 (폰이 봤음) */
+  async clearGift(igsid) {
+    await this.q('UPDATE wallet SET gift = NULL WHERE igsid = $1', [igsid]);
   }
   async putWallet(igsid, w) {
     await this.q(
@@ -546,7 +571,7 @@ END $$`);
   }
   async hallList() {
     const rows = await this.q('SELECT * FROM hall ORDER BY season DESC, board, rank');
-    return rows.map((r) => ({ season: Number(r.season), board: r.board, rank: Number(r.rank), igsid: r.igsid, username: r.username, score: Number(r.score), n: num(r.n), rounds: num(r.rounds), at: Number(r.at), image: r.image || null }));
+    return rows.map((r) => ({ season: Number(r.season), board: r.board, rank: Number(r.rank), igsid: r.igsid, username: r.username, score: Number(r.score), n: num(r.n), rounds: num(r.rounds), at: Number(r.at), image: r.image || null, msg: r.msg || null }));
   }
   /** 끝난 시즌의 1·2·3등 넣기 (이미 있으면 그대로) */
   async hallInsert(rows) {
@@ -555,6 +580,14 @@ END $$`);
         `INSERT INTO hall (season, board, rank, igsid, username, score, n, rounds, at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) ON CONFLICT (season, board, rank) DO NOTHING`,
         [r.season, r.board, r.rank, r.igsid, r.username, r.score, r.n ?? null, r.rounds ?? null, r.at]
       );
+  }
+  /** 💬 한마디 (null = 지우기). igsid 를 주면 본인 것만 */
+  async hallSetMsg(season, board, rank, msg, igsid = null) {
+    const rows = await this.q(
+      `UPDATE hall SET msg = $4 WHERE season = $1 AND board = $2 AND rank = $3 ${igsid ? 'AND igsid = $5' : ''} RETURNING rank`,
+      igsid ? [season, board, rank, msg, igsid] : [season, board, rank, msg]
+    );
+    return rows.length > 0;
   }
   /** 프로필 사진 (null = 지우기). igsid 를 주면 본인 것만 */
   async hallSetImage(season, board, rank, image, igsid = null) {

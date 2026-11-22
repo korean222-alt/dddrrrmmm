@@ -47,8 +47,8 @@ export const TABLES = [
     merge: 'score = excluded.score, at = excluded.at WHERE excluded.score > season_scores.score',
   },
   {
-    name: 'hall', cols: { season: 'i', board: 't', rank: 'i', igsid: 't', username: 't', score: 'i', n: 'i', rounds: 'i', at: 'i', image: 't' }, pk: ['season', 'board', 'rank'], ts: null,
-    merge: 'image = COALESCE(hall.image, excluded.image)', page: 50,
+    name: 'hall', cols: { season: 'i', board: 't', rank: 'i', igsid: 't', username: 't', score: 'i', n: 'i', rounds: 'i', at: 'i', image: 't', msg: 't' }, pk: ['season', 'board', 'rank'], ts: null,
+    merge: 'image = COALESCE(hall.image, excluded.image), msg = COALESCE(hall.msg, excluded.msg)', page: 50,
   },
   {
     name: 'maps', cols: { id: 't', igsid: 't', nick: 't', name: 't', bpm: 'r', bars: 'i', diff: 'i', data: 'j', at: 'i', plays: 'i', likes: 'i', reports: 'i', hidden_at: 'i' }, pk: ['id'], ts: null,

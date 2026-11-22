@@ -276,7 +276,7 @@
               : '<span class="meta">인스타 아이디 없음</span>';
             return `<li data-igsid="${esc(p.igsid)}"><div><div><b>${esc(p.username)}</b> ${id}</div>
               <div class="meta">${old ? '미인증' : p.checkedAt < 0 ? '🆓 임시 인증' : '인증'} · ${ago(p.createdAt)} · 총 ${fmtN(p.total)}점 (${p.levels}단계)${p.endless != null ? ' · 무제한 Lv.' + Math.floor(p.endless / 1000000000) : ''}</div></div>
-              <div class="acts"><button type="button" class="ghost" data-do="sus">🕵 지표</button> <button type="button" class="ghost" data-do="recover">되찾기 코드</button> <button type="button" class="ghost" data-do="delete" style="color:var(--bad)">삭제</button></div></li>`;
+              <div class="acts"><button type="button" class="ghost" data-do="sus">🕵 지표</button> <button type="button" class="ghost" data-do="gift">🎁 코인</button> <button type="button" class="ghost" data-do="recover">되찾기 코드</button> <button type="button" class="ghost" data-do="delete" style="color:var(--bad)">삭제</button></div></li>`;
           }).join('')
         : `<li class="empty">${old ? '미인증 참가자가 없어요.' : '아직 인증한 사람이 없어요.'}</li>`;
       lastList = ps;
@@ -301,6 +301,7 @@
         document.querySelector('[data-tab="sus"]').click();
         return showReport(igsid);
       }
+      if (b.dataset.do === 'gift') return giveGift(igsid, name, null);
       if (b.dataset.do === 'recover') {
         // 인스타 DM 으로 본인인지 확인한 뒤에만! 이 코드를 넣은 폰이 이 계정(인증·랭킹)이 됨
         if (!confirm(`"${name}" 님 계정의 되찾기 코드를 만들까요?\n\n인스타 DM 으로 본인인지 먼저 확인하세요. 코드를 넣은 폰이 이 계정이 돼요. (24시간 · 한 번만)`)) return;
@@ -447,12 +448,37 @@
       $('#hall-list').innerHTML = rows.length
         ? rows
             .map((h) => `<li><b>시즌 ${h.season} · ${BOARD[h.board] || esc(h.board)} · ${h.rank}등</b> ${esc(h.username)} (${Number(h.score).toLocaleString('ko-KR')})
+              <br>💬 ${h.msg ? `"${esc(h.msg)}" <button type="button" class="ghost" data-hall-msgdel="${h.season}|${esc(h.board)}|${h.rank}">한마디 지우기</button>` : '<span class="meta">한마디 없음</span>'}
+              <button type="button" class="ghost" data-hall-gift="${h.season}|${esc(h.board)}|${h.rank}|${esc(h.igsid)}|${esc(h.username)}">🎁 코인 + 한마디 요청</button>
               ${h.image ? `<br><img src="${esc(h.image)}" alt="" style="width:64px;height:64px;border-radius:50%;object-fit:cover;vertical-align:middle"> <button type="button" class="ghost" data-hall-del="${h.season}|${esc(h.board)}|${h.rank}">사진 지우기</button>` : ' · 사진 없음'}</li>`)
             .join('')
         : '<li>아직 끝난 시즌이 없어요. 시즌 1은 11월 26일 밤 11시 59분에 끝나요.</li>';
     }
     $('#hall-reload').addEventListener('click', loadHall);
+    // 🎁 코인 주기: 그 사람이 다음에 게임에 들어오면 '코인 받았어요' 팝업 (hall 을 주면 명예의 전당 한마디 적는 칸도)
+    async function giveGift(igsid, name, hall) {
+      const n = prompt(`"${name}" 님에게 줄 코인 수 (0 = 코인 없이${hall ? ' 한마디만 요청' : ''})`, hall ? '10000' : '1000');
+      if (n == null) return;
+      const coins = Math.floor(Number(n.replace(/[^0-9]/g, '')) || 0);
+      if (!coins && !hall) return alert('코인 수를 적어 주세요');
+      const note = prompt('팝업에 보일 한 줄 (비워도 돼요)', hall ? `시즌 ${hall.season} ${hall.rank}등 축하해요!` : '') ?? '';
+      const r = await call('POST', '/api/admin/gift', { igsid, coins, note, hall });
+      if (r.status !== 200) return alert('못 줬어요: ' + ((r.data && r.data.error) || r.status));
+      alert(`✅ ${name} 님 지갑에 ${coins.toLocaleString('ko-KR')}코인 넣었어요 (지금 ${Number(r.data.coins).toLocaleString('ko-KR')}).\n다음에 게임에 들어오면 팝업이 떠요.`);
+    }
     $('#hall-list').addEventListener('click', async (e) => {
+      const g = e.target.closest('[data-hall-gift]');
+      if (g) {
+        const [season, board, rank, igsid, name] = g.dataset.hallGift.split('|');
+        return giveGift(igsid, name, { season: Number(season), board, rank: Number(rank) });
+      }
+      const md = e.target.closest('[data-hall-msgdel]');
+      if (md) {
+        if (!confirm('이 한마디를 지울까요?')) return;
+        const [season, board, rank] = md.dataset.hallMsgdel.split('|');
+        await call('POST', '/api/admin/hall/msg', { season: Number(season), board, rank: Number(rank) });
+        return loadHall();
+      }
       const b = e.target.closest('[data-hall-del]');
       if (!b || !confirm('이 사진을 지울까요?')) return;
       const [season, board, rank] = b.dataset.hallDel.split('|');

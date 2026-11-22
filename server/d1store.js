@@ -31,7 +31,7 @@ const val = (v) => (v === undefined ? null : v === true ? 1 : v === false ? 0 : 
  *     (players·scores·maps 등은 11-21 미리 복사 때 이미 보통 표로 만들어져 그대로 둠 — 바꾸려면 다시 써야 해서 쓰기 한도를 또 씀)
  */
 export const D1_SCHEMA = [
-  `CREATE TABLE IF NOT EXISTS wallet (igsid TEXT PRIMARY KEY, coins INTEGER NOT NULL DEFAULT 0, t INTEGER NOT NULL DEFAULT 0, tn INTEGER NOT NULL DEFAULT 0, fday TEXT, fn INTEGER NOT NULL DEFAULT 0, init INTEGER NOT NULL DEFAULT 0, owned TEXT) WITHOUT ROWID`,
+  `CREATE TABLE IF NOT EXISTS wallet (igsid TEXT PRIMARY KEY, coins INTEGER NOT NULL DEFAULT 0, t INTEGER NOT NULL DEFAULT 0, tn INTEGER NOT NULL DEFAULT 0, fday TEXT, fn INTEGER NOT NULL DEFAULT 0, init INTEGER NOT NULL DEFAULT 0, owned TEXT, gift TEXT) WITHOUT ROWID`,
   `CREATE TABLE IF NOT EXISTS players (igsid TEXT PRIMARY KEY, username TEXT, follow_verified_at INTEGER, ig TEXT, created_at INTEGER, checked_at INTEGER, hidden_at INTEGER)`,
   `CREATE TABLE IF NOT EXISTS scores (igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, grade TEXT, max_combo INTEGER, at INTEGER NOT NULL, chk TEXT, PRIMARY KEY (igsid, level))`,
   `CREATE INDEX IF NOT EXISTS scores_rank ON scores (level, score DESC, at)`,
@@ -57,7 +57,7 @@ export const D1_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS ranked (season TEXT NOT NULL, igsid TEXT NOT NULL, rating INTEGER NOT NULL, games INTEGER NOT NULL, at INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (season, igsid))`,
   `CREATE INDEX IF NOT EXISTS ranked_top ON ranked (season, rating DESC)`,
   `CREATE TABLE IF NOT EXISTS season_scores (season INTEGER NOT NULL, igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (season, igsid, level)) WITHOUT ROWID`,
-  `CREATE TABLE IF NOT EXISTS hall (season INTEGER NOT NULL, board TEXT NOT NULL, rank INTEGER NOT NULL, igsid TEXT NOT NULL, username TEXT, score INTEGER NOT NULL, n INTEGER, rounds INTEGER, at INTEGER NOT NULL, image TEXT, PRIMARY KEY (season, board, rank)) WITHOUT ROWID`,
+  `CREATE TABLE IF NOT EXISTS hall (season INTEGER NOT NULL, board TEXT NOT NULL, rank INTEGER NOT NULL, igsid TEXT NOT NULL, username TEXT, score INTEGER NOT NULL, n INTEGER, rounds INTEGER, at INTEGER NOT NULL, image TEXT, msg TEXT, PRIMARY KEY (season, board, rank)) WITHOUT ROWID`,
   // 📊 오늘 쓴 양 (2026-11-22, 한도 브레이크용 — handler `brake`). 하루 한 줄
   `CREATE TABLE IF NOT EXISTS usage_day (day TEXT PRIMARY KEY, r INTEGER NOT NULL DEFAULT 0, w INTEGER NOT NULL DEFAULT 0, q INTEGER NOT NULL DEFAULT 0) WITHOUT ROWID`,
   // 📊 시간 순 통계 표 (2026-11-22): 주 키 맨 앞이 시작 시각 → 관리자 통계가 그 기간 줄만 읽음
@@ -77,9 +77,10 @@ export const D1_ALTERS = [
   // 🪙 지갑: 마지막 판 토큰으로 받은 코인 (2026-11-22)
   'ALTER TABLE wallet ADD COLUMN tn INTEGER NOT NULL DEFAULT 0',
   'ALTER TABLE wallet ADD COLUMN owned TEXT',
-  // 📊 통계 표본 무게 (2026-11-22 저녁) — 표를 그날 만들었다면 열이 없을 수 있음
-  'ALTER TABLE sessions_t ADD COLUMN w INTEGER NOT NULL DEFAULT 1',
-  'ALTER TABLE plays_t ADD COLUMN w INTEGER NOT NULL DEFAULT 1',
+  // 🎁 운영자 코인 알림 · 💬 명예의 전당 한마디 (2026-11-22)
+  'ALTER TABLE wallet ADD COLUMN gift TEXT',
+  'ALTER TABLE hall ADD COLUMN msg TEXT',
+  // (📊 sessions_t·plays_t 의 w 열 추가는 11-22 저녁 운영 D1 에 이미 들어가서 뺌 — 첫 init 문장 수를 40 아래로, 요청당 쿼리 50번 한도)
 ];
 
 /** Neon 에서 이미 끝난 옛 기록 옮기기들 — D1 은 그 뒤 데이터를 받으므로 '했음' 으로만 표시 */
