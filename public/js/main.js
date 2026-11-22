@@ -2179,7 +2179,7 @@ function applyDeco() {
   audio.uiSet = live ? 'live' : null; // 세트 버튼 소리
   applyNoteColors(renderer.studio || live ? 'basic' : decoPick('notes'));
 }
-// 2026-11-22 사용자: 설정의 꾸미기 칸은 없애고 상점 한 곳에서 (장착 중 표시 + 「내 것」 탭)
+// 2026-11-22 사용자: 설정의 꾸미기 칸은 없애고 상점 한 곳에서 (장착 중 표시 + 「보유」 탭)
 function renderDeco() {
   renderPhotoOpts();
   if (!$('#modal-shop').hidden) renderShop();
