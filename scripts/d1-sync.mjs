@@ -206,10 +206,20 @@ export async function readTable(db, t, { since = 0, cols = Object.keys(t.cols) }
   const page = t.page || 2000;
   const where = sinceSql(t, since);
   const order = t.pk.join(', ');
-  for (let off = 0; ; off += page) {
-    const rows = await db.q(`SELECT ${cols.join(', ')} FROM ${t.name} ${where} ORDER BY ${order} LIMIT ${page} OFFSET ${off}`);
-    out.push(...rows);
+  // OFFSET 대신 '마지막 줄 다음부터' (2026-11-22: OFFSET 은 앞 줄을 매번 다시 읽어 D1 읽기 160만 줄을 씀)
+  const sel = [...new Set([...cols, ...t.pk])];
+  let last = null;
+  for (;;) {
+    const after = last ? `(${t.pk.join(', ')}) > (${t.pk.map((k) => lit(last[k], t.cols[k])).join(', ')})` : '';
+    const w = after ? (where ? `${where} AND ${after}` : `WHERE ${after}`) : where;
+    const rows = await db.q(`SELECT ${sel.join(', ')} FROM ${t.name} ${w} ORDER BY ${order} LIMIT ${page}`);
+    for (const r of rows) {
+      const o = {};
+      for (const c of cols) o[c] = r[c];
+      out.push(o);
+    }
     if (rows.length < page) return out;
+    last = rows[rows.length - 1];
   }
 }
 
