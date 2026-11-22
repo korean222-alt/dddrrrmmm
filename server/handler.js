@@ -27,6 +27,65 @@ export function endlessMode(id) {
   // 단계별 무제한: 원래 곡 4마디(최대 4×16칸 × 동시치기 2개)를 되풀이, 4마디마다 BPM +LEVEL_ENDLESS_STEP
   return { id: `e${base.id}`, slot: -base.id, bpmOf: (r) => base.bpm + LEVEL_ENDLESS_STEP * (r - 1), notes: 130 };
 }
+// ---------------- 🪙 코인 (2026-11-22) ----------------
+//   폰이 판 끝에 번 코인을 모아 두었다가 다음 판 시작(/api/runs)·점수 등록(/api/scores) 요청에 얹어 보냄 → 요청 수 그대로.
+//   runs: [{ tok: 판 토큰, n }] — 토큰 서명 확인, 한 판 최대 = 그 곡 콩 수 + 연타 여유, 지난 판(t ≤ 지갑 t)은 안 받음
+//   free: 토큰 없이 번 것(연습·멀티·유저 맵·내 노래 등) 하루 COIN_FREE_DAY 까지
+//   init: 서버 지갑 생기기 전 폰에 모은 코인, 계정마다 한 번 COIN_INIT_MAX 까지
+//   쓰기는 지갑 한 줄(바뀐 게 있을 때만) → D1 하루 쓰기에 판당 1줄 정도
+export const COIN_FREE_DAY = 5000;
+export const COIN_INIT_MAX = 20000;
+const COIN_TOKEN_AGE = 3 * 24 * 3600 * 1000;
+const coinInt = (v, max) => (Number.isFinite(v) ? Math.max(0, Math.min(max, Math.floor(v))) : 0);
+const kstDay = (now) => new Date(now + 9 * 3600 * 1000).toISOString().slice(0, 10);
+/** 한 판 토큰으로 받을 수 있는 최대 코인 */
+export function coinCap(l, ageMs) {
+  const byTime = Math.floor(Math.max(0, ageMs) / 1000) * 15 + 30; // 초당 15개 넘게는 못 침
+  if (endlessMode(l)) return byTime;
+  const level = getLevel(l);
+  if (!level) return 0;
+  let notes = 0;
+  try {
+    notes = noteCount(level);
+  } catch {}
+  return Math.min(byTime, notes + 300);
+}
+/** 지갑에 더할 것 계산 → { wallet(새 값), changed } */
+export function applyCoins(w0, c, secret, now = Date.now()) {
+  const w = { coins: 0, t: 0, fday: '', fn: 0, init: 0, ...(w0 || {}) };
+  let changed = false;
+  const runs = (Array.isArray(c.runs) ? c.runs.slice(0, 40) : [])
+    .map((r) => ({ run: r && unsign(r.tok, secret), n: coinInt(r && r.n, 1e6) }))
+    .filter((x) => x.run && Number.isFinite(x.run.t) && x.run.t > w.t && x.run.t <= now && now - x.run.t < COIN_TOKEN_AGE)
+    .sort((a, b) => a.run.t - b.run.t);
+  for (const { run, n } of runs) {
+    if (run.t <= w.t) continue;
+    w.coins += Math.min(n, coinCap(run.l, now - run.t));
+    w.t = run.t;
+    changed = true;
+  }
+  const free = coinInt(c.free, 1e6);
+  if (free > 0) {
+    const day = kstDay(now);
+    if (w.fday !== day) {
+      w.fday = day;
+      w.fn = 0;
+    }
+    const ok = Math.min(free, COIN_FREE_DAY - w.fn);
+    if (ok > 0) {
+      w.coins += ok;
+      w.fn += ok;
+    }
+    changed = true;
+  }
+  if (Number.isFinite(c.init) && !w.init) {
+    w.coins += coinInt(c.init, COIN_INIT_MAX);
+    w.init = 1;
+    changed = true;
+  }
+  return { wallet: w, changed };
+}
+
 export const ENDLESS_MULT = 1_000_000_000;
 export const endlessKey = (rounds, score) => rounds * ENDLESS_MULT + Math.min(score, ENDLESS_MULT - 1);
 export const endlessParts = (v) => ({ rounds: Math.floor(v / ENDLESS_MULT), score: v % ENDLESS_MULT });
@@ -270,6 +329,16 @@ export function createHandler(cfg, { store }) {
     player: { username: pl.username, ig: pl.ig },
   });
 
+  /** 🪙 요청에 얹혀 온 코인 받기 → 잔액(계정 없거나 인증 전이면 null = 폰이 다시 보냄) */
+  async function takeCoins(pl, c) {
+    if (!pl || !c || typeof c !== 'object' || !isConfirmed(pl)) return null;
+    const w0 = await store.getWallet(pl.igsid);
+    const { wallet, changed } = applyCoins(w0, c, cfg.sessionSecret);
+    if (changed) await store.putWallet(pl.igsid, wallet);
+    return wallet.coins;
+  }
+  const coinsOf = async (pl) => (pl && isConfirmed(pl) ? ((await store.getWallet(pl.igsid)) || { coins: 0 }).coins : null);
+
   // 대결 방: 4단계부터는 혼자 칠 때와 같은 잠금 (팔로워 인증 완료한 사람만)
   const ranked = createRankedHandler({ store, getPlayer: (request) => getPlayer(request), isConfirmed: (pl) => !!pl && (cfg.gateMode === 'open' || isConfirmed(pl)) });
   const handleRoom = createRoomHandler({
@@ -358,7 +427,7 @@ export function createHandler(cfg, { store }) {
         ok: true,
         app: 'okaystra',
         config: { gateMode: cfg.gateMode, instagramHandle: cfg.instagramHandle, siteUrl: cfg.siteUrl, freePassUntil: (await freePassOn()) ? await freePassUntil() : 0 },
-        me: pl ? meOf(pl) : { verified: false },
+        me: pl ? { ...meOf(pl), coins: await coinsOf(pl) } : { verified: false },
       });
     }
 
@@ -377,10 +446,11 @@ export function createHandler(cfg, { store }) {
       const pl = await getPlayer(request);
       if (!pl) return json(200, { verified: false });
       await purgeMaybe();
+      const coins = await coinsOf(pl);
       // hidden: 운영자가 팔로우 확인이 안 돼서 랭킹에서 내림 → 화면에 알리고 아이디를 다시 받음. deleteAt 에 지워짐
       // checked: 인증 신청함(아이디 적음) → 9·12단계 · 그리그 무제한이 열림
       // confirmed: 운영자가 팔로우를 확인함(인증 완료) → 13·14단계 · 단계별 무제한까지 열림
-      return json(200, meOf(pl));
+      return json(200, { ...meOf(pl), coins });
     }
 
     if (p === '/api/logout' && m === 'POST') {
@@ -865,7 +935,8 @@ export function createHandler(cfg, { store }) {
         if (needsVerify(level.id) && !isVerified(pl)) return json(403, { error: 'verify_required' });
       }
       const runToken = sign({ l: level.id, t: Date.now(), n: newId() }, cfg.sessionSecret);
-      return json(200, { runToken });
+      const coins = body.coins ? await takeCoins(await getPlayer(request), body.coins) : null;
+      return json(200, coins == null ? { runToken } : { runToken, coins });
     }
 
     // 4) 점수 등록 (닉네임 또는 인스타 인증 필요)
@@ -877,26 +948,28 @@ export function createHandler(cfg, { store }) {
       if (!pl) return json(401, { error: 'verify_required' });
       // 랭킹은 팔로워 인증(인증 완료)한 사람만 (GATE_MODE=open 이면 닉네임만 있어도)
       if (cfg.gateMode !== 'open' && !isConfirmed(pl)) return json(403, { error: 'verify_required' });
+      const coins = body.coins ? await takeCoins(pl, body.coins) : null;
+      const wc = (o) => (coins != null ? { ...o, coins } : o); // 코인을 받았으면 오류 응답에도 잔액을 실음 (폰이 두 번 안 보내게)
       const em = endlessMode(body.level);
       if (em) {
         const e = validateEndless(body, cfg);
-        if (!e.ok) return json(400, { error: e.error });
-        if (!(await store.useRun(e.nonce, Date.now() + 2 * 24 * 3600 * 1000))) return json(409, { error: 'run_used' });
+        if (!e.ok) return json(400, wc({ error: e.error }));
+        if (!(await store.useRun(e.nonce, Date.now() + 2 * 24 * 3600 * 1000))) return json(409, wc({ error: 'run_used' }));
         await ensureHall();
         const out = await store.recordScore(pl.igsid, em.slot, { score: endlessKey(e.rounds, e.score), grade: null, maxCombo: 0 });
         if (seasonAt().n > 1) await store.recordSeasonScore(seasonAt().n, pl.igsid, em.slot, endlessKey(e.rounds, e.score));
         const mine = await store.rankOf(em.slot, pl.igsid);
         const best = endlessParts(out.best);
-        return json(200, { improved: out.improved, best: best.score, rounds: best.rounds, rank: mine ? mine.rank : null });
+        return json(200, wc({ improved: out.improved, best: best.score, rounds: best.rounds, rank: mine ? mine.rank : null }));
       }
       const v = validateScore(body, cfg);
-      if (!v.ok) return json(400, { error: v.error });
-      if (!(await store.useRun(v.nonce, Date.now() + 2 * 24 * 3600 * 1000))) return json(409, { error: 'run_used' });
+      if (!v.ok) return json(400, wc({ error: v.error }));
+      if (!(await store.useRun(v.nonce, Date.now() + 2 * 24 * 3600 * 1000))) return json(409, wc({ error: 'run_used' }));
       await ensureHall();
       const out = await store.recordScore(pl.igsid, v.level.id, { score: v.score, grade: v.grade, maxCombo: v.maxCombo, chk: v.chk });
       if (seasonAt().n > 1 && v.level.id > 0 && v.level.id <= LAST_LEVEL_ID) await store.recordSeasonScore(seasonAt().n, pl.igsid, v.level.id, v.score);
       const mine = await store.rankOf(v.level.id, pl.igsid);
-      return json(200, { ...out, rank: mine ? mine.rank : null });
+      return json(200, wc({ ...out, rank: mine ? mine.rank : null }));
     }
 
     // 🏛 명예의 전당: 이번 시즌 총합 랭킹(단계·무제한) + 끝난 시즌 1·2·3등(사진 포함)

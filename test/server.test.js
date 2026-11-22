@@ -7,6 +7,8 @@ import fs from 'node:fs';
 
 import { loadConfig } from '../server/config.js';
 import { createApp } from '../server/app.js';
+import { applyCoins, coinCap, COIN_FREE_DAY } from '../server/handler.js';
+import { sign } from '../server/session.js';
 import { getLevel, noteCount, pointsFor } from '../public/js/charts.js';
 
 let server, base, tmp;
@@ -747,6 +749,51 @@ test('🏆 랭킹전: 실시간으로 붙으면 바로 시작 · 결과로 엘�
   const top = (await client()('POST', '/api/ranked', { action: 'info' })).json.top;
   assert.ok(top.some((x) => x.nick === '랭커씨'));
   assert.equal(top.length, 3);
+});
+
+test('🪙 코인: 판 시작·점수 요청에 얹어 받음 · 같은 판 두 번 안 받음 · 폰 코인은 한 번만 · 인증 안 한 사람은 안 받음', async () => {
+  const C = await verifiedClient('코인부자', 'coin.rich');
+  assert.equal((await C('GET', '/api/me')).json.coins, 0);
+  const r1 = await C('POST', '/api/runs', { level: 1 });
+  const tok = r1.json.runToken;
+  assert.equal(r1.json.coins, undefined, '보낸 게 없으면 잔액 안 실음');
+  // 방금 시작한 판이라 최대 30개(초당 15개 + 여유 30) → 20 은 다 받음
+  const r2 = await C('POST', '/api/runs', { level: 2, coins: { runs: [{ tok, n: 20 }], free: 10, init: 100 } });
+  assert.equal(r2.json.coins, 130);
+  const r3 = await C('POST', '/api/runs', { level: 1, coins: { runs: [{ tok, n: 20 }, { tok: 'x.y', n: 99 }], init: 500 } });
+  assert.equal(r3.json.coins, 130, '같은 판·가짜 토큰·두 번째 폰 코인은 안 받음');
+  // 점수 등록이 거절돼도(가짜 판) 코인은 받고 잔액을 실어 줌
+  const bad = await C('POST', '/api/scores', { runToken: 'nope', level: 1, score: 1, counts: {}, coins: { free: 5 } });
+  assert.equal(bad.status, 400);
+  assert.equal(bad.json.coins, 135);
+  assert.equal((await C('GET', '/api/me')).json.coins, 135);
+  // 인증 안 한 사람: 코인 안 받음 (폰이 다시 보냄)
+  const anon = client();
+  const a = await anon('POST', '/api/runs', { level: 1, coins: { free: 50 } });
+  assert.equal(a.status, 200);
+  assert.equal(a.json.coins, undefined);
+});
+
+test('🪙 코인 계산: 곡 콩 수·시간 상한 · 토큰 없는 코인 하루 한도', () => {
+  const secret = 'test-secret';
+  const now = Date.parse('2026-11-22T12:00:00+09:00');
+  const lv = getLevel(5);
+  const tok = (t, l = 5) => sign({ l, t, n: String(t) }, secret);
+  // 5분 전에 시작한 판: 콩 수 + 300 까지
+  const long = applyCoins(null, { runs: [{ tok: tok(now - 300000), n: 1e6 }] }, secret, now);
+  assert.equal(long.wallet.coins, noteCount(lv) + 300);
+  assert.equal(coinCap(5, 2000), 60, '2초 된 판은 60개까지');
+  // 순서 상관없이 시각 순으로, 지난 판은 안 받음
+  const w = applyCoins({ coins: 0, t: now - 5000 }, { runs: [{ tok: tok(now - 1000), n: 3 }, { tok: tok(now - 9000), n: 7 }] }, secret, now).wallet;
+  assert.equal(w.coins, 3);
+  // 하루 한도
+  let f = applyCoins(null, { free: COIN_FREE_DAY - 10 }, secret, now).wallet;
+  f = applyCoins(f, { free: 100 }, secret, now).wallet;
+  assert.equal(f.coins, COIN_FREE_DAY);
+  f = applyCoins(f, { free: 100 }, secret, now + 24 * 3600 * 1000).wallet;
+  assert.equal(f.coins, COIN_FREE_DAY + 100, '다음 날 다시');
+  // 3일 지난 토큰은 안 받음
+  assert.equal(applyCoins(null, { runs: [{ tok: tok(now - 4 * 24 * 3600 * 1000), n: 5 }] }, secret, now).changed, false);
 });
 
 test('📱 기기 옮기기: 코드 만들기 → 새 기기에서 넣으면 기록 + 랭킹 계정(인증 포함) · 한 번만 · 틀린 코드 거부', async () => {

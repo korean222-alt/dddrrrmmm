@@ -10507,6 +10507,278 @@ function shrinkBuddies(imgs, px) {
 return { LANE, NOTE_PALETTES, applyNoteColors, JUDGE_STYLE, Renderer };
 })();
 
+// ---- storage.js ----
+const __m_storage = (() => {
+// localStorage 래퍼 (인앱 브라우저/사생활 모드에서 막혀도 게임은 돌아가게)
+
+const { shiftOldLevelKey } = __m_charts;
+
+// 이름을 바꾸면서 접두사도 바꿈 → 출시 전 테스트하며 쌓인 기록·설정은 전부 초기화
+const PREFIX = 'okaystra:';
+
+function load(key, fallback) {
+  try {
+    const v = localStorage.getItem(PREFIX + key);
+    return v == null ? fallback : JSON.parse(v);
+  } catch {
+    return fallback;
+  }
+}
+
+function save(key, value) {
+  try {
+    localStorage.setItem(PREFIX + key, JSON.stringify(value));
+  } catch {}
+}
+
+function remove(key) {
+  try {
+    localStorage.removeItem(PREFIX + key);
+  } catch {}
+}
+
+const DEFAULT_SETTINGS = {
+  music: 0.8,
+  sfx: 1,
+  noteSpeed: 1,
+  offsetMs: 0,
+  vibrate: true,
+  // 저사양 모드: 그림 해상도 낮추고 반짝이·조명 효과 끔 (렉 걸리는 폰용)
+  lite: false,
+  // 반주: 'orch' = 오케스트라(현악·금관·팀파니 + 피아노) / 'piano' = 피아노만
+  band: 'orch',
+  // 🎨 꾸미기: 배경·드럼 세트 = 'auto'(단계 맵 따라) 또는 themes.js 맵 키, 콩 색 = render.js NOTE_PALETTES 키
+  bg: 'auto',
+  kit: 'auto',
+  notes: 'basic',
+  // 📷 내 사진 배경 어둡게 (0~0.85). 사진 파일 자체는 IndexedDB (photoSave)
+  photoDim: 0.4,
+};
+
+function loadSettings() {
+  return { ...DEFAULT_SETTINGS, ...load('settings', {}) };
+}
+function saveSettings(s) {
+  save('settings', s);
+}
+
+/** 레벨별 내 최고 기록 { [levelId]: {score, grade, stars, accuracy, maxCombo, fullCombo, at} }
+ *  별은 점수와 따로, 지금까지 받은 최고 개수를 기억합니다.
+ *  무제한 모드('endless')는 별 대신 diamonds(다이아)와 roundsCleared(깬 단계 수)도 최고값으로 기억. */
+function loadBests() {
+  return load('bests', {});
+}
+function saveBest(result) {
+  const bests = loadBests();
+  const prev = bests[result.levelId];
+  const stars = Math.max(result.stars || 0, (prev && prev.stars) || 0);
+  const diamonds = Math.max(result.diamonds || 0, (prev && prev.diamonds) || 0);
+  const roundsCleared = Math.max(result.roundsCleared || 0, (prev && prev.roundsCleared) || 0);
+  const extra = result.challenge ? { diamonds, roundsCleared } : {};
+  if (!prev || result.score > prev.score) {
+    bests[result.levelId] = {
+      score: result.score,
+      grade: result.grade,
+      stars,
+      accuracy: result.accuracy,
+      maxCombo: result.maxCombo,
+      fullCombo: result.fullCombo,
+      ...extra,
+      at: Date.now(),
+    };
+    save('bests', bests);
+    return { isNew: true, prev };
+  }
+  if (stars !== (prev.stars || 0) || (result.challenge && (diamonds !== (prev.diamonds || 0) || roundsCleared !== (prev.roundsCleared || 0)))) {
+    Object.assign(prev, { stars }, extra);
+    save('bests', bests);
+  }
+  return { isNew: false, prev };
+}
+
+/** 18단계 = 엘리제를 위하여 (2026-11-21). 이 브라우저에 남은 그 전 18번(빼 버린 찬송가) 기록은 한 번 지움 */
+const ELISE_FROM = Date.parse('2026-11-21T06:15:00Z');
+function resetOldLevel18() {
+  if (load('level18V2', false)) return;
+  for (const key of ['bests', 'mockBoard']) {
+    const old = load(key, null);
+    if (!old || typeof old !== 'object') continue;
+    let changed = false;
+    for (const k of ['18', 'e18']) {
+      const v = old[k];
+      if (v && !(v.at >= ELISE_FROM)) { delete old[k]; changed = true; }
+    }
+    if (changed) save(key, old);
+  }
+  save('level18V2', true);
+}
+
+/** 8단계에 새 곡이 끼면서 예전 8~14단계가 9~15단계로 밀림 → 이 브라우저에 쌓인 기록·설정을 한 번만 옮김 */
+function migrateLevelOrder() {
+  if (load('levelOrderV2', false)) return;
+  for (const key of ['bests', 'mockBoard']) {
+    const old = load(key, null);
+    if (!old || typeof old !== 'object') continue;
+    const next = {};
+    for (const [k, v] of Object.entries(old)) next[shiftOldLevelKey(k)] = v;
+    // 예전 8단계 이후를 깬 사람이 새 8단계 때문에 길이 막히지 않게, 새 8단계는 깬 걸로 쳐 줌
+    if (key === 'bests' && next[9] && (next[9].stars || 0) >= 1 && !next[8]) next[8] = { score: 0, grade: 'D', stars: 1, at: Date.now() };
+    save(key, next);
+  }
+  const st = load('studio', null);
+  if (st && Number(st.level) >= 8 && Number(st.level) <= 14) save('studio', { ...st, level: Number(st.level) + 1 });
+  save('levelOrderV2', true);
+}
+
+// ---------------- 📷 내 사진 배경: 이 폰의 IndexedDB 에만 (서버로 안 감) ----------------
+function idb() {
+  return new Promise((res, rej) => {
+    try {
+      const r = indexedDB.open('okaystra', 1);
+      r.onupgradeneeded = () => r.result.createObjectStore('files');
+      r.onsuccess = () => res(r.result);
+      r.onerror = () => rej(r.error);
+    } catch (e) {
+      rej(e);
+    }
+  });
+}
+async function idbDo(mode, fn) {
+  const db = await idb();
+  return new Promise((res, rej) => {
+    const tx = db.transaction('files', mode);
+    const req = fn(tx.objectStore('files'));
+    tx.oncomplete = () => res(req && req.result);
+    tx.onerror = tx.onabort = () => rej(tx.error);
+  });
+}
+/** 사진(Blob) 저장. IndexedDB 가 막힌 브라우저면 작을 때만 localStorage 에 */
+async function photoSave(blob) {
+  try {
+    await idbDo('readwrite', (st) => st.put(blob, 'bgPhoto'));
+    remove('bgPhotoUrl');
+    return true;
+  } catch {
+    if (blob.size > 1.5e6) return false;
+    const url = await new Promise((r) => {
+      const fr = new FileReader();
+      fr.onload = () => r(fr.result);
+      fr.onerror = () => r(null);
+      fr.readAsDataURL(blob);
+    });
+    if (!url) return false;
+    try {
+      localStorage.setItem(PREFIX + 'bgPhotoUrl', JSON.stringify(url));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+}
+/** 저장된 사진 → 이미지 주소(objectURL 또는 data URL), 없으면 null */
+async function photoLoad() {
+  try {
+    const b = await idbDo('readonly', (st) => st.get('bgPhoto'));
+    if (b) return URL.createObjectURL(b);
+  } catch {}
+  return load('bgPhotoUrl', null);
+}
+async function photoDelete() {
+  try {
+    await idbDo('readwrite', (st) => st.delete('bgPhoto'));
+  } catch {}
+  remove('bgPhotoUrl');
+}
+
+return { load, save, remove, DEFAULT_SETTINGS, loadSettings, saveSettings, loadBests, saveBest, resetOldLevel18, migrateLevelOrder, photoSave, photoLoad, photoDelete };
+})();
+
+// ---- coins.js ----
+const __m_coins = (() => {
+// 🪙 코인 (2026-11-22)
+//   맞힌 콩(PERFECT·GREAT·GOOD) 1개 + 연타 1번 = 1코인. 잔액은 서버 지갑(팔로워 인증한 계정)에 보관.
+//   판이 끝나면 폰에 모아 두었다가 다음 판 시작(/api/runs)·점수 등록(/api/scores) 요청에 얹어 보냄 → 요청 수 그대로.
+//   · 판 토큰이 있는 판 → runs [{tok, n}] (서버가 그 곡 콩 수로 상한 확인)
+//   · 토큰 없는 판(연습·멀티·유저 맵·내 노래…) → free (서버가 하루 한도)
+//   · 인증 전(계정 없음)에 번 코인 → 폰 'coins' 에 → 인증하면 init 으로 한 번 올림
+const { load, save } = __m_storage;
+
+let account = false; // 서버 지갑을 쓰는 계정인가 (팔로워 인증 완료)
+let onChange = () => {};
+
+const int = (v) => (Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
+const queue = () => {
+  const q = load('coinQ', []);
+  return Array.isArray(q) ? q.filter((x) => x && typeof x.tok === 'string' && x.n > 0) : [];
+};
+
+function coinsInit({ changed } = {}) {
+  if (changed) onChange = changed;
+  // 보내다 끊긴 것(앱을 닫음 등)은 다시 줄에 넣음 (서버가 같은 판은 한 번만 받음)
+  const s = load('coinSending', null);
+  if (s) {
+    save('coinQ', [...(s.runs || []), ...queue()].slice(-40));
+    save('coinFree', int(load('coinFree', 0)) + int(s.free));
+    save('coinSending', null);
+  }
+}
+
+/** 인증 상태가 바뀌면 (me 받을 때마다) */
+function setCoinAccount(on, serverCoins) {
+  account = !!on;
+  if (account && Number.isFinite(serverCoins)) save('coinSrv', int(serverCoins));
+  onChange();
+}
+
+/** 화면에 보일 잔액 */
+function coinTotal() {
+  const local = int(load('coins', 0));
+  if (!account) return local;
+  const sending = load('coinSending', null);
+  const pend = queue().reduce((a, x) => a + int(x.n), 0) + int(load('coinFree', 0));
+  const inFlight = sending ? (sending.runs || []).reduce((a, x) => a + int(x.n), 0) + int(sending.free) + int(sending.init) : 0;
+  return int(load('coinSrv', 0)) + pend + inFlight + (load('coinInit', false) ? 0 : local);
+}
+
+/** 판 하나 끝: n 코인 (tok = 그 판의 서버 판 토큰, 없으면 null) */
+function addRunCoins(n, tok) {
+  n = int(n);
+  if (!n) return;
+  if (!account) save('coins', int(load('coins', 0)) + n);
+  else if (tok) save('coinQ', [...queue(), { tok, n }].slice(-40));
+  else save('coinFree', int(load('coinFree', 0)) + n);
+  onChange();
+}
+
+/** 요청에 얹을 것 (없으면 undefined). 보내는 중인 게 있으면 겹쳐 보내지 않음 */
+function takeCoins() {
+  if (!account || load('coinSending', null)) return undefined;
+  const runs = queue();
+  const free = int(load('coinFree', 0));
+  const init = load('coinInit', false) ? null : int(load('coins', 0));
+  if (!runs.length && !free && init == null) return undefined;
+  const c = { runs, free };
+  if (init != null) c.init = init;
+  save('coinSending', c);
+  save('coinQ', []);
+  save('coinFree', 0);
+  return c;
+}
+
+/** 응답이 왔음: data.coins 가 있으면 서버가 받은 것 → 보낸 것 비우고 잔액 갱신, 없으면 다시 줄에 */
+function coinsResult(data) {
+  const s = load('coinSending', null);
+  if (data && Number.isFinite(data.coins)) {
+    save('coinSrv', int(data.coins));
+    if (s && s.init != null) save('coinInit', true);
+    save('coinSending', null);
+  } else if (s) coinsInit();
+  onChange();
+}
+
+return { coinsInit, setCoinAccount, coinTotal, addRunCoins, takeCoins, coinsResult };
+})();
+
 // ---- game.js ----
 const __m_game = (() => {
 // 한 판의 게임 진행: 시간 관리, 입력 판정, 점수/콤보.
@@ -11503,192 +11775,6 @@ async function showRewarded(cfg, hooks = {}) {
 return { initAds, showRewarded };
 })();
 
-// ---- storage.js ----
-const __m_storage = (() => {
-// localStorage 래퍼 (인앱 브라우저/사생활 모드에서 막혀도 게임은 돌아가게)
-
-const { shiftOldLevelKey } = __m_charts;
-
-// 이름을 바꾸면서 접두사도 바꿈 → 출시 전 테스트하며 쌓인 기록·설정은 전부 초기화
-const PREFIX = 'okaystra:';
-
-function load(key, fallback) {
-  try {
-    const v = localStorage.getItem(PREFIX + key);
-    return v == null ? fallback : JSON.parse(v);
-  } catch {
-    return fallback;
-  }
-}
-
-function save(key, value) {
-  try {
-    localStorage.setItem(PREFIX + key, JSON.stringify(value));
-  } catch {}
-}
-
-function remove(key) {
-  try {
-    localStorage.removeItem(PREFIX + key);
-  } catch {}
-}
-
-const DEFAULT_SETTINGS = {
-  music: 0.8,
-  sfx: 1,
-  noteSpeed: 1,
-  offsetMs: 0,
-  vibrate: true,
-  // 저사양 모드: 그림 해상도 낮추고 반짝이·조명 효과 끔 (렉 걸리는 폰용)
-  lite: false,
-  // 반주: 'orch' = 오케스트라(현악·금관·팀파니 + 피아노) / 'piano' = 피아노만
-  band: 'orch',
-  // 🎨 꾸미기: 배경·드럼 세트 = 'auto'(단계 맵 따라) 또는 themes.js 맵 키, 콩 색 = render.js NOTE_PALETTES 키
-  bg: 'auto',
-  kit: 'auto',
-  notes: 'basic',
-  // 📷 내 사진 배경 어둡게 (0~0.85). 사진 파일 자체는 IndexedDB (photoSave)
-  photoDim: 0.4,
-};
-
-function loadSettings() {
-  return { ...DEFAULT_SETTINGS, ...load('settings', {}) };
-}
-function saveSettings(s) {
-  save('settings', s);
-}
-
-/** 레벨별 내 최고 기록 { [levelId]: {score, grade, stars, accuracy, maxCombo, fullCombo, at} }
- *  별은 점수와 따로, 지금까지 받은 최고 개수를 기억합니다.
- *  무제한 모드('endless')는 별 대신 diamonds(다이아)와 roundsCleared(깬 단계 수)도 최고값으로 기억. */
-function loadBests() {
-  return load('bests', {});
-}
-function saveBest(result) {
-  const bests = loadBests();
-  const prev = bests[result.levelId];
-  const stars = Math.max(result.stars || 0, (prev && prev.stars) || 0);
-  const diamonds = Math.max(result.diamonds || 0, (prev && prev.diamonds) || 0);
-  const roundsCleared = Math.max(result.roundsCleared || 0, (prev && prev.roundsCleared) || 0);
-  const extra = result.challenge ? { diamonds, roundsCleared } : {};
-  if (!prev || result.score > prev.score) {
-    bests[result.levelId] = {
-      score: result.score,
-      grade: result.grade,
-      stars,
-      accuracy: result.accuracy,
-      maxCombo: result.maxCombo,
-      fullCombo: result.fullCombo,
-      ...extra,
-      at: Date.now(),
-    };
-    save('bests', bests);
-    return { isNew: true, prev };
-  }
-  if (stars !== (prev.stars || 0) || (result.challenge && (diamonds !== (prev.diamonds || 0) || roundsCleared !== (prev.roundsCleared || 0)))) {
-    Object.assign(prev, { stars }, extra);
-    save('bests', bests);
-  }
-  return { isNew: false, prev };
-}
-
-/** 18단계 = 엘리제를 위하여 (2026-11-21). 이 브라우저에 남은 그 전 18번(빼 버린 찬송가) 기록은 한 번 지움 */
-const ELISE_FROM = Date.parse('2026-11-21T06:15:00Z');
-function resetOldLevel18() {
-  if (load('level18V2', false)) return;
-  for (const key of ['bests', 'mockBoard']) {
-    const old = load(key, null);
-    if (!old || typeof old !== 'object') continue;
-    let changed = false;
-    for (const k of ['18', 'e18']) {
-      const v = old[k];
-      if (v && !(v.at >= ELISE_FROM)) { delete old[k]; changed = true; }
-    }
-    if (changed) save(key, old);
-  }
-  save('level18V2', true);
-}
-
-/** 8단계에 새 곡이 끼면서 예전 8~14단계가 9~15단계로 밀림 → 이 브라우저에 쌓인 기록·설정을 한 번만 옮김 */
-function migrateLevelOrder() {
-  if (load('levelOrderV2', false)) return;
-  for (const key of ['bests', 'mockBoard']) {
-    const old = load(key, null);
-    if (!old || typeof old !== 'object') continue;
-    const next = {};
-    for (const [k, v] of Object.entries(old)) next[shiftOldLevelKey(k)] = v;
-    // 예전 8단계 이후를 깬 사람이 새 8단계 때문에 길이 막히지 않게, 새 8단계는 깬 걸로 쳐 줌
-    if (key === 'bests' && next[9] && (next[9].stars || 0) >= 1 && !next[8]) next[8] = { score: 0, grade: 'D', stars: 1, at: Date.now() };
-    save(key, next);
-  }
-  const st = load('studio', null);
-  if (st && Number(st.level) >= 8 && Number(st.level) <= 14) save('studio', { ...st, level: Number(st.level) + 1 });
-  save('levelOrderV2', true);
-}
-
-// ---------------- 📷 내 사진 배경: 이 폰의 IndexedDB 에만 (서버로 안 감) ----------------
-function idb() {
-  return new Promise((res, rej) => {
-    try {
-      const r = indexedDB.open('okaystra', 1);
-      r.onupgradeneeded = () => r.result.createObjectStore('files');
-      r.onsuccess = () => res(r.result);
-      r.onerror = () => rej(r.error);
-    } catch (e) {
-      rej(e);
-    }
-  });
-}
-async function idbDo(mode, fn) {
-  const db = await idb();
-  return new Promise((res, rej) => {
-    const tx = db.transaction('files', mode);
-    const req = fn(tx.objectStore('files'));
-    tx.oncomplete = () => res(req && req.result);
-    tx.onerror = tx.onabort = () => rej(tx.error);
-  });
-}
-/** 사진(Blob) 저장. IndexedDB 가 막힌 브라우저면 작을 때만 localStorage 에 */
-async function photoSave(blob) {
-  try {
-    await idbDo('readwrite', (st) => st.put(blob, 'bgPhoto'));
-    remove('bgPhotoUrl');
-    return true;
-  } catch {
-    if (blob.size > 1.5e6) return false;
-    const url = await new Promise((r) => {
-      const fr = new FileReader();
-      fr.onload = () => r(fr.result);
-      fr.onerror = () => r(null);
-      fr.readAsDataURL(blob);
-    });
-    if (!url) return false;
-    try {
-      localStorage.setItem(PREFIX + 'bgPhotoUrl', JSON.stringify(url));
-      return true;
-    } catch {
-      return false;
-    }
-  }
-}
-/** 저장된 사진 → 이미지 주소(objectURL 또는 data URL), 없으면 null */
-async function photoLoad() {
-  try {
-    const b = await idbDo('readonly', (st) => st.get('bgPhoto'));
-    if (b) return URL.createObjectURL(b);
-  } catch {}
-  return load('bgPhotoUrl', null);
-}
-async function photoDelete() {
-  try {
-    await idbDo('readwrite', (st) => st.delete('bgPhoto'));
-  } catch {}
-  remove('bgPhotoUrl');
-}
-
-return { load, save, remove, DEFAULT_SETTINGS, loadSettings, saveSettings, loadBests, saveBest, resetOldLevel18, migrateLevelOrder, photoSave, photoLoad, photoDelete };
-})();
-
 // ---- track.js ----
 const __m_track = (() => {
 // 익명 이용 통계: 접속 시간(실제로 화면을 보고 만진 시간)과 곡 시작/끝을 서버에 모읍니다.
@@ -11894,6 +11980,7 @@ const __m_api = (() => {
 const { load, save } = __m_storage;
 const { gradeFor } = __m_charts;
 const { takeTrack } = __m_track;
+const { takeCoins, coinsResult } = __m_coins;
 const { seasonAt } = __m_season;
 
 async function http(method, url, body) {
@@ -11914,6 +12001,20 @@ async function http(method, url, body) {
     throw err;
   }
   return data;
+}
+
+function withCoins(send) {
+  const coins = takeCoins();
+  return send(coins).then(
+    (r) => {
+      if (coins) coinsResult(r);
+      return r;
+    },
+    (e) => {
+      if (coins) coinsResult(e && e.data);
+      throw e;
+    }
+  );
 }
 
 const LB_CACHE_MS = 60 * 1000;
@@ -11944,10 +12045,11 @@ function serverApi(boot = null) {
     guest: (name, ig) => http('POST', '/api/guest', { name, ig }),
     verifyPassword: (body) => http('POST', '/api/verify/password', body),
     // 이용 통계는 따로 안 보내고 이 요청들에 얹어 보냄 (요청 수 아끼기)
-    startRun: (level) => http('POST', '/api/runs', { level, track: takeTrack() }),
+    // 🪙 코인도 얹어 보냄 (coins.js). 응답에 잔액이 오면 받은 것, 아니면 다음에 다시
+    startRun: (level) => withCoins((coins) => http('POST', '/api/runs', { level, track: takeTrack(), coins })),
     submitScore: (payload) => {
       lbCache.clear();
-      return http('POST', '/api/scores', { ...payload, track: takeTrack() });
+      return withCoins((coins) => http('POST', '/api/scores', { ...payload, track: takeTrack(), coins }));
     },
     // 랭킹은 1분 동안 같은 걸 다시 씀 (탭을 왔다 갔다 해도 요청 안 함). 점수 올리면 비움
     leaderboard: (level) => {
@@ -13276,6 +13378,7 @@ const { videoToAac } = __m_mp4audio;
 const { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmonize, autoDrums, cleanMap, mapLevel } = __m_usermap;
 const { AudioEngine, playMetronome } = __m_audio;
 const { Renderer, NOTE_PALETTES, LANE, applyNoteColors } = __m_render;
+const { coinsInit, setCoinAccount, coinTotal, addRunCoins } = __m_coins;
 const { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } = __m_game;
 const { initAds, showRewarded } = __m_ads;
 const { createApi } = __m_api;
@@ -13696,6 +13799,7 @@ function refreshFollowChip() {
 
 function refreshTitle() {
   refreshFollowChip();
+  syncCoinAccount();
   refreshCoins();
   // 🆓 임시 인증 기간 안내 (인스타 DM 막힘)
   const fp = $('#free-pass-note');
@@ -13952,14 +14056,19 @@ async function startLevel(id, opts = {}) {
   const cw = $('#game-canvas').clientWidth || window.innerWidth;
   await renderer.resize(st.active ? Math.min(3, Math.max(2, 1080 / cw)) : 2);
   if (stale()) return;
+  awardRunCoins(state.game); // 판 도중에 다시 시작하면 그때까지 맞힌 만큼 (새 판 토큰을 받기 전에)
   if (state.game) state.game.stop();
   state.runToken = null;
   // 영상 찍기는 팔로우 잠금 없이 (계정 주인이 촬영용으로 씀) → 서버 판 토큰도 안 받음
   // 인증 안 한 사람이 1~3단계를 칠 땐 랭킹에 못 올리니 판 토큰도 안 받음 (서버 요청 아끼기, 통계는 5분마다 따로 감)
   const canRank = isConfirmed() || state.cfg.gateMode === 'open' || isClosed(id);
+  syncCoinAccount();
   if ((!lv.challenge || lv.endless) && !st.active && !room && !practice && !lv.custom && canRank) state.api
     .startRun(id)
-    .then((r) => (state.runToken = r.runToken))
+    .then((r) => {
+      state.runToken = r.runToken;
+      if (state.game && state.game.level.id === id && !state.game._coined) state.game._runToken = r.runToken;
+    })
     .catch((e) => {
       if (e.status === 403 && state.game && state.game.level.id === id) {
         state.game.stop();
@@ -13993,7 +14102,6 @@ async function startLevel(id, opts = {}) {
   const starBox = $('#hud-stars');
   starBox.hidden = !!lv.endless;
   starBox.innerHTML = starsHTML(0);
-  awardRunCoins(state.game); // 판 도중에 다시 시작하면 그때까지 맞힌 만큼
   state.game = new Game({
     audio,
     renderer,
@@ -14115,6 +14223,7 @@ async function startLevel(id, opts = {}) {
     await stopRecorder(); // 다시 치기: 앞 판 녹화가 남아 있으면 버림
     startRecorder();
   }
+  if (state.runToken && !state.game._runToken) state.game._runToken = state.runToken;
   state.game.start();
   if (lv.synced && st.active) scheduleSyncRec(state.game);
   // 영상 찍기·자동 연주·내 노래는 통계에 안 셈
@@ -14961,7 +15070,7 @@ function mergeBests(mine, theirs) {
 async function transferMake() {
   if (!(await reconnectServer({ force: true }))) return toast('지금은 서버에 연결이 안 돼요. 잠시 후 다시 해 주세요');
   const { offsetMs, ...settings } = state.settings;
-  const data = { bests: loadBests(), nick: load('nick', ''), lastNick: load('lastNick', ''), lastIg: load('lastIg', ''), settings, coins: getCoins(), decoOwned: load('decoOwned', []) };
+  const data = { bests: loadBests(), nick: load('nick', ''), lastNick: load('lastNick', ''), lastIg: load('lastIg', ''), settings, coins: load('coins', 0), decoOwned: load('decoOwned', []) };
   try {
     const r = await state.api.transfer({ op: 'make', data });
     $('#transfer-code-num').textContent = `${r.code.slice(0, 3)} ${r.code.slice(3)}`;
@@ -14974,8 +15083,8 @@ async function transferMake() {
 function applyTransfer(data, me) {
   save('bests', mergeBests(loadBests(), data.bests));
   for (const f of ['nick', 'lastNick', 'lastIg']) if (data[f] && !load(f, '')) save(f, data[f]);
-  // 🪙 코인은 많은 쪽, 산 꾸미기는 합침
-  if (Number.isFinite(data.coins) && data.coins > getCoins()) save('coins', Math.floor(data.coins));
+  // 🪙 인증 전에 폰에 모은 코인은 많은 쪽(계정 코인은 서버에 있어서 그대로), 산 꾸미기는 합침
+  if (Number.isFinite(data.coins) && data.coins > load('coins', 0)) save('coins', Math.floor(data.coins));
   if (Array.isArray(data.decoOwned)) save('decoOwned', [...new Set([...(load('decoOwned', []) || []), ...data.decoOwned])]);
   refreshCoins();
   if (data.settings || data.calib) {
@@ -15108,12 +15217,16 @@ async function checkReq({ manual = false } = {}) {
 
 // ---------------- 🪙 코인 (2026-11-22) ----------------
 //   맞힌 콩(PERFECT·GREAT·GOOD) 1개 = 1코인, 연타 1번 = 1코인. 판이 끝나거나 그만둘 때 한 번 더함.
-//   이 폰에만 저장(서버 요청·DB 없음). '다른 폰으로 옮기기' 때 같이 감(큰 쪽). 자동 연주·영상 찍기는 0.
+//   잔액은 서버 지갑(인증한 계정)에, 판 시작·점수 요청에 얹어 보냄 → 새 요청 없음 (coins.js). 자동 연주·영상 찍기는 0.
 //   곧 상점에서 꾸미기(배경·드럼·콩 색·내 사진)를 사는 데 씀 → 산 것은 load('decoOwned') 목록
-function getCoins() {
-  const n = load('coins', 0);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+/** 인증 상태·서버 잔액을 coins.js 에 알림 (me 를 새로 받았을 때 그 잔액은 한 번만 씀) */
+function syncCoinAccount() {
+  const me = state.me || {};
+  const fresh = Number.isFinite(me.coins) && !me._coinsUsed;
+  if (fresh) me._coinsUsed = true;
+  setCoinAccount(isConfirmed(), fresh ? me.coins : undefined);
 }
+const getCoins = () => coinTotal();
 function refreshCoins() {
   const el = $('#coin-num');
   if (el) el.textContent = fmt(getCoins());
@@ -15125,10 +15238,9 @@ function awardRunCoins(g) {
   if (state.auto || g.auto || state.studio.active) return 0;
   const c = g.counts || {};
   const n = Math.max(0, Math.min(20000, (c.perfect || 0) + (c.great || 0) + (c.good || 0) + (g.rollHits || 0)));
-  if (n > 0) {
-    save('coins', getCoins() + n);
-    refreshCoins();
-  }
+  syncCoinAccount();
+  // 판 토큰은 이 판 것일 때만 (다음 판을 시작하며 부르면 state.runToken 은 이미 비어 있음)
+  if (n > 0) addRunCoins(n, g._runToken || null);
   return n;
 }
 
@@ -19030,6 +19142,7 @@ async function boot() {
   buildTitle();
   bindActions();
   bindGameInput();
+  coinsInit({ changed: refreshCoins });
   bindSettings();
   applyLite();
   audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx });

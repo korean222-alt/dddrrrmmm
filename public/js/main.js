@@ -16,6 +16,7 @@ import { videoToAac } from './mp4audio.js';
 import { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmonize, autoDrums, cleanMap, mapLevel } from './usermap.js';
 import { AudioEngine, playMetronome } from './audio.js';
 import { Renderer, NOTE_PALETTES, LANE, applyNoteColors } from './render.js';
+import { coinsInit, setCoinAccount, coinTotal, addRunCoins } from './coins.js';
 import { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } from './game.js';
 import { initAds, showRewarded } from './ads.js';
 import { createApi } from './api.js';
@@ -436,6 +437,7 @@ function refreshFollowChip() {
 
 function refreshTitle() {
   refreshFollowChip();
+  syncCoinAccount();
   refreshCoins();
   // 🆓 임시 인증 기간 안내 (인스타 DM 막힘)
   const fp = $('#free-pass-note');
@@ -692,14 +694,19 @@ async function startLevel(id, opts = {}) {
   const cw = $('#game-canvas').clientWidth || window.innerWidth;
   await renderer.resize(st.active ? Math.min(3, Math.max(2, 1080 / cw)) : 2);
   if (stale()) return;
+  awardRunCoins(state.game); // 판 도중에 다시 시작하면 그때까지 맞힌 만큼 (새 판 토큰을 받기 전에)
   if (state.game) state.game.stop();
   state.runToken = null;
   // 영상 찍기는 팔로우 잠금 없이 (계정 주인이 촬영용으로 씀) → 서버 판 토큰도 안 받음
   // 인증 안 한 사람이 1~3단계를 칠 땐 랭킹에 못 올리니 판 토큰도 안 받음 (서버 요청 아끼기, 통계는 5분마다 따로 감)
   const canRank = isConfirmed() || state.cfg.gateMode === 'open' || isClosed(id);
+  syncCoinAccount();
   if ((!lv.challenge || lv.endless) && !st.active && !room && !practice && !lv.custom && canRank) state.api
     .startRun(id)
-    .then((r) => (state.runToken = r.runToken))
+    .then((r) => {
+      state.runToken = r.runToken;
+      if (state.game && state.game.level.id === id && !state.game._coined) state.game._runToken = r.runToken;
+    })
     .catch((e) => {
       if (e.status === 403 && state.game && state.game.level.id === id) {
         state.game.stop();
@@ -733,7 +740,6 @@ async function startLevel(id, opts = {}) {
   const starBox = $('#hud-stars');
   starBox.hidden = !!lv.endless;
   starBox.innerHTML = starsHTML(0);
-  awardRunCoins(state.game); // 판 도중에 다시 시작하면 그때까지 맞힌 만큼
   state.game = new Game({
     audio,
     renderer,
@@ -855,6 +861,7 @@ async function startLevel(id, opts = {}) {
     await stopRecorder(); // 다시 치기: 앞 판 녹화가 남아 있으면 버림
     startRecorder();
   }
+  if (state.runToken && !state.game._runToken) state.game._runToken = state.runToken;
   state.game.start();
   if (lv.synced && st.active) scheduleSyncRec(state.game);
   // 영상 찍기·자동 연주·내 노래는 통계에 안 셈
@@ -1701,7 +1708,7 @@ function mergeBests(mine, theirs) {
 async function transferMake() {
   if (!(await reconnectServer({ force: true }))) return toast('지금은 서버에 연결이 안 돼요. 잠시 후 다시 해 주세요');
   const { offsetMs, ...settings } = state.settings;
-  const data = { bests: loadBests(), nick: load('nick', ''), lastNick: load('lastNick', ''), lastIg: load('lastIg', ''), settings, coins: getCoins(), decoOwned: load('decoOwned', []) };
+  const data = { bests: loadBests(), nick: load('nick', ''), lastNick: load('lastNick', ''), lastIg: load('lastIg', ''), settings, coins: load('coins', 0), decoOwned: load('decoOwned', []) };
   try {
     const r = await state.api.transfer({ op: 'make', data });
     $('#transfer-code-num').textContent = `${r.code.slice(0, 3)} ${r.code.slice(3)}`;
@@ -1714,8 +1721,8 @@ async function transferMake() {
 function applyTransfer(data, me) {
   save('bests', mergeBests(loadBests(), data.bests));
   for (const f of ['nick', 'lastNick', 'lastIg']) if (data[f] && !load(f, '')) save(f, data[f]);
-  // 🪙 코인은 많은 쪽, 산 꾸미기는 합침
-  if (Number.isFinite(data.coins) && data.coins > getCoins()) save('coins', Math.floor(data.coins));
+  // 🪙 인증 전에 폰에 모은 코인은 많은 쪽(계정 코인은 서버에 있어서 그대로), 산 꾸미기는 합침
+  if (Number.isFinite(data.coins) && data.coins > load('coins', 0)) save('coins', Math.floor(data.coins));
   if (Array.isArray(data.decoOwned)) save('decoOwned', [...new Set([...(load('decoOwned', []) || []), ...data.decoOwned])]);
   refreshCoins();
   if (data.settings || data.calib) {
@@ -1848,12 +1855,16 @@ async function checkReq({ manual = false } = {}) {
 
 // ---------------- 🪙 코인 (2026-11-22) ----------------
 //   맞힌 콩(PERFECT·GREAT·GOOD) 1개 = 1코인, 연타 1번 = 1코인. 판이 끝나거나 그만둘 때 한 번 더함.
-//   이 폰에만 저장(서버 요청·DB 없음). '다른 폰으로 옮기기' 때 같이 감(큰 쪽). 자동 연주·영상 찍기는 0.
+//   잔액은 서버 지갑(인증한 계정)에, 판 시작·점수 요청에 얹어 보냄 → 새 요청 없음 (coins.js). 자동 연주·영상 찍기는 0.
 //   곧 상점에서 꾸미기(배경·드럼·콩 색·내 사진)를 사는 데 씀 → 산 것은 load('decoOwned') 목록
-function getCoins() {
-  const n = load('coins', 0);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+/** 인증 상태·서버 잔액을 coins.js 에 알림 (me 를 새로 받았을 때 그 잔액은 한 번만 씀) */
+function syncCoinAccount() {
+  const me = state.me || {};
+  const fresh = Number.isFinite(me.coins) && !me._coinsUsed;
+  if (fresh) me._coinsUsed = true;
+  setCoinAccount(isConfirmed(), fresh ? me.coins : undefined);
 }
+const getCoins = () => coinTotal();
 function refreshCoins() {
   const el = $('#coin-num');
   if (el) el.textContent = fmt(getCoins());
@@ -1865,10 +1876,9 @@ function awardRunCoins(g) {
   if (state.auto || g.auto || state.studio.active) return 0;
   const c = g.counts || {};
   const n = Math.max(0, Math.min(20000, (c.perfect || 0) + (c.great || 0) + (c.good || 0) + (g.rollHits || 0)));
-  if (n > 0) {
-    save('coins', getCoins() + n);
-    refreshCoins();
-  }
+  syncCoinAccount();
+  // 판 토큰은 이 판 것일 때만 (다음 판을 시작하며 부르면 state.runToken 은 이미 비어 있음)
+  if (n > 0) addRunCoins(n, g._runToken || null);
   return n;
 }
 
@@ -5770,6 +5780,7 @@ async function boot() {
   buildTitle();
   bindActions();
   bindGameInput();
+  coinsInit({ changed: refreshCoins });
   bindSettings();
   applyLite();
   audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx });
