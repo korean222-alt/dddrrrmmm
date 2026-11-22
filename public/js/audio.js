@@ -261,7 +261,7 @@ export class AudioEngine {
   }
   /** 효과음 파일 미리 받기 (첫 터치 뒤) */
   prefetchSfx() {
-    for (const n of ['combo', 'cheer', 'buy', 'gift']) this.loadTrack(`assets/sfx/${n}.mp3`);
+    for (const n of ['combo', 'cheer', 'buy', 'gift', ...(this.uiSet === 'live' ? ['live_tap', 'live_combo', 'live_clear'] : [])]) this.loadTrack(`assets/sfx/${n}.mp3`);
   }
 
   /** 받아 둔 곡 (없으면 null) */

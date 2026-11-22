@@ -6832,7 +6832,7 @@ class Renderer {
   _liveJudges(rt) {
     const ctx = this.ctx;
     const L = this.L;
-    const LIFE = 0.5;
+    const LIFE = 0.4;
     this.fx.judges = this.fx.judges.filter((j) => rt - j.t0 < LIFE);
     const j = this.fx.judges[this.fx.judges.length - 1];
     if (!j) return;
@@ -6840,11 +6840,12 @@ class Renderer {
     if (t < 0) return;
     const sc = t < 0.1 ? 0.75 + (t / 0.1) * 0.35 : t < 0.2 ? 1.1 - ((t - 0.1) / 0.1) * 0.1 : 1;
     const look = LIVE_JUDGE[j.text] || LIVE_JUDGE.MISS;
-    const size = L.GW * 0.088 * sc * look.k;
+    // 11-22 '퍼펙트가 시야 가림' → 콩이 아직 작은 길 맨 위쪽에, 작고 조금 비치게 (판정선 근처 콩을 안 가림)
+    const size = L.GW * 0.066 * sc * look.k;
     const x = L.cx;
-    const y = L.strikeY - (L.strikeY - L.topY) * 0.3;
+    const y = L.topY + (L.strikeY - L.topY) * 0.12;
     ctx.save();
-    ctx.globalAlpha = t < 0.7 ? 1 : 1 - (t - 0.7) / 0.3;
+    ctx.globalAlpha = 0.85 * (t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4);
     ctx.font = `italic 900 ${Math.round(size)}px ${LIVE_FONT}`;
     if ('letterSpacing' in ctx) ctx.letterSpacing = `${Math.round(size * 0.05)}px`;
     ctx.textAlign = 'center';
@@ -11076,7 +11077,7 @@ class AudioEngine {
   }
   /** 효과음 파일 미리 받기 (첫 터치 뒤) */
   prefetchSfx() {
-    for (const n of ['combo', 'cheer', 'buy', 'gift']) this.loadTrack(`assets/sfx/${n}.mp3`);
+    for (const n of ['combo', 'cheer', 'buy', 'gift', ...(this.uiSet === 'live' ? ['live_tap', 'live_combo', 'live_clear'] : [])]) this.loadTrack(`assets/sfx/${n}.mp3`);
   }
 
   /** 받아 둔 곡 (없으면 null) */
@@ -12960,7 +12961,7 @@ class Game {
     this.r.onJudge(n.lane, res, rt, dt < 0);
     this.r.onCombo(this.combo, rt);
     // 🔔 25콤보마다 '반짝' (치는 소리에 안 묻히게 작게)
-    if (this.combo > 0 && this.combo % 25 === 0) this.audio.sfxFile('combo', 0.35);
+    if (this.combo > 0 && this.combo % 25 === 0) this.audio.sfxFile(this.audio.uiSet === 'live' ? 'live_combo' : 'combo', 0.35);
     if (this.livesOn && !(this.auto && this.level.failReel) && this.combo % LIFE_REGEN_COMBO === 0 && this.lives < MAX_LIVES) {
       this.lives++;
       this.r.onLife(this.lives, +1, rt);
@@ -16494,7 +16495,7 @@ function animateResult(res, outcome, gems = false) {
     if (!sound || !audio.running) return;
     const t = audio.ctx.currentTime + 0.05;
     if (res.stars === 3 || outcome === 'win') audio.fanfare(t);
-    if (res.fullCombo && !res.failed) audio.sfxFile('cheer', 0.8); // 🔔 풀콤보 환호
+    if (res.fullCombo && !res.failed) audio.sfxFile(audio.uiSet === 'live' ? 'live_clear' : 'cheer', 0.8); // 🔔 풀콤보 환호 (세트면 세트 소리)
     else if (res.stars === 0 || outcome === 'lose') audio.aww(t);
   };
   later(gradeMs, () => reveal(true));
@@ -17250,14 +17251,17 @@ const decoPick = (type) => {
 //   이 폰에만 저장(설정). 서버 요청 없음. 영상 찍기는 원래 맵 그대로(render.js)
 function applyDeco() {
   const s = state.settings;
-  const bg = decoPick('bg');
-  const kit = decoPick('kit');
+  // 🎤 라이브 스테이지 세트는 화면 전체가 세트 것(세트 무대·기본 콩) — 장착한 배경·콩 스킨은 세트를 빼면 돌아옴 (2026-11-22 사용자)
+  const live = decoPick('ui') === 'live';
+  const bg = live ? 'auto' : decoPick('bg');
+  const kit = live ? 'auto' : decoPick('kit');
   renderer.bgPick = bg !== 'auto' ? bg : null;
   renderer.kitPick = kit !== 'auto' ? kit : null;
   renderer.photoDim = s.photoDim ?? 0.4;
-  renderer.uiStyle = decoPick('ui') === 'live' ? 'live' : null; // 🎤 라이브 스테이지 세트
-  document.documentElement.classList.toggle('ui-live', !!renderer.uiStyle); // 게임 위 정보 칸·결과 화면도 세트 모양
-  applyNoteColors(renderer.studio ? 'basic' : decoPick('notes'));
+  renderer.uiStyle = live ? 'live' : null;
+  document.documentElement.classList.toggle('ui-live', live); // 게임 위 정보 칸·결과 화면도 세트 모양
+  audio.uiSet = live ? 'live' : null; // 세트 버튼 소리
+  applyNoteColors(renderer.studio || live ? 'basic' : decoPick('notes'));
 }
 function renderDeco() {
   const s = { ...state.settings, bg: decoPick('bg'), kit: decoPick('kit'), notes: decoPick('notes'), ui: decoPick('ui') };
@@ -17359,6 +17363,10 @@ const LANE_DEFAULT = LANE.slice(0, 4).map((l) => l.main);
 const SHOP_BGS = SHOP_ITEMS.map(([id]) => id.split(':')).filter(([t, k]) => t === 'bg' && THEMES[k] && THEMES[k].img).map(([, k]) => k);
 const shopIsOpen = () => !!state.cfg.shopOpen;
 function shopSwatch(type, key) {
+  if (key === DECO_FREE[type]) {
+    if (type === 'notes') return `conic-gradient(${LANE_DEFAULT.join(',')})`;
+    return type === 'kit' ? 'radial-gradient(circle at 35% 30%,#FFB27A,#E2562E 55%,#7A1E10)' : 'linear-gradient(#FF9A6B,#6A1B78)';
+  }
   if (type === 'ui') return 'linear-gradient(160deg,#1A1450 0%,#3A2A8A 45%,#FF8AD8 70%,#7DF2FF 100%)';
   if (type === 'notes') {
     const p = NOTE_PALETTES[key];
@@ -17383,6 +17391,7 @@ function shopSwatch(type, key) {
   return `linear-gradient(${t.sky.join(',')})`;
 }
 function shopName(type, key) {
+  if (key === DECO_FREE[type]) return { ui: '기본 화면', notes: '기본 콩', bg: '기본 무대 (단계별)', kit: '기본 드럼 (맵 따라)' }[type];
   if (type === 'ui') return '🎤 라이브 스테이지 세트';
   if (type === 'notes') return (NOTE_PALETTES[key] || {}).name || key;
   if (key === 'photo') return '📷 내 사진 배경';
@@ -17394,7 +17403,12 @@ const SHOP_DESC = {
   bg: '상점에서만 파는 무대예요',
   kit: '상점에서만 파는 드럼 세트예요',
   photo: '내 사진을 무대 배경으로 깔아요',
-  ui: '판정선·콩·판정 글자·콤보·무대가 리듬게임 라이브 화면처럼 한 번에 바뀌어요',
+  ui: '판정선·콩·판정 글자·콤보·무대·버튼 소리가 리듬게임 라이브 화면처럼 한 번에 바뀌어요',
+  basic: '처음 화면 그대로예요 · 누르면 이 분야만 기본으로 돌아가요',
+};
+const isBasicId = (id) => {
+  const [type, key] = String(id || '').split(':');
+  return key != null && DECO_FREE[type] === key;
 };
 function renderShop() {
   $('#shop-coins').textContent = fmt(getCoins());
@@ -17407,7 +17421,16 @@ function renderShop() {
       <i style="background:${shopSwatch(type, key)}"></i><b>${escapeHtml(shopName(type, key))}</b>
       <span>${own ? '보유' : `<i class="coin-ico"></i>${fmt(price)}`}</span></button>`;
   };
-  const sec = (title, type) => `<h4>${title}</h4><div class="shop-grid">${SHOP_ITEMS.filter(([id]) => id.startsWith(type + ':')).map(item).join('')}</div>`;
+  // 분야마다 맨 앞에 「기본」 (2026-11-22 사용자 '기본은 각각 분야에') — 누르면 미리보기 + 기본으로 바꾸기
+  const basic = (type) => {
+    const id = `${type}:${DECO_FREE[type]}`;
+    const on = decoPick(type) === DECO_FREE[type];
+    return `<button class="shop-item owned" data-shop="${id}">
+      <em class="rar">무료</em>
+      <i style="background:${shopSwatch(type, DECO_FREE[type])}"></i><b>${escapeHtml(shopName(type, DECO_FREE[type]))}</b>
+      <span>${on ? '✓ 쓰는 중' : '기본'}</span></button>`;
+  };
+  const sec = (title, type) => `<h4>${title}</h4><div class="shop-grid">${basic(type)}${SHOP_ITEMS.filter(([id]) => id.startsWith(type + ':')).map(item).join('')}</div>`;
   $('#shop-list').innerHTML = sec('🎤 세트', 'ui') + sec('✨ 콩 스킨', 'notes') + sec('🌄 배경', 'bg') + sec('🥁 드럼 세트', 'kit');
 }
 function openShop(focus) {
@@ -17419,20 +17442,21 @@ function openShop(focus) {
 var shopPrevId = null;
 function previewShop(id) {
   const [type, key] = id.split(':');
-  if (priceOf(id) == null) return;
+  const basic = isBasicId(id);
+  if (priceOf(id) == null && !basic) return;
   shopPrevId = id;
   const own = decoOpen(type, key);
-  const rare = RARITY[id];
-  $('#shopitem-rar').textContent = RARITY_NAME[rare] || '';
+  const rare = basic ? '' : RARITY[id];
+  $('#shopitem-rar').textContent = basic ? '무료' : RARITY_NAME[rare] || '';
   $('#shopitem-rar').className = 'rar r-' + rare;
   $('#shopitem-name').textContent = shopName(type, key);
-  $('#shopitem-desc').textContent = key === 'photo' ? SHOP_DESC.photo : SHOP_DESC[type];
+  $('#shopitem-desc').textContent = basic ? SHOP_DESC.basic : key === 'photo' ? SHOP_DESC.photo : SHOP_DESC[type];
   const b = $('#shopitem-buy');
   const using = own && decoPick(type) === key;
   if (own) {
-    // 쓰는 중이면 기본으로 되돌리는 버튼 (2026-11-22 '세트 샀는데 기본으로도 돌아갈 수 있게')
-    b.innerHTML = using ? '✓ 쓰는 중 · 기본으로 돌리기' : '이걸로 바꾸기';
-    b.disabled = false;
+    // 기본으로 돌아가는 건 분야마다 맨 앞 「기본」 칸으로 (2026-11-22)
+    b.innerHTML = using ? '✓ 쓰는 중' : '이걸로 바꾸기';
+    b.disabled = using;
   } else if (!shopIsOpen()) {
     b.innerHTML = `🔒 판매 준비 중 · <i class="coin-ico"></i> ${fmt(priceOf(id))}`;
     b.disabled = true;
@@ -17443,6 +17467,8 @@ function previewShop(id) {
   openModal('modal-shopitem');
   const pick = { bg: decoPick('bg'), kit: decoPick('kit'), notes: decoPick('notes'), ui: decoPick('ui') };
   pick[type] = key;
+  // 🎤 세트는 화면 전체가 바뀜: 세트 미리보기는 세트 무대·기본 콩으로 (장착한 배경·콩 스킨에 안 섞이게, 2026-11-22)
+  if (type === 'ui' && key === 'live') Object.assign(pick, { bg: 'auto', kit: 'auto', notes: 'basic' });
   // 콩 스킨은 어두운 무대에서 (화려한 맵 위에선 잘 안 보임)
   if (type === 'notes' && pick.bg === 'auto') pick.bg = 'void';
   const kc = $('#shopitem-kit');
@@ -17550,15 +17576,9 @@ function bindDeco() {
     if (!id) return;
     const [type, key] = id.split(':');
     if (!decoOpen(type, key)) return buyShop(id);
-    if (decoPick(type) === key) {
-      state.settings[type] = DECO_FREE[type];
-      saveSettings(state.settings);
-      applyDeco();
-      renderDeco();
-      previewShop(id);
-      return toast('기본으로 돌렸어요 · 다시 쓰려면 「이걸로 바꾸기」', 2000);
-    }
+    if (decoPick(type) === key) return;
     equipDeco(id);
+    renderShop();
     previewShop(id);
     toast(`${shopName(type, key)}(으)로 바꿨어요`, 1800);
   });
@@ -21056,6 +21076,17 @@ function bindActions() {
     e.preventDefault();
     submitJoin();
   });
+  // 🎤 세트 버튼 소리 (2026-11-22 사용자 '세트면 버튼 효과음도'): 세트를 끼면 버튼·칩을 누를 때 반짝 소리 (게임 치는 화면 밖에서만)
+  document.addEventListener(
+    'click',
+    (e) => {
+      if (audio.uiSet !== 'live' || $('#screen-game').classList.contains('active')) return;
+      const b = e.target.closest('button, .chip, [data-act], a.btn');
+      if (!b || b.disabled) return;
+      audio.unlock().then(() => audio.sfxFile('live_tap', 0.5)).catch(() => {});
+    },
+    true,
+  );
   document.addEventListener('click', (e) => {
     const newMode = e.target.closest('#room-mode-new [data-mode]');
     if (newMode) {

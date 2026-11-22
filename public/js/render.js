@@ -1873,7 +1873,7 @@ export class Renderer {
   _liveJudges(rt) {
     const ctx = this.ctx;
     const L = this.L;
-    const LIFE = 0.5;
+    const LIFE = 0.4;
     this.fx.judges = this.fx.judges.filter((j) => rt - j.t0 < LIFE);
     const j = this.fx.judges[this.fx.judges.length - 1];
     if (!j) return;
@@ -1881,11 +1881,12 @@ export class Renderer {
     if (t < 0) return;
     const sc = t < 0.1 ? 0.75 + (t / 0.1) * 0.35 : t < 0.2 ? 1.1 - ((t - 0.1) / 0.1) * 0.1 : 1;
     const look = LIVE_JUDGE[j.text] || LIVE_JUDGE.MISS;
-    const size = L.GW * 0.088 * sc * look.k;
+    // 11-22 '퍼펙트가 시야 가림' → 콩이 아직 작은 길 맨 위쪽에, 작고 조금 비치게 (판정선 근처 콩을 안 가림)
+    const size = L.GW * 0.066 * sc * look.k;
     const x = L.cx;
-    const y = L.strikeY - (L.strikeY - L.topY) * 0.3;
+    const y = L.topY + (L.strikeY - L.topY) * 0.12;
     ctx.save();
-    ctx.globalAlpha = t < 0.7 ? 1 : 1 - (t - 0.7) / 0.3;
+    ctx.globalAlpha = 0.85 * (t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4);
     ctx.font = `italic 900 ${Math.round(size)}px ${LIVE_FONT}`;
     if ('letterSpacing' in ctx) ctx.letterSpacing = `${Math.round(size * 0.05)}px`;
     ctx.textAlign = 'center';
