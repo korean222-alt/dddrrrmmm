@@ -10839,6 +10839,68 @@ function coinsResult(data) {
 return { coinsInit, setCoinAccount, coinTotal, addRunCoins, takeCoins, coinsResult };
 })();
 
+// ---- offrec.js ----
+const __m_offrec = (() => {
+// 📴 서버 없을 때 친 판의 최고 기록 (2026-11-22, D1 하루 한도가 차서 랭킹이 안 올라가던 날)
+//   서버 없는 모드에선 판 토큰을 못 받아 점수를 못 올림 → 단계마다 최고 기록 하나만 폰에 모아 둠
+//   서버가 돌아오면 다음 판 시작(/api/runs)·점수 등록(/api/scores)에 얹어 보냄 (코인처럼, 요청 안 늘림)
+//   서버는 콩 수·점수 상한·친 시각(36시간 안)만 보고 받음. 한 번에 5개씩, 받은 것(done)만 지움
+const { load, save } = __m_storage;
+
+const KEEP_MS = 34 * 3600 * 1000; // 서버는 36시간까지 받음 → 조금 일찍 버림
+const pending = () => {
+  const m = load('offRecs', {});
+  return m && typeof m === 'object' && !Array.isArray(m) ? m : {};
+};
+const better = (a, b) => (a.rounds != null ? a.rounds > b.rounds || (a.rounds === b.rounds && a.score > b.score) : a.score > b.score);
+
+/** 결과 하나 담기 (같은 단계는 더 좋은 것만). 담았으면 true */
+function queueOffline(r, endless) {
+  const e = endless
+    ? { level: r.levelId, rounds: r.roundsCleared, score: r.score, at: Date.now() }
+    : { level: r.levelId, score: r.score, maxCombo: r.maxCombo, counts: r.counts, check: r.check, at: Date.now() };
+  if (!Number.isInteger(e.score) || (endless ? !(r.roundsCleared >= 1) : !r.counts)) return false;
+  const m = pending();
+  const key = String(r.levelId);
+  if (m[key] && Date.now() - m[key].at < KEEP_MS && !better(e, m[key])) return true;
+  m[key] = e;
+  save('offRecs', m);
+  return true;
+}
+
+const offlineCount = () => Object.keys(pending()).length;
+
+/** 요청에 얹을 것 (없으면 undefined). 오래된 건 버림 */
+function takeOffline() {
+  const m = pending();
+  const now = Date.now();
+  let changed = false;
+  for (const k of Object.keys(m)) {
+    if (!m[k] || !(now - m[k].at < KEEP_MS)) {
+      delete m[k];
+      changed = true;
+    }
+  }
+  if (changed) save('offRecs', m);
+  const list = Object.values(m);
+  return list.length ? list.slice(0, 5) : undefined;
+}
+
+/** 응답: offline.done 에 든 단계는 지움 (서버가 받았거나 형식이 틀려 버림) */
+function offlineResult(data) {
+  const o = data && data.offline;
+  if (!o || !Array.isArray(o.done) || !o.done.length) return;
+  const m = pending();
+  for (const k of o.done) delete m[String(k)];
+  save('offRecs', m);
+  try {
+    window.dispatchEvent(new CustomEvent('okaystra:offline-sent', { detail: { n: o.done.length, improved: o.improved || 0 } }));
+  } catch {}
+}
+
+return { queueOffline, offlineCount, takeOffline, offlineResult };
+})();
+
 // ---- game.js ----
 const __m_game = (() => {
 // 한 판의 게임 진행: 시간 관리, 입력 판정, 점수/콤보.
@@ -12041,6 +12103,7 @@ const { load, save } = __m_storage;
 const { gradeFor } = __m_charts;
 const { takeTrack } = __m_track;
 const { takeCoins, coinsResult } = __m_coins;
+const { takeOffline, offlineResult } = __m_offrec;
 const { seasonAt } = __m_season;
 
 async function http(method, url, body) {
@@ -12069,15 +12132,19 @@ async function http(method, url, body) {
   return data;
 }
 
+// 📴 서버 없을 때 친 최고 기록(offrec.js)도 같이 얹음
 function withCoins(send) {
   const coins = takeCoins();
-  return send(coins).then(
+  const offline = takeOffline();
+  return send(coins, offline).then(
     (r) => {
       if (coins) coinsResult(r);
+      if (offline) offlineResult(r);
       return r;
     },
     (e) => {
       if (coins) coinsResult(e && e.data);
+      if (offline) offlineResult(e && e.data);
       throw e;
     }
   );
@@ -12112,10 +12179,10 @@ function serverApi(boot = null) {
     verifyPassword: (body) => http('POST', '/api/verify/password', body),
     // 이용 통계는 따로 안 보내고 이 요청들에 얹어 보냄 (요청 수 아끼기)
     // 🪙 코인도 얹어 보냄 (coins.js). 응답에 잔액이 오면 받은 것, 아니면 다음에 다시
-    startRun: (level) => withCoins((coins) => http('POST', '/api/runs', { level, track: takeTrack(), coins })),
+    startRun: (level) => withCoins((coins, offline) => http('POST', '/api/runs', { level, track: takeTrack(), coins, offline })),
     submitScore: (payload) => {
       lbCache.clear();
-      return withCoins((coins) => http('POST', '/api/scores', { ...payload, track: takeTrack(), coins }));
+      return withCoins((coins, offline) => http('POST', '/api/scores', { ...payload, track: takeTrack(), coins, offline }));
     },
     // 랭킹은 1분 동안 같은 걸 다시 씀 (탭을 왔다 갔다 해도 요청 안 함). 점수 올리면 비움
     leaderboard: (level) => {
@@ -12326,13 +12393,14 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-22d',
+    id: '2026-11-22e',
     date: '11월 22일',
-    title: '🪙 코인 · 판정 글자',
+    title: '🪙 코인 · 판정 글자 · 서버 쉴 때 기록',
     items: [
       '<b>🪙 코인</b> — PERFECT 2개, 나머지 1개! 중간에 끝나도 친 만큼 쌓여요',
       '곧 <b>상점</b>이 열려요 — 코인으로 배경·드럼 세트·콩 색·📷 내 사진 배경을 꾸며요',
       'PERFECT·GREAT·GOOD 글자를 크기·색으로 더 잘 구분되게 바꿨어요',
+      '서버가 잠깐 쉴 때 친 기록도 폰에 모아 뒀다가, 서버가 돌아오면 <b>랭킹에 올라가요</b>',
     ],
   },
   {
@@ -13445,6 +13513,7 @@ const { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmoniz
 const { AudioEngine, playMetronome } = __m_audio;
 const { Renderer, NOTE_PALETTES, LANE, applyNoteColors } = __m_render;
 const { coinsInit, setCoinAccount, coinTotal, addRunCoins } = __m_coins;
+const { queueOffline } = __m_offrec;
 const { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } = __m_game;
 const { initAds, showRewarded } = __m_ads;
 const { createApi } = __m_api;
@@ -13581,6 +13650,10 @@ async function goOffline() {
   renderLevels();
 }
 window.addEventListener('okaystra:db-down', () => goOffline().catch(() => {}));
+window.addEventListener('okaystra:offline-sent', (ev) => {
+  const d = ev.detail || {};
+  if (d.improved > 0) toast(`서버 없을 때 친 기록 ${d.improved}개가 랭킹에 올라갔어요 🏆`, 3200);
+});
 function reconnectServer({ force = false } = {}) {
   if (state.api && state.api.mode === 'server') return Promise.resolve(true);
   if (CONFIG.apiMode === 'mock') return Promise.resolve(false);
@@ -14834,13 +14907,21 @@ async function submitRank(r = state.lastResult) {
   const endless = !!r && (r.levelId === ENDLESS_ID || !!levelEndlessBase(r.levelId));
   if (!r || r.auto || r.practice || (r.challenge && !endless) || (r.failed && !endless) || r.submitted || r.submitting) return;
   if (endless && !(r.roundsCleared >= 1)) return;
-  if (demoOnly() || state.api.mode !== 'server') return;
+  if (demoOnly()) return;
+  // 📴 서버 없는 모드(DB 한도 초과 등)·판 토큰을 못 받은 판: 인증한 폰이면 최고 기록을 폰에 모았다가 서버가 돌아오면 올림
+  const realTok = r.runToken && !String(r.runToken).startsWith('mock.');
+  const keepOffline = () => {
+    if (CONFIG.apiMode === 'mock' || !isConfirmed() || !queueOffline(r, endless)) return;
+    r.submitted = true;
+    toast('서버가 쉬는 중이라 기록을 폰에 모아 뒀어요 · 서버가 돌아오면 랭킹에 올라가요', 3200);
+  };
+  if (state.api.mode !== 'server') return keepOffline();
   // 랭킹은 팔로워 인증(암호)을 받은 사람만 → 안 받았으면 인증 창을 한 번 띄움
   if (!isConfirmed()) {
     askNickname();
     return;
   }
-  if (!r.runToken) return;
+  if (!realTok) return keepOffline(); // 판 시작 요청이 실패했던 판
   r.submitting = true;
   try {
     const out = await state.api.submitScore(
@@ -14855,7 +14936,8 @@ async function submitRank(r = state.lastResult) {
     else if (endless) toast(out.improved ? `무제한 랭킹에 올라갔어요! Lv.${out.rounds} 클리어 · ${out.rank}위 🏆` : `내 최고 기록(Lv.${out.rounds} 클리어)이 그대로 유지돼요 · ${out.rank}위`, 3200);
     else toast(out.improved ? `랭킹에 올라갔어요! 현재 ${out.rank}위 🏆` : `내 최고 기록(${fmt(out.best)})이 그대로 유지돼요 · ${out.rank}위`, 3000);
   } catch (e) {
-    if (e.status === 401 || (e.status === 403 && e.data && e.data.error === 'verify_required')) {
+    if (e.status === 503 || !e.status) keepOffline(); // 서버가 막혔거나 연결이 끊김
+    else if (e.status === 401 || (e.status === 403 && e.data && e.data.error === 'verify_required')) {
       if (e.status === 401) state.me = { verified: false };
       else state.me = { ...state.me, confirmed: false };
       askNickname();

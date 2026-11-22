@@ -429,7 +429,7 @@ END $$`);
              max_combo = EXCLUDED.max_combo, at = EXCLUDED.at, chk = EXCLUDED.chk WHERE EXCLUDED.score > scores.score
            RETURNING score)
        SELECT EXISTS (SELECT 1 FROM pl) AS ok, (SELECT score FROM prev) AS prev, (SELECT score FROM up) AS up`,
-      [igsid, level, entry.score, entry.grade ?? null, entry.maxCombo ?? 0, Date.now(), entry.chk ?? null]
+      [igsid, level, entry.score, entry.grade ?? null, entry.maxCombo ?? 0, entry.at ?? Date.now(), entry.chk ?? null]
     );
     if (!r || !r.ok) return null;
     const improved = r.up != null;

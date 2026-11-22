@@ -17,6 +17,7 @@ import { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmoni
 import { AudioEngine, playMetronome } from './audio.js';
 import { Renderer, NOTE_PALETTES, LANE, applyNoteColors } from './render.js';
 import { coinsInit, setCoinAccount, coinTotal, addRunCoins } from './coins.js';
+import { queueOffline } from './offrec.js';
 import { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } from './game.js';
 import { initAds, showRewarded } from './ads.js';
 import { createApi } from './api.js';
@@ -153,6 +154,10 @@ async function goOffline() {
   renderLevels();
 }
 window.addEventListener('okaystra:db-down', () => goOffline().catch(() => {}));
+window.addEventListener('okaystra:offline-sent', (ev) => {
+  const d = ev.detail || {};
+  if (d.improved > 0) toast(`서버 없을 때 친 기록 ${d.improved}개가 랭킹에 올라갔어요 🏆`, 3200);
+});
 function reconnectServer({ force = false } = {}) {
   if (state.api && state.api.mode === 'server') return Promise.resolve(true);
   if (CONFIG.apiMode === 'mock') return Promise.resolve(false);
@@ -1406,13 +1411,21 @@ async function submitRank(r = state.lastResult) {
   const endless = !!r && (r.levelId === ENDLESS_ID || !!levelEndlessBase(r.levelId));
   if (!r || r.auto || r.practice || (r.challenge && !endless) || (r.failed && !endless) || r.submitted || r.submitting) return;
   if (endless && !(r.roundsCleared >= 1)) return;
-  if (demoOnly() || state.api.mode !== 'server') return;
+  if (demoOnly()) return;
+  // 📴 서버 없는 모드(DB 한도 초과 등)·판 토큰을 못 받은 판: 인증한 폰이면 최고 기록을 폰에 모았다가 서버가 돌아오면 올림
+  const realTok = r.runToken && !String(r.runToken).startsWith('mock.');
+  const keepOffline = () => {
+    if (CONFIG.apiMode === 'mock' || !isConfirmed() || !queueOffline(r, endless)) return;
+    r.submitted = true;
+    toast('서버가 쉬는 중이라 기록을 폰에 모아 뒀어요 · 서버가 돌아오면 랭킹에 올라가요', 3200);
+  };
+  if (state.api.mode !== 'server') return keepOffline();
   // 랭킹은 팔로워 인증(암호)을 받은 사람만 → 안 받았으면 인증 창을 한 번 띄움
   if (!isConfirmed()) {
     askNickname();
     return;
   }
-  if (!r.runToken) return;
+  if (!realTok) return keepOffline(); // 판 시작 요청이 실패했던 판
   r.submitting = true;
   try {
     const out = await state.api.submitScore(
@@ -1427,7 +1440,8 @@ async function submitRank(r = state.lastResult) {
     else if (endless) toast(out.improved ? `무제한 랭킹에 올라갔어요! Lv.${out.rounds} 클리어 · ${out.rank}위 🏆` : `내 최고 기록(Lv.${out.rounds} 클리어)이 그대로 유지돼요 · ${out.rank}위`, 3200);
     else toast(out.improved ? `랭킹에 올라갔어요! 현재 ${out.rank}위 🏆` : `내 최고 기록(${fmt(out.best)})이 그대로 유지돼요 · ${out.rank}위`, 3000);
   } catch (e) {
-    if (e.status === 401 || (e.status === 403 && e.data && e.data.error === 'verify_required')) {
+    if (e.status === 503 || !e.status) keepOffline(); // 서버가 막혔거나 연결이 끊김
+    else if (e.status === 401 || (e.status === 403 && e.data && e.data.error === 'verify_required')) {
       if (e.status === 401) state.me = { verified: false };
       else state.me = { ...state.me, confirmed: false };
       askNickname();

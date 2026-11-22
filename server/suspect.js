@@ -61,6 +61,7 @@ function analyze(list, st) {
         sd: r.chk && r.chk.sd != null ? r.chk.sd : null, mean: r.chk && r.chk.mean != null ? r.chk.mean : null,
         hits: r.chk && r.chk.n != null ? r.chk.n : null, fake: (r.chk && r.chk.fake) || 0, sdMid: s.sdMid,
         bot: !!(r.chk && r.chk.sd != null && r.chk.n >= BOT_MIN_HITS && r.chk.sd <= BOT_SD_MS),
+        off: !!(r.chk && r.chk.off), // 📴 서버 없을 때 친 판 (판 토큰 없이 나중에 올림, 11-22)
       };
     })
     .filter(Boolean)
@@ -89,6 +90,9 @@ function analyze(list, st) {
     risk += Math.min(overlaps, 4) * 30;
     reasons.push(`⏱ 겹친 판 ${overlaps}번 — 곡 치는 시간의 절반도 안 돼서 다음 단계 기록이 찍힘 (${olv.join('·')}단계). 여러 창·기기로 동시에 돌렸거나 자동 프로그램일 수 있음`);
   }
+  // 참고(점수 없음): 서버 없을 때 친 판은 판 토큰이 없어 실제로 친 시간을 확인 못 함
+  const off = items.filter((it) => it.off);
+  if (off.length) reasons.push(`📴 서버 없을 때 친 기록 ${off.length}개 (${off.map((it) => it.level).join('·')}단계) — 판 확인 코드 없이 나중에 올라옴`);
   // 3) 가짜 입력: 화면을 손가락이 아니라 프로그램이 눌렀음 (브라우저가 표시해 줌)
   const fake = items.filter((it) => it.fake >= FAKE_MIN);
   if (fake.length) {

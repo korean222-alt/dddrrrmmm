@@ -160,7 +160,7 @@ export class D1Store extends PgStore {
          ON CONFLICT (igsid, level) DO UPDATE SET score = excluded.score, grade = excluded.grade,
            max_combo = excluded.max_combo, at = excluded.at, chk = excluded.chk WHERE excluded.score > scores.score
          RETURNING score`,
-        [igsid, level, entry.score, entry.grade ?? null, entry.maxCombo ?? 0, Date.now(), entry.chk ?? null],
+        [igsid, level, entry.score, entry.grade ?? null, entry.maxCombo ?? 0, entry.at ?? Date.now(), entry.chk ?? null],
       ],
     ]);
     if (!pre || !pre.ok) return null;

@@ -213,7 +213,7 @@ export class JsonStore {
     const prev = p.bests[level];
     const improved = !prev || entry.score > prev.score;
     if (improved) {
-      p.bests[level] = { ...entry, at: Date.now() };
+      p.bests[level] = { ...entry, at: entry.at ?? Date.now() };
       this._save();
     }
     return { improved, best: improved ? entry.score : prev.score };

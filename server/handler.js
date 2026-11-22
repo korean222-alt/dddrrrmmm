@@ -397,6 +397,29 @@ export function createHandler(cfg, { store }) {
     if (changed) await store.putWallet(pl.igsid, wallet);
     return wallet.coins;
   }
+  /**
+   * 📴 서버 없을 때(DB 한도 초과 등) 친 판의 최고 기록 (2026-11-22): 폰이 모았다가 다음 판 시작·점수 등록에 얹어 보냄
+   *   판 토큰이 없으니 콩 수·점수 상한·친 시각(36시간 안)만 봄. chk.off = 1 로 표시(핵 의심 화면에 보임)
+   *   한 번에 OFFLINE_MAX 개까지 (쿼리 수 제한) → 받은 것·버린 것 키를 돌려줌, 나머지는 폰이 다음에
+   */
+  async function takeOffline(pl, list) {
+    if (!pl || !isConfirmed(pl) || !Array.isArray(list)) return null;
+    const done = [];
+    let up = 0;
+    const now = Date.now();
+    for (const e of list.slice(0, OFFLINE_MAX)) {
+      const v = validateOffline(e, cfg, now);
+      done.push(v.key);
+      if (!v.ok) continue;
+      if (!up) await ensureHall();
+      const out = await store.recordScore(pl.igsid, v.slot, { score: v.score, grade: v.grade, maxCombo: v.maxCombo, chk: v.chk, at: v.at });
+      if (!out) continue;
+      if (out.improved) up++;
+      const sn = seasonAt(v.at).n;
+      if (sn > 1 && sn === seasonAt(now).n && (v.endless || (v.slot > 0 && v.slot <= LAST_LEVEL_ID))) await store.recordSeasonScore(sn, pl.igsid, v.slot, v.score);
+    }
+    return { done: done.filter((k) => k != null), improved: up };
+  }
   const coinsOf = async (pl) => (pl && isConfirmed(pl) ? ((await store.getWallet(pl.igsid)) || { coins: 0 }).coins : null);
 
   // 대결 방: 4단계부터는 혼자 칠 때와 같은 잠금 (팔로워 인증 완료한 사람만)
@@ -1023,8 +1046,13 @@ export function createHandler(cfg, { store }) {
       // 🕵 단계마다 몇 판 시작했나 (누군지 이미 아는 판만 = 4단계부터. 1~3단계는 쿼리 늘리지 않으려고 안 셈)
       if (runPl && runPl.igsid && level.id > 0) await Promise.resolve().then(() => store.addTry(runPl.igsid, level.id, 1, 0)).catch(() => {});
       const runToken = sign({ l: level.id, t: Date.now(), n: newId() }, cfg.sessionSecret);
-      const coins = body.coins ? await takeCoins(await getPlayer(request), body.coins) : null;
-      return json(200, coins == null ? { runToken } : { runToken, coins });
+      const anyPl = body.coins || body.offline ? runPl || (await getPlayer(request)) : null;
+      const coins = body.coins ? await takeCoins(anyPl, body.coins) : null;
+      const offline = body.offline ? await takeOffline(anyPl, body.offline) : null;
+      const out = { runToken };
+      if (coins != null) out.coins = coins;
+      if (offline) out.offline = offline;
+      return json(200, out);
     }
 
     // 4) 점수 등록 (닉네임 또는 인스타 인증 필요)
@@ -1037,7 +1065,9 @@ export function createHandler(cfg, { store }) {
       // 랭킹은 팔로워 인증(인증 완료)한 사람만 (GATE_MODE=open 이면 닉네임만 있어도)
       if (cfg.gateMode !== 'open' && !isConfirmed(pl)) return json(403, { error: 'verify_required' });
       const coins = body.coins ? await takeCoins(pl, body.coins) : null;
-      const wc = (o) => (coins != null ? { ...o, coins } : o); // 코인을 받았으면 오류 응답에도 잔액을 실음 (폰이 두 번 안 보내게)
+      const offline = body.offline ? await takeOffline(pl, body.offline) : null;
+      // 코인·서버 없을 때 기록을 받았으면 오류 응답에도 실음 (폰이 두 번 안 보내게)
+      const wc = (o) => ({ ...o, ...(coins != null ? { coins } : {}), ...(offline ? { offline } : {}) });
       const em = endlessMode(body.level);
       if (em) {
         const e = validateEndless(body, cfg);
@@ -1242,12 +1272,42 @@ export function validateScore(body, cfg, now = Date.now()) {
   return { ok: true, level, score, counts, grade: gradeFor(counts), maxCombo, nonce: run.n, chk: runCheck(body.check, now - run.t) };
 }
 
+export const OFFLINE_MAX = 5;
+const OFFLINE_KEEP_MS = 36 * 3600 * 1000;
+
+/**
+ * 📴 서버 없을 때 친 판 하나 검사 (판 토큰 없음): { level, score, at, (counts, maxCombo, check) | rounds }
+ *   key = 폰이 줄에서 지울 이름(단계). 형식이 틀려도 key 는 돌려줌(다시 안 보내게)
+ */
+export function validateOffline(e, cfg, now = Date.now()) {
+  if (!e || typeof e !== 'object') return { ok: false, key: null };
+  const key = String(e.level);
+  const bad = (error) => ({ ok: false, key, error });
+  const at = e.at;
+  if (!Number.isInteger(at) || at < now - OFFLINE_KEEP_MS || at > now + 60000) return bad('bad_at');
+  const em = endlessMode(e.level);
+  if (em) {
+    // 판 토큰 검사만 빼고 무제한 검사 그대로 (점수 상한)
+    const r = validateEndless({ ...e, runToken: sign({ l: em.id, t: now - 3600 * 1000, n: '' }, cfg.sessionSecret) }, { ...cfg, minRunRatio: 0 }, now);
+    if (!r.ok) return bad(r.error);
+    return { ok: true, key, endless: true, slot: em.slot, score: endlessKey(r.rounds, r.score), grade: null, maxCombo: 0, chk: JSON.stringify({ off: 1 }), at };
+  }
+  const level = getLevel(e.level);
+  if (!level) return bad('bad_level');
+  // 걸린 시간 검사는 빼고 나머지(콩 수·점수·판정 개수) 그대로
+  const v = validateScore({ ...e, runToken: sign({ l: level.id, t: now - 3600 * 1000, n: '' }, cfg.sessionSecret) }, { ...cfg, minRunRatio: 0 }, now);
+  if (!v.ok) return bad(v.error);
+  const chk = JSON.parse(runCheck(e.check, null));
+  chk.off = 1;
+  return { ok: true, key, slot: level.id, score: v.score, grade: v.grade, maxCombo: v.maxCombo, chk: JSON.stringify(chk), at };
+}
+
 /**
  * 🕵 핵 의심 확인용 (2026-11-21): 실제로 친 시간(판 토큰 받은 때 → 점수 올린 때) + 폰이 잰 박자 오차 퍼짐·평균, 가짜 입력 수
  *   점수 올릴 때 얹어 와서 scores.chk 에 JSON 으로 (요청·줄 추가 없음). 예전 앱은 check 가 없어 ms 만
  */
 export function runCheck(c, elapsedMs) {
-  const out = { ms: Math.max(0, Math.round(elapsedMs)) };
+  const out = elapsedMs == null ? {} : { ms: Math.max(0, Math.round(elapsedMs)) };
   if (c && typeof c === 'object') {
     const int = (v, lo, hi) => (Number.isFinite(v) ? Math.min(hi, Math.max(lo, Math.round(v))) : null);
     const sd = int(c.sd, 0, 1000), mean = int(c.mean, -1000, 1000), n = int(c.n, 0, 100000), fake = int(c.fake, 0, 100000);
