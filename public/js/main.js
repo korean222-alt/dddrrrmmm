@@ -2320,7 +2320,7 @@ const my = { url: null, name: '', buf: null, mono: null, bpm: null, beat0: null,
 const myBusy = () => my.loading;
 function openMysong() {
   if (followGated()) {
-    openVerify(null, { label: '🎵 내 노래로 치기는 팔로워만', then: openMysong });
+    openVerify(null, { label: '🎵 최신곡으로 치기는 팔로워만', then: openMysong });
     return;
   }
   if (state.game) state.game.stop();

@@ -623,10 +623,13 @@ export class Renderer {
     });
     if (!lite) this._drawLaneFlash(rt);
     ctx.save();
-    const sc = 1 + pe * 0.012;
-    ctx.translate(L.cx, L.strikeY);
-    ctx.scale(sc, sc);
-    ctx.translate(-L.cx + (Math.random() - 0.5) * ce * 3, -L.strikeY + pe * 3);
+    // 치는 화면은 판정선·콩이 꼼짝 않게 (2026-11-22 '칠 때마다 쿵·짝이 움직여서 탈락' 신고). 흔들림은 영상 찍기에서만
+    if (this.studio) {
+      const sc = 1 + pe * 0.012;
+      ctx.translate(L.cx, L.strikeY);
+      ctx.scale(sc, sc);
+      ctx.translate(-L.cx + (Math.random() - 0.5) * ce * 3, -L.strikeY + pe * 3);
+    }
 
     this._drawBeatLines(st);
     this._drawCombo(st, rt);
@@ -749,7 +752,7 @@ export class Renderer {
       ctx.stroke();
     }
     ctx.restore();
-    const k = 1 + pulse * 0.05;
+    const k = this.studio ? 1 + pulse * 0.05 : 1; // 판정 자리 크기는 그대로 (영상에서만 박자에 출렁)
     for (const lane of this.laneOrder) {
       const x = L.laneX[lane];
       const lit = rt - this.hitAt[lane] < 0.1;
@@ -1069,7 +1072,7 @@ export class Renderer {
       if (lane === KICK) {
         // 3D 베이스드럼: 킥이면 통 전체가 살짝 부풀고 앞 헤드가 번쩍
         const sp = this.kit.kick;
-        const k = 1 + pe * 0.07;
+        const k = 1 + pe * (this.studio ? 0.07 : 0.025);
         ctx.save();
         ctx.translate(x, y);
         ctx.scale(k, k * (1 - pe * 0.02));

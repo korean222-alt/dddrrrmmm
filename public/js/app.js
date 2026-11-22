@@ -9401,10 +9401,13 @@ class Renderer {
     });
     if (!lite) this._drawLaneFlash(rt);
     ctx.save();
-    const sc = 1 + pe * 0.012;
-    ctx.translate(L.cx, L.strikeY);
-    ctx.scale(sc, sc);
-    ctx.translate(-L.cx + (Math.random() - 0.5) * ce * 3, -L.strikeY + pe * 3);
+    // 치는 화면은 판정선·콩이 꼼짝 않게 (2026-11-22 '칠 때마다 쿵·짝이 움직여서 탈락' 신고). 흔들림은 영상 찍기에서만
+    if (this.studio) {
+      const sc = 1 + pe * 0.012;
+      ctx.translate(L.cx, L.strikeY);
+      ctx.scale(sc, sc);
+      ctx.translate(-L.cx + (Math.random() - 0.5) * ce * 3, -L.strikeY + pe * 3);
+    }
 
     this._drawBeatLines(st);
     this._drawCombo(st, rt);
@@ -9527,7 +9530,7 @@ class Renderer {
       ctx.stroke();
     }
     ctx.restore();
-    const k = 1 + pulse * 0.05;
+    const k = this.studio ? 1 + pulse * 0.05 : 1; // 판정 자리 크기는 그대로 (영상에서만 박자에 출렁)
     for (const lane of this.laneOrder) {
       const x = L.laneX[lane];
       const lit = rt - this.hitAt[lane] < 0.1;
@@ -9847,7 +9850,7 @@ class Renderer {
       if (lane === KICK) {
         // 3D 베이스드럼: 킥이면 통 전체가 살짝 부풀고 앞 헤드가 번쩍
         const sp = this.kit.kick;
-        const k = 1 + pe * 0.07;
+        const k = 1 + pe * (this.studio ? 0.07 : 0.025);
         ctx.save();
         ctx.translate(x, y);
         ctx.scale(k, k * (1 - pe * 0.02));
@@ -12682,10 +12685,12 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-22f',
+    id: '2026-11-22g',
     date: '11월 22일',
-    title: '🔥 오늘의 챌린지 · 🪙 코인 · 판정 글자 · 서버 쉴 때 기록',
+    title: '🔥 오늘의 챌린지 · 🎵 최신곡으로 치기 · 🪙 코인',
     items: [
+      '<b>칠 때마다 판정선이 흔들리던 것</b> 고쳤어요 — 이제 쿵·짝 자리가 꼼짝 안 해요',
+      '<b>🎵 최신곡으로 치기</b> — 노래 나오는 화면을 화면 녹화해서 넣으면 그 노래로 쳐요',
       '<b>🔥 오늘의 챌린지</b> — 매일 곡 하나와 미션이 바뀌어요. 성공하면 <b>연속 일수</b>가 쌓여요!',
       '<b>🪙 코인</b> — PERFECT 2개, 나머지 1개! 중간에 끝나도 친 만큼 쌓여요',
       '곧 <b>상점</b>이 열려요 — 코인으로 배경·드럼 세트·콩 색·📷 내 사진 배경을 꾸며요',
@@ -16005,7 +16010,7 @@ const my = { url: null, name: '', buf: null, mono: null, bpm: null, beat0: null,
 const myBusy = () => my.loading;
 function openMysong() {
   if (followGated()) {
-    openVerify(null, { label: '🎵 내 노래로 치기는 팔로워만', then: openMysong });
+    openVerify(null, { label: '🎵 최신곡으로 치기는 팔로워만', then: openMysong });
     return;
   }
   if (state.game) state.game.stop();
