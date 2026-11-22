@@ -50,6 +50,12 @@ const PICK_MARGIN = 0.02;
  *     (산왕의 궁전 킥 연타: 남는 킥 터치가 바로 뒤 스네어 노트를 가져가서, 진짜 스네어 터치가 헛침이 되던 것)
  */
 const CROSS_DIST = 0.3;
+/**
+ *   - 내 줄엔 칠 콩이 아예 없을 때는 바로 옆 줄 쪽 절반(경계에서 줄 너비의 이 비율 안)을 누른 것도 옆 줄 콩으로
+ *     (엄지가 옆 줄 안쪽까지 넘어가 누름 → 예전엔 내 줄 다음 콩을 '일찍 누름' MISS 로 만들어, 그 콩의 진짜 터치가 또 그다음 콩을
+ *      일찍 누른 게 되는 연쇄가 시작됐음. 2026-11-23 '쳐야 할 곳이 많은 곳엔 터치가 안 돼요')
+ */
+const DEEP_EDGE = 0.5;
 
 export class Game {
   /**
@@ -364,7 +370,9 @@ export class Game {
     const playing = this.state === 'playing' && !this.auto;
     const t = playing ? this.songTime(perfMs) : 0;
     const touched = lane;
+    this._altNote = null;
     if (playing && near && near.length) lane = this._pickLane(lane, t, near, pos);
+    const alt = this._altNote; // 이 터치가 '어쩌면' 치려던 다른 줄 콩 (경계 근처 터치일 때만)
     // 소리가 오류 나도 판정은 꼭 함 (예전에 소리 엔진을 새로 만든 뒤 쿵 소리만 오류 나서 쿵 판정이 통째로 빠졌음)
     try {
       if (this.level.tapMelody && lane === SNARE) {
@@ -385,6 +393,8 @@ export class Game {
     const list = this.lanes[lane];
     let ahead = null;
     let late = null; // GOOD 보다 조금 늦게 친 노트 (아직 MISS 로 안 넘어감)
+    // 이 줄에서 옆 줄 터치가 먼저 가져간 콩 → 이 터치가 진짜 주인일 수 있음
+    const redo = this._redoNear(lane, t);
     for (let i = this.ptr[lane]; i < list.length; i++) {
       const n = list[i];
       if (n.judged) continue;
@@ -397,34 +407,41 @@ export class Game {
         ahead = n;
         break;
       }
-      // 이 줄 노트를 옆 줄 터치가 먼저 가져갔고 그게 이 터치에 더 가까우면 → 이번 터치는 그 노트를 친 것.
+      // 다른 터치가 먼저 판정해 버린 콩이 이 터치에 더 가까우면 → 이번 터치는 그 콩을 친 것.
       //   안 그러면 다음 노트를 일찍 쳐 버리고, 그다음 터치는 헛침이 되는 연쇄가 생김 (2026-11-22 '터치 씹힘')
-      const b = this._borrowedNear(lane, t);
-      if (b && Math.abs(t - b.time) < Math.abs(dt)) {
-        b.reclaimed = true;
-        this.r.onJudge(lane, b.result, rt);
+      if (redo && Math.abs(t - redo.time) < Math.abs(dt)) {
+        this._reclaim(redo, t, rt);
         return;
       }
       this._judge(n, dt, rt);
-      // 옆 줄에서 넘어온 터치가 가져간 노트 → 그 줄 엄지가 곧 진짜로 치면 헛침으로 안 봄
-      if (lane !== touched) n.borrowed = true;
+      // 이 터치가 '사실은' 치려던 게 다른 콩일 수도 있으면 기억 → 그 콩(n)의 진짜 터치가 오면 서로 바꿈 (_reclaim):
+      //   - 옆 줄에서 넘어온 터치(lane≠touched): 원래 눌렀던 줄 콩
+      //   - 경계 근처 터치가 제 줄 콩을 침: 선을 살짝 넘은 옆 줄 엄지였을 수도 → 옆 줄 콩
+      //   - 지나간 콩을 GOOD 보다 조금 늦게 친 터치가 다음 콩을 일찍 침: 사실은 지나간 콩(어차피 MISS)을 친 것일 수도
+      const other = lane !== touched || alt ? alt : (dt < 0 ? late : null);
+      if (lane !== touched || other) n.borrowed = { note: other, t };
+      // 바꿔 줄 콩은 진짜 주인 터치가 올 때까지(이 콩의 판정 시간 끝까지) MISS 로 넘기지 않고 기다림
+      if (other) other.hold = Math.max(other.hold || 0, n.time);
       return;
     }
-    // 이 줄 노트를 옆 줄 터치가 먼저 가져갔음 → 이번이 진짜 그 노트를 친 것 (헛침·MISS 아님)
-    const b = this._borrowedNear(lane, t);
-    if (b) {
-      b.reclaimed = true;
-      this.r.onJudge(lane, b.result, rt);
+    if (redo) {
+      this._reclaim(redo, t, rt);
       return;
     }
     // 조금 늦게 친 것 (GOOD 밖): 그 노트를 지금 MISS 로 하고 끝. 예전엔 이 터치가 헛침(하트 하나)이 되고 그 노트도 MISS(또 하나),
-    //   다음 노트가 가까우면 '너무 일찍 누름'으로 그것까지 MISS → 늦은 터치 한 번에 하트 2~3개 ('분명 쳤는데 씹혔다')
+    //   다음 노트가 가까우면 '너무 일찍 누름'으로 그것까지 MISS → 늦은 터치 한 번에 하트 2~3개 ('분명 쳤는데 씹혔다').
+    //   다음 콩이 조금 더 가까워도 지나간 콩 것으로 봄: 지나간 콩은 어차피 MISS 라 손해가 없고, 다음 콩은 진짜 터치를 기다림
     const early = ahead && t - ahead.time >= -JUDGE.early;
-    if (late && (!early || t - late.time <= ahead.time - t)) {
+    if (late) {
       this._miss(late, rt);
       return;
     }
+    // 지나가서 이미 MISS 가 된 콩을 늦게 친 것 (폰이 버벅여 터치가 MISS 처리보다 늦게 도착) → 그 MISS 로 벌은 받았음.
+    //   다음 콩을 '일찍 누름' MISS 로 만들지도, 헛침으로 하트를 또 깎지도 않음 (늦게 도착한 터치만 해당: 터치 시각이 MISS 처리 전)
+    const prev = this._sweptNear(lane, t);
+    if (prev && (!ahead || t - prev.time < ahead.time - t)) return;
     // 너무 일찍 누름 → 그 노트는 MISS (마구 연타해서 점수 받는 것 방지)
+    //   ⚠ 이 MISS 를 나중 터치로 되돌려 주면 마구 연타가 거의 다 맞음(시뮬레이션 94%) → 되돌리지 말 것
     if (early) {
       this._miss(ahead, rt);
       return;
@@ -433,15 +450,96 @@ export class Game {
     if (t > this.firstNoteTime - this.beat && t < this.lastNoteTime + JUDGE.good) this._wrong(lane, rt, t);
   }
 
-  /** 이 줄에서 다른 터치가 먼저 가져간(borrowed) 노트 중 t 에 가장 가까운 것 (GOOD 범위 안, 없으면 null) */
-  _borrowedNear(lane, t) {
+  /** 이 줄에서 옆 줄 터치가 가져가 되찾을 수 있는 콩 중 t 에 가장 가까운 것 (GOOD 안, 없으면 null) */
+  _redoNear(lane, t) {
     const list = this.lanes[lane];
     let best = null;
     for (let i = Math.max(0, this.ptr[lane] - 4); i < list.length && list[i].time - t <= JUDGE.good; i++) {
       const n = list[i];
-      if (n.borrowed && !n.reclaimed && Math.abs(t - n.time) <= JUDGE.good && (!best || Math.abs(t - n.time) < Math.abs(t - best.time))) best = n;
+      if (!n.judged || Math.abs(t - n.time) > JUDGE.good) continue;
+      // 가져간 터치를 돌려줄 콩(b.note)이 아직 남아 있으면 되찾음 (이미 쳐졌으면 그 터치가 진짜 주인이었던 것).
+      //   돌려줄 콩이 없으면(남는 터치·떨린 손가락이 가져감) 이 터치가 가져간 터치보다 시간이 더 잘 맞을 때만
+      //   (산왕의 궁전 킥 연타의 남는 터치가 바로 뒤 스네어를 가져감 → 진짜 스네어 터치가 되찾음.
+      //    반대로 정확히 친 콩을 같은 줄 다음 콩을 일찍 친 터치가 뺏어 가면 안 됨)
+      const b = n.borrowed;
+      const ok = b && !n.reclaimed && (b.note ? !b.note.judged : Math.abs(t - n.time) < Math.abs(b.t - n.time));
+      if (ok && (!best || Math.abs(t - n.time) < Math.abs(t - best.time))) best = n;
     }
     return best;
+  }
+
+  /** 이 줄에서 지나가서 MISS 처리된 콩 중 t 가 그 콩의 늦은 판정 시간(GOOD+MISS_SLACK) 안인 가장 가까운 것 (없으면 null) */
+  _sweptNear(lane, t) {
+    const list = this.lanes[lane];
+    let best = null;
+    for (let i = Math.max(0, this.ptr[lane] - 6); i < list.length && list[i].time < t; i++) {
+      const n = list[i];
+      if (n.swept && t - Math.max(n.time, n.hold || 0) <= JUDGE.good + MISS_SLACK) best = n;
+    }
+    return best;
+  }
+
+  /**
+   * 옆 줄 터치가 가져간 노트를 그 줄 진짜 터치가 되찾음 (헛침·MISS 아님).
+   *   가져갔던 터치는 원래 눌렀던 줄의 콩으로 돌려줌 — 그 콩이 아직 안 쳐졌고 그 터치 시각에 GOOD 안이면, 그 터치 시각으로 판정.
+   *   (2026-11-23 '엇박 칠 때 터씹': 쿵을 조금 늦게 쳤는데 가운데 선 근처라 바로 뒤 짝 콩으로 옮겨지고 → 쿵 콩은 MISS 가 되던 것)
+   *   돌려받은 콩도 '빌린 것'으로 표시 → 그 줄 엄지가 곧 진짜로 치면 헛침 없이 되찾기만 (돌려주기는 한 번만).
+   *   되찾은 콩의 판정은 진짜 주인 터치의 시간으로 다시 매김 (가져간 터치 시간으로 GOOD 이 남아 '판정이 이상해요')
+   */
+  _reclaim(b, t, rt) {
+    b.reclaimed = true;
+    this._rejudge(b, t - b.time);
+    this.r.onJudge(b.lane, b.result, rt);
+    const o = b.borrowed;
+    const n = o && o.note;
+    if (!n || n.judged) return;
+    const dt = o.t - n.time;
+    // 지나간 콩을 늦게 친 것이었음 → 그 콩은 MISS (벌은 원래 받을 만큼만)
+    if (Math.abs(dt) > JUDGE.good) {
+      this._miss(n, rt);
+      return;
+    }
+    this._judge(n, dt, rt);
+    n.borrowed = { note: null, t: o.t };
+  }
+
+  /** 되찾은 콩의 판정을 진짜 주인 터치의 시간으로 다시 매김 (점수·판정 수·박자 기록 고침, 콤보·목숨은 그대로) */
+  _rejudge(n, dt) {
+    if (n.result === 'miss' || n.comboAt == null) return;
+    const ad = Math.abs(dt);
+    const res = ad <= JUDGE.perfect ? 'perfect' : ad <= JUDGE.great ? 'great' : 'good';
+    if (n.offAt != null) this.offsets[n.offAt] = dt;
+    if (res === n.result) return;
+    this.counts[n.result]--;
+    this.counts[res]++;
+    this.score += Math.round((pointsFor(res, n.comboAt) - pointsFor(n.result, n.comboAt)) * (n.mult || 1));
+    n.result = res;
+  }
+
+  /** 이 줄에서 t 에 칠 수 있는 것: 안 쳐진 콩 또는 되찾을 콩 중 가까운 것 { note, gap, redo } (없으면 null) */
+  _cand(lane, t) {
+    const n = this._noteFor(lane, t);
+    const r = this._redoNear(lane, t);
+    if (r && (!n || Math.abs(t - r.time) < Math.abs(t - n.time))) return { note: r, gap: Math.abs(t - r.time), redo: true };
+    return n ? { note: n, gap: Math.abs(t - n.time), redo: false } : null;
+  }
+
+  /** 이 줄에서 이 터치로 MISS 가 될 안 쳐진 콩: GOOD 보다 조금 늦게 친 콩, 없으면 너무 일찍 누른 콩 (input 과 같은 순서, 없으면 null) */
+  _weakFor(lane, t) {
+    const list = this.lanes[lane];
+    let late = null;
+    for (let i = this.ptr[lane]; i < list.length; i++) {
+      const n = list[i];
+      if (n.judged) continue;
+      const dt = t - n.time;
+      if (dt > JUDGE.good) {
+        if (dt <= JUDGE.good + MISS_SLACK) late = n;
+        continue;
+      }
+      if (late) return late;
+      return dt < -JUDGE.good && dt >= -JUDGE.early ? n : null;
+    }
+    return late;
   }
 
   /** 지금(t) 이 줄에서 누르면 판정될 노트 (없으면 null) */
@@ -468,15 +566,19 @@ export class Game {
       if (roll.lane !== lane && near.some((c) => c.lane === roll.lane && (c.d <= NEAR_EDGE || crossed))) return roll.lane;
       return lane;
     }
-    const own = this._noteFor(lane, t);
+    // 이 줄 콩을 옆 줄 터치가 방금 가져갔음 → 이 터치가 그 콩의 진짜 주인 (되찾고, 가져갔던 터치는 제 콩으로)
+    const own = this._cand(lane, t);
+    if (own && own.redo) return lane;
     let best = null;
-    let bestGap = Infinity;
+    let bc = null;
     for (const c of near) {
-      if (c.d > NEAR_EDGE && !crossed) continue;
-      const n = this._noteFor(c.lane, t);
-      if (n && Math.abs(t - n.time) < bestGap) {
+      // 경계 근처거나 엄지가 넘어온 터치만. 단 내 줄엔 칠 콩이 아예 없으면 바로 옆 줄은 깊이 들어갔어도 봄
+      //   (엄지가 옆 줄 안쪽까지 넘어가 누른 것 → 예전엔 내 줄 다음 콩을 '일찍 누름' MISS 로 만들어 연쇄가 시작됐음)
+      if (c.d > NEAR_EDGE && !crossed && (own || c.d > DEEP_EDGE)) continue;
+      const k = this._cand(c.lane, t);
+      if (k && (!bc || k.gap < bc.gap)) {
         best = c.lane;
-        bestGap = Math.abs(t - n.time);
+        bc = k;
       }
     }
     if (best === null && !own) {
@@ -485,17 +587,26 @@ export class Game {
       const hand = INSTRUMENTS[lane] && INSTRUMENTS[lane].hand;
       for (const l of this.laneOrder) {
         if (l === lane || !INSTRUMENTS[l] || INSTRUMENTS[l].hand !== hand) continue;
-        const n = this._noteFor(l, t);
-        if (n && Math.abs(t - n.time) < bestGap) {
+        const k = this._cand(l, t);
+        if (k && (!bc || k.gap < bc.gap)) {
           best = l;
-          bestGap = Math.abs(t - n.time);
+          bc = k;
         }
       }
     }
     if (best === null) return lane;
-    if (!own) return best;
-    // 둘 다 노트가 있으면 내 줄 우선. 다만 (경계 근처거나 엄지가 넘어온 터치) 옆 줄 노트가 확실히 더 가까우면 옆 줄
-    if (bestGap + PICK_MARGIN < Math.abs(t - own.time)) return best;
+    if (!own) {
+      // 내 줄엔 GOOD 안 콩이 없음 → 옆 줄로. 내 줄에 조금 늦게/일찍 친 콩이 있으면 기억 (그 줄 진짜 터치가 오면 이 터치는 그 MISS 로)
+      this._altNote = this._weakFor(lane, t);
+      return best;
+    }
+    // 둘 다 노트가 있으면 내 줄 우선. 다만 (경계 근처거나 엄지가 넘어온 터치) 옆 줄 노트가 확실히 더 가까우면 옆 줄.
+    //   어느 쪽이든 다른 쪽 콩을 기억해 둠(_altNote) → 그 줄 엄지가 진짜로 치면 바꿔 줌 (_reclaim)
+    if (bc.gap + PICK_MARGIN < own.gap) {
+      this._altNote = own.note;
+      return best;
+    }
+    this._altNote = bc.redo ? null : bc.note;
     return lane;
   }
 
@@ -519,6 +630,8 @@ export class Game {
     this.maxCombo = Math.max(this.maxCombo, this.combo);
     this.counts[res]++;
     this.score += Math.round(pointsFor(res, this.combo) * (n.mult || 1));
+    n.comboAt = this.combo; // 되찾기 때 판정을 다시 매길 때 씀 (_rejudge)
+    n.offAt = this.offsets.length;
     if (n.gold && res !== 'good') {
       this.goldHits++;
       const heal = this.livesOn && this.lives < MAX_LIVES;
@@ -706,8 +819,9 @@ export class Game {
           this.ptr[lane]++;
           continue;
         }
-        if (now - n.time > JUDGE.good + MISS_SLACK) {
+        if (now - Math.max(n.time, n.hold || 0) > JUDGE.good + MISS_SLACK) {
           this._miss(n, rt);
+          n.swept = true;
           this.ptr[lane]++;
           continue;
         }

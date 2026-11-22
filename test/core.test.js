@@ -398,6 +398,114 @@ test('🖐 터치 씹힘(2026-11-22): 조금 늦은 터치는 하트 하나만, 
   assert.equal(g.counts.miss, 0);
 });
 
+test('🖐 터치 씹힘(2026-11-23): 엇박 늦은 쿵·선을 넘은 엄지·옆 줄 깊이 넘어간 엄지·늦은 터치 → 제 콩으로, 일찍 누름 MISS 는 안 되돌림', async () => {
+  const { Game } = await import('../public/js/game.js');
+  const { KICK, SNARE, JUDGE } = await import('../public/js/charts.js');
+  const noop = () => {};
+  globalThis.cancelAnimationFrame ??= noop;
+  const renderer = new Proxy({}, { get: () => noop });
+  let clock = 0;
+  const audio = new Proxy({ ctx: { suspend: async () => {}, resume: async () => {} }, heardTime: () => clock }, { get: (o, k) => (k in o ? o[k] : noop) });
+  // 채보를 직접: 1마디 쉼 뒤 (100 BPM → 16분 0.15초, 144 BPM → 0.104초)
+  const make = (bars, bpm = 100) => {
+    const lv = { ...LEVELS[0], id: 999, bpm, bars: ['................', ...bars], song: LEVELS[0].song };
+    const g = new Game({ audio, renderer, level: lv, settings: {}, onDeath: noop, onEnd: noop });
+    g.startTime = 0;
+    g.state = 'playing';
+    g.player = { stop: noop };
+    return g;
+  };
+  // 왼쪽 엄지(쿵) = 줄 0, 오른쪽(짝) = 줄 1. near·u 는 render.laneHit 와 같은 모양
+  const tap = (g, u, at) => {
+    clock = at;
+    const i = u < 1 ? 0 : 1;
+    const f = u - i;
+    g.input(i === 0 ? KICK : SNARE, 0, [{ lane: i === 0 ? SNARE : KICK, d: i === 0 ? 1 - f : f }], u);
+  };
+  const sweep = (g, now) => {
+    for (const lane of g.laneOrder) {
+      const list = g.lanes[lane];
+      while (g.ptr[lane] < list.length) {
+        const n = list[g.ptr[lane]];
+        if (n.judged) { g.ptr[lane]++; continue; }
+        if (now - Math.max(n.time, n.hold || 0) > JUDGE.good + 0.12) { g._miss(n, 0); g.ptr[lane]++; continue; }
+        break;
+      }
+    }
+  };
+
+  // 1) 엇박: 쿵을 0.1초 늦게, 가운데 선 근처에서 → 0.15초 뒤 짝 콩이 더 가까워 짝으로 옮겨짐 → 진짜 짝 터치가 오면 쿵은 쿵으로
+  let g = make(['KS..............']);
+  let k = g.lanes[KICK][0];
+  let s = g.lanes[SNARE][0];
+  tap(g, 0.85, k.time + 0.1);
+  tap(g, 1.5, s.time + 0.11); // 짝도 조금 늦게 (쿵이 MISS 로 넘어가기 직전)
+  sweep(g, s.time + 0.5);
+  assert.equal(k.result, 'great', '쿵이 MISS 가 되면 안 됨');
+  assert.equal(s.result, 'good', '짝은 진짜 짝 터치 시간으로');
+  assert.equal(g.counts.miss + g.counts.wrong, 0);
+
+  // 2) 윌리엄 텔 쿵짝: 쿵 엄지가 선을 살짝 넘어(짝 줄) 0.05초 늦게 → 짝 콩(0.104초 뒤)을 먼저 가져가도, 진짜 짝 터치가 오면 서로 바꿈
+  g = make(['KS..............'], 144);
+  k = g.lanes[KICK][0];
+  s = g.lanes[SNARE][0];
+  tap(g, 1.08, k.time + 0.05);
+  tap(g, 1.6, s.time);
+  sweep(g, s.time + 0.5);
+  assert.equal(k.result, 'perfect', '쿵은 쿵 엄지 시간(0.05초)으로');
+  assert.equal(s.result, 'perfect', '짝은 진짜 짝 터치로');
+  assert.equal(g.counts.miss + g.counts.wrong, 0);
+
+  // 3) 쿵 엄지가 짝 줄 안쪽까지(경계에서 0.4) 넘어가 제때 침, 짝 콩은 0.25초 뒤 → 짝을 '일찍 누름' MISS 로 만들지 않고 쿵으로
+  //   (예전엔 짝 MISS → 진짜 짝 터치가 다음 짝을 일찍 누른 게 되는 연쇄의 시작)
+  g = make(['KS..............'], 60);
+  k = g.lanes[KICK][0];
+  s = g.lanes[SNARE][0];
+  tap(g, 1.4, k.time + 0.01);
+  tap(g, 1.6, s.time);
+  sweep(g, s.time + 0.5);
+  assert.equal(k.result, 'perfect');
+  assert.equal(s.result, 'perfect');
+  assert.equal(g.counts.miss + g.counts.wrong, 0);
+
+  // 4) 같은 줄 연타: GOOD 보다 조금 늦게 친 터치(0.17초)가 다음 콩(0.13초 뒤)을 '일찍' 가져가거나 MISS 로 만들지 않음
+  g = make(['K.K.............']);
+  const [k1, k2] = g.lanes[KICK];
+  tap(g, 0.5, k1.time + 0.17);
+  tap(g, 0.5, k2.time + 0.01);
+  sweep(g, k2.time + 0.5);
+  assert.equal(k1.result, 'miss');
+  assert.equal(k2.result, 'perfect', '다음 콩은 제 터치로');
+  assert.equal(g.counts.miss, 1);
+  assert.equal(g.counts.wrong, 0);
+
+  // 5) 너무 일찍 누름 MISS 는 뒤 터치로 되돌리지 않음 (되돌리면 마구 연타가 거의 다 맞음)
+  g = make(['K...............']);
+  k = g.lanes[KICK][0];
+  tap(g, 0.5, k.time - 0.2);
+  tap(g, 0.5, k.time);
+  assert.equal(k.result, 'miss');
+
+  // 6) 경계 근처 남는 터치(같은 엄지 한 번 더)가 옆 줄 콩을 가져가도 진짜 그 줄 터치가 더 잘 맞으면 되찾음 (헛침 아님)
+  g = make(['KS..............']);
+  k = g.lanes[KICK][0];
+  s = g.lanes[SNARE][0];
+  tap(g, 0.75, k.time);
+  tap(g, 0.8, k.time + 0.08); // 남는 쿵 터치 → 짝 콩으로
+  tap(g, 1.5, s.time); // 진짜 짝
+  assert.equal(k.result, 'perfect');
+  assert.ok(s.judged);
+  assert.equal(g.counts.wrong + g.counts.miss, 0);
+  // 반대로 정확히 친 콩을 같은 줄 다음 콩을 일찍 친 터치가 뺏어 가면 안 됨
+  g = make(['KK..............']);
+  const [a1, a2] = g.lanes[KICK];
+  tap(g, 1.01, a1.time - 0.02); // 쿵 엄지가 선을 살짝 넘어 침 (짝 줄엔 콩 없음) → 쿵
+  tap(g, 0.4, a2.time - 0.08); // 다음 쿵을 조금 일찍 (앞 콩에 더 가까움)
+  sweep(g, a2.time + 0.5);
+  assert.equal(a1.result, 'perfect');
+  assert.ok(a2.judged && a2.result !== 'miss', '다음 쿵이 씹히면 안 됨');
+});
+
 test('📦 랭킹 기록 → 깬 단계(별) 어림: 무제한은 다이아·깬 단계', async () => {
   const { bestsFromScores, endlessKey } = await import('../server/handler.js');
   const { isUnlocked, noteCount: nc, getLevel } = await import('../public/js/charts.js');
