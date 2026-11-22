@@ -3638,9 +3638,9 @@ function drecStop() {
   mkRender();
 }
 
-// ----- ● 건반 쳐서 녹음 (똑딱 소리에 맞춰 치면 8분음표에 맞춰 넣음) -----
-const REC_Q = 2; // 8분음표 칸에 맞춤
-const rec = { on: false, bus: null, t0: 0, sd: 0, startBar: 0, next: -STEPS_PER_BAR, raf: 0, down: new Map(), last: null, maxStep: 0 };
+// ----- ● 건반 쳐서 녹음 (똑딱 소리에 맞춰 치면 16분·8분음표에 맞춰 넣음) -----
+// 11-22 유저 건의 '음을 자세하게 인식 안 해' → 8분 고정이던 걸 고를 수 있게 (기본 16분)
+const rec = { q: 1, on: false, bus: null, t0: 0, sd: 0, startBar: 0, next: -STEPS_PER_BAR, raf: 0, down: new Map(), last: null, maxStep: 0 };
 function recToggle() {
   if (rec.on) return recStop();
   mkStopPlay();
@@ -3655,6 +3655,7 @@ function recToggle() {
     mkSnap();
     if (from === '0') mk.mel = mk.mel.map(() => []);
     rec.drums = $('#mk-rec-drums').checked;
+    rec.q = Number($('#mk-rec-q').value) || 1;
     rec.bus = ctx.createGain();
     rec.bus.connect(audio.musicBus);
     rec.sd = 15 / mk.bpm;
@@ -3710,16 +3711,16 @@ function recToggle() {
 const recPos = () => (audio.heardTime(performance.now()) - (state.settings.offsetMs || 0) / 1000 - rec.t0) / rec.sd;
 function recDown(midi, el) {
   const pos = recPos();
-  if (pos < -REC_Q) return;
-  const q = Math.max(0, Math.round(pos / REC_Q) * REC_Q);
+  if (pos < -rec.q) return;
+  const q = Math.max(0, Math.round(pos / rec.q) * rec.q);
   const at = rec.startBar * STEPS_PER_BAR + q;
   // 앞 음이 아직 눌려 있으면 여기서 끊김 (한 번에 한 음)
-  if (rec.last && rec.last.at < at && rec.last.open) rec.last.len = Math.max(REC_Q, at - rec.last.at);
-  const note = { at, midi, len: REC_Q * 2, open: true };
+  if (rec.last && rec.last.at < at && rec.last.open) rec.last.len = Math.max(rec.q, at - rec.last.at);
+  const note = { at, midi, len: rec.q * 2, open: true };
   rec.last = note;
   rec.down.set(el || midi, { note, pos });
   mkPut(at, midi, note.len);
-  rec.maxStep = Math.max(rec.maxStep, at + REC_Q);
+  rec.maxStep = Math.max(rec.maxStep, at + rec.q);
   mkRoll(pos - (mk.bar - rec.startBar) * STEPS_PER_BAR);
 }
 function recUp(key) {
@@ -3730,7 +3731,7 @@ function recUp(key) {
   if (!n.open) return;
   n.open = false;
   const held = recPos() - d.pos;
-  const len = Math.max(REC_Q, Math.round(held / REC_Q) * REC_Q);
+  const len = Math.max(rec.q, Math.round(held / rec.q) * rec.q);
   if (rec.last === n || len < n.len) {
     n.len = len;
     // 다시 넣기 (길이만 바뀜)

@@ -281,7 +281,7 @@
             <div id="mk-file-opts" hidden>
               <label class="field"><span>시작 <small class="muted">예) 0:30 (비우면 처음부터)</small></span><input type="text" id="mk-file-start" inputmode="decimal" placeholder="0:00" /></label>
               <label class="field"><span>길이</span><select id="mk-file-len"><option value="all" selected>노래 끝까지 (최대 64마디)</option><option value="8">8마디</option><option value="16">16마디</option><option value="32">32마디</option></select></label>
-              <label class="field"><span>음 정리</span><select id="mk-file-clean"><option value="easy" selected>깔끔하게 (8분음표, 추천)</option><option value="fine">자세히 (16분음표까지)</option></select></label>
+              <label class="field"><span>음 정리</span><select id="mk-file-clean"><option value="fine" selected>자세히 (16분음표까지, 추천)</option><option value="easy">깔끔하게 (8분음표만)</option></select></label>
               <button class="btn btn-primary" type="button" data-action="mk-transcribe" id="mk-transcribe">음 따기</button>
             </div>
           </div>
@@ -293,6 +293,7 @@
               <label class="field mk-rec-from"><select id="mk-rec-from"><option value="0">처음부터</option><option value="end">이어서 (끝에 붙이기)</option><option value="bar">지금 마디부터</option></select></label>
             </div>
             <label class="field check"><input type="checkbox" id="mk-rec-drums" checked /><span>녹음할 때 드럼 같이 듣기</span></label>
+            <label class="field mk-drec-q"><span>박자 맞춤</span><select id="mk-rec-q"><option value="1" selected>16분음표 (빠른 음까지 자세히)</option><option value="2">8분음표 (쉬움)</option></select></label>
             <p class="hint mk-rec-msg" id="mk-rec-msg"></p>
           </div>
 
@@ -999,6 +1000,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=b8f03a6135" defer></script>
+  <script src="js/app.js?v=e7e3ec789e" defer></script>
 </body>
 </html>
