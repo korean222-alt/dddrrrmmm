@@ -13617,8 +13617,11 @@ function isConfirmed() {
   }
   // 서버가 잠깐 안 될 때(하루 한도 초과 등 — 2026-11-22 D1 읽기 한도): 7일 안에 인증 완료였던 폰은 그대로 열어 둠
   //   (기록·코인은 폰에 모아 뒀다가 서버가 돌아오면 올라감)
+  //   이 기억이 없는 폰(새 코드가 서버와 한 번도 못 만남)은 4단계 이상 기록이 있으면 인증했던 폰으로 봄 (인증해야만 칠 수 있어서)
+  if (!state.api || CONFIG_STATIC()) return false;
   const at = load('confirmedAt', 0);
-  return !!(state.api && !CONFIG_STATIC() && at && Date.now() - at < 7 * 24 * 3600 * 1000);
+  if (at) return Date.now() - at < 7 * 24 * 3600 * 1000;
+  return Object.keys(loadBests()).some((k) => Number(k) >= FREE_UPTO + 1 || /^e\d|endless/.test(k));
 }
 /** 처음부터 서버 없이 배포된 사이트(정적 호스팅)인가 */
 const CONFIG_STATIC = () => CONFIG.apiMode === 'mock';
