@@ -107,6 +107,40 @@ export class Game {
     this._loop = this._loop.bind(this);
   }
 
+  /**
+   * 💀 실패 영상 자동 연주: 사람처럼 — 처음엔 거의 PERFECT(가끔 GREAT·GOOD),
+   * failAt 부터 흔들림: MISS 하나 → GOOD·GREAT 섞어 버티다 → 또 MISS … 하트가 줄수록 MISS 간격이 짧아지고 GOOD 이 많아짐.
+   * 반환: 판정 오차(초) 또는 null(놓침). 같은 시각 콩(동시치기)은 같은 운명.
+   */
+  _failDt(n) {
+    const f = (this._fail ||= { fates: new Map(), nextMiss: this.failAt });
+    let fate = f.fates.get(n.time);
+    if (fate === undefined) {
+      const R = Math.random;
+      const sign = () => (R() < 0.5 ? -1 : 1);
+      const great = () => sign() * (JUDGE.perfect + 0.005 + R() * (JUDGE.great - JUDGE.perfect - 0.01));
+      const good = () => sign() * (JUDGE.great + 0.005 + R() * (JUDGE.good - JUDGE.great - 0.01));
+      if (n.time < this.failAt) {
+        // 잘 치는 구간: PERFECT 85% · GREAT 12% · GOOD 3%
+        const x = R();
+        fate = x < 0.85 ? sign() * R() * JUDGE.perfect * 0.8 : x < 0.97 ? great() : good();
+      } else if (n.time >= f.nextMiss) {
+        fate = null;
+        // 다음 MISS 까지: 하트가 많으면 길게 버팀, 적으면 금방 (놓친 뒤라 지금 하트는 하나 적음)
+        const left = Math.max(0, this.lives - 1);
+        const gap = left >= 4 ? 1.6 + R() * 0.8 : left === 3 ? 1.2 + R() * 0.7 : left === 2 ? 0.8 + R() * 0.6 : 0.45 + R() * 0.45;
+        f.nextMiss = n.time + gap;
+      } else {
+        // 버티는 구간: 하트가 줄수록 GOOD 이 많아짐. 황금 콩은 하트가 차지 않게 GOOD
+        const pGood = n.gold ? 1 : 0.35 + (MAX_LIVES - this.lives) * 0.12;
+        const x = R();
+        fate = x < pGood ? good() : x < pGood + 0.3 ? great() : sign() * R() * JUDGE.perfect * 0.8;
+      }
+      f.fates.set(n.time, fate);
+    }
+    return fate;
+  }
+
   /** 지금(t) 진행 중인 연타 구간 (앞뒤로 살짝 여유) */
   _rollAt(t) {
     for (const r of this.rolls) if (t >= r.t0 - 0.08 && t <= r.t1 + 0.06) return r;
@@ -460,7 +494,7 @@ export class Game {
     this.offsets.push(dt);
     this.r.onJudge(n.lane, res, rt, dt < 0);
     this.r.onCombo(this.combo, rt);
-    if (this.livesOn && this.combo % LIFE_REGEN_COMBO === 0 && this.lives < MAX_LIVES) {
+    if (this.livesOn && !(this.auto && this.level.failReel) && this.combo % LIFE_REGEN_COMBO === 0 && this.lives < MAX_LIVES) {
       this.lives++;
       this.r.onLife(this.lives, +1, rt);
     }
@@ -598,11 +632,14 @@ export class Game {
     if (this.auto) {
       for (const lane of this.laneOrder) {
         const list = this.lanes[lane];
-        while (this.ptr[lane] < list.length && list[this.ptr[lane]].time <= now && list[this.ptr[lane]].time < this.failAt) {
+        while (this.ptr[lane] < list.length && list[this.ptr[lane]].time <= now) {
           const n = list[this.ptr[lane]];
+          // 💀 실패 영상: 놓치기로 한 콩은 안 침 (지나가면 아래에서 MISS)
+          const dt = this.level.failReel ? this._failDt(n) : 0;
+          if (dt == null) break;
           this.r.onTap(lane, rt);
           if (lane === SNARE && this.level.tapMelody) this._pianoKeys(n, rt);
-          this._judge(n, 0, rt);
+          this._judge(n, dt, rt);
           this.ptr[lane]++;
         }
       }
