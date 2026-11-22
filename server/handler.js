@@ -409,9 +409,21 @@ export function createHandler(cfg, { store }) {
     canPlay: async (levelId, pl) => (cfg.gateMode !== 'open' && isClosed(levelId) && !isConfirmed(pl) ? (isVerified(pl) ? 'confirm_pending' : 'confirm_required') : null),
   });
 
+  // 🧯 DB 가 막혔을 때(D1 하루 한도 초과 등, 2026-11-22): 5분 동안 DB 를 안 건드리고 바로 503 db_down
+  //   → 폰은 서버 없는 모드로 바뀌고(인증했던 폰은 4단계부터 그대로, 기록·코인은 폰에), 몇 분마다 다시 붙어 봄
+  let dbDownUntil = 0;
+  const DB_DOWN_MS = 5 * 60 * 1000;
+  const isDbError = (e) => !e.status && /D1_|SQLITE|exceed|limit|quota|too many|database|neon|fetch failed|network/i.test(String((e && e.message) || e));
+
   return async function handle(request, { ip = '?' } = {}) {
     const url = new URL(request.url);
     const setCookies = [];
+    if (Date.now() < dbDownUntil && url.pathname.startsWith('/api/')) {
+      return new Response(JSON.stringify({ error: 'db_down', retryAfter: Math.ceil((dbDownUntil - Date.now()) / 1000) }), {
+        status: 503,
+        headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+      });
+    }
     const json = (status, data, extra = {}) => {
       const h = new Headers({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...extra });
       for (const c of setCookies) h.append('Set-Cookie', c);
@@ -423,6 +435,10 @@ export function createHandler(cfg, { store }) {
       return text(404, 'not found');
     } catch (e) {
       if (!e.status) console.error(e);
+      if (isDbError(e)) {
+        dbDownUntil = Date.now() + DB_DOWN_MS;
+        return json(503, { error: 'db_down' });
+      }
       return json(e.status || 500, { error: e.status ? e.message : 'server_error' });
     }
   };

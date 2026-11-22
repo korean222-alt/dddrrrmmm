@@ -137,6 +137,22 @@ const isLocalDev = () => /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.host
 let reconnecting = null;
 let reconnectTriedAt = 0;
 let reconnectFails = 0;
+/** 🧯 서버 DB 가 막힘 → 서버 없는 모드로 (인증했던 폰은 그대로 열림, 기록·코인은 폰에). reconnectServer 가 나중에 다시 붙임 */
+let dbDownShown = false;
+async function goOffline() {
+  if (!state.api || state.api.mode !== 'server') return;
+  state.api = await createApi({ ...CONFIG, apiMode: 'mock' });
+  if (state.roomClient) state.roomClient.api = state.api;
+  reconnectTriedAt = Date.now();
+  reconnectFails = Math.max(reconnectFails, 2); // 2분 뒤부터 다시 붙어 봄
+  if (!dbDownShown) {
+    dbDownShown = true;
+    toast('서버가 잠깐 쉬어요 · 게임은 그대로, 코인은 폰에 모아 둬요', 3500);
+  }
+  refreshTitle();
+  renderLevels();
+}
+window.addEventListener('okaystra:db-down', () => goOffline().catch(() => {}));
 function reconnectServer({ force = false } = {}) {
   if (state.api && state.api.mode === 'server') return Promise.resolve(true);
   if (CONFIG.apiMode === 'mock') return Promise.resolve(false);
@@ -714,6 +730,8 @@ async function startLevel(id, opts = {}) {
   state.runToken = null;
   // 영상 찍기는 팔로우 잠금 없이 (계정 주인이 촬영용으로 씀) → 서버 판 토큰도 안 받음
   // 인증 안 한 사람이 1~3단계를 칠 땐 랭킹에 못 올리니 판 토큰도 안 받음 (서버 요청 아끼기, 통계는 5분마다 따로 감)
+  // 서버 없는 모드면 가끔 다시 붙어 봄 (간격은 reconnectServer 가 정함, 기다리지 않음)
+  if (state.api && state.api.mode !== 'server') reconnectServer();
   const canRank = isConfirmed() || state.cfg.gateMode === 'open' || isClosed(id);
   syncCoinAccount();
   if ((!lv.challenge || lv.endless) && !st.active && !room && !practice && !lv.custom && canRank) state.api

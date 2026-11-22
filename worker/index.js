@@ -88,7 +88,8 @@ async function api(request, env) {
     return out;
   } catch (e) {
     console.error('[api] 준비 실패', e);
-    return Response.json({ error: 'server_error' }, { status: 500, headers: SECURITY_HEADERS });
+    // 준비(DB 첫 확인)에서 실패 = 거의 DB 문제(D1 하루 한도 등) → 폰이 서버 없는 모드로 가게 db_down
+    return Response.json({ error: 'db_down' }, { status: 503, headers: SECURITY_HEADERS });
   }
 }
 

@@ -20,6 +20,12 @@ async function http(method, url, body) {
     data = await res.json();
   } catch {}
   if (!res.ok) {
+    // 🧯 서버 DB 가 막힘(하루 한도 등) → main.js 가 서버 없는 모드로 바꿈
+    if (res.status === 503 && data && data.error === 'db_down') {
+      try {
+        window.dispatchEvent(new CustomEvent('okaystra:db-down'));
+      } catch {}
+    }
     const err = new Error((data && data.error) || `HTTP ${res.status}`);
     err.status = res.status;
     err.data = data;
