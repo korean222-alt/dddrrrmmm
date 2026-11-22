@@ -347,6 +347,20 @@ input[type='range'] { width: 100%; accent-color: var(--grass); height: 28px; }
 .today-body { display: grid; gap: 2px; min-width: 0; }
 .today-body b { font-weight: 400; font-size: 19px; }
 .today-body small { font-size: 13px; color: var(--coral-dark); }
+.today-streak { position: absolute; top: -13px; right: 12px; background: #ff7a1a; color: #fff; border: 2px solid var(--ink); border-radius: 99px; font-size: 12px; padding: 2px 10px; transform: rotate(2deg); }
+.today-streak:empty { display: none; }
+/* 🔥 시작 화면 오늘의 챌린지 줄 */
+.daily-chip { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 8px; width: 100%; padding: 7px 12px; border-radius: 16px; border: 3px solid var(--ink); background: linear-gradient(100deg, #fff6d6, #ffe0f0); color: var(--ink); box-shadow: 0 4px 0 var(--ink); text-align: left; }
+.daily-chip:empty { display: none; }
+.daily-chip b { font-weight: 400; font-size: 14px; padding: 2px 8px; border-radius: 99px; background: #ff7a1a; color: #fff; white-space: nowrap; }
+.daily-chip span { font-size: 15px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.daily-chip i { font-style: normal; font-size: 22px; line-height: 1; }
+.daily-chip.done { background: #e9f7ee; }
+.daily-chip:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--ink); }
+.res-daily { margin: 4px auto; padding: 6px 12px; max-width: 320px; border-radius: 12px; background: #fff6d6; border: 2px solid var(--ink); color: var(--ink); font-size: 14px; line-height: 1.45; }
+.res-daily.ok { background: #ffe3cc; }
+.res-daily b { color: #e0560b; font-weight: 400; }
+.res-daily small { display: block; color: var(--muted); font-size: 12px; }
 .today-go { width: 40px; height: 40px; border-radius: 50%; display: grid !important; place-items: center; background: var(--grass); color: #fff; border: 2px solid var(--ink); }
 
 /* ---------- 1:1 대결 ---------- */

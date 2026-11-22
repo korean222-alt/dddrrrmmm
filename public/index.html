@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=22c614219c" />
+  <link rel="stylesheet" href="css/style.css?v=12dfcb1eeb" />
 </head>
 <body>
   <div id="app">
@@ -51,6 +51,7 @@
           <button class="mode-card mode-single" data-action="levels"><b><span data-icon="drum" data-e></span> 싱글</b></button>
           <button class="mode-card mode-multi" data-action="room-open"><b><span data-icon="swords" data-e></span> 멀티</b></button>
         </div>
+        <button class="daily-chip" id="daily-chip" data-action="today"></button>
         <button class="btn btn-primary btn-big" data-action="quickstart"><span data-icon="play"></span> 바로 시작 <small>1단계</small></button>
         <div class="home-two">
           <button class="btn btn-hot mysong-btn" data-action="mysong-open"><span data-icon="note" data-e></span> 내 노래로 치기</button>
@@ -85,8 +86,9 @@
             <button role="tab" data-mode="long" aria-selected="false"><span data-icon="hall" data-e></span> 장거리</button>
           </div>
           <button class="today-card" data-action="today">
-            <span class="today-tag">오늘의 노래</span>
-            <span class="today-body"><b id="today-name">곡 이름</b><small id="today-sub">점수 내고 친구에게 1:1 도전장 <span data-icon="swords" data-e></span></small></span>
+            <span class="today-tag">🔥 오늘의 챌린지</span>
+            <span class="today-streak" id="today-streak"></span>
+            <span class="today-body"><b id="today-name">곡 이름</b><small id="today-sub"></small></span>
             <span class="today-go" data-icon="play"></span>
           </button>
         <div class="level-list" id="level-list"></div>
@@ -481,6 +483,7 @@
         <div class="res-score" id="res-score">0</div>
         <div class="res-coins" id="res-coins" hidden></div>
         <div class="res-offline" id="res-offline" hidden></div>
+        <div class="res-daily" id="res-daily" hidden></div>
         <div class="res-vs" id="res-vs" hidden></div>
         <div class="res-room" id="res-room" hidden></div>
         <div class="res-star-hint" id="res-star-hint"></div>
@@ -951,6 +954,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=ed212dc663" defer></script>
+  <script src="js/app.js?v=5dbe903186" defer></script>
 </body>
 </html>

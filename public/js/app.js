@@ -1917,6 +1917,180 @@ function makeLevelEndless(base, { intro = false } = {}) {
 return { STEPS_PER_BAR, KICK, SNARE, HAT, CRASH, TOM, INSTRUMENTS, CHAR_LANES, isLeftThumb, COUNT_IN_BARS, OUTRO_BARS, JUDGE, POINTS, ACC_WEIGHT, STAR_RULES, DIFFICULTY_WORDS, LEVELS, tapBars, STUDIO_LEVELS, getStudioLevel, FREE_UPTO, VERIFY_LEVELS, needsVerify, CLOSED_LEVELS, SKIP_LEVELS, isClosed, prevOpenId, nextOpenId, noteToMidi, parseChord, chordAt, pianoHarmony, pianoLeftHand, parseMelody, getLevel, beatDur, stepDur, barDur, levelDuration, TempoMap, tempoOf, levelLanes, buildNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, GOLD_SPOTS, buildRolls, markGoldNotes, noteCount, comboMultiplier, pointsFor, maxScore, accuracy, gradeFor, starsFor, scoreBounds, isClearBest, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, shiftOldLevelKey, ENDLESS_FROM, FREE_LEVELS, isUnlocked, tierOf, unlockHint, nextChallenge, ENDLESS_ID, ROUND_BARS, ENDLESS_BASE_BPM, ENDLESS_BPM_STEP, DIAMOND_RULES, diamondsFor, roundBpm, roundInfo, roundBars, makeEndless, BEAT_ID, BEAT_MIN_BPM, BEAT_MAX_BPM, BEAT_MAX_ROUNDS, beatOpts, BEAT_STYLES, BEAT_DIFFS, beatStyleName, makeBeatReel, beatSeconds, QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds, LEVEL_ENDLESS_STEP, levelEndlessId, levelEndlessBase, levelSurvivalId, levelSurvivalBase, makeLevelEndless };
 })();
 
+// ---- versus.js ----
+const __m_versus = (() => {
+// 오늘의 노래 + 1:1 대결 (도전장 링크)
+//
+// 서버 없이 되는 '비동기 1:1': 내 점수와 마디별 점수 기록을 링크에 담아 보내면,
+// 친구가 같은 곡을 칠 때 화면 위에 내 점수가 실시간으로 같이 올라가서 경주하듯 겨룸.
+// 링크 내용은 누구나 고칠 수 있으니 랭킹처럼 '공식 기록'으로 쓰지는 않습니다.
+
+const { LEVELS, getLevel, maxScore, isClosed } = __m_charts;
+
+const DAY_MS = 86400000;
+/** 날마다 돌아가며 나오는 순서 (같은 곡이 이틀 연속 안 나오게) */
+const TODAY_ORDER = [3, 10, 1, 12, 5, 14, 7, 2, 15, 11, 6, 13, 4, 9, 8];
+const GRADES = ['SS', 'S', 'A', 'B', 'C', 'D'];
+const NAME_MAX = 10;
+
+/** 한국 시간 기준 날짜 'YYYY-MM-DD' */
+function kstDateKey(d = new Date()) {
+  return new Date(d.getTime() + 9 * 3600000).toISOString().slice(0, 10);
+}
+
+/** 오늘의 노래 (한국 시간 자정에 바뀜) */
+function todayLevel(d = new Date(), canOpen = (id) => !isClosed(id)) {
+  const day = Math.floor((d.getTime() + 9 * 3600000) / DAY_MS);
+  // 이 폰에서 못 여는 단계(인증 전 4단계부터)는 오늘의 노래로 안 나옴
+  const order = TODAY_ORDER.filter((id) => getLevel(id) && canOpen(id));
+  const ids = order.length ? order : LEVELS.filter((l) => !isClosed(l.id)).map((l) => l.id);
+  return getLevel(ids[((day % ids.length) + ids.length) % ids.length]);
+}
+
+/** 닉네임 정리: 앞뒤 공백·제어문자·꺾쇠 제거, 최대 NAME_MAX 글자 */
+function cleanName(s) {
+  return [...String(s || '').replace(/[\u0000-\u001f\u007f<>]/g, '').trim()].slice(0, NAME_MAX).join('');
+}
+
+function b64urlEncode(str) {
+  const bytes = new TextEncoder().encode(str);
+  let bin = '';
+  for (const b of bytes) bin += String.fromCharCode(b);
+  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function b64urlDecode(s) {
+  const b64 = s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4);
+  const bin = atob(b64);
+  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+}
+
+/**
+ * 결과 → 도전장 코드 (주소의 ?vs= 뒤에 붙음)
+ * timeline 은 마디마다의 누적 점수 → 차이값으로 줄여서 담음
+ */
+function encodeChallenge({ name, levelId, score, stars, grade, accuracy, timeline }) {
+  const tl = (timeline || []).map((v, i, a) => v - (i ? a[i - 1] : 0));
+  const payload = { v: 1, n: cleanName(name) || '드러머', l: levelId, s: score, t: stars, g: grade, a: Math.round((accuracy || 0) * 1000), d: tl };
+  return b64urlEncode(JSON.stringify(payload));
+}
+
+/** 도전장 코드 → { name, levelId, score, stars, grade, accuracy, timeline } (이상하면 null) */
+function decodeChallenge(code) {
+  if (typeof code !== 'string' || code.length > 2000) return null;
+  let p;
+  try {
+    p = JSON.parse(b64urlDecode(code));
+  } catch {
+    return null;
+  }
+  if (!p || p.v !== 1) return null;
+  const level = getLevel(p.l);
+  if (!level) return null;
+  const int = (x) => Number.isInteger(x);
+  if (!int(p.s) || p.s < 0 || p.s > maxScore(level)) return null;
+  if (!int(p.t) || p.t < 0 || p.t > 3) return null;
+  if (!GRADES.includes(p.g)) return null;
+  if (!int(p.a) || p.a < 0 || p.a > 1000) return null;
+  if (!Array.isArray(p.d) || p.d.length !== level.bars.length || !p.d.every((x) => int(x) && x >= 0)) return null;
+  const timeline = [];
+  p.d.reduce((sum, x) => (timeline.push(sum + x), sum + x), 0);
+  if (timeline[timeline.length - 1] !== p.s) return null;
+  const name = cleanName(p.n);
+  if (!name) return null;
+  return { name, levelId: level.id, score: p.s, stars: p.t, grade: p.g, accuracy: p.a / 1000, timeline };
+}
+
+/** 상대의 '지금 이 순간' 점수. barPos = 본편 몇 번째 마디쯤인지(소수) */
+function opponentScoreAt(timeline, barPos) {
+  if (!timeline || !timeline.length || !(barPos > 0)) return 0;
+  const i = Math.floor(barPos);
+  if (i >= timeline.length) return timeline[timeline.length - 1];
+  const prev = i ? timeline[i - 1] : 0;
+  return Math.round(prev + (timeline[i] - prev) * (barPos - i));
+}
+
+/** 'win' | 'lose' | 'draw' */
+function versusOutcome(myScore, theirScore) {
+  return myScore > theirScore ? 'win' : myScore < theirScore ? 'lose' : 'draw';
+}
+
+return { NAME_MAX, kstDateKey, todayLevel, cleanName, encodeChallenge, decodeChallenge, opponentScoreAt, versusOutcome };
+})();
+
+// ---- daily.js ----
+const __m_daily = (() => {
+// 🔥 오늘의 챌린지 (2026-11-22): 오늘의 노래 + 날마다 바뀌는 미션 하나 + 연속 성공 일수.
+// 전부 폰에서 계산·저장 (서버 요청 없음). 날짜는 한국 시간 자정에 바뀜.
+
+const { kstDateKey } = __m_versus;
+
+const DAY_MS = 86400000;
+
+/** 미션 종류. need(곡 콩 수) → 목표 숫자 */
+const KINDS = [
+  { k: 'combo', text: (n) => `콤보 ${n} 넘기기`, need: (total) => Math.max(20, Math.round((total * 0.5) / 10) * 10) },
+  { k: 'acc', text: (n) => `정확도 ${n}% 넘기기`, need: () => 85 },
+  { k: 'stars', text: () => '별 3개 받기', need: () => 3 },
+  { k: 'perfect', text: (n) => `PERFECT ${n}개`, need: (total) => Math.max(10, Math.round((total * 0.6) / 10) * 10) },
+  { k: 'miss', text: (n) => `MISS ${n}개 이하로 끝까지`, need: () => 3 },
+  { k: 'fc', text: () => '풀콤보', need: () => 0 },
+];
+
+const dayNo = (d = new Date()) => Math.floor((d.getTime() + 9 * 3600000) / DAY_MS);
+
+/** 오늘의 미션 { key, kind, target, text } (곡 콩 수에 맞춰 목표를 정함) */
+function todayMission(total, d = new Date()) {
+  const n = dayNo(d);
+  // 같은 미션이 연달아 안 나오게 7 을 곱해 섞음
+  const m = KINDS[(((n * 7) % KINDS.length) + KINDS.length) % KINDS.length];
+  const target = m.need(total || 0);
+  return { key: kstDateKey(d), kind: m.k, target, text: m.text(target) };
+}
+
+/** 이 판이 미션을 해냈나 (자동 연주·연습·실패 판은 안 됨) */
+function missionDone(mission, res) {
+  if (!mission || !res || res.auto || res.practice || res.failed || res.stopped) return false;
+  const t = mission.target;
+  switch (mission.kind) {
+    case 'combo': return (res.maxCombo || 0) >= t;
+    case 'acc': return (res.accuracy || 0) * 100 >= t;
+    case 'stars': return (res.stars || 0) >= t;
+    case 'perfect': return ((res.counts && res.counts.perfect) || 0) >= t;
+    case 'miss': return !res.continued && ((res.counts && res.counts.miss) || 0) <= t;
+    case 'fc': return !!res.fullCombo;
+    default: return false;
+  }
+}
+
+/** 어제 날짜 키 */
+function prevKey(key) {
+  return new Date(Date.parse(key + 'T00:00:00Z') - DAY_MS).toISOString().slice(0, 10);
+}
+
+/**
+ * 저장된 기록 { last, streak, best } 을 오늘 기준으로 읽기.
+ * 오늘이나 어제 성공했으면 연속이 이어지고, 그 전이면 0 으로 보여 줌.
+ */
+function streakView(rec, today = kstDateKey()) {
+  const r = rec && typeof rec === 'object' ? rec : {};
+  const doneToday = r.last === today;
+  const alive = doneToday || r.last === prevKey(today);
+  return { doneToday, streak: alive ? r.streak || 0 : 0, best: r.best || 0 };
+}
+
+/** 오늘 성공 기록하기 → 새 기록 (이미 오늘 했으면 그대로) */
+function markDone(rec, today = kstDateKey()) {
+  const r = rec && typeof rec === 'object' ? rec : {};
+  if (r.last === today) return { rec: r, isNew: false };
+  const streak = r.last === prevKey(today) ? (r.streak || 0) + 1 : 1;
+  const next = { last: today, streak, best: Math.max(r.best || 0, streak) };
+  return { rec: next, isNew: true };
+}
+
+return { todayMission, missionDone, streakView, markDone };
+})();
+
 // ---- usermap.js ----
 const __m_usermap = (() => {
 // 🌍 유저 맵 (브라우저와 서버가 같이 씀)
@@ -12508,10 +12682,11 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-22e',
+    id: '2026-11-22f',
     date: '11월 22일',
-    title: '🪙 코인 · 판정 글자 · 서버 쉴 때 기록',
+    title: '🔥 오늘의 챌린지 · 🪙 코인 · 판정 글자 · 서버 쉴 때 기록',
     items: [
+      '<b>🔥 오늘의 챌린지</b> — 매일 곡 하나와 미션이 바뀌어요. 성공하면 <b>연속 일수</b>가 쌓여요!',
       '<b>🪙 코인</b> — PERFECT 2개, 나머지 1개! 중간에 끝나도 친 만큼 쌓여요',
       '곧 <b>상점</b>이 열려요 — 코인으로 배경·드럼 세트·콩 색·📷 내 사진 배경을 꾸며요',
       'PERFECT·GREAT·GOOD 글자를 크기·색으로 더 잘 구분되게 바꿨어요',
@@ -13513,112 +13688,12 @@ function watchEmoji(root = document.body) {
 return { ICONS, EMOJI, icon, stripEmoji, watchEmoji };
 })();
 
-// ---- versus.js ----
-const __m_versus = (() => {
-// 오늘의 노래 + 1:1 대결 (도전장 링크)
-//
-// 서버 없이 되는 '비동기 1:1': 내 점수와 마디별 점수 기록을 링크에 담아 보내면,
-// 친구가 같은 곡을 칠 때 화면 위에 내 점수가 실시간으로 같이 올라가서 경주하듯 겨룸.
-// 링크 내용은 누구나 고칠 수 있으니 랭킹처럼 '공식 기록'으로 쓰지는 않습니다.
-
-const { LEVELS, getLevel, maxScore, isClosed } = __m_charts;
-
-const DAY_MS = 86400000;
-/** 날마다 돌아가며 나오는 순서 (같은 곡이 이틀 연속 안 나오게) */
-const TODAY_ORDER = [3, 10, 1, 12, 5, 14, 7, 2, 15, 11, 6, 13, 4, 9, 8];
-const GRADES = ['SS', 'S', 'A', 'B', 'C', 'D'];
-const NAME_MAX = 10;
-
-/** 한국 시간 기준 날짜 'YYYY-MM-DD' */
-function kstDateKey(d = new Date()) {
-  return new Date(d.getTime() + 9 * 3600000).toISOString().slice(0, 10);
-}
-
-/** 오늘의 노래 (한국 시간 자정에 바뀜) */
-function todayLevel(d = new Date()) {
-  const day = Math.floor((d.getTime() + 9 * 3600000) / DAY_MS);
-  // 팔로워 인증이 필요한 단계(4단계부터)는 오늘의 노래로 안 나옴
-  const order = TODAY_ORDER.filter((id) => getLevel(id) && !isClosed(id));
-  const ids = order.length ? order : LEVELS.filter((l) => !isClosed(l.id)).map((l) => l.id);
-  return getLevel(ids[((day % ids.length) + ids.length) % ids.length]);
-}
-
-/** 닉네임 정리: 앞뒤 공백·제어문자·꺾쇠 제거, 최대 NAME_MAX 글자 */
-function cleanName(s) {
-  return [...String(s || '').replace(/[\u0000-\u001f\u007f<>]/g, '').trim()].slice(0, NAME_MAX).join('');
-}
-
-function b64urlEncode(str) {
-  const bytes = new TextEncoder().encode(str);
-  let bin = '';
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-function b64urlDecode(s) {
-  const b64 = s.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((s.length + 3) % 4);
-  const bin = atob(b64);
-  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
-  return new TextDecoder().decode(bytes);
-}
-
-/**
- * 결과 → 도전장 코드 (주소의 ?vs= 뒤에 붙음)
- * timeline 은 마디마다의 누적 점수 → 차이값으로 줄여서 담음
- */
-function encodeChallenge({ name, levelId, score, stars, grade, accuracy, timeline }) {
-  const tl = (timeline || []).map((v, i, a) => v - (i ? a[i - 1] : 0));
-  const payload = { v: 1, n: cleanName(name) || '드러머', l: levelId, s: score, t: stars, g: grade, a: Math.round((accuracy || 0) * 1000), d: tl };
-  return b64urlEncode(JSON.stringify(payload));
-}
-
-/** 도전장 코드 → { name, levelId, score, stars, grade, accuracy, timeline } (이상하면 null) */
-function decodeChallenge(code) {
-  if (typeof code !== 'string' || code.length > 2000) return null;
-  let p;
-  try {
-    p = JSON.parse(b64urlDecode(code));
-  } catch {
-    return null;
-  }
-  if (!p || p.v !== 1) return null;
-  const level = getLevel(p.l);
-  if (!level) return null;
-  const int = (x) => Number.isInteger(x);
-  if (!int(p.s) || p.s < 0 || p.s > maxScore(level)) return null;
-  if (!int(p.t) || p.t < 0 || p.t > 3) return null;
-  if (!GRADES.includes(p.g)) return null;
-  if (!int(p.a) || p.a < 0 || p.a > 1000) return null;
-  if (!Array.isArray(p.d) || p.d.length !== level.bars.length || !p.d.every((x) => int(x) && x >= 0)) return null;
-  const timeline = [];
-  p.d.reduce((sum, x) => (timeline.push(sum + x), sum + x), 0);
-  if (timeline[timeline.length - 1] !== p.s) return null;
-  const name = cleanName(p.n);
-  if (!name) return null;
-  return { name, levelId: level.id, score: p.s, stars: p.t, grade: p.g, accuracy: p.a / 1000, timeline };
-}
-
-/** 상대의 '지금 이 순간' 점수. barPos = 본편 몇 번째 마디쯤인지(소수) */
-function opponentScoreAt(timeline, barPos) {
-  if (!timeline || !timeline.length || !(barPos > 0)) return 0;
-  const i = Math.floor(barPos);
-  if (i >= timeline.length) return timeline[timeline.length - 1];
-  const prev = i ? timeline[i - 1] : 0;
-  return Math.round(prev + (timeline[i] - prev) * (barPos - i));
-}
-
-/** 'win' | 'lose' | 'draw' */
-function versusOutcome(myScore, theirScore) {
-  return myScore > theirScore ? 'win' : myScore < theirScore ? 'lose' : 'draw';
-}
-
-return { NAME_MAX, kstDateKey, todayLevel, cleanName, encodeChallenge, decodeChallenge, opponentScoreAt, versusOutcome };
-})();
-
 // ---- main.js ----
 const __m_main = (() => {
 // 오케이스트라 — 화면 전환, 잠금(팔로우 인증), 랭킹, 설정을 묶는 앱 본체
 
-const { LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES, ENDLESS_ID, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo, ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId, STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase, COUNT_IN_BARS, ROUND_BARS, BEAT_ID, makeBeatReel, beatOpts, beatSeconds, BEAT_MAX_ROUNDS, BEAT_STYLES, BEAT_DIFFS, beatStyleName, QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds, STEPS_PER_BAR, CHAR_LANES, KICK, SNARE, HAT, CRASH, parseChord } = __m_charts;
+const { LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES, ENDLESS_ID, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo, ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId, STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase, COUNT_IN_BARS, ROUND_BARS, BEAT_ID, makeBeatReel, beatOpts, beatSeconds, BEAT_MAX_ROUNDS, BEAT_STYLES, BEAT_DIFFS, beatStyleName, QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds, STEPS_PER_BAR, CHAR_LANES, KICK, SNARE, HAT, CRASH, parseChord, noteCount } = __m_charts;
+const { todayMission, missionDone, streakView, markDone } = __m_daily;
 const { separateVocals, resample } = __m_vocalsep;
 const { transcribeSong } = __m_songmap;
 const { instrumentNotes } = __m_instnotes;
@@ -14054,11 +14129,41 @@ function refreshQuick() {
     id === ENDLESS_ID ? `${icon('play')} 바로 시작 <small>무제한 모드</small>` : `${icon('play')} 바로 시작 <small>${levelLabel(id)}</small>`;
 }
 
+/** 🔥 오늘의 챌린지: 오늘의 노래(이 폰에서 열 수 있는 곡 중) + 미션 + 연속 성공 */
+const todayPick = () => todayLevel(new Date(), (id) => !closedLocked(id));
+const todayMissionNow = () => { const lv = todayPick(); return { lv, mission: todayMission(noteCount(lv)) }; };
+
 function refreshToday() {
-  const lv = todayLevel();
-  const best = loadBests()[lv.id];
+  const { lv, mission } = todayMissionNow();
+  const st = streakView(load('daily', null));
   $('#today-name').textContent = `${lv.name} · ${lv.composer}`;
-  $('#today-sub').textContent = best ? `내 최고 ${fmt(best.score)}점 · 친구에게 1:1 도전장 ⚔️` : `${levelLabel(lv)} · 점수 내고 친구에게 1:1 도전장 ⚔️`;
+  $('#today-sub').textContent = st.doneToday ? `✅ 오늘 성공! · ${levelLabel(lv)}` : `🎯 ${mission.text} · ${levelLabel(lv)}`;
+  $('#today-streak').textContent = st.streak ? `🔥 ${st.streak}일 연속` : '';
+  const chip = $('#daily-chip');
+  if (chip) {
+    chip.classList.toggle('done', st.doneToday);
+    chip.innerHTML = `<b>🔥 오늘의 챌린지</b><span>${st.doneToday ? '✅ 성공' : escapeHtml(mission.text)}${st.streak ? ` · ${st.streak}일 연속` : ''}</span><i>›</i>`;
+  }
+}
+
+/** 결과 화면: 오늘의 노래를 쳤으면 미션 성공/남은 미션 표시 */
+function showDailyResult(res) {
+  const box = $('#res-daily');
+  box.hidden = true;
+  if (state.auto || res.practice || res.room) return;
+  const { lv, mission } = todayMissionNow();
+  if (String(res.levelId) !== String(lv.id)) return;
+  const rec = load('daily', null);
+  if (missionDone(mission, res)) {
+    const { rec: next, isNew } = markDone(rec);
+    if (isNew) save('daily', next);
+    box.innerHTML = `🔥 오늘의 챌린지 성공!${next.streak > 1 ? ` <b>${next.streak}일 연속</b>` : ''}<small>내일 또 새 미션이 나와요</small>`;
+    box.className = 'res-daily ok';
+  } else if (!streakView(rec).doneToday) {
+    box.innerHTML = `🎯 오늘의 챌린지: ${escapeHtml(mission.text)}<small>다시 해 보세요!</small>`;
+    box.className = 'res-daily';
+  } else return;
+  box.hidden = false;
 }
 
 /** 시작 화면·단계 고르기의 작은 '팔로우·랭킹 참여' 버튼 */
@@ -14767,6 +14872,7 @@ function showResult(res) {
   res.runToken = state.runToken;
   state.lastResult = res;
   $('#res-offline').hidden = true;
+  $('#res-daily').hidden = true;
   $('#screen-result').classList.toggle('in-room', !!res.room);
   $('#res-room').hidden = !res.room;
   if (res.room) setTimeout(renderRoomResult, 0);
@@ -14806,6 +14912,7 @@ function showResult(res) {
         : `별 ${nextRule.stars}개: ${nextRule.text}`;
   $('#res-new').hidden = !best.isNew;
   showResCoins(res);
+  showDailyResult(res);
   const badge = $('#res-badge');
   badge.hidden = !res.fullCombo;
   badge.textContent = res.counts.perfect === res.total && !res.counts.wrong ? 'ALL PERFECT' : 'FULL COMBO';
@@ -18973,7 +19080,7 @@ const ACTIONS = {
     refreshTitle();
     show('screen-title');
   },
-  today: () => tryStart(todayLevel().id, { free: true }),
+  today: () => tryStart(todayPick().id, { free: true }),
   'send-vs': sendChallenge,
   'close-vs': () => {
     state.vsIncoming = null;

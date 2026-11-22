@@ -18,10 +18,10 @@ export function kstDateKey(d = new Date()) {
 }
 
 /** 오늘의 노래 (한국 시간 자정에 바뀜) */
-export function todayLevel(d = new Date()) {
+export function todayLevel(d = new Date(), canOpen = (id) => !isClosed(id)) {
   const day = Math.floor((d.getTime() + 9 * 3600000) / DAY_MS);
-  // 팔로워 인증이 필요한 단계(4단계부터)는 오늘의 노래로 안 나옴
-  const order = TODAY_ORDER.filter((id) => getLevel(id) && !isClosed(id));
+  // 이 폰에서 못 여는 단계(인증 전 4단계부터)는 오늘의 노래로 안 나옴
+  const order = TODAY_ORDER.filter((id) => getLevel(id) && canOpen(id));
   const ids = order.length ? order : LEVELS.filter((l) => !isClosed(l.id)).map((l) => l.id);
   return getLevel(ids[((day % ids.length) + ids.length) % ids.length]);
 }

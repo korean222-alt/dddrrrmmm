@@ -6,8 +6,9 @@ import {
   ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId,
   STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase, COUNT_IN_BARS, ROUND_BARS,
   BEAT_ID, makeBeatReel, beatOpts, beatSeconds, BEAT_MAX_ROUNDS, BEAT_STYLES, BEAT_DIFFS, beatStyleName,
-  QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds, STEPS_PER_BAR, CHAR_LANES, KICK, SNARE, HAT, CRASH, parseChord,
+  QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds, STEPS_PER_BAR, CHAR_LANES, KICK, SNARE, HAT, CRASH, parseChord, noteCount,
 } from './charts.js';
+import { todayMission, missionDone, streakView, markDone } from './daily.js';
 import { separateVocals, resample } from './vocalsep.js';
 import { transcribeSong } from './songmap.js';
 import { instrumentNotes } from './instnotes.js';
@@ -443,11 +444,41 @@ function refreshQuick() {
     id === ENDLESS_ID ? `${icon('play')} 바로 시작 <small>무제한 모드</small>` : `${icon('play')} 바로 시작 <small>${levelLabel(id)}</small>`;
 }
 
+/** 🔥 오늘의 챌린지: 오늘의 노래(이 폰에서 열 수 있는 곡 중) + 미션 + 연속 성공 */
+const todayPick = () => todayLevel(new Date(), (id) => !closedLocked(id));
+const todayMissionNow = () => { const lv = todayPick(); return { lv, mission: todayMission(noteCount(lv)) }; };
+
 function refreshToday() {
-  const lv = todayLevel();
-  const best = loadBests()[lv.id];
+  const { lv, mission } = todayMissionNow();
+  const st = streakView(load('daily', null));
   $('#today-name').textContent = `${lv.name} · ${lv.composer}`;
-  $('#today-sub').textContent = best ? `내 최고 ${fmt(best.score)}점 · 친구에게 1:1 도전장 ⚔️` : `${levelLabel(lv)} · 점수 내고 친구에게 1:1 도전장 ⚔️`;
+  $('#today-sub').textContent = st.doneToday ? `✅ 오늘 성공! · ${levelLabel(lv)}` : `🎯 ${mission.text} · ${levelLabel(lv)}`;
+  $('#today-streak').textContent = st.streak ? `🔥 ${st.streak}일 연속` : '';
+  const chip = $('#daily-chip');
+  if (chip) {
+    chip.classList.toggle('done', st.doneToday);
+    chip.innerHTML = `<b>🔥 오늘의 챌린지</b><span>${st.doneToday ? '✅ 성공' : escapeHtml(mission.text)}${st.streak ? ` · ${st.streak}일 연속` : ''}</span><i>›</i>`;
+  }
+}
+
+/** 결과 화면: 오늘의 노래를 쳤으면 미션 성공/남은 미션 표시 */
+function showDailyResult(res) {
+  const box = $('#res-daily');
+  box.hidden = true;
+  if (state.auto || res.practice || res.room) return;
+  const { lv, mission } = todayMissionNow();
+  if (String(res.levelId) !== String(lv.id)) return;
+  const rec = load('daily', null);
+  if (missionDone(mission, res)) {
+    const { rec: next, isNew } = markDone(rec);
+    if (isNew) save('daily', next);
+    box.innerHTML = `🔥 오늘의 챌린지 성공!${next.streak > 1 ? ` <b>${next.streak}일 연속</b>` : ''}<small>내일 또 새 미션이 나와요</small>`;
+    box.className = 'res-daily ok';
+  } else if (!streakView(rec).doneToday) {
+    box.innerHTML = `🎯 오늘의 챌린지: ${escapeHtml(mission.text)}<small>다시 해 보세요!</small>`;
+    box.className = 'res-daily';
+  } else return;
+  box.hidden = false;
 }
 
 /** 시작 화면·단계 고르기의 작은 '팔로우·랭킹 참여' 버튼 */
@@ -1156,6 +1187,7 @@ function showResult(res) {
   res.runToken = state.runToken;
   state.lastResult = res;
   $('#res-offline').hidden = true;
+  $('#res-daily').hidden = true;
   $('#screen-result').classList.toggle('in-room', !!res.room);
   $('#res-room').hidden = !res.room;
   if (res.room) setTimeout(renderRoomResult, 0);
@@ -1195,6 +1227,7 @@ function showResult(res) {
         : `별 ${nextRule.stars}개: ${nextRule.text}`;
   $('#res-new').hidden = !best.isNew;
   showResCoins(res);
+  showDailyResult(res);
   const badge = $('#res-badge');
   badge.hidden = !res.fullCombo;
   badge.textContent = res.counts.perfect === res.total && !res.counts.wrong ? 'ALL PERFECT' : 'FULL COMBO';
@@ -5362,7 +5395,7 @@ const ACTIONS = {
     refreshTitle();
     show('screen-title');
   },
-  today: () => tryStart(todayLevel().id, { free: true }),
+  today: () => tryStart(todayPick().id, { free: true }),
   'send-vs': sendChallenge,
   'close-vs': () => {
     state.vsIncoming = null;

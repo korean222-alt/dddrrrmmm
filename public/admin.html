@@ -209,6 +209,7 @@
       const kpi = (v, label) => `<div class="kpi"><b>${v}</b><span>${label}</span></div>`;
       $('#kpis').innerHTML = [
         kpi(fmtN(t.visitors), `방문자 (새로 ${fmtN(t.newVisitors)} · 재방문 ${fmtN(t.returningVisitors)})`),
+        kpi(t.visitors ? Math.round(((t.multiDayVisitors || 0) / t.visitors) * 100) + '%' : '-', `2일 넘게 온 사람 ${fmtN(t.multiDayVisitors || 0)}명 (이 기간)`),
         kpi(fmtN(t.sessions), '접속 횟수'),
         kpi(fmtN(t.plays), `플레이 (방문자당 ${t.avgPlaysPerVisitor}판)`),
         kpi(pct(t.clears, t.plays), `끝까지 친 비율 (${fmtN(t.clears)}판)`),

@@ -51,9 +51,13 @@ export function buildStats(raw, { from, to, tzMin = 540 }) {
   const wOf = (x) => (Number.isFinite(x.w) && x.w > 0 ? x.w : 1);
   const sumW = (m) => [...m.values()].reduce((a, b) => a + b, 0);
   const visitors = new Map(); // vid → 무게
+  const visitDays = new Map(); // vid → 온 날짜들 (다시 오는 사람 = 2일 이상)
   let nSessions = 0;
   for (const s of sessions) {
     const w = wOf(s);
+    const ds = visitDays.get(s.vid) || new Set();
+    ds.add(dayKey(s.startedAt));
+    visitDays.set(s.vid, ds);
     visitors.set(s.vid, Math.max(visitors.get(s.vid) || 0, w));
     nSessions += w;
     const d = day(s.startedAt);
@@ -123,6 +127,7 @@ export function buildStats(raw, { from, to, tzMin = 540 }) {
       visitors: nVisitors,
       newVisitors: nNew,
       returningVisitors: nVisitors - nNew,
+      multiDayVisitors: [...visitDays].filter(([, ds]) => ds.size >= 2).reduce((a, [v]) => a + (visitors.get(v) || 1), 0),
       sessions: nSessions,
       plays: nPlays,
       clears: res.clear,
