@@ -1859,6 +1859,118 @@ export class Renderer {
     ctx.restore();
   }
 
+  /** 💀 실패 영상: 치는 동안 위 문구 + 하트 줄 → 하트가 다 떨어지면 'N%에서 탈락' + 큰 도발 문구 */
+  _drawStudioFail(st, rt) {
+    const ctx = this.ctx;
+    const L = this.L;
+    const s = this.studio;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = INK;
+    const top = L.H * 0.045;
+    if (st.dead) {
+      if (s.deadAt == null) s.deadAt = rt;
+      const age = rt - s.deadAt;
+      // ① 'N%에서 탈락' (빨강) → ② 0.45초 뒤 도발 문구가 톡 → ③ 프로필 링크 안내
+      const pct = Math.round(Math.max(0, Math.min(1, st.progress || 0)) * 100);
+      const head = `${pct}%에서 탈락…`;
+      const hs = fitFont(ctx, head, L.GW * 0.8, L.GW * 0.085);
+      const y0 = L.H * 0.3;
+      ctx.globalAlpha = Math.min(1, age / 0.2);
+      ctx.font = `${hs}px ${FONT}`;
+      ctx.lineWidth = hs * 0.2;
+      ctx.strokeText(head, L.cx, y0);
+      ctx.fillStyle = '#FF5A6E';
+      ctx.fillText(head, L.cx, y0);
+      ctx.globalAlpha = 1;
+      const a2 = age - 0.45;
+      if (a2 > 0) {
+        const words = (s.bottom || '').trim();
+        // 길면 가운데 띄어쓰기에서 두 줄로
+        let lines = [words];
+        if (words.length > 9) {
+          const sp = [...words.matchAll(/ /g)].map((m) => m.index);
+          if (sp.length) {
+            const cut = sp.reduce((b, i) => (Math.abs(i - words.length / 2) < Math.abs(b - words.length / 2) ? i : b), sp[0]);
+            lines = [words.slice(0, cut), words.slice(cut + 1)];
+          }
+        }
+        const fs = Math.min(...lines.map((l) => fitFont(ctx, l, L.GW * 0.92, L.GW * 0.15)));
+        const pop = a2 < 0.3 ? 0.6 + 0.4 * easeOut(a2 / 0.3) + Math.sin((a2 / 0.3) * Math.PI) * 0.15 : 1 + Math.sin(a2 * 5) * 0.02;
+        const yc = y0 + hs * 0.9 + (fs * 1.15 * lines.length) / 2;
+        ctx.save();
+        ctx.translate(L.cx, yc);
+        ctx.scale(pop, pop);
+        ctx.font = `${fs}px ${FONT}`;
+        ctx.lineWidth = fs * 0.18;
+        lines.forEach((l, i) => {
+          const y = (i - (lines.length - 1) / 2) * fs * 1.15;
+          ctx.strokeText(l, 0, y);
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillText(l, 0, y);
+        });
+        ctx.restore();
+        if (s.bottomEnd && a2 > 0.5) {
+          const bs = fitFont(ctx, s.bottomEnd, L.GW * 0.8, L.GW * 0.05);
+          ctx.font = `${bs}px ${FONT}`;
+          ctx.globalAlpha = Math.min(1, (a2 - 0.5) / 0.3);
+          const tw = ctx.measureText(s.bottomEnd).width + bs * 1.4;
+          const by = yc + (fs * 1.15 * lines.length) / 2 + bs * 1.6;
+          rr(ctx, L.cx - tw / 2, by - bs, tw, bs * 2, bs);
+          ctx.fillStyle = '#FF8A4C';
+          ctx.fill();
+          ctx.lineWidth = 3;
+          ctx.stroke();
+          ctx.fillStyle = '#FFFFFF';
+          ctx.fillText(s.bottomEnd, L.cx, by + bs * 0.05);
+          ctx.globalAlpha = 1;
+        }
+      }
+      ctx.restore();
+      return;
+    }
+    s.deadAt = null;
+    // 치는 동안: 위 문구 + 곡 이름 + 하트 줄
+    const words = (s.top || '').trim();
+    const fs = fitFont(ctx, words, L.GW * 0.92, L.GW * 0.11);
+    ctx.font = `${fs}px ${FONT}`;
+    ctx.lineWidth = fs * 0.16;
+    ctx.strokeText(words, L.cx, top + fs * 0.7);
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText(words, L.cx, top + fs * 0.7);
+    let y = top + fs * 1.45;
+    if (s.label) {
+      const ls = fitFont(ctx, s.label, L.GW * 0.9, L.GW * 0.045);
+      ctx.font = `${ls}px ${FONT}`;
+      ctx.lineWidth = ls * 0.22;
+      ctx.strokeText(s.label, L.cx, y + ls * 0.4);
+      ctx.fillStyle = '#FFD84A';
+      ctx.fillText(s.label, L.cx, y + ls * 0.4);
+      y += ls * 1.4;
+    }
+    const max = st.maxLives || 5;
+    const lives = st.lives == null ? max : st.lives;
+    const hs = L.GW * 0.085;
+    const gap = hs * 1.15;
+    const f = this.lifeFx;
+    for (let i = 0; i < max; i++) {
+      const hx = L.cx + (i - (max - 1) / 2) * gap;
+      const hy = y + hs * 0.6;
+      const full = i < lives;
+      // 방금 깎인 하트: 크게 튀었다가 꺼짐
+      const justLost = f && f.delta < 0 && i === lives && rt - f.t0 < 0.4;
+      const k = justLost ? 1 + (1 - (rt - f.t0) / 0.4) * 0.5 : 1;
+      ctx.fillStyle = full || justLost ? '#FF4D6D' : 'rgba(40,28,60,0.7)';
+      ctx.lineWidth = hs * 0.09;
+      heartPath(ctx, hx, hy, hs * k);
+      ctx.stroke();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
   _drawStudio(st, rt) {
     const ctx = this.ctx;
     const L = this.L;
@@ -1871,6 +1983,10 @@ export class Renderer {
     }
     if (s.challenge) {
       this._drawStudioChallenge(st, rt);
+      return;
+    }
+    if (s.fail) {
+      this._drawStudioFail(st, rt);
       return;
     }
     ctx.save();

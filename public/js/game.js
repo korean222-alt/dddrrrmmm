@@ -83,8 +83,10 @@ export class Game {
     /** 줄마다 마지막으로 누른 자리 (render.laneHit 의 u, 줄 너비 단위) */
     this._tapPos = {};
     // 자동 연주(영상 찍기)나 죽었을 때 처리할 곳이 없으면 목숨 없음
-    this.livesOn = !auto && !!this.onDeath;
+    //   💀 실패 영상(level.failReel): 자동 연주라도 목숨이 있음 → failAt 부터 일부러 놓쳐서 하트가 다 떨어짐
+    this.livesOn = (!auto || !!level.failReel) && !!this.onDeath;
     this.lives = MAX_LIVES;
+    this.failAt = level.failReel && auto ? this.tempo.barStart(COUNT_IN_BARS) + (level.failAfter || 12) : Infinity;
     this.continues = 0;
     this.graceUntil = -Infinity;
     this._lostAt = null;
@@ -596,7 +598,7 @@ export class Game {
     if (this.auto) {
       for (const lane of this.laneOrder) {
         const list = this.lanes[lane];
-        while (this.ptr[lane] < list.length && list[this.ptr[lane]].time <= now) {
+        while (this.ptr[lane] < list.length && list[this.ptr[lane]].time <= now && list[this.ptr[lane]].time < this.failAt) {
           const n = list[this.ptr[lane]];
           this.r.onTap(lane, rt);
           if (lane === SNARE && this.level.tapMelody) this._pianoKeys(n, rt);
@@ -606,7 +608,7 @@ export class Game {
       }
       // 자동 연주: 연타 구간은 16분음표마다 두드림
       for (const roll of this.rolls) {
-        if (now < roll.t0 || now > roll.t1) continue;
+        if (now < roll.t0 || now > roll.t1 || now >= this.failAt) continue;
         const want = Math.floor((now - roll.t0) / (this.tempo.stepTime(1) - this.tempo.stepTime(0))) + 1;
         while (roll.hits < want) {
           this.audio.playLane(roll.lane);
