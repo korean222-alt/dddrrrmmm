@@ -2126,6 +2126,7 @@ function awardRunCoins(g, final = true) {
 const DECO_FREE = { bg: 'auto', kit: 'auto', notes: 'basic', ui: 'basic' };
 function decoOpen(type, key) {
   if (!key || key === DECO_FREE[type]) return true;
+  if (load('shopTest', false)) return true; // 🛒 운영자 시험(/?shoptest=okay): 이 기기에서만 상점 물건 전부 써 보기 (서버·지갑은 그대로)
   if ((type === 'bg' || type === 'kit') && DECO_THEMES.includes(key)) return true;
   if (type === 'notes' && NOTE_FREE.includes(key)) return true;
   const owned = load('decoOwned', []);
@@ -2144,6 +2145,7 @@ function applyDeco() {
   renderer.kitPick = kit !== 'auto' ? kit : null;
   renderer.photoDim = s.photoDim ?? 0.4;
   renderer.uiStyle = decoPick('ui') === 'live' ? 'live' : null; // 🎤 라이브 스테이지 세트
+  document.documentElement.classList.toggle('ui-live', !!renderer.uiStyle); // 게임 위 정보 칸·결과 화면도 세트 모양
   applyNoteColors(renderer.studio ? 'basic' : decoPick('notes'));
 }
 function renderDeco() {
@@ -6355,6 +6357,23 @@ async function boot() {
     if (thumb === 'okay') setTimeout(() => {
       openStudio();
       toast('🖼 릴스 썸네일 칸이 켜졌어요 (영상 찍기 화면 맨 아래)', 3000);
+    }, 300);
+  }
+  // 🛒 운영자 시험: /?shoptest=okay 면 이 기기에서만 상점 물건을 전부 써 봄 (산 것으로 안 침, 서버 안 감), ?shoptest=off 면 끔
+  const shopTest = params.get('shoptest');
+  if (shopTest === 'okay' || shopTest === 'off') {
+    save('shopTest', shopTest === 'okay');
+    try {
+      const u = new URL(location.href);
+      u.searchParams.delete('shoptest');
+      history.replaceState(null, '', u.pathname + u.search + u.hash);
+    } catch {}
+    applyDeco();
+    setTimeout(() => {
+      if (shopTest === 'okay') {
+        openShop();
+        toast('🛒 이 기기에서 상점 물건을 전부 써 볼 수 있어요 · 설정 → 꾸미기에서 바꿔요', 3600);
+      } else toast('🛒 상점 시험 모드를 껐어요', 2000);
     }, 300);
   }
   // 친구가 보낸 방 링크 (/?room=1234)
