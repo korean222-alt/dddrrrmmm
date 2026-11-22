@@ -1022,6 +1022,12 @@ export function createHandler(cfg, { store, meter = null }) {
       if (m !== 'GET') {
         memo.delete('admin:totals');
         memo.delete('admin:scores');
+        // 참여자를 내리거나 지우면 명예의 전당 캐시도 다시 계산 (안 그러면 6시간 동안 그대로 보임)
+        if (p.startsWith('/api/admin/players/'))
+          for (const board of HALL_BOARDS) {
+            memo.delete(hallKey(seasonAt().n, board));
+            await Promise.resolve().then(() => store.setSetting('cache:' + hallKey(seasonAt().n, board), '{}')).catch(() => {});
+          }
       }
       // 이용 통계: ?days=7 (1~90). 오늘 포함 최근 N일
       if (p === '/api/admin/stats' && m === 'GET') {
