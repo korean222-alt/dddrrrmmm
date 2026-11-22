@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=37b1444901" />
+  <link rel="stylesheet" href="css/style.css?v=46edca599c" />
 </head>
 <body>
   <div id="app">
@@ -695,18 +695,7 @@
           <button data-band="piano" aria-pressed="false"><b>피아노만</b><small>가볍게 (데이터 절약)</small></button>
         </div>
       </div>
-      <div class="deco" id="set-deco">
-        <h4>🎨 꾸미기 <button class="link" data-action="shop-open">🛒 상점</button></h4>
-        <div class="field"><span>배경</span><div class="chips" id="set-bg"></div></div>
-        <div class="photo-opts" id="set-photo-opts" hidden>
-          <label class="field"><span>사진 어둡게</span><input type="range" min="0" max="0.85" step="0.05" id="set-photo-dim" /></label>
-          <p class="muted small">사진은 이 폰에만 저장돼요 · <button class="link" data-photo-act="change">사진 바꾸기</button> · <button class="link" data-photo-act="del">지우기</button></p>
-        </div>
-        <input type="file" accept="image/*" id="set-photo-file" hidden />
-        <div class="field"><span>드럼 세트</span><div class="chips" id="set-kit"></div></div>
-        <div class="field"><span>콩 색</span><div class="chips" id="set-notes"></div></div>
-        <div class="field"><span>화면 스타일</span><div class="chips" id="set-ui"></div></div>
-      </div>
+      <button class="btn btn-ghost btn-sm deco-go" data-action="shop-open">🛒 꾸미기는 상점에서</button>
       <label class="field check"><input type="checkbox" id="set-lite" /><span>저사양 모드 <small class="muted">렉이 걸리면 켜 보세요 · 화질·반짝이 효과를 줄여요</small></span></label>
       <label class="field check"><input type="checkbox" id="set-vibrate" /><span>진동 (안드로이드)</span></label>
       <div class="account" id="settings-account"></div>
@@ -919,6 +908,16 @@
       <button class="icon-btn close" data-action="close-shop" aria-label="닫기"><span data-icon="close"></span></button>
       <h3>🛒 상점 <span class="shop-coins"><i class="coin-ico"></i><b id="shop-coins">0</b></span></h3>
       <p class="shop-closed" id="shop-closed" hidden>🔒 판매 준비 중이에요 · 눌러서 미리보기는 돼요</p>
+      <div class="shop-now" id="shop-now"></div>
+      <div class="shop-tabs" id="shop-tabs">
+        <button data-shop-tab="all" aria-pressed="true">전체</button>
+        <button data-shop-tab="mine" aria-pressed="false">내 것</button>
+      </div>
+      <div class="photo-opts" id="set-photo-opts" hidden>
+        <label class="field"><span>사진 어둡게</span><input type="range" min="0" max="0.85" step="0.05" id="set-photo-dim" /></label>
+        <p class="muted small">사진은 이 폰에만 저장돼요 · <button class="link" data-photo-act="change">사진 바꾸기</button> · <button class="link" data-photo-act="del">지우기</button></p>
+      </div>
+      <input type="file" accept="image/*" id="set-photo-file" hidden />
       <div class="shop-list" id="shop-list"></div>
     </div>
   </div>
@@ -1000,6 +999,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=a33a465e71" defer></script>
+  <script src="js/app.js?v=6127341f86" defer></script>
 </body>
 </html>

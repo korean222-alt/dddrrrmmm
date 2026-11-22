@@ -18,7 +18,7 @@ export const LANE = [
   { key: 'tom', main: '#4FE0A6', light: '#C9FBE6', dark: '#1F9E70', rgb: '79,224,166', thumb: '왼쪽 엄지', word: '탐탐 (둥)', short: '둥' },
 ];
 
-// 🎨 콩(노트) 색 고르기 (설정 → 꾸미기). 줄 순서: 쿵·짝·하이햇·크래시·탐탐 [main, light, dark]
+// 🎨 콩(노트) 색 고르기 (상점에서 장착). 줄 순서: 쿵·짝·하이햇·크래시·탐탐 [main, light, dark]
 export const NOTE_PALETTES = {
   basic: { name: '기본', c: null },
   candy: { name: '사탕', c: [['#FF6FA8', '#FFC2DA', '#C93A76'], ['#7FD8FF', '#D9F4FF', '#3B9FD1'], ['#FFE066', '#FFF6C4', '#C9A21F'], ['#B98BFF', '#E7DAFF', '#7A4CD0'], ['#7CF0C0', '#D3FCEB', '#2FB585']] },
@@ -1043,16 +1043,17 @@ export class Renderer {
     }
   }
 
-  /** ✨ 콩 스킨: 콩 뒤 꼬리(지나온 길) + 빛 (화면 좌표) */
+  /** ✨ 콩 스킨: 콩 뒤 짧고 옅은 꼬리 (화면 좌표)
+   *  2026-11-22 사용자 '치는 데 방해 안 되게': 콩 뒤 동그란 빛(aura)은 없앰, 꼬리는 짧고 가늘고 옅게, 흔들림 줄임 */
   _skinBack(n, dt, ps, x, y, sp, a, st, fx) {
     const ctx = this.ctx;
     const L = this.L;
     const t = performance.now() / 1000;
-    const len = fx.big ? 0.26 : 0.18;
+    const len = fx.big ? 0.12 : 0.09;
     const ps2 = this._s(dt + len, st.approach);
     const y2 = this._py(ps2);
     const x2 = this._px(L.laneX[n.lane], ps2);
-    const w0 = Math.min(sp.w, sp.h * 1.6) * 0.42 * ps * (fx.flicker ? 0.85 + 0.25 * Math.sin(t * 31 + n.id) : 1);
+    const w0 = Math.min(sp.w, sp.h * 1.6) * 0.24 * ps * (fx.flicker ? 0.94 + 0.08 * Math.sin(t * 31 + n.id) : 1);
     const w2 = w0 * 0.25;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
@@ -1060,11 +1061,11 @@ export class Renderer {
       const gr = ctx.createLinearGradient(0, y, 0, y2);
       if (rgb === 'rainbow') {
         const h = (t * 120 + n.id * 40) % 360;
-        gr.addColorStop(0, `hsla(${h},100%,65%,${0.75 * a})`);
-        gr.addColorStop(0.5, `hsla(${(h + 80) % 360},100%,65%,${0.4 * a})`);
+        gr.addColorStop(0, `hsla(${h},100%,65%,${0.32 * a})`);
+        gr.addColorStop(0.5, `hsla(${(h + 80) % 360},100%,65%,${0.16 * a})`);
         gr.addColorStop(1, `hsla(${(h + 160) % 360},100%,65%,0)`);
       } else {
-        gr.addColorStop(0, `rgba(${rgb},${0.7 * a * k})`);
+        gr.addColorStop(0, `rgba(${rgb},${0.3 * a * k})`);
         gr.addColorStop(1, `rgba(${rgb},0)`);
       }
       ctx.fillStyle = gr;
@@ -1077,27 +1078,17 @@ export class Renderer {
       ctx.fill();
     };
     if (fx.trail2) {
-      const j = fx.glitch && Math.sin(t * 23 + n.id * 3) > 0.85 ? 4 * ps : 1.5 * ps;
+      const j = 1.2 * ps;
       drawTrail(fx.trail, 0.9, -j);
       drawTrail(fx.trail2, 0.9, j);
     } else drawTrail(fx.trail, 1, 0);
-    // 빛 (숨 쉬듯)
-    const R = (sp.flat ? sp.w * 0.62 : Math.max(sp.w, sp.h)) * ps * (fx.big ? 0.95 : 0.75);
-    const pulse = 0.7 + 0.3 * Math.sin(t * 5 + n.id);
-    const gl = ctx.createRadialGradient(x, y, 0, x, y, R);
-    gl.addColorStop(0, `rgba(${fx.aura},${(sp.flat ? 0.4 : 0.55) * a * pulse})`);
-    gl.addColorStop(1, `rgba(${fx.aura},0)`);
-    ctx.fillStyle = gl;
-    ctx.beginPath();
-    ctx.ellipse(x, y, R, sp.flat ? Math.min(R * 0.62, sp.h * ps * 0.75) : R * 0.62, 0, 0, Math.PI * 2);
-    ctx.fill();
     ctx.restore();
   }
   /** ✨ 콩 스킨: 콩 위 반짝이 (콩 좌표, 이미 translate·scale 된 상태) */
   _skinFront(n, img, a, fx) {
     const ctx = this.ctx;
     const t = performance.now() / 1000;
-    const cnt = fx.big ? 3 : 2;
+    const cnt = 1; // 작은 반짝이 하나만 (방해 안 되게)
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     for (let i = 0; i < cnt; i++) {
@@ -1107,8 +1098,8 @@ export class Renderer {
       const seed = (n.id * 7 + i * 13) % 17;
       const px = -img.ax + img.w * (0.15 + ((seed * 0.13) % 0.7));
       const py = -img.ay + img.h * (0.2 + ((seed * 0.29) % 0.45));
-      const s = img.h * (fx.big ? 0.32 : 0.24) * tw;
-      ctx.globalAlpha = a * tw;
+      const s = img.h * (fx.big ? 0.16 : 0.13) * tw;
+      ctx.globalAlpha = a * tw * 0.6;
       ctx.fillStyle = fx.spark;
       if (fx.heart) drawHeart(ctx, px, py, s * 0.7);
       else drawGlint(ctx, px, py, s);
@@ -2608,7 +2599,7 @@ function skinTexture(src, tex, lane) {
     g.globalCompositeOperation = 'source-over';
     g.save();
     g.shadowColor = tex === 'cyber' ? (lane % 2 ? '#FF2BD6' : '#00F0FF') : tex === 'gold' ? '#FFE27A' : '#D9A8FF';
-    g.shadowBlur = H * 0.25;
+    g.shadowBlur = H * 0.08; // 테두리 빛은 콩 바로 둘레만
     g.globalCompositeOperation = 'destination-over';
     g.drawImage(src, 0, 0);
     g.restore();

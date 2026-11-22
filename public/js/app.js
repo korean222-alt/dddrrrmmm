@@ -3492,7 +3492,7 @@ const THEMES = {
       cym: 'gold',
     },
   },
-  // 📷 내 사진 배경 (설정 → 꾸미기). 하늘·땅 대신 사진을 깔고, 길은 반투명이라 사진이 비침. 단계 묶음엔 안 씀
+  // 📷 내 사진 배경 (상점에서 장착). 하늘·땅 대신 사진을 깔고, 길은 반투명이라 사진이 비침. 단계 묶음엔 안 씀
   photo: {
     key: 'photo',
     name: '내 사진',
@@ -4977,7 +4977,7 @@ const LANE = [
   { key: 'tom', main: '#4FE0A6', light: '#C9FBE6', dark: '#1F9E70', rgb: '79,224,166', thumb: '왼쪽 엄지', word: '탐탐 (둥)', short: '둥' },
 ];
 
-// 🎨 콩(노트) 색 고르기 (설정 → 꾸미기). 줄 순서: 쿵·짝·하이햇·크래시·탐탐 [main, light, dark]
+// 🎨 콩(노트) 색 고르기 (상점에서 장착). 줄 순서: 쿵·짝·하이햇·크래시·탐탐 [main, light, dark]
 const NOTE_PALETTES = {
   basic: { name: '기본', c: null },
   candy: { name: '사탕', c: [['#FF6FA8', '#FFC2DA', '#C93A76'], ['#7FD8FF', '#D9F4FF', '#3B9FD1'], ['#FFE066', '#FFF6C4', '#C9A21F'], ['#B98BFF', '#E7DAFF', '#7A4CD0'], ['#7CF0C0', '#D3FCEB', '#2FB585']] },
@@ -6002,16 +6002,17 @@ class Renderer {
     }
   }
 
-  /** ✨ 콩 스킨: 콩 뒤 꼬리(지나온 길) + 빛 (화면 좌표) */
+  /** ✨ 콩 스킨: 콩 뒤 짧고 옅은 꼬리 (화면 좌표)
+   *  2026-11-22 사용자 '치는 데 방해 안 되게': 콩 뒤 동그란 빛(aura)은 없앰, 꼬리는 짧고 가늘고 옅게, 흔들림 줄임 */
   _skinBack(n, dt, ps, x, y, sp, a, st, fx) {
     const ctx = this.ctx;
     const L = this.L;
     const t = performance.now() / 1000;
-    const len = fx.big ? 0.26 : 0.18;
+    const len = fx.big ? 0.12 : 0.09;
     const ps2 = this._s(dt + len, st.approach);
     const y2 = this._py(ps2);
     const x2 = this._px(L.laneX[n.lane], ps2);
-    const w0 = Math.min(sp.w, sp.h * 1.6) * 0.42 * ps * (fx.flicker ? 0.85 + 0.25 * Math.sin(t * 31 + n.id) : 1);
+    const w0 = Math.min(sp.w, sp.h * 1.6) * 0.24 * ps * (fx.flicker ? 0.94 + 0.08 * Math.sin(t * 31 + n.id) : 1);
     const w2 = w0 * 0.25;
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
@@ -6019,11 +6020,11 @@ class Renderer {
       const gr = ctx.createLinearGradient(0, y, 0, y2);
       if (rgb === 'rainbow') {
         const h = (t * 120 + n.id * 40) % 360;
-        gr.addColorStop(0, `hsla(${h},100%,65%,${0.75 * a})`);
-        gr.addColorStop(0.5, `hsla(${(h + 80) % 360},100%,65%,${0.4 * a})`);
+        gr.addColorStop(0, `hsla(${h},100%,65%,${0.32 * a})`);
+        gr.addColorStop(0.5, `hsla(${(h + 80) % 360},100%,65%,${0.16 * a})`);
         gr.addColorStop(1, `hsla(${(h + 160) % 360},100%,65%,0)`);
       } else {
-        gr.addColorStop(0, `rgba(${rgb},${0.7 * a * k})`);
+        gr.addColorStop(0, `rgba(${rgb},${0.3 * a * k})`);
         gr.addColorStop(1, `rgba(${rgb},0)`);
       }
       ctx.fillStyle = gr;
@@ -6036,27 +6037,17 @@ class Renderer {
       ctx.fill();
     };
     if (fx.trail2) {
-      const j = fx.glitch && Math.sin(t * 23 + n.id * 3) > 0.85 ? 4 * ps : 1.5 * ps;
+      const j = 1.2 * ps;
       drawTrail(fx.trail, 0.9, -j);
       drawTrail(fx.trail2, 0.9, j);
     } else drawTrail(fx.trail, 1, 0);
-    // 빛 (숨 쉬듯)
-    const R = (sp.flat ? sp.w * 0.62 : Math.max(sp.w, sp.h)) * ps * (fx.big ? 0.95 : 0.75);
-    const pulse = 0.7 + 0.3 * Math.sin(t * 5 + n.id);
-    const gl = ctx.createRadialGradient(x, y, 0, x, y, R);
-    gl.addColorStop(0, `rgba(${fx.aura},${(sp.flat ? 0.4 : 0.55) * a * pulse})`);
-    gl.addColorStop(1, `rgba(${fx.aura},0)`);
-    ctx.fillStyle = gl;
-    ctx.beginPath();
-    ctx.ellipse(x, y, R, sp.flat ? Math.min(R * 0.62, sp.h * ps * 0.75) : R * 0.62, 0, 0, Math.PI * 2);
-    ctx.fill();
     ctx.restore();
   }
   /** ✨ 콩 스킨: 콩 위 반짝이 (콩 좌표, 이미 translate·scale 된 상태) */
   _skinFront(n, img, a, fx) {
     const ctx = this.ctx;
     const t = performance.now() / 1000;
-    const cnt = fx.big ? 3 : 2;
+    const cnt = 1; // 작은 반짝이 하나만 (방해 안 되게)
     ctx.save();
     ctx.globalCompositeOperation = 'lighter';
     for (let i = 0; i < cnt; i++) {
@@ -6066,8 +6057,8 @@ class Renderer {
       const seed = (n.id * 7 + i * 13) % 17;
       const px = -img.ax + img.w * (0.15 + ((seed * 0.13) % 0.7));
       const py = -img.ay + img.h * (0.2 + ((seed * 0.29) % 0.45));
-      const s = img.h * (fx.big ? 0.32 : 0.24) * tw;
-      ctx.globalAlpha = a * tw;
+      const s = img.h * (fx.big ? 0.16 : 0.13) * tw;
+      ctx.globalAlpha = a * tw * 0.6;
       ctx.fillStyle = fx.spark;
       if (fx.heart) drawHeart(ctx, px, py, s * 0.7);
       else drawGlint(ctx, px, py, s);
@@ -7567,7 +7558,7 @@ function skinTexture(src, tex, lane) {
     g.globalCompositeOperation = 'source-over';
     g.save();
     g.shadowColor = tex === 'cyber' ? (lane % 2 ? '#FF2BD6' : '#00F0FF') : tex === 'gold' ? '#FFE27A' : '#D9A8FF';
-    g.shadowBlur = H * 0.25;
+    g.shadowBlur = H * 0.08; // 테두리 빛은 콩 바로 둘레만
     g.globalCompositeOperation = 'destination-over';
     g.drawImage(src, 0, 0);
     g.restore();
@@ -14065,7 +14056,7 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-22m',
+    id: '2026-11-22n',
     date: '11월 22일',
     title: '🖐 터치 씹힘 고침 · 🛒 새 상점 · 🏆 시즌 보상 · 🔥 오늘의 챌린지',
     items: [
@@ -14073,6 +14064,7 @@ const NEWS = [
       '<b>🥁 윌리엄 텔 「쿵짝쿵」</b>처럼 쿵·짝이 빠르게 번갈아 나올 때 하나가 안 눌리던 것도 고쳤어요',
       '<b>🛒 상점이 새로 바뀌어요!</b> <b>🎤 라이브 스테이지 세트</b>(리듬게임 라이브 화면 스타일로 통째로!) · ✨ 콩 스킨 · 🌄 새 무대 · 🥁 새 드럼 — 누르면 미리보기, 곧 판매 시작',
       '맵 배경·맵 드럼·콩 색은 이제 <b>무료</b>! 예전에 산 사람은 코인을 돌려드려요',
+      '꾸미기는 이제 <b>상점에서 장착</b> — 장착 중인 것과 <b>내 것</b>만 따로 볼 수 있어요 · 콩 스킨 효과는 치는 데 안 가리게 줄였어요',
       '<b>🏆 시즌 1 보상</b> — 1등 10만 · 2등 7만 · 3등 5만 · 10등까지 1만 · 50등까지 5천 · 100등까지 3천 코인',
       '<b>🏛 명예의 전당</b>에 오르면 사진과 함께 <b>한마디</b>도 남길 수 있어요',
       '<b>칠 때마다 판정선이 흔들리던 것</b> 고쳤어요 — 이제 쿵·짝 자리가 꼼짝 안 해요',
@@ -17254,33 +17246,10 @@ function applyDeco() {
   audio.uiSet = live ? 'live' : null; // 세트 버튼 소리
   applyNoteColors(renderer.studio || live ? 'basic' : decoPick('notes'));
 }
+// 2026-11-22 사용자: 설정의 꾸미기 칸은 없애고 상점 한 곳에서 (장착 중 표시 + 「내 것」 탭)
 function renderDeco() {
-  const s = { ...state.settings, bg: decoPick('bg'), kit: decoPick('kit'), notes: decoPick('notes'), ui: decoPick('ui') };
-  const chip = (attr, key, label, bg, on) => {
-    const open = decoOpen(attr, key);
-    return `<button class="chip ${open ? '' : 'locked'}" data-${attr}="${key}" aria-pressed="${open && on}"><i style="background:${bg}"></i>${label}${open ? '' : ' 🔒'}</button>`;
-  };
-  const auto = 'conic-gradient(#FF9A6B,#6A1B78,#7A2A1C,#1C4A5E,#FF9A6B)';
-  const ph = photo.url ? `center/cover url('${photo.url}')` : '#555';
-  $('#set-bg').innerHTML =
-    chip('bg', 'auto', '단계별', auto, !s.bg || s.bg === 'auto') +
-    chip('bg', 'photo', photo.url ? '📷 내 사진' : '📷 사진 넣기', ph, s.bg === 'photo' && !!photo.url) +
-    DECO_THEMES.map((k) => chip('bg', k, THEMES[k].name, `linear-gradient(${THEMES[k].sky.join(',')})`, s.bg === k)).join('') +
-    SHOP_BGS.map((k) => chip('bg', k, THEMES[k].name, shopSwatch('bg', k), s.bg === k)).join('');
-  $('#set-kit').innerHTML =
-    chip('kit', 'auto', '맵 따라', auto, !s.kit || s.kit === 'auto') +
-    DECO_THEMES.map((k) => {
-      const sh = THEMES[k].kit.shell;
-      return chip('kit', k, THEMES[k].name, `radial-gradient(circle at 35% 30%,${sh[0]},${sh[1]} 55%,${sh[2]})`, s.kit === k);
-    }).join('') +
-    Object.keys(SHOP_KITS).map((k) => chip('kit', k, SHOP_KITS[k].name, shopSwatch('kit', k), s.kit === k)).join('');
-  const lanes = (p) => (p.c ? p.c.slice(0, 4).map((c) => c[0]) : LANE_DEFAULT);
-  $('#set-notes').innerHTML = Object.entries(NOTE_PALETTES)
-    .map(([k, p]) => chip('notes', k, p.name, p.shop ? shopSwatch('notes', k) : `conic-gradient(${lanes(p).join(',')})`, (s.notes || 'basic') === k))
-    .join('');
-  $('#set-ui').innerHTML = chip('ui', 'basic', '기본', 'linear-gradient(#FF9A6B,#6A1B78)', s.ui !== 'live') + chip('ui', 'live', shopName('ui', 'live'), shopSwatch('ui', 'live'), s.ui === 'live');
-  $('#set-photo-opts').hidden = !(decoPick('bg') === 'photo' && photo.url);
-  $('#set-photo-dim').value = s.photoDim ?? 0.4;
+  renderPhotoOpts();
+  if (!$('#modal-shop').hidden) renderShop();
 }
 
 // 📷 내 사진 배경: 고른 사진을 긴 쪽 1600px JPEG 로 줄여 이 폰(IndexedDB)에만 저장. 서버로 안 보냄
@@ -17396,57 +17365,89 @@ const SHOP_DESC = {
   photo: '내 사진을 무대 배경으로 깔아요',
   ui: '판정선·콩·판정 글자·콤보·무대·버튼 소리가 리듬게임 라이브 화면처럼 한 번에 바뀌어요',
   basic: '처음 화면 그대로예요 · 누르면 이 분야만 기본으로 돌아가요',
+  free: '무료예요',
 };
 const isBasicId = (id) => {
   const [type, key] = String(id || '').split(':');
   return key != null && DECO_FREE[type] === key;
 };
+/** 무료 꾸미기 (맵 배경·맵 드럼·색만 바꾸는 콩) — 예전 설정 칸에 있던 것, 이제 상점에 「무료」로 */
+const isFreeId = (id) => {
+  const [type, key] = String(id || '').split(':');
+  return ((type === 'bg' || type === 'kit') && DECO_THEMES.includes(key)) || (type === 'notes' && NOTE_FREE.includes(key));
+};
+const SHOP_TYPES = [['ui', '🎤 세트'], ['notes', '✨ 콩'], ['bg', '🌄 배경'], ['kit', '🥁 드럼']];
+/** 한 분야의 상점 칸: [id, 값(무료 0), 등급('' = 무료)] — 기본 → 상점 물건 → 무료 */
+function shopRow(type) {
+  return [
+    [`${type}:${DECO_FREE[type]}`, 0, ''],
+    ...SHOP_ITEMS.filter(([id]) => id.startsWith(type + ':')),
+    ...(type === 'notes' ? NOTE_FREE : type === 'ui' ? [] : DECO_THEMES).map((k) => [`${type}:${k}`, 0, '']),
+  ];
+}
+var shopTab = 'all';
 function renderShop() {
   $('#shop-coins').textContent = fmt(getCoins());
   $('#shop-closed').hidden = shopIsOpen();
+  const live = decoPick('ui') === 'live';
+  // 👕 지금 장착 중 (세트를 끼면 배경·드럼·콩은 세트 것)
+  $('#shop-now').innerHTML =
+    `<b>장착 중</b><div class="now-row">` +
+    SHOP_TYPES.map(([type, label]) => {
+      const key = decoPick(type);
+      const off = live && type !== 'ui';
+      return `<button class="now-item ${off ? 'off' : ''}" data-shop="${type}:${key}"><i style="background:${shopSwatch(type, key)}"></i><small>${label}</small><span>${escapeHtml(shopName(type, key))}</span></button>`;
+    }).join('') +
+    `</div>` +
+    (live ? '<p class="muted small">세트를 끼면 배경·드럼·콩은 세트 것</p>' : '');
+  $$('#shop-tabs [data-shop-tab]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.shopTab === shopTab)));
   const item = ([id, price, rare]) => {
     const [type, key] = id.split(':');
     const own = decoOpen(type, key);
-    return `<button class="shop-item r-${rare} ${own ? 'owned' : ''}" data-shop="${id}">
-      <em class="rar">${RARITY_NAME[rare]}</em>
+    const using = own && decoPick(type) === key;
+    const tag = rare ? RARITY_NAME[rare] : '무료';
+    const label = using ? '✓ 장착 중' : !rare ? '' : own ? '보유' : `<i class="coin-ico"></i>${fmt(price)}`;
+    return `<button class="shop-item ${rare ? 'r-' + rare : 'r-free'} ${own ? 'owned' : ''} ${using ? 'using' : ''}" data-shop="${id}">
+      <em class="rar">${tag}</em>
       <i style="background:${shopSwatch(type, key)}"></i><b>${escapeHtml(shopName(type, key))}</b>
-      <span>${own ? '보유' : `<i class="coin-ico"></i>${fmt(price)}`}</span></button>`;
+      <span>${label}</span></button>`;
   };
-  // 분야마다 맨 앞에 「기본」 (2026-11-22 사용자 '기본은 각각 분야에') — 누르면 미리보기 + 기본으로 바꾸기
-  const basic = (type) => {
-    const id = `${type}:${DECO_FREE[type]}`;
-    const on = decoPick(type) === DECO_FREE[type];
-    return `<button class="shop-item owned" data-shop="${id}">
-      <em class="rar">무료</em>
-      <i style="background:${shopSwatch(type, DECO_FREE[type])}"></i><b>${escapeHtml(shopName(type, DECO_FREE[type]))}</b>
-      <span>${on ? '✓ 쓰는 중' : '기본'}</span></button>`;
+  const mine = shopTab === 'mine';
+  const sec = ([type, title]) => {
+    const rows = shopRow(type).filter(([id]) => !mine || decoOpen(...id.split(':')));
+    return rows.length ? `<h4>${title}</h4><div class="shop-grid">${rows.map(item).join('')}</div>` : '';
   };
-  const sec = (title, type) => `<h4>${title}</h4><div class="shop-grid">${basic(type)}${SHOP_ITEMS.filter(([id]) => id.startsWith(type + ':')).map(item).join('')}</div>`;
-  $('#shop-list').innerHTML = sec('🎤 세트', 'ui') + sec('✨ 콩 스킨', 'notes') + sec('🌄 배경', 'bg') + sec('🥁 드럼 세트', 'kit');
+  $('#shop-list').innerHTML = SHOP_TYPES.map(sec).join('');
+  renderPhotoOpts();
+}
+function renderPhotoOpts() {
+  $('#set-photo-opts').hidden = !(decoPick('bg') === 'photo' && photo.url);
+  $('#set-photo-dim').value = state.settings.photoDim ?? 0.4;
 }
 function openShop(focus) {
   renderShop();
   openModal('modal-shop');
-  if (typeof focus === 'string' && priceOf(focus) != null) previewShop(focus);
+  if (typeof focus === 'string' && (priceOf(focus) != null || isFreeId(focus))) previewShop(focus);
 }
 // 👀 미리보기 팝업: 실제 게임 화면. 고른 것만 바꾸고 나머지는 지금 꾸미기 그대로
 var shopPrevId = null;
 function previewShop(id) {
   const [type, key] = id.split(':');
   const basic = isBasicId(id);
-  if (priceOf(id) == null && !basic) return;
+  const free = isFreeId(id);
+  if (priceOf(id) == null && !basic && !free) return;
   shopPrevId = id;
   const own = decoOpen(type, key);
-  const rare = basic ? '' : RARITY[id];
-  $('#shopitem-rar').textContent = basic ? '무료' : RARITY_NAME[rare] || '';
-  $('#shopitem-rar').className = 'rar r-' + rare;
+  const rare = basic || free ? '' : RARITY[id];
+  $('#shopitem-rar').textContent = basic || free ? '무료' : RARITY_NAME[rare] || '';
+  $('#shopitem-rar').className = 'rar r-' + (rare || 'free');
   $('#shopitem-name').textContent = shopName(type, key);
-  $('#shopitem-desc').textContent = basic ? SHOP_DESC.basic : key === 'photo' ? SHOP_DESC.photo : SHOP_DESC[type];
+  $('#shopitem-desc').textContent = basic ? SHOP_DESC.basic : free ? SHOP_DESC.free : key === 'photo' ? SHOP_DESC.photo : SHOP_DESC[type];
   const b = $('#shopitem-buy');
   const using = own && decoPick(type) === key;
   if (own) {
     // 기본으로 돌아가는 건 분야마다 맨 앞 「기본」 칸으로 (2026-11-22)
-    b.innerHTML = using ? '✓ 쓰는 중' : '이걸로 바꾸기';
+    b.innerHTML = using ? '✓ 장착 중' : '장착하기';
     b.disabled = using;
   } else if (!shopIsOpen()) {
     b.innerHTML = `🔒 판매 준비 중 · <i class="coin-ico"></i> ${fmt(priceOf(id))}`;
@@ -17571,23 +17572,17 @@ function bindDeco() {
     equipDeco(id);
     renderShop();
     previewShop(id);
-    toast(`${shopName(type, key)}(으)로 바꿨어요`, 1800);
+    toast(`${shopName(type, key)} 장착했어요`, 1800);
   });
-  $('#set-deco').addEventListener('click', (e) => {
-    const b = e.target.closest('.chip');
+  $('#shop-tabs').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-shop-tab]');
     if (!b) return;
-    const s = state.settings;
-    const [type, key] = Object.entries(DECO_FREE).map(([t]) => [t, b.dataset[t]]).find(([, k]) => k) || [];
-    if (!decoOpen(type, key)) return openShop(`${type}:${key}`);
-    if (b.dataset.bg === 'photo' && !photo.url) return $('#set-photo-file').click();
-    if (b.dataset.bg) s.bg = b.dataset.bg;
-    if (b.dataset.kit) s.kit = b.dataset.kit;
-    if (b.dataset.notes) s.notes = b.dataset.notes;
-    if (b.dataset.ui) s.ui = b.dataset.ui;
-    saveSettings(s);
-    applyDeco();
-    renderDeco();
-    audio.unlock().then(() => audio.snare()).catch(() => {});
+    shopTab = b.dataset.shopTab;
+    renderShop();
+  });
+  $('#shop-now').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-shop]');
+    if (b) previewShop(b.dataset.shop);
   });
 }
 
@@ -21516,7 +21511,7 @@ async function boot() {
     setTimeout(() => {
       if (shopTest === 'okay') {
         openShop();
-        toast('🛒 이 기기에서 상점 물건을 전부 써 볼 수 있어요 · 설정 → 꾸미기에서 바꿔요', 3600);
+        toast('🛒 이 기기에서 상점 물건을 전부 써 볼 수 있어요 · 상점에서 장착해요', 3600);
       } else toast('🛒 상점 시험 모드를 껐어요', 2000);
     }, 300);
   }
