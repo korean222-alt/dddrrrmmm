@@ -7,6 +7,8 @@
 #   verify   : Neon 과 D1 비교 보고만
 #   usage    : D1 오늘(UTC) 쓴 줄 · 하루 어림 (아무것도 안 바꿈)
 #   reads    : D1 오늘(UTC) 읽은 줄 · 많이 읽은 쿼리 순서 (아무것도 안 바꿈)
+#   to-neon  : D1 하루 한도가 막혔을 때 잠깐 Neon 으로 — DB_MODE=neon + COINS_PAUSE=1 만 (D1 을 안 읽음, 합치기 없음)
+#   to-d1    : 한도가 풀린 뒤(한국 9시 뒤) 다시 D1 로 — DB_MODE=d1 → 그 사이 Neon 기록 따라잡기(catchup) → COINS_PAUSE=0
 #   backfill : 예전 통계(plays·sessions)를 오늘 남은 D1 쓰기 한도 안에서 조금씩 (매일 한국 07:40 에 자동, 다 끝나면 아무것도 안 함)
 #   stats-neon / stats-d1 : 판·접속 통계만 Neon / D1 에 쓰기 (비밀값 STATS_DB). 예전 통계 옮기기가 다 끝나면 자동으로 d1
 #   rollback : 비밀값 DB_MODE=neon (사이트가 Neon 으로) → D1 로 바꾼 뒤 D1 에 생긴 기록을 Neon 에 합침 → 사이트 확인
@@ -106,6 +108,22 @@ jobs:
         run: |
           echo neon | npx -y wrangler@4.164.0 secret put DB_MODE
           node scripts/d1-sync.mjs back
+
+      # ---------------- to-neon / to-d1 (D1 하루 한도 막혔을 때 잠깐, 2026-11-22) ----------------
+      - name: 잠깐 Neon 으로 (DB_MODE=neon · 코인 멈춤)
+        if: inputs.step == 'to-neon'
+        run: |
+          echo 1 | npx -y wrangler@4.164.0 secret put COINS_PAUSE
+          echo neon | npx -y wrangler@4.164.0 secret put DB_MODE
+      - name: 다시 D1 으로 (DB_MODE=d1)
+        if: inputs.step == 'to-d1'
+        run: echo d1 | npx -y wrangler@4.164.0 secret put DB_MODE
+      - name: Neon 에 있던 동안의 기록을 D1 에 합침
+        if: inputs.step == 'to-d1'
+        run: node scripts/d1-sync.mjs catchup
+      - name: 코인 다시 받기 (COINS_PAUSE=0)
+        if: inputs.step == 'to-d1'
+        run: echo 0 | npx -y wrangler@4.164.0 secret put COINS_PAUSE
 
       # ---------------- rollback ----------------
       - name: 지금(D1) 사이트 랭킹 적어 두기

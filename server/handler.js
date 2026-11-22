@@ -391,13 +391,13 @@ export function createHandler(cfg, { store }) {
 
   /** 🪙 요청에 얹혀 온 코인 받기 → 잔액(계정 없거나 인증 전이면 null = 폰이 다시 보냄) */
   async function takeCoins(pl, c) {
-    if (!pl || !c || typeof c !== 'object' || !isConfirmed(pl)) return null;
+    if (cfg.coinsPause || !pl || !c || typeof c !== 'object' || !isConfirmed(pl)) return null;
     const w0 = await store.getWallet(pl.igsid);
     const { wallet, changed } = applyCoins(w0, c, cfg.sessionSecret);
     if (changed) await store.putWallet(pl.igsid, wallet);
     return wallet.coins;
   }
-  const coinsOf = async (pl) => (pl && isConfirmed(pl) ? ((await store.getWallet(pl.igsid)) || { coins: 0 }).coins : null);
+  const coinsOf = async (pl) => (!cfg.coinsPause && pl && isConfirmed(pl) ? ((await store.getWallet(pl.igsid)) || { coins: 0 }).coins : null);
 
   // 대결 방: 4단계부터는 혼자 칠 때와 같은 잠금 (팔로워 인증 완료한 사람만)
   const ranked = createRankedHandler({ store, getPlayer: (request) => getPlayer(request), isConfirmed: (pl) => !!pl && (cfg.gateMode === 'open' || isConfirmed(pl)) });
