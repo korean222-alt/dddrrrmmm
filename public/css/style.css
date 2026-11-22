@@ -811,6 +811,7 @@ button.ig-pause:active { transform: translateY(3px); box-shadow: 0 1px 0 var(--i
 .mk-playbar { display: flex; gap: 8px; }
 .mk-playbar #mk-play { flex: 1; }
 .mk-playbar .mk-undo { flex: none; padding: 0 14px; }
+.mk-playbar .mk-playbar-from { flex: none; padding: 0 12px; }
 .mk-playbar .mk-undo:disabled { opacity: 0.4; }
 .mk-pane > .hint:first-child { margin-top: 0; }
 .mk-sum { font-size: 16px; line-height: 1.6; margin: 0 0 12px; }

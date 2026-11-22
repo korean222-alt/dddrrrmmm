@@ -16568,6 +16568,7 @@ function umQuit() {
 //   ① 멜로디: 노래 파일에서 자동으로 따거나, 똑딱 소리에 맞춰 건반을 쳐서 녹음 (자세히 고치기 = 한 칸씩)
 //   ② 드럼: 멜로디에 맞춰 자동 (쉬움·보통·어려움), 원하면 한 칸씩
 //   ③ 처음부터 듣기 → 직접 쳐 보기 → 올리기
+const MAPMAKE_OFF = true;
 function openMapMake() {
   if (followGated()) {
     openVerify(null, { label: '🎹 맵 만들기는 팔로워만', then: openMapMake });
@@ -16607,6 +16608,8 @@ function mkProg() {
 /** 마디 번호 글자 (탭마다 하나씩 있음) */
 function mkBarText() {
   $$('.mk-barno').forEach((el) => (el.textContent = `${mk.bar + 1} / ${mk.mel.length} 마디`));
+  const pb = $('#mk-play-bar');
+  if (pb && !mkp.bus) pb.textContent = `${mk.bar + 1}마디부터`;
 }
 const mkDrumNotes = () => mk.drums.reduce((a, d) => a + [...d].reduce((x, c) => x + (CHAR_LANES[c] || []).length, 0), 0);
 const mkMelNotes = () => mk.mel.reduce((a, b) => a + b.length, 0);
@@ -16929,11 +16932,14 @@ function mkStopPlay() {
   $('#mk-play-label').textContent = '처음부터 듣기';
   $('#mk-play [data-icon]').innerHTML = icon('play');
   $('#mk-play').classList.remove('playing');
+  mkBarText();
   mkRoll();
   mkDroll();
 }
-function mkPlayToggle() {
+/** from = 시작 마디 (0 = 처음부터, 유저 건의 11-22 '해당 마디부터 재생') */
+function mkPlayToggle(from = 0) {
   if (mkp.bus) return mkStopPlay();
+  from = Math.max(0, Math.min(mk.mel.length - 1, from | 0));
   if (rec.on) recStop();
   if (drec.on) drecStop();
   mkSound(() => {
@@ -16942,13 +16948,14 @@ function mkPlayToggle() {
     bus.connect(audio.musicBus);
     mkp.bus = bus;
     mkp.sd = 15 / mk.bpm;
-    mkp.t0 = ctx.currentTime + 0.15;
-    mkp.next = 0;
+    mkp.next = from * STEPS_PER_BAR;
+    mkp.t0 = ctx.currentTime + 0.15 - mkp.next * mkp.sd;
     mkp.steps = mk.mel.length * STEPS_PER_BAR;
     mkp.prog = mkProg();
     $('#mk-play-label').textContent = '멈춤';
     $('#mk-play [data-icon]').innerHTML = icon('pause');
     $('#mk-play').classList.add('playing');
+    $('#mk-play-bar').textContent = '■ 멈춤';
     const tick = () => {
       if (mkp.bus !== bus) return;
       const now = ctx.currentTime;
@@ -19181,7 +19188,8 @@ const ACTIONS = {
   'maps-open': () => openMaps(),
   'mm-start': (el) => startMapMode(el.dataset.mm),
   'mm-close': () => closeModal('modal-mapmode'),
-  'mapmake-open': () => openMapMake(),
+  // 🚧 맵 만들기 잠시 막음 (11-22 운영자 요청). 풀 땐 MAPMAKE_OFF=false + index.html #maps-make 의 disabled·문구 되돌리기
+  'mapmake-open': () => (MAPMAKE_OFF ? toast('맵 만들기는 잠시 쉬어요', 1600) : openMapMake()),
   'mk-bpm': (el) => {
     mk.bpm = Math.max(MAP_LIMITS.minBpm, Math.min(MAP_LIMITS.maxBpm, mk.bpm + Number(el.dataset.d)));
     mkSave();
@@ -19203,7 +19211,8 @@ const ACTIONS = {
   'mk-bardel': () => mkBarOp('del'),
   'mk-rest': () => mkRest(),
   'mk-back': () => mkBack(),
-  'mk-play': () => mkPlayToggle(),
+  'mk-play': () => mkPlayToggle(0),
+  'mk-play-bar': () => mkPlayToggle(mk.bar),
   'mk-rec': () => recToggle(),
   'mk-drec': () => drecToggle(),
   'mk-undo': () => {

@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=8e724d73a5" />
+  <link rel="stylesheet" href="css/style.css?v=46c99adcf7" />
 </head>
 <body>
   <div id="app">
@@ -161,7 +161,7 @@
         <span class="bar-spacer"></span>
       </header>
       <div class="studio maps">
-        <button class="btn btn-primary btn-big" data-action="mapmake-open"><span data-icon="piano" data-e></span> 내 맵 만들기</button>
+        <button class="btn btn-primary btn-big" data-action="mapmake-open" id="maps-make" disabled><span data-icon="piano" data-e></span> 내 맵 만들기 (잠시 쉬어요)</button>
         <div class="seg" id="maps-sort">
           <button type="button" data-sort="new"><b>✨ 새 맵</b><small>방금 올라온 것</small></button>
           <button type="button" data-sort="top"><b>❤ 인기</b><small>좋아요 많은 것</small></button>
@@ -197,6 +197,7 @@
 
         <div class="mk-playbar">
           <button class="btn btn-primary" type="button" data-action="mk-play" id="mk-play"><span data-icon="play"></span> <span id="mk-play-label">처음부터 듣기</span></button>
+          <button class="btn btn-ghost mk-playbar-from" type="button" data-action="mk-play-bar" id="mk-play-bar">1마디부터</button>
           <button class="btn btn-ghost mk-undo" type="button" data-action="mk-undo" id="mk-undo" disabled>↩ 되돌리기</button>
         </div>
 
@@ -962,6 +963,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=79f3db0ae5" defer></script>
+  <script src="js/app.js?v=220664a971" defer></script>
 </body>
 </html>
