@@ -621,11 +621,19 @@ export function createHandler(cfg, { store, meter = null }) {
     const url = new URL(request.url);
     const setCookies = [];
     if (meter) meter.q++;
-    if (url.pathname.startsWith('/api/')) await flushUsage(Date.now());
+    const adminUsage = url.pathname === '/api/admin/usage';
+    if (url.pathname.startsWith('/api/') && !(adminUsage && Date.now() < dbDownUntil)) await flushUsage(Date.now());
     // 🧯 3단계: 한도 직전 → 일부러 db_down (운영자 화면은 그대로)
     if (brake() >= 3 && url.pathname.startsWith('/api/') && !url.pathname.startsWith('/api/admin/')) {
       return new Response(JSON.stringify({ error: 'db_down', brake: 3 }), {
         status: 503,
+        headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
+      });
+    }
+    // DB 가 쉬는 동안: admin 사용량만 받아서 '쉬는 중' 표시 (관리자 화면 로그인이 되게)
+    if (Date.now() < dbDownUntil && adminUsage && isAdmin(request)) {
+      return new Response(JSON.stringify({ dbDown: true, retryAfter: Math.ceil((dbDownUntil - Date.now()) / 1000), metered: !!meter }), {
+        status: 200,
         headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' },
       });
     }

@@ -184,6 +184,10 @@
       const r = await call('GET', '/api/admin/usage');
       if (r.status !== 200) return;
       const u = r.data;
+      if (u.dbDown) {
+        $('#usage').innerHTML = '<b>🔴 오늘 D1(데이터베이스) 무료 한도를 다 써서 서버가 쉬는 중이에요.</b> 한국 오전 9시에 풀려요. 그때까지 통계·참여자·건의 등은 못 불러와요. (게임은 서버 없는 모드로 돌고, 기록은 폰·서버 보관함에 모였다가 9시 뒤 랭킹에 올라가요)';
+        return;
+      }
       if (!u.metered) {
         $('#usage').textContent = '오늘 서버 사용량: 이 서버에선 안 셈 (D1 아님)';
         return;

@@ -193,6 +193,12 @@ async function api(request, env) {
     return out;
   } catch (e) {
     console.error('[api] 준비 실패', e);
+    // 관리자 화면 로그인은 되게: 비밀번호가 맞으면 'DB 쉬는 중'만 알려 줌 (DB 안 씀)
+    if (url.pathname === '/api/admin/usage') {
+      const t = request.headers.get('x-admin-token') || '';
+      const ok = !!env.ADMIN_TOKEN && t.length === env.ADMIN_TOKEN.length && t === env.ADMIN_TOKEN;
+      return Response.json(ok ? { dbDown: true, metered: true } : { error: 'admin_required' }, { status: ok ? 200 : 401, headers: { 'Cache-Control': 'no-store', ...SECURITY_HEADERS } });
+    }
     // 준비(DB 첫 확인)에서 실패 = 거의 DB 문제(D1 하루 한도 등) → 폰이 서버 없는 모드로 가게 db_down
     return Response.json({ error: 'db_down' }, { status: 503, headers: SECURITY_HEADERS });
   }
