@@ -258,8 +258,9 @@ export async function deleteRows(db, t, rows) {
   let n = 0;
   for (let i = 0; i < rows.length; i += 200) {
     const part = rows.slice(i, i + 200);
-    const cond = part.map((r) => '(' + t.pk.map((c) => `${c} = ${lit(r[c], t.cols[c])}`).join(' AND ') + ')').join(' OR ');
-    await db.q(`DELETE FROM ${t.name} WHERE ${cond}`);
+    // OR 로 이으면 D1 의 '식 깊이 100' 에 걸림 → (주 키) IN (VALUES …)
+    const vals = part.map((r) => '(' + t.pk.map((c) => lit(r[c], t.cols[c])).join(', ') + ')').join(', ');
+    await db.q(`DELETE FROM ${t.name} WHERE (${t.pk.join(', ')}) IN (VALUES ${vals})`);
     n += part.length;
   }
   return n;

@@ -52,10 +52,13 @@ test('Neon → D1 전체 복사 · 따라잡기 · 되돌리기', async () => {
   await neonStore.upsertPlayer('ob', { username: '새닉', ig: null });
   // 그 사이 Neon 에서 지워진 계정(계정 합치기·운영자 삭제)은 D1 에서도 지움 (11-22 랭킹에 지운 계정이 다시 보였던 것)
   await neonStore.deletePlayer('oa');
+  // 지울 줄이 많아도 (D1 '식 깊이 100' 제한에 안 걸리게) — 가짜 점수 250개를 D1 에만
+  await d1.q(`INSERT INTO scores (igsid, level, score, at) VALUES ${Array.from({ length: 250 }, (_, i) => `('ghost', ${i + 100}, 1, 1)`).join(', ')}`);
   await runCopy(neon, d1, { log: quiet });
   assert.equal((await d1.q("SELECT username FROM players WHERE igsid = 'ob'"))[0].username, '새닉');
   assert.equal((await d1.q("SELECT COUNT(*) AS n FROM players WHERE igsid = 'oa'"))[0].n, 0);
   assert.equal((await d1.q("SELECT COUNT(*) AS n FROM scores WHERE igsid = 'oa'"))[0].n, 0);
+  assert.equal((await d1.q("SELECT COUNT(*) AS n FROM scores WHERE igsid = 'ghost'"))[0].n, 0);
   for (const r of await compare(neon, d1)) if (r.table !== 'settings') assert.equal(r.extra, 0, r.table);
   await neonStore.upsertPlayer('oa', { username: '닉oa', ig: "oa_i'g" }); // 아래 시험이 쓰는 계정 되살림
   await neonStore.setChecked('oa', true);
