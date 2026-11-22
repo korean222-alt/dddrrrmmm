@@ -436,6 +436,7 @@ function refreshFollowChip() {
 
 function refreshTitle() {
   refreshFollowChip();
+  refreshCoins();
   // 🆓 임시 인증 기간 안내 (인스타 DM 막힘)
   const fp = $('#free-pass-note');
   fp.hidden = !(state.api && state.api.mode === 'server' && freePass());
@@ -732,6 +733,7 @@ async function startLevel(id, opts = {}) {
   const starBox = $('#hud-stars');
   starBox.hidden = !!lv.endless;
   starBox.innerHTML = starsHTML(0);
+  awardRunCoins(state.game); // 판 도중에 다시 시작하면 그때까지 맞힌 만큼
   state.game = new Game({
     audio,
     renderer,
@@ -801,6 +803,7 @@ async function startLevel(id, opts = {}) {
       last.p = p;
     },
     onEnd: (res) => {
+      res.coins = awardRunCoins(state.game);
       if (lv.custom) return lv.userMap ? umFinish(res) : myFinish(res);
       if (room) rk.game = null;
       if (!state.studio.active && !res.auto && !res.practice) trackPlayEnd({ result: res.failed || res.died ? 'fail' : 'clear', score: res.score, stars: res.stars });
@@ -1078,6 +1081,12 @@ function giveUp() {
 }
 
 // ---------------- 결과 ----------------
+function showResCoins(res) {
+  const el = $('#res-coins');
+  el.hidden = !(res.coins > 0);
+  if (res.coins > 0) el.innerHTML = `<i class="coin-ico"></i> +${fmt(res.coins)} <small>모은 코인 ${fmt(getCoins())}</small>`;
+}
+
 function showResult(res) {
   if (state.suggestLite && !state.settings.lite) {
     state.suggestLite = false;
@@ -1123,6 +1132,7 @@ function showResult(res) {
         ? `아쉬워요! 별 1개: ${STAR_RULES[2].text}`
         : `별 ${nextRule.stars}개: ${nextRule.text}`;
   $('#res-new').hidden = !best.isNew;
+  showResCoins(res);
   const badge = $('#res-badge');
   badge.hidden = !res.fullCombo;
   badge.textContent = res.counts.perfect === res.total && !res.counts.wrong ? 'ALL PERFECT' : 'FULL COMBO';
@@ -1186,6 +1196,7 @@ function showChallengeResult(res) {
       ? `다이아 3개! 진짜 드러머예요 💎💎💎`
       : `${res.roundsCleared ? `Lv.${res.roundsCleared}까지 클리어` : 'Lv.1부터 다시 도전!'} · 다음 💎: ${next.text}`;
   $('#res-new').hidden = !best.isNew;
+  showResCoins(res);
   $('#res-badge').hidden = true;
   for (const k of ['perfect', 'great', 'good', 'miss', 'wrong']) $('#res-' + k).textContent = res.counts[k] || 0;
   const face = res.diamonds === 0 ? 'miss' : res.diamonds === 1 ? 'idle' : 'cheer';
@@ -1690,7 +1701,7 @@ function mergeBests(mine, theirs) {
 async function transferMake() {
   if (!(await reconnectServer({ force: true }))) return toast('지금은 서버에 연결이 안 돼요. 잠시 후 다시 해 주세요');
   const { offsetMs, ...settings } = state.settings;
-  const data = { bests: loadBests(), nick: load('nick', ''), lastNick: load('lastNick', ''), lastIg: load('lastIg', ''), settings };
+  const data = { bests: loadBests(), nick: load('nick', ''), lastNick: load('lastNick', ''), lastIg: load('lastIg', ''), settings, coins: getCoins(), decoOwned: load('decoOwned', []) };
   try {
     const r = await state.api.transfer({ op: 'make', data });
     $('#transfer-code-num').textContent = `${r.code.slice(0, 3)} ${r.code.slice(3)}`;
@@ -1703,6 +1714,10 @@ async function transferMake() {
 function applyTransfer(data, me) {
   save('bests', mergeBests(loadBests(), data.bests));
   for (const f of ['nick', 'lastNick', 'lastIg']) if (data[f] && !load(f, '')) save(f, data[f]);
+  // 🪙 코인은 많은 쪽, 산 꾸미기는 합침
+  if (Number.isFinite(data.coins) && data.coins > getCoins()) save('coins', Math.floor(data.coins));
+  if (Array.isArray(data.decoOwned)) save('decoOwned', [...new Set([...(load('decoOwned', []) || []), ...data.decoOwned])]);
+  refreshCoins();
   if (data.settings || data.calib) {
     state.settings = { ...state.settings, ...(data.settings || {}) };
     if (data.calib) {
@@ -1831,20 +1846,62 @@ async function checkReq({ manual = false } = {}) {
   }
 }
 
+// ---------------- 🪙 코인 (2026-11-22) ----------------
+//   맞힌 콩(PERFECT·GREAT·GOOD) 1개 = 1코인, 연타 1번 = 1코인. 판이 끝나거나 그만둘 때 한 번 더함.
+//   이 폰에만 저장(서버 요청·DB 없음). '다른 폰으로 옮기기' 때 같이 감(큰 쪽). 자동 연주·영상 찍기는 0.
+//   곧 상점에서 꾸미기(배경·드럼·콩 색·내 사진)를 사는 데 씀 → 산 것은 load('decoOwned') 목록
+function getCoins() {
+  const n = load('coins', 0);
+  return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+}
+function refreshCoins() {
+  const el = $('#coin-num');
+  if (el) el.textContent = fmt(getCoins());
+}
+/** 이 판에서 받은 코인을 더하고 개수를 돌려줌 (한 판에 한 번만) */
+function awardRunCoins(g) {
+  if (!g || g._coined) return 0;
+  g._coined = true;
+  if (state.auto || g.auto || state.studio.active) return 0;
+  const c = g.counts || {};
+  const n = Math.max(0, Math.min(20000, (c.perfect || 0) + (c.great || 0) + (c.good || 0) + (g.rollHits || 0)));
+  if (n > 0) {
+    save('coins', getCoins() + n);
+    refreshCoins();
+  }
+  return n;
+}
+
 // ---------------- 🎨 꾸미기 (배경·드럼 세트·콩 색) ----------------
+//   11-22 사용자 결정: 원래 배경(단계별)·맵 드럼·기본 콩 색만 무료, 나머지(다른 배경·드럼·콩 색·📷 내 사진)는
+//   🔒 잠금 → 곧 상점에서 코인으로 엶. 열린 건 load('decoOwned') = ['bg:city', 'kit:lava', 'notes:neon', 'bg:photo' …]
+const DECO_FREE = { bg: 'auto', kit: 'auto', notes: 'basic' };
+function decoOpen(type, key) {
+  if (!key || key === DECO_FREE[type]) return true;
+  const owned = load('decoOwned', []);
+  return Array.isArray(owned) && owned.includes(`${type}:${key}`);
+}
+const decoPick = (type) => {
+  const k = state.settings[type] || DECO_FREE[type];
+  return decoOpen(type, k) ? k : DECO_FREE[type];
+};
 //   이 폰에만 저장(설정). 서버 요청 없음. 영상 찍기는 원래 맵 그대로(render.js)
 const DECO_THEMES = ['sunset', 'city', 'hall', 'void', 'lava', 'aurora', 'xmas', 'space'];
 function applyDeco() {
   const s = state.settings;
-  renderer.bgPick = s.bg && s.bg !== 'auto' ? s.bg : null;
-  renderer.kitPick = s.kit && s.kit !== 'auto' ? s.kit : null;
+  const bg = decoPick('bg');
+  const kit = decoPick('kit');
+  renderer.bgPick = bg !== 'auto' ? bg : null;
+  renderer.kitPick = kit !== 'auto' ? kit : null;
   renderer.photoDim = s.photoDim ?? 0.4;
-  applyNoteColors(renderer.studio ? 'basic' : s.notes || 'basic');
+  applyNoteColors(renderer.studio ? 'basic' : decoPick('notes'));
 }
 function renderDeco() {
-  const s = state.settings;
-  const chip = (attr, key, label, bg, on) =>
-    `<button class="chip" data-${attr}="${key}" aria-pressed="${on}"><i style="background:${bg}"></i>${label}</button>`;
+  const s = { ...state.settings, bg: decoPick('bg'), kit: decoPick('kit'), notes: decoPick('notes') };
+  const chip = (attr, key, label, bg, on) => {
+    const open = decoOpen(attr, key);
+    return `<button class="chip ${open ? '' : 'locked'}" data-${attr}="${key}" aria-pressed="${open && on}"><i style="background:${bg}"></i>${label}${open ? '' : ' 🔒'}</button>`;
+  };
   const auto = 'conic-gradient(#FF9A6B,#6A1B78,#7A2A1C,#1C4A5E,#FF9A6B)';
   const ph = photo.url ? `center/cover url('${photo.url}')` : '#555';
   $('#set-bg').innerHTML =
@@ -1861,7 +1918,7 @@ function renderDeco() {
   $('#set-notes').innerHTML = Object.entries(NOTE_PALETTES)
     .map(([k, p]) => chip('notes', k, p.name, `conic-gradient(${lanes(p).join(',')})`, (s.notes || 'basic') === k))
     .join('');
-  $('#set-photo-opts').hidden = !(s.bg === 'photo' && photo.url);
+  $('#set-photo-opts').hidden = !(decoPick('bg') === 'photo' && photo.url);
   $('#set-photo-dim').value = s.photoDim ?? 0.4;
 }
 
@@ -1913,7 +1970,7 @@ async function shrinkPhoto(file) {
   }
 }
 async function pickPhoto(file) {
-  if (!file) return;
+  if (!file || !decoOpen('bg', 'photo')) return;
   let blob = null;
   try {
     blob = await shrinkPhoto(file);
@@ -1956,6 +2013,8 @@ function bindDeco() {
     const b = e.target.closest('.chip');
     if (!b) return;
     const s = state.settings;
+    const [type, key] = Object.entries(DECO_FREE).map(([t]) => [t, b.dataset[t]]).find(([, k]) => k) || [];
+    if (!decoOpen(type, key)) return toast('🔒 곧 상점에서 코인으로 열 수 있어요! 콩을 맞힐수록 코인이 쌓여요', 2800);
     if (b.dataset.bg === 'photo' && !photo.url) return $('#set-photo-file').click();
     if (b.dataset.bg) s.bg = b.dataset.bg;
     if (b.dataset.kit) s.kit = b.dataset.kit;
@@ -5260,7 +5319,11 @@ const ACTIONS = {
         state.roomClient.send({ final: { score: state.game.score, stars: 0, grade: 'F', failed: true, died: true, maxCombo: state.game.maxCombo, accuracy: 0 } }, true);
     }
     document.body.classList.remove('room-game');
-    if (state.game) state.game.stop();
+    if (state.game) {
+      const n = awardRunCoins(state.game);
+      if (n > 0) toast(`코인 +${fmt(n)}`, 1800);
+      state.game.stop();
+    }
     if (state.levelId === MY_ID) {
       stopRecorder();
       openMysong();

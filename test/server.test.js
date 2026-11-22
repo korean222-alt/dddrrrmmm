@@ -754,7 +754,7 @@ test('📱 기기 옮기기: 코드 만들기 → 새 기기에서 넣으면 기
   const ok = await old('POST', '/api/verify/password', { name: '옮기는사람', ig: 'move.me', password: '시험1234' });
   assert.equal(ok.json.confirmed, true);
   const bests = { 1: { score: 900000, grade: 'S', stars: 3, fullCombo: true, at: 1 }, endless: { score: 5, diamonds: 2, roundsCleared: 7 }, 'bad key!': { score: 1 } };
-  const made = await old('POST', '/api/transfer', { op: 'make', data: { bests, nick: '옮기는사람', settings: { music: 0.3, offsetMs: 120, band: 'piano', evil: 1 } } });
+  const made = await old('POST', '/api/transfer', { op: 'make', data: { bests, nick: '옮기는사람', settings: { music: 0.3, offsetMs: 120, band: 'piano', evil: 1 }, coins: 1234.7, decoOwned: ['bg:city', 'kit:<b>', 7] } });
   assert.equal(made.status, 200);
   assert.match(made.json.code, /^\d{6}$/);
   assert.ok(made.json.expiresAt > Date.now());
@@ -769,6 +769,8 @@ test('📱 기기 옮기기: 코드 만들기 → 새 기기에서 넣으면 기
   assert.equal(got.json.data.bests[1].stars, 3);
   assert.equal(got.json.data.bests.endless.roundsCleared, 7);
   assert.equal(got.json.data.bests['bad key!'], undefined);
+  assert.equal(got.json.data.coins, 1234, '🪙 코인도 같이');
+  assert.deepEqual(got.json.data.decoOwned, ['bg:city']);
   assert.deepEqual(got.json.data.settings, { music: 0.3, band: 'piano' }, '싱크 보정은 안 넘김');
   assert.equal(got.json.me.confirmed, true);
   // 새 기기가 같은 계정이 됨 → 잠긴 단계도 열림

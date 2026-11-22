@@ -105,6 +105,9 @@ export function cleanTransferData(d) {
     if (d.settings.band === 'orch' || d.settings.band === 'piano') s.band = d.settings.band;
     out.settings = s;
   }
+  // 🪙 코인·산 꾸미기 (폰에만 있는 값이라 옮길 때 같이)
+  if (Number.isFinite(d.coins)) out.coins = Math.max(0, Math.min(1e9, Math.floor(d.coins)));
+  if (Array.isArray(d.decoOwned)) out.decoOwned = d.decoOwned.filter((v) => typeof v === 'string' && /^(bg|kit|notes):[a-z]{1,12}$/.test(v)).slice(0, 60);
   // 같은 폰이 주소만 옮길 때(옛 주소 → 새 주소 다리)만 싱크 보정도 같이 (다른 폰이면 안 맞아서 안 보냄)
   if (d.calib && typeof d.calib === 'object' && Number.isFinite(d.calib.offsetMs)) {
     out.calib = { offsetMs: Math.max(-300, Math.min(300, Math.round(d.calib.offsetMs))), calibrated: !!d.calib.calibrated };
