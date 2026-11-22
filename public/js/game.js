@@ -569,7 +569,7 @@ export class Game {
     this.r.onJudge(n.lane, res, rt, dt < 0);
     this.r.onCombo(this.combo, rt);
     // 🔔 25콤보마다 '반짝' (치는 소리에 안 묻히게 작게)
-    if (this.combo > 0 && this.combo % 25 === 0) this.audio.sfxFile(this.audio.uiSet === 'live' ? 'live_combo' : 'combo', 0.35);
+    if (this.combo > 0 && this.combo % 25 === 0) this.audio.sfxFile(this.audio.uiSet === 'live' ? 'live2_combo' : 'combo', 0.35);
     if (this.livesOn && !(this.auto && this.level.failReel) && this.combo % LIFE_REGEN_COMBO === 0 && this.lives < MAX_LIVES) {
       this.lives++;
       this.r.onLife(this.lives, +1, rt);

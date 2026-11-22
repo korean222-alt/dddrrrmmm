@@ -11077,7 +11077,7 @@ class AudioEngine {
   }
   /** 효과음 파일 미리 받기 (첫 터치 뒤) */
   prefetchSfx() {
-    for (const n of ['combo', 'cheer', 'buy', 'gift', ...(this.uiSet === 'live' ? ['live_tap', 'live_combo', 'live_clear'] : [])]) this.loadTrack(`assets/sfx/${n}.mp3`);
+    for (const n of ['combo', 'cheer', 'buy', 'gift', ...(this.uiSet === 'live' ? ['live2_tap', 'live2_combo', 'live2_clear'] : [])]) this.loadTrack(`assets/sfx/${n}.mp3`);
   }
 
   /** 받아 둔 곡 (없으면 null) */
@@ -12969,7 +12969,7 @@ class Game {
     this.r.onJudge(n.lane, res, rt, dt < 0);
     this.r.onCombo(this.combo, rt);
     // 🔔 25콤보마다 '반짝' (치는 소리에 안 묻히게 작게)
-    if (this.combo > 0 && this.combo % 25 === 0) this.audio.sfxFile(this.audio.uiSet === 'live' ? 'live_combo' : 'combo', 0.35);
+    if (this.combo > 0 && this.combo % 25 === 0) this.audio.sfxFile(this.audio.uiSet === 'live' ? 'live2_combo' : 'combo', 0.35);
     if (this.livesOn && !(this.auto && this.level.failReel) && this.combo % LIFE_REGEN_COMBO === 0 && this.lives < MAX_LIVES) {
       this.lives++;
       this.r.onLife(this.lives, +1, rt);
@@ -16526,7 +16526,7 @@ function animateResult(res, outcome, gems = false) {
     if (!sound || !audio.running) return;
     const t = audio.ctx.currentTime + 0.05;
     if (res.stars === 3 || outcome === 'win') audio.fanfare(t);
-    if (res.fullCombo && !res.failed) audio.sfxFile(audio.uiSet === 'live' ? 'live_clear' : 'cheer', 0.8); // 🔔 풀콤보 환호 (세트면 세트 소리)
+    if (res.fullCombo && !res.failed) audio.sfxFile(audio.uiSet === 'live' ? 'live2_clear' : 'cheer', 0.8); // 🔔 풀콤보 환호 (세트면 세트 소리)
     else if (res.stars === 0 || outcome === 'lose') audio.aww(t);
   };
   later(gradeMs, () => reveal(true));
@@ -21114,7 +21114,7 @@ function bindActions() {
       if (audio.uiSet !== 'live' || $('#screen-game').classList.contains('active')) return;
       const b = e.target.closest('button, .chip, [data-act], a.btn');
       if (!b || b.disabled) return;
-      audio.unlock().then(() => audio.sfxFile('live_tap', 0.5)).catch(() => {});
+      audio.unlock().then(() => audio.sfxFile('live2_tap', 0.5)).catch(() => {});
     },
     true,
   );

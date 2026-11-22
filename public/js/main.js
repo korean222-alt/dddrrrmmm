@@ -1408,7 +1408,7 @@ function animateResult(res, outcome, gems = false) {
     if (!sound || !audio.running) return;
     const t = audio.ctx.currentTime + 0.05;
     if (res.stars === 3 || outcome === 'win') audio.fanfare(t);
-    if (res.fullCombo && !res.failed) audio.sfxFile(audio.uiSet === 'live' ? 'live_clear' : 'cheer', 0.8); // 🔔 풀콤보 환호 (세트면 세트 소리)
+    if (res.fullCombo && !res.failed) audio.sfxFile(audio.uiSet === 'live' ? 'live2_clear' : 'cheer', 0.8); // 🔔 풀콤보 환호 (세트면 세트 소리)
     else if (res.stars === 0 || outcome === 'lose') audio.aww(t);
   };
   later(gradeMs, () => reveal(true));
@@ -5996,7 +5996,7 @@ function bindActions() {
       if (audio.uiSet !== 'live' || $('#screen-game').classList.contains('active')) return;
       const b = e.target.closest('button, .chip, [data-act], a.btn');
       if (!b || b.disabled) return;
-      audio.unlock().then(() => audio.sfxFile('live_tap', 0.5)).catch(() => {});
+      audio.unlock().then(() => audio.sfxFile('live2_tap', 0.5)).catch(() => {});
     },
     true,
   );
