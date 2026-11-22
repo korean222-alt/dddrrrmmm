@@ -6840,12 +6840,12 @@ class Renderer {
     if (t < 0) return;
     const sc = t < 0.1 ? 0.75 + (t / 0.1) * 0.35 : t < 0.2 ? 1.1 - ((t - 0.1) / 0.1) * 0.1 : 1;
     const look = LIVE_JUDGE[j.text] || LIVE_JUDGE.MISS;
-    // 11-22 '퍼펙트가 시야 가림' → 콩이 아직 작은 길 맨 위쪽에, 작고 조금 비치게 (판정선 근처 콩을 안 가림)
-    const size = L.GW * 0.066 * sc * look.k;
+    // 11-22 '퍼펙트 글자 자체가 가림' → 콩이 내려오는 길 밖, 판정선 아래 엄지 자리(줄 이름 밑)에 (콩을 절대 안 가림)
+    const size = L.GW * 0.07 * sc * look.k;
     const x = L.cx;
-    const y = L.topY + (L.strikeY - L.topY) * 0.12;
+    const y = L.strikeY + Math.max(size * 1.1, (L.H - L.strikeY) * 0.36);
     ctx.save();
-    ctx.globalAlpha = 0.6 * (t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4); // 11-22 '아직도 가림' → 콩이 비쳐 보이게
+    ctx.globalAlpha = 0.95 * (t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4);
     ctx.font = `italic 900 ${Math.round(size)}px ${LIVE_FONT}`;
     if ('letterSpacing' in ctx) ctx.letterSpacing = `${Math.round(size * 0.05)}px`;
     ctx.textAlign = 'center';
@@ -12555,7 +12555,7 @@ class Game {
     return null;
   }
 
-  /** 🎤 라이브 세트: 드럼 소리 대신 리듬게임 「착」 소리 (2026-11-22 사용자 '세트엔 드럼 없으니 드럼 소리 없애고') */
+  /** 🎤 라이브 세트: 드럼 소리는 그대로 + PERFECT 때 「착」을 작게 얹음 (11-22 드럼을 뺐더니 박자 맞추기가 별로라 되돌림) */
   get _liveSfx() {
     return !!this.r.live && !this.auto;
   }
@@ -12569,7 +12569,6 @@ class Game {
 
   _rollHit(roll, rt) {
     roll.hits++;
-    if (this._liveSfx) this._tapSfx('live2_hit.wav', 0.7);
     this.rollHits++;
     if (roll.hits % ROLL_HEART_HITS === 0 && roll.hearts < ROLL_MAX_HEARTS && this.livesOn && this.lives < MAX_LIVES) {
       roll.hearts++;
@@ -12681,7 +12680,7 @@ class Game {
     this.r.reset();
     this.r.laneOrder = this.laneOrder;
     this.r.melodyMode = !!this.level.tapMelody;
-    if (this.r.live) for (const n of ['live2_hit.wav', 'live2_hit2.wav', 'live2_combo.mp3']) this.audio.loadTrack(`assets/sfx/${n}`);
+    if (this.r.live) for (const n of ['live2_hit.wav', 'live2_combo.mp3']) this.audio.loadTrack(`assets/sfx/${n}`);
     let at = ctx.currentTime + 0.35;
     // 🎵 내 노래: 노래를 처음부터 틀고, 채보(카운트인)는 leadIn 초 뒤에 시작
     if (this.level.leadIn > 0) at += this.level.leadIn;
@@ -12786,7 +12785,7 @@ class Game {
     try {
       if (this.level.tapMelody && lane === SNARE) {
         if (playing) this._playMelodyTap(t);
-      } else if (!this.auto && !this._liveSfx) this.audio.playLane(lane);
+      } else if (!this.auto) this.audio.playLane(lane);
     } catch {}
     this.r.onTap(lane, rt);
     if (!playing) return;
@@ -12838,13 +12837,11 @@ class Game {
     //   다음 노트가 가까우면 '너무 일찍 누름'으로 그것까지 MISS → 늦은 터치 한 번에 하트 2~3개 ('분명 쳤는데 씹혔다')
     const early = ahead && t - ahead.time >= -JUDGE.early;
     if (late && (!early || t - late.time <= ahead.time - t)) {
-      if (this._liveSfx) this._tapSfx('live2_hit2.wav', 0.35);
       this._miss(late, rt);
       return;
     }
     // 너무 일찍 누름 → 그 노트는 MISS (마구 연타해서 점수 받는 것 방지)
     if (early) {
-      if (this._liveSfx) this._tapSfx('live2_hit2.wav', 0.35);
       this._miss(ahead, rt);
       return;
     }
@@ -12875,7 +12872,7 @@ class Game {
     if (roll) {
       if (roll.lane !== lane) return;
       try {
-        if (!this._liveSfx) this.audio.playLane(lane);
+        this.audio.playLane(lane);
       } catch {}
       this.r.onTap(lane, rt);
       this._rollHit(roll, rt);
@@ -12890,7 +12887,7 @@ class Game {
     if (!n) return;
     try {
       if (this.level.tapMelody && lane === SNARE) this._playMelodyTap(t);
-      else if (!this._liveSfx) this.audio.playLane(lane);
+      else this.audio.playLane(lane);
     } catch {}
     this.r.onTap(lane, rt);
     this._judge(n, t - n.time, rt);
@@ -12956,7 +12953,6 @@ class Game {
   _wrong(lane, rt, t) {
     this.counts.wrong++;
     this.combo = 0;
-    if (this._liveSfx) this._tapSfx('live2_hit2.wav', 0.35);
     this.r.onJudge(lane, 'wrong', rt);
     if (t === undefined || t - (this._wrongLostAt ?? -9) < WRONG_GAP) return;
     if (t < this.graceUntil || !this.livesOn || this.state !== 'playing') return;
@@ -12983,7 +12979,7 @@ class Game {
       if (this.r.onGold) this.r.onGold(n.lane, heal, rt);
     }
     this.offsets.push(dt);
-    if (this._liveSfx) this._tapSfx(res === 'perfect' ? 'live2_hit.wav' : 'live2_hit2.wav', res === 'perfect' ? 0.9 : 0.75);
+    if (this._liveSfx && res === 'perfect') this._tapSfx('live2_hit.wav', 0.4); // 세트: PERFECT 때만 드럼 위에 작게 「착」 (11-22 '드럼 없으니 박자 맞추기 별로')
     this.r.onJudge(n.lane, res, rt, dt < 0);
     this.r.onCombo(this.combo, rt);
     // 🔔 25콤보마다 '반짝' (치는 소리에 안 묻히게 작게)
@@ -12993,7 +12989,7 @@ class Game {
       this.r.onLife(this.lives, +1, rt);
     }
     if (this.combo % 25 === 0) {
-      if (!this.r.live) this.audio.crash(undefined, this.audio.sfxBus, 0.5);
+      this.audio.crash(undefined, this.audio.sfxBus, 0.5);
       this.milestoneAt = this.songTime();
     }
     if (this.settings.vibrate && navigator.vibrate) {

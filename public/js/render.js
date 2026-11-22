@@ -1881,12 +1881,12 @@ export class Renderer {
     if (t < 0) return;
     const sc = t < 0.1 ? 0.75 + (t / 0.1) * 0.35 : t < 0.2 ? 1.1 - ((t - 0.1) / 0.1) * 0.1 : 1;
     const look = LIVE_JUDGE[j.text] || LIVE_JUDGE.MISS;
-    // 11-22 '퍼펙트가 시야 가림' → 콩이 아직 작은 길 맨 위쪽에, 작고 조금 비치게 (판정선 근처 콩을 안 가림)
-    const size = L.GW * 0.066 * sc * look.k;
+    // 11-22 '퍼펙트 글자 자체가 가림' → 콩이 내려오는 길 밖, 판정선 아래 엄지 자리(줄 이름 밑)에 (콩을 절대 안 가림)
+    const size = L.GW * 0.07 * sc * look.k;
     const x = L.cx;
-    const y = L.topY + (L.strikeY - L.topY) * 0.12;
+    const y = L.strikeY + Math.max(size * 1.1, (L.H - L.strikeY) * 0.36);
     ctx.save();
-    ctx.globalAlpha = 0.6 * (t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4); // 11-22 '아직도 가림' → 콩이 비쳐 보이게
+    ctx.globalAlpha = 0.95 * (t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4);
     ctx.font = `italic 900 ${Math.round(size)}px ${LIVE_FONT}`;
     if ('letterSpacing' in ctx) ctx.letterSpacing = `${Math.round(size * 0.05)}px`;
     ctx.textAlign = 'center';
