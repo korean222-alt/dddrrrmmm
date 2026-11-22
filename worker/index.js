@@ -148,7 +148,11 @@ async function snapshot(request, env, url) {
     inner.pathname = url.pathname.replace('/api/snap/', '/api/');
     inner.searchParams.delete('play'); // 맵 받기: 친 횟수 올리기(쓰기) 안 함
     const res = await handle(new Request(inner.toString(), { method: 'GET' }), { ip: request.headers.get('cf-connecting-ip') || '?' });
-    if (!res.ok) return Response.json({ error: 'no_snapshot' }, { status: 503, headers: SECURITY_HEADERS });
+    if (!res.ok) {
+      const why = await res.text().catch(() => '');
+      console.error('[api] 쉬는 동안 보기 실패', inner.pathname, res.status, why.slice(0, 200));
+      return Response.json({ error: 'no_snapshot', status: res.status, why: why.slice(0, 200) }, { status: 503, headers: SECURITY_HEADERS });
+    }
     const out = Response.json({ ...(await res.json()), snap: { at: snapAt } }, { headers: h });
     await cache.put(key, out.clone());
     return out;
