@@ -12770,14 +12770,10 @@ class Game {
    * near = 바로 옆 줄들 [{ lane, d }] (d = 경계까지 거리, 줄 너비 기준). 터치일 때만 옴 (render.laneHit)
    * pos = 누른 가로 자리 (줄 너비 단위, render.laneHit 의 u). 터치일 때만
    */
-  input(lane, perfMs, near, pos, soft = false) {
+  input(lane, perfMs, near, pos) {
     const rt = performance.now() / 1000;
     if (!this.laneOrder.includes(lane)) return;
     const playing = this.state === 'playing' && !this.auto;
-    if (soft) {
-      if (playing) this._softTap(lane, this.songTime(perfMs), rt);
-      return;
-    }
     const t = playing ? this.songTime(perfMs) : 0;
     const touched = lane;
     if (playing && near && near.length) lane = this._pickLane(lane, t, near, pos);
@@ -12813,7 +12809,7 @@ class Game {
         ahead = n;
         break;
       }
-      // 이 줄 노트를 옆 줄 터치·되살린 터치가 먼저 가져갔고 그게 이 터치에 더 가까우면 → 이번 터치는 그 노트를 친 것.
+      // 이 줄 노트를 옆 줄 터치가 먼저 가져갔고 그게 이 터치에 더 가까우면 → 이번 터치는 그 노트를 친 것.
       //   안 그러면 다음 노트를 일찍 쳐 버리고, 그다음 터치는 헛침이 되는 연쇄가 생김 (2026-11-22 '터치 씹힘')
       const b = this._borrowedNear(lane, t);
       if (b && Math.abs(t - b.time) < Math.abs(dt)) {
@@ -12858,40 +12854,6 @@ class Game {
       if (n.borrowed && !n.reclaimed && Math.abs(t - n.time) <= JUDGE.good && (!best || Math.abs(t - n.time) < Math.abs(t - best.time))) best = n;
     }
     return best;
-  }
-
-  /**
-   * '되살린' 터치 (main 의 touchmove: 아이폰이 손가락 뗌을 놓쳐서 새로 누른 게 움직임으로만 온 것 같을 때).
-   *   진짜 새 터치인지 확실하지 않으니 벌은 절대 안 줌: 맞힐 노트가 GREAT 범위 안에 있을 때만 치고(소리도 그때만),
-   *   아니면 아무 일도 없음 (헛침·이른 MISS 없음). 가져간 노트는 borrowed → 곧 오는 진짜 터치는 헛침이 아님.
-   *   2026-11-22: 이걸 보통 터치처럼 셌더니, 누른 채 살짝 굴리며 떼는 손가락이 터치 한 번 더로 잡혀
-   *   헛침·MISS 가 쏟아짐 ('터치가 씹혀요' 댓글 폭주)
-   */
-  _softTap(lane, t, rt) {
-    const roll = this._rollAt(t);
-    if (roll) {
-      if (roll.lane !== lane) return;
-      try {
-        this.audio.playLane(lane);
-      } catch {}
-      this.r.onTap(lane, rt);
-      this._rollHit(roll, rt);
-      return;
-    }
-    const list = this.lanes[lane];
-    let n = null;
-    for (let i = this.ptr[lane]; i < list.length && list[i].time - t <= JUDGE.great; i++) {
-      const c = list[i];
-      if (!c.judged && Math.abs(t - c.time) <= JUDGE.great && (!n || Math.abs(t - c.time) < Math.abs(t - n.time))) n = c;
-    }
-    if (!n) return;
-    try {
-      if (this.level.tapMelody && lane === SNARE) this._playMelodyTap(t);
-      else this.audio.playLane(lane);
-    } catch {}
-    this.r.onTap(lane, rt);
-    this._judge(n, t - n.time, rt);
-    n.borrowed = true;
   }
 
   /** 지금(t) 이 줄에서 누르면 판정될 노트 (없으면 null) */
@@ -16118,9 +16080,9 @@ function laneFromPoint(x, y) {
 }
 
 /** 화면 터치 → 게임 입력 (옆 줄 정보까지 넘겨서 경계 근처 터치를 봐줌) */
-function tapAt(x, y, perfMs, soft = false) {
+function tapAt(x, y, perfMs) {
   const { lane, near, u } = laneFromPoint(x, y);
-  state.game.input(lane, perfMs, near, u, soft);
+  state.game.input(lane, perfMs, near, u);
 }
 
 // 키보드: 레인 수에 따라 왼쪽부터 키 배정
@@ -16163,15 +16125,13 @@ function bindGameInput() {
     },
     { passive: false }
   );
-  // 손가락 움직임(touchmove)이 사실은 '새로 누른 것'일 수 있는 두 경우 → '부드러운 터치'(soft)로 넘김:
-  //   맞힐 콩이 GREAT 범위에 있을 때만 치고, 아니면 아무 일도 없음 (헛침·MISS 벌 없음, game._softTap)
-  //   ① 아이폰이 손가락 하나의 '뗌'(touchend)을 놓치면, 그 근처를 새로 눌러도 그 '유령 손가락'의 움직임으로만 올 수 있음
-  //      → 한동안(0.25초) 조용하던 손가락이 10px 넘게 옮겨 옴
-  //   ② 두 엄지가 가까이(4줄 곡의 쿵·짝은 화면 가운데에 붙어 있음) 거의 동시에 닿으면 폰이 둘을 손가락 하나가 움직인 걸로 합쳐 보낼 수 있음
-  //      → 누른 손가락이 다른 줄로 넘어감 (줄 경계에서 줄 너비 0.15 넘게 들어가야, 경계에서 떨리는 건 안 셈)
-  //      (2026-11-22 '윌리엄 텔 쿵짝쿵에서 분명히 눌렀는데 쿵이나 짝 하나가 안 눌림' 문의)
-  //   ⚠ 2026-11-22 저녁 ①의 기준을 70ms·4px 로 줄이고 보통 터치처럼 셌더니, 누른 채 살짝 굴리며 떼는 손가락이
-  //   터치 한 번 더로 잡혀 헛침(하트)·MISS 가 쏟아짐 → '터치가 자꾸 씹혀요' 댓글 폭주. 같은 줄 기준을 줄이거나 벌을 주지 말 것
+  // 손가락 움직임(touchmove)이 사실은 '새로 누른 것'인 경우 → 보통 터치와 똑같이 판정 (헛침·MISS 벌도 똑같이, 랭킹 공정):
+  //   두 엄지가 가까이(4줄 곡의 쿵·짝은 화면 가운데에 붙어 있음) 거의 동시에 닿으면 폰이 둘을 '손가락 하나가 움직인 것'으로 합쳐 보냄
+  //   → 누른 손가락이 다른 줄 안으로 줄 너비 0.3 넘게 들어감 (경계에서 떨리거나 떼면서 살짝 미끄러진 건 안 셈)
+  //   (2026-11-22 '윌리엄 텔 쿵짝쿵에서 분명히 눌렀는데 쿵이나 짝 하나가 안 눌림')
+  //   ⚠ 같은 줄 안에서 '조용하다 움직이면 새 터치' 규칙(예전 0.25초·10px, 11-22 21시 70ms·4px)은 없앰: 누른 채 굴리며 떼는
+  //   손가락이 터치 한 번 더로 잡혀 헛침이 쏟아짐('터치가 자꾸 씹혀요' 댓글 폭주, 헤드리스 재현). 다시 넣지 말 것.
+  //   벌을 없애는 것도 안 됨 (손가락 문지르기로 공짜 시도 → 랭킹 의미 없어짐)
   canvas.addEventListener(
     'touchmove',
     (e) => {
@@ -16180,19 +16140,19 @@ function bindGameInput() {
       for (const t of e.changedTouches) {
         const h = held.get(t.identifier);
         const { u } = laneFromPoint(t.clientX, t.clientY);
-        let revived = !h || (e.timeStamp - h.at > 250 && Math.hypot(t.clientX - h.x, t.clientY - h.y) > 10);
+        let revived = !h;
         let hu = h && h.u != null ? h.u : u;
         if (!revived && u != null && hu != null) {
-          // 줄 경계에서 0.15 넘게 다른 줄 안으로 들어옴 (길 밖 가장자리는 맨 끝 줄로 봄)
+          // 줄 경계에서 0.3 넘게 다른 줄 안으로 들어옴 (길 밖 가장자리는 맨 끝 줄로 봄)
           const n = renderer.laneOrder.length;
           const cl = (v) => Math.min(n - 1e-6, Math.max(0, v));
           const pi = Math.floor(cl(hu));
           const cu = cl(u);
-          if (cu >= pi + 1.15 || cu <= pi - 0.15) revived = true;
+          if (cu >= pi + 1.3 || cu <= pi - 0.3) revived = true;
         }
         if (revived) hu = u;
         held.set(t.identifier, { at: e.timeStamp, x: t.clientX, y: t.clientY, u: hu });
-        if (revived) tapAt(t.clientX, t.clientY, e.timeStamp, true);
+        if (revived) tapAt(t.clientX, t.clientY, e.timeStamp);
       }
     },
     { passive: false }

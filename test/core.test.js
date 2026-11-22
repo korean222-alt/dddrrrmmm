@@ -341,7 +341,7 @@ test('👍 경계 근처 터치·엄지가 넘어온 터치는 노트 있는 옆
   assert.equal(g.counts.miss, 0);
 });
 
-test('🖐 터치 씹힘(2026-11-22): 되살린 터치는 벌이 없고, 조금 늦은 터치는 하트 하나만', async () => {
+test('🖐 터치 씹힘(2026-11-22): 조금 늦은 터치는 하트 하나만, 쿵짝쿵 경계 터치는 시간 맞는 줄로', async () => {
   const { Game } = await import('../public/js/game.js');
   const { KICK, JUDGE } = await import('../public/js/charts.js');
   const noop = () => {};
@@ -356,46 +356,7 @@ test('🖐 터치 씹힘(2026-11-22): 되살린 터치는 벌이 없고, 조금 
     g.player = { stop: noop };
     return g;
   };
-  // 1) 되살린(soft) 터치: 콩 없는 곳이면 아무 일도 없음 (헛침·MISS·하트 그대로)
-  let g = make();
-  const kicks = g.lanes[KICK];
-  clock = (kicks[0].time + kicks[1].time) / 2;
-  const lives = g.lives;
-  g.input(KICK, 0, [], 0.5, true);
-  assert.equal(g.counts.wrong, 0);
-  assert.equal(g.counts.miss, 0);
-  assert.equal(g.lives, lives);
-  // 콩이 GREAT 안이면 침 → 곧 오는 진짜 터치는 그 콩을 친 것 (헛침 아님, 다음 콩을 일찍 치지도 않음)
-  clock = kicks[0].time - 0.08;
-  g.input(KICK, 0, [], 0.5, true);
-  assert.equal(kicks[0].judged, true);
-  clock = kicks[0].time + 0.01;
-  g.input(KICK, 0, [], 0.5);
-  assert.equal(g.counts.wrong, 0);
-  assert.equal(kicks[1].judged, false, '다음 콩을 일찍 가져가면 안 됨');
-
-  // 2) 빽빽한 곳: 되살린 터치가 다음 콩을 먼저 가져가도, 진짜 터치는 그 콩 (그다음 콩을 일찍 치지 않음)
-  const lv = LEVELS.find((l) => {
-    const ns = buildNotes(l).filter((n) => n.lane === KICK);
-    return ns.some((n, i) => i > 1 && ns[i + 1] && ns[i + 1].time - n.time < JUDGE.good && n.time - ns[i - 1].time < JUDGE.good);
-  });
-  assert.ok(lv, '킥이 0.15초 안 간격으로 이어지는 단계');
-  g = make(lv);
-  const ks = g.lanes[KICK];
-  const i = ks.findIndex((n, k) => k > 1 && ks[k + 1] && ks[k + 1].time - n.time < JUDGE.good && n.time - ks[k - 1].time < JUDGE.good);
-  for (let k = 0; k < i; k++) ks[k].judged = true;
-  g.ptr[KICK] = i;
-  clock = ks[i].time - 0.06; // 유령: 콩 i 를 조금 일찍
-  g.input(KICK, 0, [], 0.5, true);
-  assert.equal(ks[i].judged, true);
-  clock = ks[i].time + 0.005; // 진짜 터치
-  g.input(KICK, 0, [], 0.5);
-  assert.equal(ks[i + 1].judged, false, '진짜 터치가 다음 콩을 가져가면 안 됨');
-  clock = ks[i + 1].time;
-  g.input(KICK, 0, [], 0.5);
-  assert.equal(ks[i + 1].result, 'perfect');
-  assert.equal(g.counts.wrong, 0);
-
+  let g;
   // 3) 조금 늦은 터치(GOOD 밖, 아직 MISS 전): 그 콩만 MISS, 헛침 없음, 다음 콩은 그대로
   g = make();
   const k = g.lanes[KICK];

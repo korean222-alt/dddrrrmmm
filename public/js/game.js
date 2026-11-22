@@ -370,14 +370,10 @@ export class Game {
    * near = 바로 옆 줄들 [{ lane, d }] (d = 경계까지 거리, 줄 너비 기준). 터치일 때만 옴 (render.laneHit)
    * pos = 누른 가로 자리 (줄 너비 단위, render.laneHit 의 u). 터치일 때만
    */
-  input(lane, perfMs, near, pos, soft = false) {
+  input(lane, perfMs, near, pos) {
     const rt = performance.now() / 1000;
     if (!this.laneOrder.includes(lane)) return;
     const playing = this.state === 'playing' && !this.auto;
-    if (soft) {
-      if (playing) this._softTap(lane, this.songTime(perfMs), rt);
-      return;
-    }
     const t = playing ? this.songTime(perfMs) : 0;
     const touched = lane;
     if (playing && near && near.length) lane = this._pickLane(lane, t, near, pos);
@@ -413,7 +409,7 @@ export class Game {
         ahead = n;
         break;
       }
-      // 이 줄 노트를 옆 줄 터치·되살린 터치가 먼저 가져갔고 그게 이 터치에 더 가까우면 → 이번 터치는 그 노트를 친 것.
+      // 이 줄 노트를 옆 줄 터치가 먼저 가져갔고 그게 이 터치에 더 가까우면 → 이번 터치는 그 노트를 친 것.
       //   안 그러면 다음 노트를 일찍 쳐 버리고, 그다음 터치는 헛침이 되는 연쇄가 생김 (2026-11-22 '터치 씹힘')
       const b = this._borrowedNear(lane, t);
       if (b && Math.abs(t - b.time) < Math.abs(dt)) {
@@ -458,40 +454,6 @@ export class Game {
       if (n.borrowed && !n.reclaimed && Math.abs(t - n.time) <= JUDGE.good && (!best || Math.abs(t - n.time) < Math.abs(t - best.time))) best = n;
     }
     return best;
-  }
-
-  /**
-   * '되살린' 터치 (main 의 touchmove: 아이폰이 손가락 뗌을 놓쳐서 새로 누른 게 움직임으로만 온 것 같을 때).
-   *   진짜 새 터치인지 확실하지 않으니 벌은 절대 안 줌: 맞힐 노트가 GREAT 범위 안에 있을 때만 치고(소리도 그때만),
-   *   아니면 아무 일도 없음 (헛침·이른 MISS 없음). 가져간 노트는 borrowed → 곧 오는 진짜 터치는 헛침이 아님.
-   *   2026-11-22: 이걸 보통 터치처럼 셌더니, 누른 채 살짝 굴리며 떼는 손가락이 터치 한 번 더로 잡혀
-   *   헛침·MISS 가 쏟아짐 ('터치가 씹혀요' 댓글 폭주)
-   */
-  _softTap(lane, t, rt) {
-    const roll = this._rollAt(t);
-    if (roll) {
-      if (roll.lane !== lane) return;
-      try {
-        this.audio.playLane(lane);
-      } catch {}
-      this.r.onTap(lane, rt);
-      this._rollHit(roll, rt);
-      return;
-    }
-    const list = this.lanes[lane];
-    let n = null;
-    for (let i = this.ptr[lane]; i < list.length && list[i].time - t <= JUDGE.great; i++) {
-      const c = list[i];
-      if (!c.judged && Math.abs(t - c.time) <= JUDGE.great && (!n || Math.abs(t - c.time) < Math.abs(t - n.time))) n = c;
-    }
-    if (!n) return;
-    try {
-      if (this.level.tapMelody && lane === SNARE) this._playMelodyTap(t);
-      else this.audio.playLane(lane);
-    } catch {}
-    this.r.onTap(lane, rt);
-    this._judge(n, t - n.time, rt);
-    n.borrowed = true;
   }
 
   /** 지금(t) 이 줄에서 누르면 판정될 노트 (없으면 null) */
