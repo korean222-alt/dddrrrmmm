@@ -218,21 +218,23 @@ function isConfirmed() {
   //   (기록·코인은 폰에 모아 뒀다가 서버가 돌아오면 올라감)
   //   이 기억이 없는 폰(새 코드가 서버와 한 번도 못 만남)은 4단계 이상 기록이 있으면 인증했던 폰으로 봄 (인증해야만 칠 수 있어서)
   if (!state.api || CONFIG_STATIC()) return false;
-  const at = load('confirmedAt', 0);
-  if (at) return Date.now() - at < 7 * 24 * 3600 * 1000;
-  return Object.keys(loadBests()).some((k) => Number(k) >= FREE_UPTO + 1 || /^e\d|endless/.test(k));
+  // 2026-11-22 사용자 요청: 서버가 쉬는 동안엔 누구나 전부 열림 (인증 창 때문에 릴스에 「쿵」 댓글·DM 이 쏟아져서)
+  return true;
 }
 /** 처음부터 서버 없이 배포된 사이트(정적 호스팅)인가 */
 const CONFIG_STATIC = () => CONFIG.apiMode === 'mock';
 const CONFIRM_WHAT = VERIFY_WHAT;
 /** 인증 완료 전엔 잠긴 것 (4단계부터, 무제한 전부). 개발용 ?gate=open 에선 풀림 */
-const closedLocked = (id) => state.cfg.gateMode !== 'open' && isClosed(id) && !isConfirmed();
+const closedLocked = (id) => state.cfg.gateMode !== 'open' && isClosed(id) && !isConfirmed() && !freePass();
 /** 인스타 댓글에 쓸 키워드 (키티챗 자동 DM 키워드와 같아야 함) */
 const VERIFY_KEYWORD = '쿵';
 /** 🆓 암호 없이 임시 인증 기간 (인스타 DM 이 막혔을 때, 서버 설정 freePassUntil). 끝나면 팔로워 암호로 다시 인증 */
-const freePass = () => !!(state.cfg.freePassUntil && Date.now() < state.cfg.freePassUntil);
+// 서버 설정을 못 받았을 때(서버가 쉬는 중)는 폰에 기억한 값, 그것도 없으면 서버 기본값(11/26 23:59 KST)
+const FREE_PASS_DEFAULT = Date.UTC(2026, 10, 26, 14, 59, 59);
+const freePassUntilNow = () => state.cfg.freePassUntil ?? load('freePassUntil', null) ?? FREE_PASS_DEFAULT;
+const freePass = () => { const u = freePassUntilNow(); return !!(u && Date.now() < u); };
 const freePassDay = () => {
-  const d = new Date(state.cfg.freePassUntil);
+  const d = new Date(freePassUntilNow());
   return `${d.getMonth() + 1}월 ${d.getDate()}일`;
 };
 
@@ -568,7 +570,7 @@ function renderEndlessLevels(bests) {
   }
   $('#level-list').innerHTML = list.join('');
   refreshToday();
-  $('#levels-foot').innerHTML = `${isConfirmed() ? '' : `🔒 💎 무제한 모드는 <b>${igWho()} 팔로워 인증</b>을 받으면 열려요. <button class="link" data-action="verify-open">팔로워 인증</button><br>`}12단계를 깨면 그리그 무제한이 열려요. 목숨이 다 떨어질 때까지 계속!<br>단계별 무제한은 그 단계를 깨면 열려요.<br>💎 Lv.4 · 💎💎 Lv.7 · 💎💎💎 Lv.10 클리어`;
+  $('#levels-foot').innerHTML = `${isConfirmed() || freePass() ? '' : `🔒 💎 무제한 모드는 <b>${igWho()} 팔로워 인증</b>을 받으면 열려요. <button class="link" data-action="verify-open">팔로워 인증</button><br>`}12단계를 깨면 그리그 무제한이 열려요. 목숨이 다 떨어질 때까지 계속!<br>단계별 무제한은 그 단계를 깨면 열려요.<br>💎 Lv.4 · 💎💎 Lv.7 · 💎💎💎 Lv.10 클리어`;
 }
 
 function renderLevels() {
@@ -611,7 +613,7 @@ function renderLevels() {
   list.push(grieggCardHTML(bests));
   $('#level-list').innerHTML = list.join('');
   refreshToday();
-  $('#levels-foot').innerHTML = `${isConfirmed() ? '' : `🔒 1~${FREE_UPTO}단계는 맛보기! ${FREE_UPTO + 1}단계부터와 💎 무제한은 <b>팔로워 인증</b>을 받으면 열려요. <button class="link" data-action="verify-open">팔로워 인증</button><br>`}앞 단계를 별 1개 이상으로 깨면 다음 단계가 열려요.<br><b>같은 난이도를 하나 깨면 그 난이도는 전부 열려요</b> (예: 지옥 하나 깨면 지옥 전부)<br>별 3개: ${STAR_RULES[0].text}`;
+  $('#levels-foot').innerHTML = `${isConfirmed() || freePass() ? '' : `🔒 1~${FREE_UPTO}단계는 맛보기! ${FREE_UPTO + 1}단계부터와 💎 무제한은 <b>팔로워 인증</b>을 받으면 열려요. <button class="link" data-action="verify-open">팔로워 인증</button><br>`}앞 단계를 별 1개 이상으로 깨면 다음 단계가 열려요.<br><b>같은 난이도를 하나 깨면 그 난이도는 전부 열려요</b> (예: 지옥 하나 깨면 지옥 전부)<br>별 3개: ${STAR_RULES[0].text}`;
 }
 
 // ---------------- 게임 ----------------
@@ -4573,7 +4575,7 @@ function roomPanel(which) {
 }
 /** 랭킹전·건의하기 잠금: 팔로워 인증 안 했으면 true (개발용 ?gate=open 이면 풀림) */
 function followGated() {
-  return state.cfg.gateMode !== 'open' && !isConfirmed();
+  return state.cfg.gateMode !== 'open' && !isConfirmed() && !freePass();
 }
 function openRoom(code) {
   if (followGated()) {
@@ -4944,7 +4946,7 @@ function renderFriendRoom(room) {
   });
   const sel = $('#room-level');
   const opts = LEVELS.filter((lv) => !lv.long).map((lv) => {
-    const ok = lv.id <= FREE_UPTO || isConfirmed();
+    const ok = lv.id <= FREE_UPTO || isConfirmed() || freePass();
     return `<option value="${lv.id}"${ok ? '' : ' disabled'}>${levelLabel(lv)} · ${lv.name}${ok ? '' : ' (잠김)'}</option>`;
   }).join('');
   if (sel.dataset.sig !== opts) {
@@ -5927,6 +5929,7 @@ async function boot() {
     for (const k of ['gateMode', 'instagramHandle', 'siteUrl', 'freePassUntil']) {
       if (sc[k] !== undefined && sc[k] !== '' && sc[k] !== null) state.cfg[k] = sc[k];
     }
+    if (sc.freePassUntil !== undefined) save('freePassUntil', Number(sc.freePassUntil) || 0);
   } catch {}
   const g = devParam('gate');
   if (g === 'open' || g === 'soft') state.cfg.gateMode = g;

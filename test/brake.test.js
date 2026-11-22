@@ -43,3 +43,15 @@ test('meter 없으면(JSON·Neon 저장소) 브레이크 없음', async () => {
   const { handle } = await setup(null);
   assert.equal((await call(handle, '/api/rooms', { action: 'create' })).status !== 503, true);
 });
+
+test('🆓 임시 이용 기간엔 인증 없이 4단계부터·멀티·건의하기 바로 / 기간 끝나면 다시 잠김', async () => {
+  const store = await new D1Store(d1Local(new DatabaseSync(':memory:'))).init();
+  const mk = (until) => createHandler(loadConfig({ SESSION_SECRET: 's', GATE_MODE: 'soft', DATA_FILE: '/dev/null', FREE_PASS_UNTIL: String(until) }), { store });
+  const open = mk(Date.now() + 3600e3);
+  assert.equal((await call(open, '/api/runs', { level: 4 })).status, 200);
+  assert.equal((await call(open, '/api/runs', { level: 'endless' })).status, 200);
+  assert.notEqual((await call(open, '/api/rooms', { action: 'create', name: '쿵', level: 5 })).status, 403);
+  assert.notEqual((await call(open, '/api/suggestions', { text: '좋아요 좋아요', kind: 'etc' })).status, 403);
+  const closed = mk(0);
+  assert.equal((await call(closed, '/api/runs', { level: 4 })).status, 403);
+});

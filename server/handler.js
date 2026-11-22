@@ -274,6 +274,8 @@ export function createHandler(cfg, { store, meter = null }) {
   //   기간이 끝나면 접속 때 음수인 사람만 인증이 풀림 → 팔로워 암호로 다시 인증. 관리자 화면에서 끝을 바꿀 수 있음
   //   설정은 인스턴스마다 1분 캐시 (DB 왕복 줄이기)
   let fpCache = { at: 0, until: 0 };
+  /** 🆓 임시 이용 기간(freePassUntil)엔 4단계부터·무제한·멀티·건의하기를 인증 없이 바로 (2026-11-22 사용자 요청: 인증 창 때문에 릴스에 「쿵」 댓글·DM 이 쏟아짐) */
+  const openNow = async () => Date.now() < (await freePassUntil());
   async function freePassUntil(fresh = false) {
     const now = Date.now();
     if (fresh || now - fpCache.at > 60 * 1000) {
@@ -443,7 +445,7 @@ export function createHandler(cfg, { store, meter = null }) {
     ranked,
     getPlayer: (request) => getPlayer(request),
     isConfirmed: (pl) => cfg.gateMode === 'open' || isConfirmed(pl),
-    canPlay: async (levelId, pl) => (cfg.gateMode !== 'open' && isClosed(levelId) && !isConfirmed(pl) ? (isVerified(pl) ? 'confirm_pending' : 'confirm_required') : null),
+    canPlay: async (levelId, pl) => (cfg.gateMode !== 'open' && isClosed(levelId) && !isConfirmed(pl) && !(await openNow()) ? (isVerified(pl) ? 'confirm_pending' : 'confirm_required') : null),
   });
 
   // 🧯 DB 가 막혔을 때(D1 하루 한도 초과 등, 2026-11-22): 5분 동안 DB 를 안 건드리고 바로 503 db_down
@@ -781,7 +783,7 @@ export function createHandler(cfg, { store, meter = null }) {
       // 건의하기는 팔로워 인증(인증 완료)한 사람만
       if (cfg.gateMode !== 'open') {
         const who = await getPlayer(request);
-        if (!isConfirmed(who)) return json(403, { error: isVerified(who) ? 'confirm_pending' : 'confirm_required' });
+        if (!isConfirmed(who) && !(await openNow())) return json(403, { error: isVerified(who) ? 'confirm_pending' : 'confirm_required' });
       }
       const b = await readJson(request);
       const body = String(b.text ?? '').replace(/\r\n?/g, '\n').trim().slice(0, 500);
@@ -897,7 +899,7 @@ export function createHandler(cfg, { store, meter = null }) {
       // 멀티(방 만들기·들어가기·빠른 대결)는 팔로워 인증한 사람만. 이미 들어온 방의 주고받기·나가기는 방 열쇠로
       if (cfg.gateMode !== 'open' && ['create', 'join', 'quick'].includes(b.action)) {
         const who = await getPlayer(request);
-        if (!isConfirmed(who)) return json(403, { error: isVerified(who) ? 'confirm_pending' : 'confirm_required' });
+        if (!isConfirmed(who) && !(await openNow())) return json(403, { error: isVerified(who) ? 'confirm_pending' : 'confirm_required' });
       }
       const [status, data] = await handleRoom(request, b);
       return json(status, data);
@@ -1104,7 +1106,7 @@ export function createHandler(cfg, { store, meter = null }) {
       let runPl = null;
       if (cfg.gateMode !== 'open' && (isClosed(level.id) || needsVerify(level.id))) {
         const pl = (runPl = await getPlayer(request));
-        if (isClosed(level.id) && !isConfirmed(pl)) return json(403, { error: isVerified(pl) ? 'confirm_pending' : 'confirm_required' });
+        if (isClosed(level.id) && !isConfirmed(pl) && !(await openNow())) return json(403, { error: isVerified(pl) ? 'confirm_pending' : 'confirm_required' });
         if (needsVerify(level.id) && !isVerified(pl)) return json(403, { error: 'verify_required' });
       }
       // 🕵 단계마다 몇 판 시작했나 (누군지 이미 아는 판만 = 4단계부터. 1~3단계는 쿼리 늘리지 않으려고 안 셈)
