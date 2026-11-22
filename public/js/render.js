@@ -675,6 +675,7 @@ export class Renderer {
     this._drawBeatLines(st);
     if (live) {
       this._liveCombo(st, rt);
+      this._liveJudges(rt); // 세트 PERFECT 는 콩 뒤에 (콩을 절대 안 가림, 11-22)
       this._liveTargets(st, rt);
     } else {
       this._drawCombo(st, rt);
@@ -688,8 +689,7 @@ export class Renderer {
     else this._drawBursts(rt);
     if (q >= 1) this._drawSparks(rt);
     this._drawCoins(rt);
-    if (live) this._liveJudges(rt);
-    else this._drawJudges(rt);
+    if (!live) this._drawJudges(rt);
     this._drawRollCount(st, rt);
     ctx.restore();
 
@@ -1886,7 +1886,7 @@ export class Renderer {
     const x = L.cx;
     const y = L.topY + (L.strikeY - L.topY) * 0.12;
     ctx.save();
-    ctx.globalAlpha = 0.85 * (t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4);
+    ctx.globalAlpha = 0.6 * (t < 0.6 ? 1 : 1 - (t - 0.6) / 0.4); // 11-22 '아직도 가림' → 콩이 비쳐 보이게
     ctx.font = `italic 900 ${Math.round(size)}px ${LIVE_FONT}`;
     if ('letterSpacing' in ctx) ctx.letterSpacing = `${Math.round(size * 0.05)}px`;
     ctx.textAlign = 'center';
@@ -1931,7 +1931,7 @@ export class Renderer {
     const size = L.GW * 0.15 * sc;
     const txt = String(st.combo);
     ctx.save();
-    ctx.globalAlpha = 0.55;
+    ctx.globalAlpha = 0.22; // 11-22 '콤보가 가림' → 콩 뒤에 아주 옅게
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = `italic 900 ${Math.round(L.GW * 0.036)}px ${LIVE_FONT}`;
