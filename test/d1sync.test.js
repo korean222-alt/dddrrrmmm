@@ -110,6 +110,12 @@ test('Neon → D1 전체 복사 · 따라잡기 · 되돌리기', async () => {
   assert.equal((await d1.q('SELECT COUNT(*) AS n FROM plays'))[0].n, (await neon.q('SELECT COUNT(*) AS n FROM plays'))[0].n);
   assert.equal(Number((await d1.q("SELECT started_at FROM sessions WHERE sid = 'os1'"))[0].started_at), old);
   assert.equal((await runBackfill(neon, d1, { budget: 1000, log: quiet })).written, 0);
+  // 다 옮긴 뒤에도 Neon 에 새로 쌓인 통계(STATS_DB=neon 동안)는 다음 backfill 이 이어서 가져감
+  await neonStore.trackPlays([{ id: 'later001', sid: 'os1', vid: 'v', level: '2', startedAt: Date.now() + 5000, endedAt: Date.now() + 9000, result: 'clear' }]);
+  await neonStore.trackSession({ sid: 'latesess1', vid: 'v', now: Date.now() + 5000, activeSec: 7 });
+  assert.deepEqual(await runBackfill(neon, d1, { budget: 1000, log: quiet }), { written: 2, done: true });
+  assert.equal((await d1.q("SELECT COUNT(*) AS n FROM plays WHERE id = 'later001'"))[0].n, 1);
+  assert.equal((await d1.q("SELECT COUNT(*) AS n FROM sessions WHERE sid = 'latesess1'"))[0].n, 1);
 
   // 되돌리기: D1 에서 생긴 기록이 Neon 으로
   await runBack(neon, d1, { log: quiet });

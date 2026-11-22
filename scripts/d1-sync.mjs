@@ -480,10 +480,12 @@ export async function runBackfill(neonDb, d1, { budget, log = console.log } = {}
   if (!(await getFlag(d1, 'd1:switched_at'))) throw new Error('아직 D1 로 안 바꿈 — migrate 먼저');
   let left = budget;
   let done = true;
+  let newlyDone = false;
   for (const t of TABLES.filter((x) => x.backfill)) {
     const key = 'd1:backfill:' + t.name;
     const pos = JSON.parse((await getFlag(d1, key)) || 'null');
-    if (pos && pos.done) continue;
+    // 다 옮긴 뒤에도 Neon 에 새로 쌓인 통계(STATS_DB=neon 동안)가 있으면 이어서 가져감
+    const wasDone = !!(pos && pos.done);
     let ts = pos ? pos.ts : -1;
     let id = pos ? pos.id : '';
     let n = 0;
@@ -496,8 +498,11 @@ export async function runBackfill(neonDb, d1, { budget, log = console.log } = {}
          ORDER BY ${t.backfill}, ${pk} LIMIT ${lim}`
       );
       if (!rows.length) {
-        await setFlag(d1, key, JSON.stringify({ ts, id, done: true }));
-        log(`  ${t.name}: 다 옮김 ✅`);
+        if (!wasDone || n) {
+          await setFlag(d1, key, JSON.stringify({ ts, id, done: true }));
+          log(`  ${t.name}: 다 옮김 ✅`);
+          newlyDone = true;
+        }
         break;
       }
       await writeRows(d1, t, rows, 'merge');
@@ -514,7 +519,8 @@ export async function runBackfill(neonDb, d1, { budget, log = console.log } = {}
     const p = JSON.parse((await getFlag(d1, key)) || 'null');
     if (!p || !p.done) done = false;
   }
-  if (done) {
+  // 다 따라잡은 그 판에만 맞춰 보기 (통계 표 전부 읽어서 무거움)
+  if (done && newlyDone) {
     const rep = await compare(neonDb, d1, { tables: TABLES.filter((x) => x.backfill) });
     printReport('통계 옮기기 끝 — Neon 의 모든 통계 줄이 D1 에 있어야 함', rep);
     const miss = rep.filter((r) => r.missing);
@@ -605,12 +611,17 @@ async function main() {
     if (!(await d1.find()) || !(await getFlag(d1, 'd1:switched_at').catch(() => null))) return void console.log('아직 D1 로 안 바꿈 — 할 일 없음');
     const w = await usage('지금');
     // 하루 한도 10만 중 9만까지만, 남은 시간 실사용 몫(5천)은 남겨 둠. 사용량을 못 읽으면 조심해서 1만 5천
+    // 남은 시간(UTC 0시까지) 동안 사이트가 쓸 몫(시간당 2,500줄)은 남김 — 11-22 GitHub 예약이 4시간 늦게(한국 11:39) 돌아 낮에 4만 줄 써서 그날 한도가 빠듯했음
     const cap = Number(env.BACKFILL_MAX || 40000);
-    const budget = w == null ? 15000 : Math.max(0, Math.min(cap, 85000 - w));
+    const now = new Date();
+    const hoursLeft = (Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1) - now) / 3600000;
+    const budget = w == null ? 10000 : Math.max(0, Math.min(cap, Math.floor(90000 - w - hoursLeft * 2500)));
+    console.log(`UTC 하루 끝까지 ${hoursLeft.toFixed(1)}시간 → 사이트 몫 ${Math.round(hoursLeft * 2500).toLocaleString()}줄 남김`);
     console.log(`이번 통계 옮기기 한도: ${budget}줄`);
     if (!budget) return;
     const r = await runBackfill(neonDbConn, d1, { budget });
     console.log(r.done ? '✅ 예전 통계 전부 D1 에 옮김' : `이번에 ${r.written}줄. 남은 건 내일 이어서`);
+    if (r.done && env.GITHUB_OUTPUT) (await import('node:fs')).appendFileSync(env.GITHUB_OUTPUT, 'done=true\n');
     await usage('끝난 뒤');
     return;
   }

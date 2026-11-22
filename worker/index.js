@@ -4,6 +4,7 @@
 //   - DB = Cloudflare D1(env.DB, 2026-11-21 Neon 에서 옮김) 또는 Neon Postgres(DATABASE_URL)
 //     어느 쪽을 쓸지는 비밀값 DB_MODE: 'd1' 이면 D1, 없거나 'neon' 이면 Neon → 되돌리기 = DB_MODE 를 neon 으로 (배포 필요 없음)
 //     (옮기기·되돌리기는 GitHub Actions 'D1 옮기기' 가 함. tasks/D1-옮기기.md)
+//     비밀값 STATS_DB=neon 이면 D1 모드에서도 판·접속 통계만 Neon 에 씀 (예전 통계 옮기기가 끝날 때까지, 끝나면 Actions 가 d1 로)
 //   - 비밀값(DATABASE_URL · ADMIN_TOKEN · FOLLOW_PASSWORD · SUGGEST_BOT_TOKEN · DB_MODE)은
 //     Cloudflare 대시보드 → Workers → play → 설정 → 변수 및 비밀 에 넣음 (코드·저장소에 안 씀)
 //   SESSION_SECRET 은 안 넣어도 됨 (DB settings 의 secret:session 을 같이 씀 — D1 로 옮길 때 같이 옮김)
@@ -52,6 +53,23 @@ function setup(env) {
               return null;
             }
           };
+        }
+        // 통계(판·접속)를 잠시 Neon 에 쓰기 (비밀값 STATS_DB=neon): D1 하루 쓰기 한도 아끼기 — 예전 통계 옮기기(backfill)가
+        //   끝날 때까지. Neon 에 쌓인 건 backfill 이 이어서 D1 로 가져감. Neon 이 안 되면 D1 에 씀 (안 잃게)
+        if (dbUrl(env) && String(env.STATS_DB || '').trim().toLowerCase() === 'neon') {
+          let neonStats = null;
+          const stats = () => (neonStats ||= neonStore(env));
+          for (const m of ['trackSession', 'trackPlays']) {
+            const d1 = store[m].bind(store);
+            store[m] = async (arg) => {
+              try {
+                return await stats()[m](arg);
+              } catch (e) {
+                console.error('[api] Neon 통계 쓰기 실패 → D1 에', e);
+                return d1(arg);
+              }
+            };
+          }
         }
       } else {
         store = await neonStore(env).init();
