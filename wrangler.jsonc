@@ -18,5 +18,7 @@
   "d1_databases": [{ "binding": "DB", "database_name": "okaystra", "database_id": "3b6401ad-5020-40ea-b03e-82abe5384536" }],
   // 서버 코드를 DB 가까이에서 돌림 → DB 왕복이 짧아짐 (무료)
   "placement": { "mode": "smart" },
+  // 📴 서버 보관함(Neon) → D1 랭킹 옮기기: D1 하루 한도가 풀리는 UTC 0시(한국 9시)부터 3시간, 10분마다 (server/offbackup.js)
+  "triggers": { "crons": ["*/10 0-2 * * *"] },
   "observability": { "enabled": true }
 }

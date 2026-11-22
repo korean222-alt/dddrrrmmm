@@ -10891,14 +10891,52 @@ function offlineResult(data) {
   const o = data && data.offline;
   if (!o || !Array.isArray(o.done) || !o.done.length) return;
   const m = pending();
-  for (const k of o.done) delete m[String(k)];
+  const bk = load('offBk', {}) || {};
+  for (const k of o.done) {
+    delete m[String(k)];
+    delete bk[String(k)];
+  }
   save('offRecs', m);
+  save('offBk', bk);
   try {
     window.dispatchEvent(new CustomEvent('okaystra:offline-sent', { detail: { n: o.done.length, improved: o.improved || 0 } }));
   } catch {}
 }
 
-return { queueOffline, offlineCount, takeOffline, offlineResult };
+/**
+ * 📴 서버 보관함(Neon)에도 맡김 — D1 이 막혀도 받는 따로 된 길 (/api/offline-save). 폰 것도 그대로 둠
+ *   맡긴 단계는 offBk 에 그 점수로 기억 → 화면에 '서버 보관함에도 저장됨'
+ * @returns {Promise<boolean>} 이 기록이 서버 보관함에 들어갔나
+ */
+async function backupOffline(levelId) {
+  const m = pending();
+  const list = Object.values(m);
+  if (!list.length) return false;
+  try {
+    const res = await fetch('/api/offline-save', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ records: list }),
+    });
+    if (!res.ok) return false;
+    const d = await res.json();
+    const bk = load('offBk', {}) || {};
+    for (const k of d.saved || []) if (m[k]) bk[k] = m[k].score;
+    save('offBk', bk);
+    return levelId != null && isBackedUp(levelId);
+  } catch {
+    return false;
+  }
+}
+function isBackedUp(levelId) {
+  const k = String(levelId);
+  const m = pending();
+  const bk = load('offBk', {}) || {};
+  return !!m[k] && bk[k] === m[k].score;
+}
+
+return { queueOffline, offlineCount, takeOffline, offlineResult, backupOffline, isBackedUp };
 })();
 
 // ---- game.js ----
@@ -13513,7 +13551,7 @@ const { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmoniz
 const { AudioEngine, playMetronome } = __m_audio;
 const { Renderer, NOTE_PALETTES, LANE, applyNoteColors } = __m_render;
 const { coinsInit, setCoinAccount, coinTotal, addRunCoins } = __m_coins;
-const { queueOffline } = __m_offrec;
+const { queueOffline, backupOffline } = __m_offrec;
 const { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } = __m_game;
 const { initAds, showRewarded } = __m_ads;
 const { createApi } = __m_api;
@@ -13644,7 +13682,7 @@ async function goOffline() {
   reconnectFails = Math.max(reconnectFails, 2); // 2분 뒤부터 다시 붙어 봄
   if (!dbDownShown) {
     dbDownShown = true;
-    toast('서버가 잠깐 쉬어요 · 게임은 그대로, 코인은 폰에 모아 둬요', 3500);
+    toast('서버가 잠깐 쉬어요 · 게임은 그대로, 기록·코인은 저장돼요', 3500);
   }
   refreshTitle();
   renderLevels();
@@ -14649,6 +14687,7 @@ function showResult(res) {
   }
   res.runToken = state.runToken;
   state.lastResult = res;
+  $('#res-offline').hidden = true;
   $('#screen-result').classList.toggle('in-room', !!res.room);
   $('#res-room').hidden = !res.room;
   if (res.room) setTimeout(renderRoomResult, 0);
@@ -14913,7 +14952,22 @@ async function submitRank(r = state.lastResult) {
   const keepOffline = () => {
     if (CONFIG.apiMode === 'mock' || !isConfirmed() || !queueOffline(r, endless)) return;
     r.submitted = true;
-    toast('서버가 쉬는 중이라 기록을 폰에 모아 뒀어요 · 서버가 돌아오면 랭킹에 올라가요', 3200);
+    // 폰에 저장 + 서버 보관함(Neon, D1 이 막혀도 받음)에도 맡김 → 결과 화면에 어디에 저장됐는지 보여 줌
+    const box = $('#res-offline');
+    const here = () => state.lastResult === r;
+    const say = (html) => {
+      if (!here()) return;
+      box.innerHTML = html;
+      box.hidden = false;
+    };
+    say('📴 서버가 쉬는 중 · 기록을 <b>이 폰</b>에 저장했어요<small>서버 보관함에도 맡기는 중…</small>');
+    backupOffline(r.levelId).then((ok) =>
+      say(
+        ok
+          ? '✅ 기록을 <b>이 폰</b>과 <b>서버 보관함</b>에 저장했어요<small>서버가 돌아오면 랭킹에 자동으로 올라가요</small>'
+          : '📴 기록을 <b>이 폰</b>에 저장했어요<small>서버가 돌아오면 이 폰에서 게임을 한 번 열어 주세요 · 방문 기록·사이트 데이터는 지우지 마세요</small>'
+      )
+    );
   };
   if (state.api.mode !== 'server') return keepOffline();
   // 랭킹은 팔로워 인증(암호)을 받은 사람만 → 안 받았으면 인증 창을 한 번 띄움

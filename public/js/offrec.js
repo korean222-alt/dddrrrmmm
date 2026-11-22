@@ -48,9 +48,47 @@ export function offlineResult(data) {
   const o = data && data.offline;
   if (!o || !Array.isArray(o.done) || !o.done.length) return;
   const m = pending();
-  for (const k of o.done) delete m[String(k)];
+  const bk = load('offBk', {}) || {};
+  for (const k of o.done) {
+    delete m[String(k)];
+    delete bk[String(k)];
+  }
   save('offRecs', m);
+  save('offBk', bk);
   try {
     window.dispatchEvent(new CustomEvent('okaystra:offline-sent', { detail: { n: o.done.length, improved: o.improved || 0 } }));
   } catch {}
+}
+
+/**
+ * 📴 서버 보관함(Neon)에도 맡김 — D1 이 막혀도 받는 따로 된 길 (/api/offline-save). 폰 것도 그대로 둠
+ *   맡긴 단계는 offBk 에 그 점수로 기억 → 화면에 '서버 보관함에도 저장됨'
+ * @returns {Promise<boolean>} 이 기록이 서버 보관함에 들어갔나
+ */
+export async function backupOffline(levelId) {
+  const m = pending();
+  const list = Object.values(m);
+  if (!list.length) return false;
+  try {
+    const res = await fetch('/api/offline-save', {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ records: list }),
+    });
+    if (!res.ok) return false;
+    const d = await res.json();
+    const bk = load('offBk', {}) || {};
+    for (const k of d.saved || []) if (m[k]) bk[k] = m[k].score;
+    save('offBk', bk);
+    return levelId != null && isBackedUp(levelId);
+  } catch {
+    return false;
+  }
+}
+export function isBackedUp(levelId) {
+  const k = String(levelId);
+  const m = pending();
+  const bk = load('offBk', {}) || {};
+  return !!m[k] && bk[k] === m[k].score;
 }

@@ -14,6 +14,7 @@ import { makeConfig } from '../server/settings.js';
 import { createHandler } from '../server/handler.js';
 import { PgStore } from '../server/pgstore.js';
 import { D1Store, d1Binding } from '../server/d1store.js';
+import { backupSave, backupFlush } from '../server/offbackup.js';
 
 const DEFAULTS = {
   NODE_ENV: 'production',
@@ -87,8 +88,37 @@ function setup(env) {
   return ready;
 }
 
+// 📴 서버 보관함 (server/offbackup.js): D1 이 막혀도 Neon 에 기록을 맡김 → D1 을 안 거치고 바로 처리
+let neonSecret = null;
+const bkHits = new Map();
+async function offlineSave(request, env) {
+  const h = { 'Cache-Control': 'no-store', ...SECURITY_HEADERS };
+  if (request.method !== 'POST' || !dbUrl(env)) return Response.json({ error: 'no_backup' }, { status: 503, headers: h });
+  const ip = request.headers.get('cf-connecting-ip') || '?';
+  const now = Date.now();
+  const hit = bkHits.get(ip);
+  if (hit && now - hit.t < 10 * 60 * 1000 && hit.n >= 40) return Response.json({ error: 'rate_limited' }, { status: 429, headers: h });
+  bkHits.set(ip, hit && now - hit.t < 10 * 60 * 1000 ? { t: hit.t, n: hit.n + 1 } : { t: now, n: 1 });
+  if (bkHits.size > 5000) bkHits.clear();
+  try {
+    const raw = await request.text();
+    if (raw.length > 32 * 1024) return Response.json({ error: 'too_large' }, { status: 413, headers: h });
+    const sql = neon(dbUrl(env));
+    const pg = (text, params = []) => sql.query(text, params);
+    // 쿠키 서명 열쇠: D1 로 옮길 때 Neon 의 것을 그대로 가져감 → Neon 에서 읽음 (새로 만들지 않음)
+    if (!neonSecret) neonSecret = env.SESSION_SECRET || ((await pg("SELECT value FROM settings WHERE key = 'secret:session'"))[0] || {}).value || null;
+    if (!neonSecret) return Response.json({ error: 'no_backup' }, { status: 503, headers: h });
+    const out = await backupSave({ pg, secret: neonSecret, cookieHeader: request.headers.get('cookie'), body: raw ? JSON.parse(raw) : {}, now });
+    return Response.json(out.body, { status: out.status, headers: h });
+  } catch (e) {
+    console.error('[api] 서버 보관함 실패', e);
+    return Response.json({ error: 'backup_failed' }, { status: 503, headers: h });
+  }
+}
+
 async function api(request, env) {
   const url = new URL(request.url);
+  if (url.pathname === '/api/offline-save') return offlineSave(request, env);
   const db = hasDb(env);
   // DB 가 연결 안 됐으면 '서버 없음' → 사이트는 서버 없는 모드로 돎
   if (url.pathname === '/api/health' && !(db && url.searchParams.get('boot') === '1')) {
@@ -116,5 +146,16 @@ export default {
     const url = new URL(request.url);
     if (url.pathname.startsWith('/api/')) return api(request, env);
     return env.ASSETS.fetch(request);
+  },
+  // 📴 서버 보관함 → D1 랭킹 (wrangler.jsonc triggers: D1 한도가 풀리는 한국 오전 9시부터 3시간, 10분마다)
+  async scheduled(event, env, ctx) {
+    if (!useD1(env) || !env.DB || !dbUrl(env)) return;
+    const sql = neon(dbUrl(env));
+    const pg = (text, params = []) => sql.query(text, params);
+    ctx.waitUntil(
+      backupFlush({ pg, d1: new D1Store(d1Binding(env.DB)) })
+        .then((r) => r.moved + r.dropped && console.log('[cron] 서버 보관함 → D1', r))
+        .catch((e) => console.error('[cron] 서버 보관함 옮기기 실패 (다음 예약 때 다시)', e))
+    );
   },
 };
