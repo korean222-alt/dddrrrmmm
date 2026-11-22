@@ -1586,9 +1586,24 @@ function renderRankTabs() {
   if (sel) sel.scrollIntoView({ block: 'nearest', inline: 'center' });
 }
 
+/** 📴 서버가 쉬는 동안 랭킹 창 맨 위 안내 (예전 랭킹을 보여 줄 때 / 못 받았을 때) */
+function snapNotice(data) {
+  const next = new Date();
+  next.setUTCHours(24, 0, 0, 0); // 다음 UTC 0시 = 한국 오전 9시
+  const when = `${new Date(next.getTime() + 9 * 3600000).getUTCDate()}일 오전 9시`;
+  if (data && data.snap) {
+    const t = new Date(data.snap.at + 9 * 3600000);
+    const h = t.getUTCHours();
+    const at = `${t.getUTCMonth() + 1}월 ${t.getUTCDate()}일 ${h < 12 ? '오전' : '오후'} ${h % 12 || 12}시 ${t.getUTCMinutes()}분`;
+    return `<div class="rank-snap">📴 서버가 쉬는 중이라 <b>${at}</b> 기준 랭킹이에요<br><b>${when}부터</b> 실시간으로 업데이트돼요</div>`;
+  }
+  return `<div class="rank-snap">📴 서버가 쉬는 중이에요 · 랭킹은 <b>${when}부터</b> 다시 보여요</div>`;
+}
+
 async function loadRank() {
   const list = $('#rank-list');
-  if (demoOnly()) {
+  // 서버가 쉬는 동안(진짜 사이트)엔 예전 랭킹을 보여 줌 → '곧 열려요'는 서버 없이 올린 사이트(apiMode mock)에서만
+  if (demoOnly() && CONFIG.apiMode === 'mock') {
     list.innerHTML = `<div class="rank-empty">${SOON()}<br><br>점수를 미리 올려두세요 🥁</div>`;
     $('#rank-foot').textContent = '';
     return;
@@ -1600,7 +1615,7 @@ async function loadRank() {
       const board = want === 'hall-endless' ? 'endless' : 'stage';
       const data = await state.api.hall(board);
       if (state.rankLevel !== want) return;
-      list.innerHTML = hallHtml(data, board);
+      list.innerHTML = (data.snap || (data.sample && !isLocalDev()) ? snapNotice(data) : '') + hallHtml(data, board);
       const foot = [];
       foot.push(board === 'endless' ? '무제한 판(그리그·단계별 무제한) 점수를 모두 더한 점수예요.' : '단계별 최고점을 모두 더한 점수예요. 더 많은 단계를 높은 점수로 칠수록 올라가요!');
       if (data.season.n > 1) foot.push(`시즌 ${data.season.n}에 친 기록만 세요.`);
@@ -1611,7 +1626,8 @@ async function loadRank() {
     const data = await state.api.leaderboard(want);
     if (state.rankLevel !== want) return;
     const endless = isEndlessRank(want);
-    if (!data.entries.length) list.innerHTML = '<div class="rank-empty">아직 아무도 없어요. 첫 1위의 주인공이 되어보세요!</div>';
+    if (data.snapFail) list.innerHTML = snapNotice(null);
+    else if (!data.entries.length) list.innerHTML = '<div class="rank-empty">아직 기록 없음</div>';
     else if (endless) list.innerHTML = endlessRankHtml(data);
     else
       list.innerHTML = data.entries
@@ -1622,6 +1638,7 @@ async function loadRank() {
           <span class="s">${fmt(e.score)}</span><span class="g" style="color:${gradeColor(e.grade)}">${e.grade || ''}</span></div>`
         )
         .join('');
+    if (data.snap) list.innerHTML = snapNotice(data) + list.innerHTML;
     const foot = [];
     if (data.sample && isLocalDev()) foot.push('(개발 모드: 서버 없이 내 기록만 보여요)');
     if (endless) {

@@ -118,8 +118,51 @@ async function offlineSave(request, env) {
   }
 }
 
+// 📴 서버(D1) 가 쉬는 동안 보여 줄 랭킹 (2026-11-22): Neon 에 남은 D1 이사 전(11-22 09:49 KST) 랭킹을 그대로
+//   /api/snap/leaderboard?level= · /api/snap/hall?board= → Neon 저장소로 만든 handler 에 /api/leaderboard·/api/hall 로 넘김
+//   쿠키 빼고(내 줄 없음) Cloudflare 캐시 10분 → Neon 을 거의 안 깨움
+let snapReady = null;
+let snapAt = null;
+async function snapshot(request, env, url) {
+  const h = { 'Cache-Control': 'public, max-age=600', ...SECURITY_HEADERS };
+  if (request.method !== 'GET' || !dbUrl(env)) return Response.json({ error: 'no_snapshot' }, { status: 503, headers: SECURITY_HEADERS });
+  const cache = caches.default;
+  const key = new Request(url.toString(), { method: 'GET' });
+  const hit = await cache.match(key);
+  if (hit) return hit;
+  try {
+    const store = neonStore(env);
+    snapReady ||= (async () => {
+      const vars = { ...DEFAULTS };
+      for (const [k, v] of Object.entries(env)) if (typeof v === 'string' && v !== '') vars[k] = v;
+      const cfg = makeConfig(vars);
+      if (!cfg.sessionSecret) cfg.sessionSecret = ((await store.q("SELECT value FROM settings WHERE key = 'secret:session'"))[0] || {}).value || 'x';
+      return createHandler(cfg, { store });
+    })().catch((e) => {
+      snapReady = null;
+      throw e;
+    });
+    const handle = await snapReady;
+    if (snapAt == null) snapAt = Number(((await store.q('SELECT MAX(at) AS t FROM scores'))[0] || {}).t) || 0;
+    const inner = new URL(url);
+    inner.pathname = url.pathname.replace('/api/snap/', '/api/');
+    const res = await handle(new Request(inner.toString(), { method: 'GET' }), { ip: 'snap' });
+    if (!res.ok) return Response.json({ error: 'no_snapshot' }, { status: 503, headers: SECURITY_HEADERS });
+    const out = Response.json({ ...(await res.json()), snap: { at: snapAt } }, { headers: h });
+    await cache.put(key, out.clone());
+    return out;
+  } catch (e) {
+    console.error('[api] 쉬는 동안 랭킹 실패', e);
+    return Response.json({ error: 'no_snapshot' }, { status: 503, headers: SECURITY_HEADERS });
+  }
+}
+
 async function api(request, env) {
   const url = new URL(request.url);
+  if (url.pathname === '/api/snap/leaderboard' || url.pathname === '/api/snap/hall') {
+    meter.q++;
+    return snapshot(request, env, url);
+  }
   if (url.pathname === '/api/offline-save') {
     meter.q++;
     return offlineSave(request, env);

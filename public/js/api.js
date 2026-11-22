@@ -148,8 +148,20 @@ function serverApi(boot = null) {
 // 아래 흐름은 내 컴퓨터(localhost)에서 개발할 때만 씀.
 const isEndless = (level) => level === 'endless' || /^e\d+$/.test(String(level));
 
+// 📴 서버(DB)가 쉬는 동안: 진짜 사이트면 Neon 에 남은 예전 랭킹(/api/snap/*)을 보여 줌 (5분 동안 같은 걸 다시 씀)
+const isLocal = () => typeof location !== 'undefined' && /^(localhost|127\.0\.0\.1|\[::1\])$/.test(location.hostname);
+const snapCache = new Map();
+function snapGet(path) {
+  const hit = snapCache.get(path);
+  if (hit && Date.now() - hit.at < 5 * 60 * 1000) return hit.p;
+  const p = fetch(path, { credentials: 'omit' }).then((r) => (r.ok ? r.json() : null)).catch(() => null);
+  snapCache.set(path, { at: Date.now(), p });
+  return p;
+}
+
 function mockApi(cfg) {
   const getPlayer = () => load('mockPlayer', null);
+  const real = cfg.apiMode !== 'mock' && !isLocal();
   return {
     mode: 'mock',
     async config() {
@@ -190,6 +202,11 @@ function mockApi(cfg) {
       return { best: improved ? score : prev.score, improved, rank: lb.me ? lb.me.rank : null };
     },
     async leaderboard(level) {
+      if (real && level !== 'total') {
+        const d = await snapGet(`/api/snap/leaderboard?level=${encodeURIComponent(level)}`);
+        if (d && Array.isArray(d.entries)) return d;
+        return { level, entries: [], me: null, snapFail: true };
+      }
       if (isEndless(level)) {
         const mine = load('mockBoard', {})[level];
         const entries = mine ? [{ rank: 1, username: mine.username, rounds: mine.rounds, score: mine.score, me: true }] : [];
@@ -211,6 +228,10 @@ function mockApi(cfg) {
       return { level: Number(level), entries, me, sample: true };
     },
     async hall(board) {
+      if (real) {
+        const d = await snapGet(`/api/snap/hall?board=${board === 'endless' ? 'endless' : 'stage'}`);
+        if (d && Array.isArray(d.entries)) return d;
+      }
       const s = seasonAt();
       return { season: { n: s.n, end: s.end }, board, levels: 15, entries: [], me: null, hall: [], sample: true };
     },
