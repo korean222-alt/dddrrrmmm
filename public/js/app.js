@@ -13841,6 +13841,7 @@ const __m_offrec = (() => {
 //   서버가 돌아오면 다음 판 시작(/api/runs)·점수 등록(/api/scores)에 얹어 보냄 (코인처럼, 요청 안 늘림)
 //   서버는 콩 수·점수 상한·친 시각(36시간 안)만 보고 받음. 한 번에 5개씩, 받은 것(done)만 지움
 const { load, save } = __m_storage;
+const { SEASONS } = __m_season;
 
 const KEEP_MS = 34 * 3600 * 1000; // 서버는 36시간까지 받음 → 조금 일찍 버림
 const pending = () => {
@@ -13932,10 +13933,10 @@ function isBackedUp(levelId) {
 }
 
 // 🩹 11-22 13시~11-23 9시(KST) 서버가 쉬는 동안 친 기록은 이 폰이 저장도 안 하고 버렸음(submitRank 버그, 11-23 고침)
-//   → '내 최고 기록'(bests)에 남은 그 시간 것을 다음 판 시작·점수 등록에 얹어 한 번 올림 (서버 validateLost, 12-07 까지)
+//   → '내 최고 기록'(bests)에 남은 그 시간 것을 다음 판 시작·점수 등록에 얹어 한 번 올림 (서버 validateLost, 시즌 1 끝까지)
 const LOST_FROM = Date.parse('2026-11-22T04:00:00Z');
 const LOST_TO = Date.parse('2026-11-23T00:00:00Z');
-const LOST_UNTIL = Date.parse('2026-12-07T15:00:00Z');
+const LOST_UNTIL = SEASONS[0].end; // 시즌 1 끝까지만
 function takeLost() {
   if (load('lostSent', 0) || Date.now() > LOST_UNTIL) return undefined;
   let m = load('lostRecs', null);

@@ -11,7 +11,7 @@ import { createRoomHandler } from './rooms.js';
 import { createRankedHandler } from './ranked.js';
 import { cleanMap, mapDifficulty, mapLevel } from '../public/js/usermap.js';
 import { buyItem, cleanOwned, legacyRefund, seasonRewards } from '../public/js/shop.js';
-import { seasonAt, endedSeasons, HALL_BOARDS, cleanHallImage } from '../public/js/season.js';
+import { seasonAt, endedSeasons, HALL_BOARDS, cleanHallImage, SEASONS } from '../public/js/season.js';
 import { LEVELS, LAST_LEVEL_ID, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur, ENDLESS_ID, ROUND_BARS, roundBpm, pointsFor, levelEndlessBase, LEVEL_ENDLESS_STEP, needsVerify, isClosed, diamondsFor } from '../public/js/charts.js';
 
 // 무제한 모드 랭킹은 저장소의 level 칸에 '깬 단계 × 1,000,000,000 + 점수' 한 숫자로 저장 (단계가 먼저, 같으면 점수)
@@ -1427,7 +1427,7 @@ export function createHandler(cfg, { store, meter = null }) {
       notePre(anyPl, body);
       const coins = body.coins ? await takeCoins(anyPl, body.coins) : null;
       const offline = body.offline ? await takeOffline(anyPl, body.offline) : null;
-      const lost = body.lost ? await takeLost(anyPl, body.lost) : null;
+      const lost = body.lost && !offline ? await takeLost(anyPl, body.lost) : null; // 한 요청 D1 쿼리 수 제한: offline 과 같이 오면 다음 요청에
       const out = { runToken };
       if (lost) out.lost = lost;
       if (coins != null) Object.assign(out, coins);
@@ -1469,7 +1469,7 @@ export function createHandler(cfg, { store, meter = null }) {
       notePre(pl, body);
       const coins = body.coins ? await takeCoins(pl, body.coins) : null;
       const offline = body.offline ? await takeOffline(pl, body.offline) : null;
-      const lost = body.lost ? await takeLost(pl, body.lost) : null;
+      const lost = body.lost && !offline ? await takeLost(pl, body.lost) : null;
       // 코인·서버 없을 때 기록을 받았으면 오류 응답에도 실음 (폰이 두 번 안 보내게)
       const wc = (o) => ({ ...o, ...(coins || {}), ...(offline ? { offline } : {}), ...(lost ? { lost } : {}) });
       const em = endlessMode(body.level);
@@ -1780,10 +1780,10 @@ export function validateOffline(e, cfg, now = Date.now()) {
   return { ok: true, key, slot: level.id, score: v.score, grade: v.grade, maxCombo: v.maxCombo, chk: JSON.stringify(chk), at };
 }
 
-// 🩹 11-22 13:00 ~ 11-23 09:00 KST (D1 한도 초과로 서버가 쉬던 때). 받는 건 12-07 까지
+// 🩹 11-22 13:00 ~ 11-23 09:00 KST (D1 한도 초과로 서버가 쉬던 때). 받는 건 시즌 1 끝(11-26 23:59:59 KST)까지 — 시즌 보상 계산 뒤엔 안 바뀌게
 export const LOST_FROM = Date.parse('2026-11-22T04:00:00Z');
 export const LOST_TO = Date.parse('2026-11-23T00:00:00Z');
-export const LOST_UNTIL = Date.parse('2026-12-07T15:00:00Z');
+export const LOST_UNTIL = SEASONS[0].end;
 const LOST_GRADES = new Set(['SS', 'S', 'A', 'B', 'C', 'D']);
 /** 서버 쉬던 때 친 기록 하나 검사: { level, score, maxCombo, grade, at } (무제한은 안 받음) */
 export function validateLost(e) {
