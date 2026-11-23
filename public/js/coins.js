@@ -90,6 +90,9 @@ export function coinsResult(data) {
     if (s) save('coinSentAt', Date.now());
     if (s && s.init != null) save('coinInit', true);
     save('coinSending', null);
+    // 오늘 한도(하루 5000)를 넘어 서버가 못 받은 만큼 → 다시 모아 뒀다가 다음 날 (2026-11-23)
+    const rest = int(data.coinRest);
+    if (rest) save('coinFree', int(load('coinFree', 0)) + rest);
   } else if (s) coinsInit();
   onChange();
 }

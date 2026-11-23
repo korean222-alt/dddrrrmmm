@@ -2091,12 +2091,62 @@ function markDone(rec, today = kstDateKey()) {
 return { todayMission, missionDone, streakView, markDone };
 })();
 
+// ---- season.js ----
+const __m_season = (() => {
+// 🏛 시즌 · 명예의 전당 (브라우저와 서버가 같이 씀)
+//   시즌마다 '단계 총합'(1~LAST_LEVEL_ID 단계 최고점 합)과 '무제한 총합'(무제한 판들의 점수 합) 두 랭킹.
+//   시즌이 끝나면 두 랭킹의 1·2·3등이 명예의 전당(hall)에 영원히 남고, 그 사람은 프로필 사진을 올릴 수 있음.
+//   시즌 1 = 처음 ~ 2026-11-26 23:59:59 (한국 시간, 인스타 DM 금지 마지막 날) / 시즌 2 = 11-27 부터 (끝나는 날은 아직 안 정함)
+//   시즌 1 점수 = 지금까지의 최고 기록(scores), 시즌 2 부터는 그 시즌에 친 기록만(season_scores)
+
+const SEASONS = [
+  { n: 1, end: Date.UTC(2026, 10, 26, 14, 59, 59, 999) },
+  { n: 2, end: null },
+];
+const HALL_BOARDS = ['stage', 'endless'];
+const BOARD_LABEL = { stage: '🎵 단계 총합', endless: '💎 무제한 총합' };
+/** 프로필 사진 (data URL) 최대 길이 — 160px 정사각 JPEG 면 보통 10~20KB */
+const HALL_IMAGE_MAX = 60000;
+
+/** 그 시각의 시즌 { n, start, end } */
+function seasonAt(t = Date.now()) {
+  let start = 0;
+  for (const s of SEASONS) {
+    if (s.end == null || t <= s.end) return { n: s.n, start, end: s.end };
+    start = s.end + 1;
+  }
+  const last = SEASONS[SEASONS.length - 1];
+  return { n: last.n, start, end: last.end };
+}
+/** 이미 끝난 시즌 번호들 */
+const endedSeasons = (t = Date.now()) => SEASONS.filter((s) => s.end != null && t > s.end).map((s) => s.n);
+
+/** '3일 뒤 시즌 1이 끝나요' 같은 안내 (한국 날짜 기준) */
+function seasonLeftText(t = Date.now()) {
+  const s = seasonAt(t);
+  if (s.end == null) return `🏆 시즌 ${s.n} 진행 중`;
+  const day = (ms) => Math.floor((ms + 9 * 3600e3) / 86400e3); // 한국 날짜 번호
+  const d = day(s.end) - day(t);
+  if (d <= 0) return `⏰ 오늘 밤 11시 59분에 시즌 ${s.n}이 끝나요!`;
+  if (d === 1) return `⏰ 내일 밤 11시 59분에 시즌 ${s.n}이 끝나요!`;
+  return `🏆 ${d}일 뒤 시즌 ${s.n}이 종료돼요`;
+}
+
+/** 사진 data URL 검사 */
+const cleanHallImage = (v) =>
+  typeof v === 'string' && v.length <= HALL_IMAGE_MAX && /^data:image\/(jpeg|webp|png);base64,[A-Za-z0-9+/=]+$/.test(v) ? v : null;
+
+return { SEASONS, HALL_BOARDS, BOARD_LABEL, HALL_IMAGE_MAX, seasonAt, endedSeasons, seasonLeftText, cleanHallImage };
+})();
+
 // ---- shop.js ----
 const __m_shop = (() => {
 // 🛒 상점 (2026-11-22): 코인으로 꾸미기를 삼. 서버(handler)와 폰(main)이 같은 가격표를 씀
 //   11-22 밤 개편(사용자 '이미 있는 배경·드럼 말고 새로 만들어야 희귀성 · 색만 바뀌어서 안 사고 싶음'):
 //   맵 배경·맵 드럼·색만 바꾸는 콩 색은 무료로 돌리고, 상점엔 상점에서만 파는 새 것만.
 //   콩 스킨 = 색 + 질감 + 꼬리·반짝이 효과(render.js NOTE_PALETTES fx), 배경 = 새 그림(themes.js img), 드럼 = 새 마감(themes.js SHOP_KITS)
+const { SEASONS } = __m_season;
+
 //   id = 'bg:sakura' · 'kit:goldkit' · 'notes:flame' · 'bg:photo' · 'ui:live'(화면 스타일 세트) (설정 → 꾸미기의 decoOwned 와 같은 모양)
 
 /** 맵 8개 (배경·드럼 세트로 고를 수 있는 것, 무료) */
@@ -2106,8 +2156,10 @@ const NOTE_FREE = ['candy', 'neon', 'ocean', 'fire', 'mono'];
 
 /** 상점 물건: [id, 값, 등급] — 등급 rare 레어 · epic 에픽 · legend 전설 */
 const SHOP_ITEMS = [
-  // 🎤 세트 (2026-11-22, 사용자 요청: 리듬게임 라이브 화면 스타일 세트, 1만 코인) = 화면 스타일(render.js live) + 세트 무대
-  ['ui:live', 10000, 'epic'],
+  // 🎤 세트 (2026-11-22, 사용자 요청: 리듬게임 라이브 화면 스타일 세트) = 화면 스타일(render.js live) + 세트 무대 · 11-23 사용자 1만 → 2만
+  ['ui:live', 20000, 'epic'],
+  // 🥇 시즌 1 한정 콩 스킨 (2026-11-23 사용자 '시즌1 때만 얻을 수 있는 스킨, 1 을 강조') — 값도 1 로만, 시즌 1 끝나면 못 삼(LIMITED)
+  ['notes:s1', 11111, 'legend'],
   ['notes:galaxy', 50000, 'legend'],
   ['notes:gold', 30000, 'legend'],
   ['notes:cyber', 9000, 'epic'],
@@ -2124,6 +2176,10 @@ const SHOP_ITEMS = [
   ['kit:crystal', 7000, 'rare'],
   ['kit:rainbow', 7000, 'rare'],
 ];
+/** 기간 한정: 이 시각(ms)이 지나면 못 삼 (산 사람은 계속 씀) */
+const LIMITED = { 'notes:s1': SEASONS[0].end };
+/** 지금 살 수 있나 (한정 물건 기간 확인) */
+const onSale = (id, now = Date.now()) => !(LIMITED[id] && now > LIMITED[id]);
 const PRICE = new Map(SHOP_ITEMS.map(([id, p]) => [id, p]));
 const RARITY = Object.fromEntries(SHOP_ITEMS.map(([id, , r]) => [id, r]));
 const RARITY_NAME = { rare: '레어', epic: '에픽', legend: '전설' };
@@ -2162,11 +2218,12 @@ function cleanOwned(list) {
  * 사기: 지갑 { coins, owned } → { ok, wallet, error }
  *   이미 있으면 ok(돈 안 냄), 모자라면 not_enough
  */
-function buyItem(w, id) {
+function buyItem(w, id, now = Date.now()) {
   const price = priceOf(id);
   if (price == null) return { ok: false, error: 'bad_item', wallet: w };
   const owned = cleanOwned(w.owned);
   if (owned.includes(id)) return { ok: true, already: true, wallet: { ...w, owned } };
+  if (!onSale(id, now)) return { ok: false, error: 'season_over', wallet: { ...w, owned } };
   if ((w.coins || 0) < price) return { ok: false, error: 'not_enough', wallet: { ...w, owned } };
   return { ok: true, wallet: { ...w, coins: w.coins - price, owned: [...owned, id] } };
 }
@@ -2197,7 +2254,7 @@ function seasonRewards(boards) {
   return [...best.values()];
 }
 
-return { DECO_THEMES, NOTE_FREE, SHOP_ITEMS, RARITY, RARITY_NAME, priceOf, legacyPrice, legacyRefund, cleanOwned, buyItem, seasonReward, seasonRewards };
+return { DECO_THEMES, NOTE_FREE, SHOP_ITEMS, LIMITED, onSale, RARITY, RARITY_NAME, priceOf, legacyPrice, legacyRefund, cleanOwned, buyItem, seasonReward, seasonRewards };
 })();
 
 // ---- mascot.js ----
@@ -4992,6 +5049,8 @@ const NOTE_PALETTES = {
   heart: { name: '💖 러블리', shop: true, fx: { tex: 'heart', trail: '255,120,190', aura: '255,140,200', spark: '#FFFFFF', heart: true }, c: [['#FF5FA2', '#FFD0E4', '#C21E66'], ['#FF8FC8', '#FFE2F1', '#C24E8A'], ['#FFB3D9', '#FFF0F7', '#C27A9E'], ['#E86BFF', '#F7D6FF', '#9E2EB8'], ['#FF7AB0', '#FFD6E7', '#C23E74']] },
   cyber: { name: '⚡ 사이버', shop: true, fx: { tex: 'cyber', trail: '0,240,255', trail2: '255,40,220', aura: '0,240,255', spark: '#E8FFFF', glitch: true }, c: [['#00F0FF', '#B8FCFF', '#007A8A'], ['#FF2BD6', '#FFB8F2', '#8A0072'], ['#C6FF00', '#F0FFB0', '#6A8A00'], ['#8C5CFF', '#D8CCFF', '#3A1FA8'], ['#00FF9C', '#B0FFDD', '#00A365']] },
   gold: { name: '👑 황금', shop: true, fx: { tex: 'gold', trail: '255,200,60', aura: '255,210,80', spark: '#FFFDE0', big: true }, c: [['#FFC83D', '#FFF1B8', '#B07A00'], ['#FFD75A', '#FFF6CC', '#B8860B'], ['#FFE07A', '#FFF8D6', '#B89520'], ['#F2B84A', '#FFE9BF', '#A8701E'], ['#D9B45A', '#F7EBC7', '#8C6C1E']] },
+  // 🥇 시즌 1 한정 (2026-11-23): 남색 바탕에 금빛 「1」 을 크게 새김, 금빛 꼬리 (shop.js LIMITED — 시즌 1 동안만 팖)
+  s1: { name: '🥇 시즌 1', shop: true, fx: { tex: 's1', trail: '255,205,70', aura: '255,215,90', spark: '#FFF6C8', big: true }, c: [['#2B3A8C', '#8FA2FF', '#121A4A'], ['#2B3A8C', '#8FA2FF', '#121A4A'], ['#33459E', '#A3B3FF', '#16205A'], ['#2B3A8C', '#8FA2FF', '#121A4A'], ['#2B3A8C', '#8FA2FF', '#121A4A']] },
   galaxy: { name: '🌌 은하수', shop: true, fx: { tex: 'galaxy', trail: 'rainbow', aura: '180,120,255', spark: '#FFFFFF', big: true }, c: [['#B26BFF', '#E6D0FF', '#6A22C2'], ['#4FD8FF', '#CFF5FF', '#1688B0'], ['#FF7AD9', '#FFD3F2', '#B8338F'], ['#7C8CFF', '#D9DEFF', '#3B46C2'], ['#5CFFC8', '#CCFFEE', '#1FA67A']] },
 };
 let noteSkin = 'basic';
@@ -7533,6 +7592,23 @@ function skinTexture(src, tex, lane) {
     lin([[0, 'rgba(255,240,140,0.85)'], [0.4, 'rgba(255,140,20,0.8)'], [1, 'rgba(200,20,0,0.85)']]);
   } else if (tex === 'heart') {
     lin([[0, 'rgba(255,230,245,0.8)'], [0.5, 'rgba(255,110,180,0.7)'], [1, 'rgba(200,40,120,0.75)']]);
+  } else if (tex === 's1') {
+    // 남색 → 보라 바탕 + 가운데 금빛 「1」 (테두리 진하게, 위아래 금 그라데이션)
+    lin([[0, 'rgba(70,90,200,0.92)'], [0.55, 'rgba(25,30,95,0.95)'], [1, 'rgba(12,14,50,0.97)']]);
+    const fs = Math.round(H * 0.86);
+    g.font = `900 ${fs}px "Arial Black", "Helvetica Neue", Arial, sans-serif`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    const gold = g.createLinearGradient(0, H * 0.1, 0, H * 0.9);
+    gold.addColorStop(0, '#FFF7C2');
+    gold.addColorStop(0.45, '#FFD23F');
+    gold.addColorStop(1, '#C88A00');
+    g.lineJoin = 'round';
+    g.lineWidth = Math.max(2, fs * 0.14);
+    g.strokeStyle = 'rgba(10,12,40,0.95)';
+    g.strokeText('1', W / 2, H * 0.53);
+    g.fillStyle = gold;
+    g.fillText('1', W / 2, H * 0.53);
   } else if (tex === 'cyber') {
     lin([[0, 'rgba(10,10,30,0.75)'], [1, 'rgba(10,10,30,0.85)']]);
     g.globalCompositeOperation = 'source-atop';
@@ -7554,10 +7630,10 @@ function skinTexture(src, tex, lane) {
   g.fillStyle = sh;
   g.fillRect(0, 0, W, H);
   // 테두리 빛 (사이버·은하수)
-  if (tex === 'cyber' || tex === 'galaxy' || tex === 'gold') {
+  if (tex === 'cyber' || tex === 'galaxy' || tex === 'gold' || tex === 's1') {
     g.globalCompositeOperation = 'source-over';
     g.save();
-    g.shadowColor = tex === 'cyber' ? (lane % 2 ? '#FF2BD6' : '#00F0FF') : tex === 'gold' ? '#FFE27A' : '#D9A8FF';
+    g.shadowColor = tex === 'cyber' ? (lane % 2 ? '#FF2BD6' : '#00F0FF') : tex === 'gold' || tex === 's1' ? '#FFE27A' : '#D9A8FF';
     g.shadowBlur = H * 0.08; // 테두리 빛은 콩 바로 둘레만
     g.globalCompositeOperation = 'destination-over';
     g.drawImage(src, 0, 0);
@@ -12276,6 +12352,9 @@ function coinsResult(data) {
     if (s) save('coinSentAt', Date.now());
     if (s && s.init != null) save('coinInit', true);
     save('coinSending', null);
+    // 오늘 한도(하루 5000)를 넘어 서버가 못 받은 만큼 → 다시 모아 뒀다가 다음 날 (2026-11-23)
+    const rest = int(data.coinRest);
+    if (rest) save('coinFree', int(load('coinFree', 0)) + rest);
   } else if (s) coinsInit();
   onChange();
 }
@@ -13734,54 +13813,6 @@ const hasOpenPlay = () => !!play;
 return { takeTrack, initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay };
 })();
 
-// ---- season.js ----
-const __m_season = (() => {
-// 🏛 시즌 · 명예의 전당 (브라우저와 서버가 같이 씀)
-//   시즌마다 '단계 총합'(1~LAST_LEVEL_ID 단계 최고점 합)과 '무제한 총합'(무제한 판들의 점수 합) 두 랭킹.
-//   시즌이 끝나면 두 랭킹의 1·2·3등이 명예의 전당(hall)에 영원히 남고, 그 사람은 프로필 사진을 올릴 수 있음.
-//   시즌 1 = 처음 ~ 2026-11-26 23:59:59 (한국 시간, 인스타 DM 금지 마지막 날) / 시즌 2 = 11-27 부터 (끝나는 날은 아직 안 정함)
-//   시즌 1 점수 = 지금까지의 최고 기록(scores), 시즌 2 부터는 그 시즌에 친 기록만(season_scores)
-
-const SEASONS = [
-  { n: 1, end: Date.UTC(2026, 10, 26, 14, 59, 59, 999) },
-  { n: 2, end: null },
-];
-const HALL_BOARDS = ['stage', 'endless'];
-const BOARD_LABEL = { stage: '🎵 단계 총합', endless: '💎 무제한 총합' };
-/** 프로필 사진 (data URL) 최대 길이 — 160px 정사각 JPEG 면 보통 10~20KB */
-const HALL_IMAGE_MAX = 60000;
-
-/** 그 시각의 시즌 { n, start, end } */
-function seasonAt(t = Date.now()) {
-  let start = 0;
-  for (const s of SEASONS) {
-    if (s.end == null || t <= s.end) return { n: s.n, start, end: s.end };
-    start = s.end + 1;
-  }
-  const last = SEASONS[SEASONS.length - 1];
-  return { n: last.n, start, end: last.end };
-}
-/** 이미 끝난 시즌 번호들 */
-const endedSeasons = (t = Date.now()) => SEASONS.filter((s) => s.end != null && t > s.end).map((s) => s.n);
-
-/** '3일 뒤 시즌 1이 끝나요' 같은 안내 (한국 날짜 기준) */
-function seasonLeftText(t = Date.now()) {
-  const s = seasonAt(t);
-  if (s.end == null) return `🏆 시즌 ${s.n} 진행 중`;
-  const day = (ms) => Math.floor((ms + 9 * 3600e3) / 86400e3); // 한국 날짜 번호
-  const d = day(s.end) - day(t);
-  if (d <= 0) return `⏰ 오늘 밤 11시 59분에 시즌 ${s.n}이 끝나요!`;
-  if (d === 1) return `⏰ 내일 밤 11시 59분에 시즌 ${s.n}이 끝나요!`;
-  return `🏆 ${d}일 뒤 시즌 ${s.n}이 종료돼요`;
-}
-
-/** 사진 data URL 검사 */
-const cleanHallImage = (v) =>
-  typeof v === 'string' && v.length <= HALL_IMAGE_MAX && /^data:image\/(jpeg|webp|png);base64,[A-Za-z0-9+/=]+$/.test(v) ? v : null;
-
-return { SEASONS, HALL_BOARDS, BOARD_LABEL, HALL_IMAGE_MAX, seasonAt, endedSeasons, seasonLeftText, cleanHallImage };
-})();
-
 // ---- api.js ----
 const __m_api = (() => {
 // 서버 통신. 서버가 없으면(정적 호스팅/로컬 파일) 브라우저 안 가짜 API로 동작합니다.
@@ -14197,7 +14228,7 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-23c',
+    id: '2026-11-23d',
     date: '11월 23일',
     title: '🖐 터치 씹힘 고침 · 🎹 내 맵 만들기 다시 열림',
     items: [
@@ -14205,6 +14236,7 @@ const NEWS = [
       '엄지가 가운데 선을 넘어가 옆 줄을 눌러도 <b>원래 치려던 콩</b>으로 잡아 줘요',
       '<b>🎹 내 맵 만들기 다시 열렸어요!</b> 원하는 마디부터 듣기 · 건반 녹음 박자 고르기(16분 칸까지 자세히)',
       '<b>🎹 유저 맵</b>에선 코인이 <b>PERFECT 때만 1개</b>씩 쌓여요',
+      '<b>🥇 시즌 1 한정 콩 스킨</b> — 콩마다 금빛 「1」! 시즌 1 이 끝나면 다시는 안 팔아요',
     ],
   },
   {
@@ -15228,7 +15260,7 @@ const __m_main = (() => {
 
 const { LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES, ENDLESS_ID, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo, ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId, STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase, COUNT_IN_BARS, ROUND_BARS, BEAT_ID, makeBeatReel, beatOpts, beatSeconds, BEAT_MAX_ROUNDS, BEAT_STYLES, BEAT_DIFFS, beatStyleName, QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds, STEPS_PER_BAR, CHAR_LANES, KICK, SNARE, HAT, CRASH, parseChord, noteCount } = __m_charts;
 const { todayMission, missionDone, streakView, markDone } = __m_daily;
-const { DECO_THEMES, NOTE_FREE, SHOP_ITEMS, RARITY, RARITY_NAME, priceOf, legacyRefund } = __m_shop;
+const { DECO_THEMES, NOTE_FREE, SHOP_ITEMS, RARITY, RARITY_NAME, priceOf, legacyRefund, LIMITED, onSale } = __m_shop;
 const { startShopPreview, stopShopPreview, drawKitCloseup } = __m_shoppreview;
 const { separateVocals, resample } = __m_vocalsep;
 const { transcribeSong } = __m_songmap;
@@ -17520,6 +17552,7 @@ const SHOP_DESC = {
   ui: '판정선·콩·판정 글자·콤보·무대·버튼 소리가 리듬게임 라이브 화면처럼 한 번에 바뀌어요',
   basic: '처음 화면 그대로예요 · 누르면 이 분야만 기본으로 돌아가요',
   free: '무료예요',
+  s1: '시즌 1 동안만 살 수 있어요 · 콩마다 금빛 「1」 이 새겨져요 · 시즌이 끝나면 다시는 안 팔아요',
 };
 const isBasicId = (id) => {
   const [type, key] = String(id || '').split(':');
@@ -17535,7 +17568,8 @@ const SHOP_TYPES = [['ui', '🎤 세트'], ['notes', '✨ 콩'], ['bg', '🌄 �
 function shopRow(type) {
   return [
     [`${type}:${DECO_FREE[type]}`, 0, ''],
-    ...SHOP_ITEMS.filter(([id]) => id.startsWith(type + ':')),
+    // 🥇 기간 한정(시즌 1 스킨)은 기간이 지나면 산 사람에게만 보임
+    ...SHOP_ITEMS.filter(([id]) => id.startsWith(type + ':') && (onSale(id) || decoOpen(...id.split(':')))),
     ...(type === 'notes' ? NOTE_FREE : type === 'ui' ? [] : DECO_THEMES).map((k) => [`${type}:${k}`, 0, '']),
   ];
 }
@@ -17559,7 +17593,7 @@ function renderShop() {
     const [type, key] = id.split(':');
     const own = decoOpen(type, key);
     const using = own && decoPick(type) === key;
-    const tag = rare ? RARITY_NAME[rare] : '무료';
+    const tag = LIMITED[id] ? '시즌 1 한정' : rare ? RARITY_NAME[rare] : '무료';
     const label = using ? '✓ 장착 중' : !rare ? '' : own ? '보유' : `<i class="coin-ico"></i>${fmt(price)}`;
     return `<button class="shop-item ${rare ? 'r-' + rare : 'r-free'} ${own ? 'owned' : ''} ${using ? 'using' : ''}" data-shop="${id}">
       <em class="rar">${tag}</em>
@@ -17593,16 +17627,19 @@ function previewShop(id) {
   shopPrevId = id;
   const own = decoOpen(type, key);
   const rare = basic || free ? '' : RARITY[id];
-  $('#shopitem-rar').textContent = basic || free ? '무료' : RARITY_NAME[rare] || '';
+  $('#shopitem-rar').textContent = basic || free ? '무료' : LIMITED[id] ? '시즌 1 한정' : RARITY_NAME[rare] || '';
   $('#shopitem-rar').className = 'rar r-' + (rare || 'free');
   $('#shopitem-name').textContent = shopName(type, key);
-  $('#shopitem-desc').textContent = basic ? SHOP_DESC.basic : free ? SHOP_DESC.free : key === 'photo' ? SHOP_DESC.photo : SHOP_DESC[type];
+  $('#shopitem-desc').textContent = LIMITED[id] ? SHOP_DESC.s1 : basic ? SHOP_DESC.basic : free ? SHOP_DESC.free : key === 'photo' ? SHOP_DESC.photo : SHOP_DESC[type];
   const b = $('#shopitem-buy');
   const using = own && decoPick(type) === key;
   if (own) {
     // 기본으로 돌아가는 건 분야마다 맨 앞 「기본」 칸으로 (2026-11-22)
     b.innerHTML = using ? '✓ 장착 중' : '장착하기';
     b.disabled = using;
+  } else if (!onSale(id)) {
+    b.innerHTML = '시즌 1 이 끝나서 이제 못 사요';
+    b.disabled = true;
   } else if (!shopIsOpen()) {
     b.innerHTML = `🔒 판매 준비 중 · <i class="coin-ico"></i> ${fmt(priceOf(id))}`;
     b.disabled = true;
@@ -17648,6 +17685,7 @@ async function buyShop(id) {
   const [type, key] = id.split(':');
   if (price == null || decoOpen(type, key)) return;
   if (!shopIsOpen()) return toast('🔒 상점은 곧 열려요 · 지금은 구경만 돼요', 2400);
+  if (!onSale(id)) return toast('시즌 1 이 끝나서 이제 못 사요', 2400);
   if (getCoins() < price) return toast(`🪙 코인이 ${fmt(price - getCoins())}개 모자라요 · 콩을 맞히면 쌓여요`, 2600);
   const name = shopName(type, key);
   const account = isConfirmed() && state.api && state.api.mode === 'server';
@@ -17658,6 +17696,7 @@ async function buyShop(id) {
       save('decoOwned', [...new Set([...(load('decoOwned', []) || []), ...(r.owned || []), id])]);
     } catch (e) {
       if (e && e.status === 402) return renderShop(), toast('🪙 코인이 모자라요', 2200);
+      if (e && e.data && e.data.error === 'season_over') return renderShop(), toast('시즌 1 이 끝나서 이제 못 사요', 2400);
       if (e && e.data && e.data.error === 'shop_closed') {
         state.cfg.shopOpen = false;
         renderShop();

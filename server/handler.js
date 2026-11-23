@@ -58,6 +58,7 @@ export function coinCap(l, ageMs) {
 export function applyCoins(w0, c, secret, now = Date.now()) {
   const w = { coins: 0, t: 0, tn: 0, fday: '', fn: 0, init: 0, ...(w0 || {}) };
   let changed = false;
+  let rest = 0;
   // 같은 판 토큰은 합쳐서
   const byT = new Map();
   for (const r of Array.isArray(c.runs) ? c.runs.slice(0, 40) : []) {
@@ -84,19 +85,21 @@ export function applyCoins(w0, c, secret, now = Date.now()) {
       w.fday = day;
       w.fn = 0;
     }
-    const ok = Math.min(free, COIN_FREE_DAY - w.fn);
+    const ok = Math.max(0, Math.min(free, COIN_FREE_DAY - w.fn));
     if (ok > 0) {
       w.coins += ok;
       w.fn += ok;
+      changed = true;
     }
-    changed = true;
+    // 오늘 한도를 넘은 만큼은 버리지 않고 폰에 돌려줌 → 다음 날 다시 보냄 (2026-11-23: 서버 쉴 때 번 코인이 5000 넘게 사라지던 것)
+    rest = free - ok;
   }
   if (Number.isFinite(c.init) && !w.init) {
     w.coins += coinInt(c.init, COIN_INIT_MAX);
     w.init = 1;
     changed = true;
   }
-  return { wallet: w, changed };
+  return { wallet: w, changed, rest };
 }
 
 export const ENDLESS_MULT = 1_000_000_000;
@@ -500,9 +503,9 @@ export function createHandler(cfg, { store, meter = null }) {
   async function takeCoins(pl, c) {
     if (!pl || !c || typeof c !== 'object' || !isConfirmed(pl)) return null;
     const w0 = await store.getWallet(pl.igsid);
-    const { wallet, changed } = applyCoins(w0, c, cfg.sessionSecret);
+    const { wallet, changed, rest } = applyCoins(w0, c, cfg.sessionSecret);
     if (changed) await store.putWallet(pl.igsid, wallet);
-    return wallet.coins;
+    return rest > 0 ? { coins: wallet.coins, coinRest: rest } : { coins: wallet.coins };
   }
   /**
    * 📴 서버 없을 때(DB 한도 초과 등) 친 판의 최고 기록 (2026-11-22): 폰이 모았다가 다음 판 시작·점수 등록에 얹어 보냄
@@ -1383,7 +1386,7 @@ export function createHandler(cfg, { store, meter = null }) {
       const coins = body.coins ? await takeCoins(anyPl, body.coins) : null;
       const offline = body.offline ? await takeOffline(anyPl, body.offline) : null;
       const out = { runToken };
-      if (coins != null) out.coins = coins;
+      if (coins != null) Object.assign(out, coins);
       if (offline) out.offline = offline;
       return json(200, out);
     }
@@ -1395,16 +1398,17 @@ export function createHandler(cfg, { store, meter = null }) {
       const pl = await getPlayer(request);
       if (!pl || !isConfirmed(pl)) return json(403, { error: 'verify_required' });
       const w0 = (await store.getWallet(pl.igsid)) || null;
-      const { wallet: w1, changed } = body.coins && typeof body.coins === 'object' ? applyCoins(w0, body.coins, cfg.sessionSecret) : { wallet: { coins: 0, t: 0, tn: 0, fday: '', fn: 0, init: 0, ...(w0 || {}) }, changed: false };
+      const { wallet: w1, changed, rest = 0 } = body.coins && typeof body.coins === 'object' ? applyCoins(w0, body.coins, cfg.sessionSecret) : { wallet: { coins: 0, t: 0, tn: 0, fday: '', fn: 0, init: 0, ...(w0 || {}) }, changed: false };
+      const cr = rest > 0 ? { coinRest: rest } : {};
       // 상점이 닫혀 있으면 못 삼 (보낸 코인은 받아 둠)
       if (!(await shopOpen())) {
         if (changed) await store.putWallet(pl.igsid, w1);
-        return json(403, { error: 'shop_closed', coins: w1.coins, owned: cleanOwned(w1.owned) });
+        return json(403, { error: 'shop_closed', coins: w1.coins, owned: cleanOwned(w1.owned), ...cr });
       }
       const r = buyItem(w1, String(body.item || ''));
       if (r.ok && !r.already) await store.putWallet(pl.igsid, r.wallet);
       else if (changed) await store.putWallet(pl.igsid, { ...w1, owned: r.wallet.owned });
-      const out = { coins: r.wallet.coins, owned: r.wallet.owned };
+      const out = { coins: r.wallet.coins, owned: r.wallet.owned, ...cr };
       if (!r.ok) return json(r.error === 'not_enough' ? 402 : 400, { error: r.error, ...out });
       return json(200, { ok: true, ...out });
     }
@@ -1422,7 +1426,7 @@ export function createHandler(cfg, { store, meter = null }) {
       const coins = body.coins ? await takeCoins(pl, body.coins) : null;
       const offline = body.offline ? await takeOffline(pl, body.offline) : null;
       // 코인·서버 없을 때 기록을 받았으면 오류 응답에도 실음 (폰이 두 번 안 보내게)
-      const wc = (o) => ({ ...o, ...(coins != null ? { coins } : {}), ...(offline ? { offline } : {}) });
+      const wc = (o) => ({ ...o, ...(coins || {}), ...(offline ? { offline } : {}) });
       const em = endlessMode(body.level);
       if (em) {
         const e = validateEndless(body, cfg);

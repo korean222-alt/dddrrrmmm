@@ -2,6 +2,8 @@
 //   11-22 밤 개편(사용자 '이미 있는 배경·드럼 말고 새로 만들어야 희귀성 · 색만 바뀌어서 안 사고 싶음'):
 //   맵 배경·맵 드럼·색만 바꾸는 콩 색은 무료로 돌리고, 상점엔 상점에서만 파는 새 것만.
 //   콩 스킨 = 색 + 질감 + 꼬리·반짝이 효과(render.js NOTE_PALETTES fx), 배경 = 새 그림(themes.js img), 드럼 = 새 마감(themes.js SHOP_KITS)
+import { SEASONS } from './season.js';
+
 //   id = 'bg:sakura' · 'kit:goldkit' · 'notes:flame' · 'bg:photo' · 'ui:live'(화면 스타일 세트) (설정 → 꾸미기의 decoOwned 와 같은 모양)
 
 /** 맵 8개 (배경·드럼 세트로 고를 수 있는 것, 무료) */
@@ -11,8 +13,10 @@ export const NOTE_FREE = ['candy', 'neon', 'ocean', 'fire', 'mono'];
 
 /** 상점 물건: [id, 값, 등급] — 등급 rare 레어 · epic 에픽 · legend 전설 */
 export const SHOP_ITEMS = [
-  // 🎤 세트 (2026-11-22, 사용자 요청: 리듬게임 라이브 화면 스타일 세트, 1만 코인) = 화면 스타일(render.js live) + 세트 무대
-  ['ui:live', 10000, 'epic'],
+  // 🎤 세트 (2026-11-22, 사용자 요청: 리듬게임 라이브 화면 스타일 세트) = 화면 스타일(render.js live) + 세트 무대 · 11-23 사용자 1만 → 2만
+  ['ui:live', 20000, 'epic'],
+  // 🥇 시즌 1 한정 콩 스킨 (2026-11-23 사용자 '시즌1 때만 얻을 수 있는 스킨, 1 을 강조') — 값도 1 로만, 시즌 1 끝나면 못 삼(LIMITED)
+  ['notes:s1', 11111, 'legend'],
   ['notes:galaxy', 50000, 'legend'],
   ['notes:gold', 30000, 'legend'],
   ['notes:cyber', 9000, 'epic'],
@@ -29,6 +33,10 @@ export const SHOP_ITEMS = [
   ['kit:crystal', 7000, 'rare'],
   ['kit:rainbow', 7000, 'rare'],
 ];
+/** 기간 한정: 이 시각(ms)이 지나면 못 삼 (산 사람은 계속 씀) */
+export const LIMITED = { 'notes:s1': SEASONS[0].end };
+/** 지금 살 수 있나 (한정 물건 기간 확인) */
+export const onSale = (id, now = Date.now()) => !(LIMITED[id] && now > LIMITED[id]);
 const PRICE = new Map(SHOP_ITEMS.map(([id, p]) => [id, p]));
 export const RARITY = Object.fromEntries(SHOP_ITEMS.map(([id, , r]) => [id, r]));
 export const RARITY_NAME = { rare: '레어', epic: '에픽', legend: '전설' };
@@ -67,11 +75,12 @@ export function cleanOwned(list) {
  * 사기: 지갑 { coins, owned } → { ok, wallet, error }
  *   이미 있으면 ok(돈 안 냄), 모자라면 not_enough
  */
-export function buyItem(w, id) {
+export function buyItem(w, id, now = Date.now()) {
   const price = priceOf(id);
   if (price == null) return { ok: false, error: 'bad_item', wallet: w };
   const owned = cleanOwned(w.owned);
   if (owned.includes(id)) return { ok: true, already: true, wallet: { ...w, owned } };
+  if (!onSale(id, now)) return { ok: false, error: 'season_over', wallet: { ...w, owned } };
   if ((w.coins || 0) < price) return { ok: false, error: 'not_enough', wallet: { ...w, owned } };
   return { ok: true, wallet: { ...w, coins: w.coins - price, owned: [...owned, id] } };
 }

@@ -33,6 +33,8 @@ export const NOTE_PALETTES = {
   heart: { name: '💖 러블리', shop: true, fx: { tex: 'heart', trail: '255,120,190', aura: '255,140,200', spark: '#FFFFFF', heart: true }, c: [['#FF5FA2', '#FFD0E4', '#C21E66'], ['#FF8FC8', '#FFE2F1', '#C24E8A'], ['#FFB3D9', '#FFF0F7', '#C27A9E'], ['#E86BFF', '#F7D6FF', '#9E2EB8'], ['#FF7AB0', '#FFD6E7', '#C23E74']] },
   cyber: { name: '⚡ 사이버', shop: true, fx: { tex: 'cyber', trail: '0,240,255', trail2: '255,40,220', aura: '0,240,255', spark: '#E8FFFF', glitch: true }, c: [['#00F0FF', '#B8FCFF', '#007A8A'], ['#FF2BD6', '#FFB8F2', '#8A0072'], ['#C6FF00', '#F0FFB0', '#6A8A00'], ['#8C5CFF', '#D8CCFF', '#3A1FA8'], ['#00FF9C', '#B0FFDD', '#00A365']] },
   gold: { name: '👑 황금', shop: true, fx: { tex: 'gold', trail: '255,200,60', aura: '255,210,80', spark: '#FFFDE0', big: true }, c: [['#FFC83D', '#FFF1B8', '#B07A00'], ['#FFD75A', '#FFF6CC', '#B8860B'], ['#FFE07A', '#FFF8D6', '#B89520'], ['#F2B84A', '#FFE9BF', '#A8701E'], ['#D9B45A', '#F7EBC7', '#8C6C1E']] },
+  // 🥇 시즌 1 한정 (2026-11-23): 남색 바탕에 금빛 「1」 을 크게 새김, 금빛 꼬리 (shop.js LIMITED — 시즌 1 동안만 팖)
+  s1: { name: '🥇 시즌 1', shop: true, fx: { tex: 's1', trail: '255,205,70', aura: '255,215,90', spark: '#FFF6C8', big: true }, c: [['#2B3A8C', '#8FA2FF', '#121A4A'], ['#2B3A8C', '#8FA2FF', '#121A4A'], ['#33459E', '#A3B3FF', '#16205A'], ['#2B3A8C', '#8FA2FF', '#121A4A'], ['#2B3A8C', '#8FA2FF', '#121A4A']] },
   galaxy: { name: '🌌 은하수', shop: true, fx: { tex: 'galaxy', trail: 'rainbow', aura: '180,120,255', spark: '#FFFFFF', big: true }, c: [['#B26BFF', '#E6D0FF', '#6A22C2'], ['#4FD8FF', '#CFF5FF', '#1688B0'], ['#FF7AD9', '#FFD3F2', '#B8338F'], ['#7C8CFF', '#D9DEFF', '#3B46C2'], ['#5CFFC8', '#CCFFEE', '#1FA67A']] },
 };
 let noteSkin = 'basic';
@@ -2574,6 +2576,23 @@ function skinTexture(src, tex, lane) {
     lin([[0, 'rgba(255,240,140,0.85)'], [0.4, 'rgba(255,140,20,0.8)'], [1, 'rgba(200,20,0,0.85)']]);
   } else if (tex === 'heart') {
     lin([[0, 'rgba(255,230,245,0.8)'], [0.5, 'rgba(255,110,180,0.7)'], [1, 'rgba(200,40,120,0.75)']]);
+  } else if (tex === 's1') {
+    // 남색 → 보라 바탕 + 가운데 금빛 「1」 (테두리 진하게, 위아래 금 그라데이션)
+    lin([[0, 'rgba(70,90,200,0.92)'], [0.55, 'rgba(25,30,95,0.95)'], [1, 'rgba(12,14,50,0.97)']]);
+    const fs = Math.round(H * 0.86);
+    g.font = `900 ${fs}px "Arial Black", "Helvetica Neue", Arial, sans-serif`;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    const gold = g.createLinearGradient(0, H * 0.1, 0, H * 0.9);
+    gold.addColorStop(0, '#FFF7C2');
+    gold.addColorStop(0.45, '#FFD23F');
+    gold.addColorStop(1, '#C88A00');
+    g.lineJoin = 'round';
+    g.lineWidth = Math.max(2, fs * 0.14);
+    g.strokeStyle = 'rgba(10,12,40,0.95)';
+    g.strokeText('1', W / 2, H * 0.53);
+    g.fillStyle = gold;
+    g.fillText('1', W / 2, H * 0.53);
   } else if (tex === 'cyber') {
     lin([[0, 'rgba(10,10,30,0.75)'], [1, 'rgba(10,10,30,0.85)']]);
     g.globalCompositeOperation = 'source-atop';
@@ -2595,10 +2614,10 @@ function skinTexture(src, tex, lane) {
   g.fillStyle = sh;
   g.fillRect(0, 0, W, H);
   // 테두리 빛 (사이버·은하수)
-  if (tex === 'cyber' || tex === 'galaxy' || tex === 'gold') {
+  if (tex === 'cyber' || tex === 'galaxy' || tex === 'gold' || tex === 's1') {
     g.globalCompositeOperation = 'source-over';
     g.save();
-    g.shadowColor = tex === 'cyber' ? (lane % 2 ? '#FF2BD6' : '#00F0FF') : tex === 'gold' ? '#FFE27A' : '#D9A8FF';
+    g.shadowColor = tex === 'cyber' ? (lane % 2 ? '#FF2BD6' : '#00F0FF') : tex === 'gold' || tex === 's1' ? '#FFE27A' : '#D9A8FF';
     g.shadowBlur = H * 0.08; // 테두리 빛은 콩 바로 둘레만
     g.globalCompositeOperation = 'destination-over';
     g.drawImage(src, 0, 0);

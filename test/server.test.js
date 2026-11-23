@@ -1201,3 +1201,16 @@ test('🧯 D1 아끼기: 명예의 전당·총 등수는 캐시인데 기록이 
   assert.equal(same.r.json.improved, false);
   assert.equal((await a('POST', '/api/scores', { runToken: same.runToken, level: 2, ...perfectRun(2) })).json.kept, true);
 });
+
+test('🪙 하루 한도를 넘은 토큰 없는 코인은 버리지 않고 돌려줌 (coinRest)', () => {
+  const now = Date.UTC(2026, 10, 23, 3);
+  const a = applyCoins(null, { free: COIN_FREE_DAY + 3000 }, 's', now);
+  assert.equal(a.wallet.coins, COIN_FREE_DAY);
+  assert.equal(a.rest, 3000);
+  const b = applyCoins(a.wallet, { free: 3000 }, 's', now + 60000);
+  assert.equal(b.rest, 3000);
+  assert.equal(b.changed, false); // 한도 찬 날엔 지갑 안 씀
+  const c = applyCoins(a.wallet, { free: 3000 }, 's', now + 86400e3);
+  assert.equal(c.rest, 0);
+  assert.equal(c.wallet.coins, COIN_FREE_DAY + 3000);
+});
