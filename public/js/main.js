@@ -3051,7 +3051,7 @@ function umQuit() {
 //   ① 멜로디: 노래 파일에서 자동으로 따거나, 똑딱 소리에 맞춰 건반을 쳐서 녹음 (자세히 고치기 = 한 칸씩)
 //   ② 드럼: 멜로디에 맞춰 자동 (쉬움·보통·어려움), 원하면 한 칸씩
 //   ③ 처음부터 듣기 → 직접 쳐 보기 → 올리기
-const MAPMAKE_OFF = true;
+const MAPMAKE_OFF = false;
 function openMapMake() {
   if (followGated()) {
     openVerify(null, { label: '🎹 맵 만들기는 팔로워만', then: openMapMake });
