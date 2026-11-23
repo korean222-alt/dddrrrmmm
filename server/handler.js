@@ -561,11 +561,19 @@ export function createHandler(cfg, { store, meter = null }) {
     return { coins: w.coins, owned: cleanOwned(w.owned), ...(w.gift ? { gift: giftOut(w.gift) } : {}) };
   };
   /** 🛒 상점 열림 (운영자가 admin 에서 켬). 인스턴스마다 1분 기억 */
-  let shopCache = { at: 0, open: false };
-  async function shopOpen(fresh = false) {
+  let shopCache = { at: 0, open: false, only: [] };
+  async function shopLoad(fresh) {
     const now = Date.now();
-    if (fresh || now - shopCache.at > 60 * 1000) shopCache = { at: now, open: (await store.getSetting('shopOpen')) === '1' };
-    return shopCache.open;
+    if (fresh || now - shopCache.at > 60 * 1000) {
+      // shopOpenFor = 쉼표로 나눈 igsid — 상점이 닫혀 있어도 그 계정만 삼 (운영자 시험용, 2026-11-23)
+      const only = String((await store.getSetting('shopOpenFor')) || '').split(',').map((x) => x.trim()).filter(Boolean);
+      shopCache = { at: now, open: (await store.getSetting('shopOpen')) === '1', only };
+    }
+    return shopCache;
+  }
+  async function shopOpen(fresh = false, pl = null) {
+    const c = await shopLoad(fresh);
+    return c.open || !!(pl && c.only.includes(pl.igsid));
   }
   /** 🎁 폰에 보낼 선물 알림 (명예의 전당 칸이면 한마디 칸 정보도) */
   const giftOut = (g) => ({ coins: Number(g.coins) || 0, note: g.note || '', hall: g.hall || null });
@@ -796,7 +804,7 @@ export function createHandler(cfg, { store, meter = null }) {
       return json(200, {
         ok: true,
         app: 'okaystra',
-        config: { gateMode: cfg.gateMode, instagramHandle: cfg.instagramHandle, siteUrl: cfg.siteUrl, freePassUntil: (await freePassOn()) ? await freePassUntil() : 0, shopOpen: await shopOpen() },
+        config: { gateMode: cfg.gateMode, instagramHandle: cfg.instagramHandle, siteUrl: cfg.siteUrl, freePassUntil: (await freePassOn()) ? await freePassUntil() : 0, shopOpen: await shopOpen(false, pl) },
         me: pl ? { ...meOf(pl), ...(await walletOf(pl)) } : { verified: false },
       });
     }
@@ -1409,7 +1417,7 @@ export function createHandler(cfg, { store, meter = null }) {
       const { wallet: w1, changed, rest = 0 } = body.coins && typeof body.coins === 'object' ? applyCoins(w0, body.coins, cfg.sessionSecret) : { wallet: { coins: 0, t: 0, tn: 0, fday: '', fn: 0, init: 0, ...(w0 || {}) }, changed: false };
       const cr = rest > 0 ? { coinRest: rest } : {};
       // 상점이 닫혀 있으면 못 삼 (보낸 코인은 받아 둠)
-      if (!(await shopOpen())) {
+      if (!(await shopOpen(false, pl))) {
         if (changed) await store.putWallet(pl.igsid, w1);
         return json(403, { error: 'shop_closed', coins: w1.coins, owned: cleanOwned(w1.owned), ...cr });
       }
