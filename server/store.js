@@ -124,7 +124,7 @@ export class JsonStore {
   }
   giveCoins(igsid, coins, gift) {
     const w = this.data.wallet[igsid] || { coins: 0, t: 0, tn: 0, fday: '', fn: 0, init: 0, owned: [] };
-    this.data.wallet[igsid] = { ...w, coins: (w.coins || 0) + coins, gift: gift ? { ...gift } : null };
+    this.data.wallet[igsid] = { ...w, coins: (w.coins || 0) + coins, gift: gift ? { ...gift } : w.gift || null };
     this._save();
   }
   giveCoinsMany(list) {

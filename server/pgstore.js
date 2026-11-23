@@ -364,7 +364,7 @@ END $$`);
   /** 🎁 운영자가 코인 주기: 잔액에 바로 더하고(한 줄, 덮어쓰기 없이) 알림(gift)을 적음 */
   async giveCoins(igsid, coins, gift) {
     await this.q(
-      `INSERT INTO wallet (igsid, coins, gift) VALUES ($1, $2, $3) ON CONFLICT (igsid) DO UPDATE SET coins = wallet.coins + EXCLUDED.coins, gift = EXCLUDED.gift`,
+      `INSERT INTO wallet (igsid, coins, gift) VALUES ($1, $2, $3) ON CONFLICT (igsid) DO UPDATE SET coins = wallet.coins + EXCLUDED.coins, gift = COALESCE(EXCLUDED.gift, wallet.gift)`,
       [igsid, coins, gift ? JSON.stringify(gift) : null]
     );
   }

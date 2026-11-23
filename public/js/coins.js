@@ -85,6 +85,12 @@ export function takeCoins({ force = false } = {}) {
   return c;
 }
 
+/** 서버 지갑에 바로 들어간 코인 (투표 보상 등) — 계정이면 화면 잔액에도 더함 */
+export function addServerCoins(n) {
+  if (account && int(n)) save('coinSrv', int(load('coinSrv', 0)) + int(n));
+  onChange();
+}
+
 /** 응답이 왔음: data.coins 가 있으면 서버가 받은 것 → 보낸 것 비우고 잔액 갱신, 없으면 다시 줄에 */
 export function coinsResult(data) {
   const s = load('coinSending', null);

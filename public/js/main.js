@@ -20,7 +20,7 @@ import { videoToAac } from './mp4audio.js';
 import { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmonize, autoDrums, cleanMap, mapLevel } from './usermap.js';
 import { AudioEngine, playMetronome } from './audio.js';
 import { Renderer, NOTE_PALETTES, LANE, applyNoteColors } from './render.js';
-import { coinsInit, setCoinAccount, coinTotal, addRunCoins } from './coins.js';
+import { coinsInit, setCoinAccount, coinTotal, addRunCoins, addServerCoins } from './coins.js';
 import { queueOffline, backupOffline } from './offrec.js';
 import { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } from './game.js';
 import { initAds, showRewarded } from './ads.js';
@@ -5720,7 +5720,7 @@ function renderP2() {
     b.classList.toggle('mine', !!mine && mine.choice === b.dataset.choice);
   });
   const hint = $('#p2-vote-hint');
-  hint.textContent = mine ? '다른 쪽을 누르면 표를 바꿀 수 있어요' : both ? '한 사람 한 표 · 나중에 바꿀 수 있어요' : `둘 다 쳐 보면 투표할 수 있어요 (${(tried.tiles ? 1 : 0) + (tried.keys ? 1 : 0)}/2)`;
+  hint.textContent = mine ? '다른 쪽을 누르면 표를 바꿀 수 있어요' : both ? '투표하면 🪙 500코인 · 나중에 바꿀 수 있어요' : `둘 다 쳐 보면 투표할 수 있어요 (${(tried.tiles ? 1 : 0) + (tried.keys ? 1 : 0)}/2)`;
   const box = $('#p2-result');
   box.hidden = !mine;
   if (mine) {
@@ -5876,6 +5876,11 @@ async function p2Vote(choice) {
     const r = await state.api.vote(P2_POLL, choice);
     save('p2Vote', { choice: r.mine || choice, counts: r.counts || {}, at: Date.now() });
     renderP2();
+    if (r.bonus > 0) {
+      addServerCoins(r.bonus);
+      audio.sfxFile('gift', 0.7);
+      return toast(`투표 고마워요! 🪙 ${r.bonus.toLocaleString()}코인 받았어요`);
+    }
     toast(r.changed ? `${choice === 'a' ? 'A 타일' : 'B 건반'}로 표를 바꿨어요` : r.already ? '이미 이쪽에 투표했어요' : '투표했어요! 고마워요');
   } catch (e) {
     if (e && e.status === 401) {

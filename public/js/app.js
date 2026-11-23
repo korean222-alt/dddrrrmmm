@@ -13743,6 +13743,12 @@ function takeCoins({ force = false } = {}) {
   return c;
 }
 
+/** 서버 지갑에 바로 들어간 코인 (투표 보상 등) — 계정이면 화면 잔액에도 더함 */
+function addServerCoins(n) {
+  if (account && int(n)) save('coinSrv', int(load('coinSrv', 0)) + int(n));
+  onChange();
+}
+
 /** 응답이 왔음: data.coins 가 있으면 서버가 받은 것 → 보낸 것 비우고 잔액 갱신, 없으면 다시 줄에 */
 function coinsResult(data) {
   const s = load('coinSending', null);
@@ -13759,7 +13765,7 @@ function coinsResult(data) {
   onChange();
 }
 
-return { coinsInit, setCoinAccount, coinTotal, addRunCoins, takeCoins, coinsResult };
+return { coinsInit, setCoinAccount, coinTotal, addRunCoins, takeCoins, addServerCoins, coinsResult };
 })();
 
 // ---- offrec.js ----
@@ -15637,11 +15643,11 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-23i',
+    id: '2026-11-23j',
     date: '11월 23일',
     title: '🎹 시즌 2 피아노 미리보기 · 투표 · 🖐 터치 씹힘 고침',
     items: [
-      '<b>🎹 시즌 2 미리보기!</b> 피아노 두 가지(A 세로 타일 · B 가로 건반)를 쳐 보고 <b>마음에 드는 쪽에 투표</b>해 주세요. 표는 나중에 바꿀 수 있어요',
+      '<b>🎹 시즌 2 미리보기!</b> 피아노 두 가지(A 세로 타일 · B 가로 건반)를 쳐 보고 <b>마음에 드는 쪽에 투표</b>하면 <b>🪙 500코인</b>! 표는 나중에 바꿀 수 있어요',
       '미리보기 새로: <b>⚡ 점점 빠르게</b> · 건반은 멀리서 다가오는 <b>원근 길</b>과 꾹 게이지 · 타일은 아래로 내려온 걸 <b>누르기만 하면</b> 돼요',
       '<b>🖐 엇박·빽빽한 곳에서 터치가 씹히던 것 고쳤어요!</b> 옆 줄을 살짝 눌러도 원래 치려던 콩으로 잡아 줘요',
       '<b>🎹 내 맵 만들기 다시 열렸어요!</b> 원하는 마디부터 듣기 · 건반 녹음 16분 칸까지 · 유저 맵 코인은 <b>PERFECT 때만 1개</b>',
@@ -16680,7 +16686,7 @@ const { videoToAac } = __m_mp4audio;
 const { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmonize, autoDrums, cleanMap, mapLevel } = __m_usermap;
 const { AudioEngine, playMetronome } = __m_audio;
 const { Renderer, NOTE_PALETTES, LANE, applyNoteColors } = __m_render;
-const { coinsInit, setCoinAccount, coinTotal, addRunCoins } = __m_coins;
+const { coinsInit, setCoinAccount, coinTotal, addRunCoins, addServerCoins } = __m_coins;
 const { queueOffline, backupOffline } = __m_offrec;
 const { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } = __m_game;
 const { initAds, showRewarded } = __m_ads;
@@ -22380,7 +22386,7 @@ function renderP2() {
     b.classList.toggle('mine', !!mine && mine.choice === b.dataset.choice);
   });
   const hint = $('#p2-vote-hint');
-  hint.textContent = mine ? '다른 쪽을 누르면 표를 바꿀 수 있어요' : both ? '한 사람 한 표 · 나중에 바꿀 수 있어요' : `둘 다 쳐 보면 투표할 수 있어요 (${(tried.tiles ? 1 : 0) + (tried.keys ? 1 : 0)}/2)`;
+  hint.textContent = mine ? '다른 쪽을 누르면 표를 바꿀 수 있어요' : both ? '투표하면 🪙 500코인 · 나중에 바꿀 수 있어요' : `둘 다 쳐 보면 투표할 수 있어요 (${(tried.tiles ? 1 : 0) + (tried.keys ? 1 : 0)}/2)`;
   const box = $('#p2-result');
   box.hidden = !mine;
   if (mine) {
@@ -22536,6 +22542,11 @@ async function p2Vote(choice) {
     const r = await state.api.vote(P2_POLL, choice);
     save('p2Vote', { choice: r.mine || choice, counts: r.counts || {}, at: Date.now() });
     renderP2();
+    if (r.bonus > 0) {
+      addServerCoins(r.bonus);
+      audio.sfxFile('gift', 0.7);
+      return toast(`투표 고마워요! 🪙 ${r.bonus.toLocaleString()}코인 받았어요`);
+    }
     toast(r.changed ? `${choice === 'a' ? 'A 타일' : 'B 건반'}로 표를 바꿨어요` : r.already ? '이미 이쪽에 투표했어요' : '투표했어요! 고마워요');
   } catch (e) {
     if (e && e.status === 401) {

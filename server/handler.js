@@ -39,6 +39,8 @@ export function endlessMode(id) {
 export const COIN_FREE_DAY = 5000;
 /** 🗳 열린 투표 → 고를 수 있는 것 (2026-11-23 시즌 2 피아노: a = 라이브 스타일, b = 건반 스타일) */
 export const POLLS = { piano2: ['a', 'b'] };
+/** 🗳 처음 투표하면 코인 (계정마다 한 번, 표를 바꿔도 다시 안 줌) — 2026-11-23 사용자 */
+export const POLL_BONUS = 500;
 export const COIN_INIT_MAX = 20000;
 // 폰이 코인을 10분에 한 번 모아 보내고 한동안 안 들어올 수도 있어서 넉넉히 (판 순서 t 로 같은 판 두 번은 안 받음)
 const COIN_TOKEN_AGE = 14 * 24 * 3600 * 1000;
@@ -1520,13 +1522,18 @@ export function createHandler(cfg, { store, meter = null }) {
       if (!pl) return json(401, { error: 'verify_required' });
       const c = { ...(await counts()) }; // 표 넣기 전 수 (넣은 뒤 +1)
       const r = await store.pollVote(id, pl.igsid, b.choice);
+      let bonus = 0;
+      if (r.added) {
+        bonus = POLL_BONUS;
+        await store.giveCoins(pl.igsid, bonus, null);
+      }
       if (r.added || r.changed) {
         c[b.choice] = (c[b.choice] || 0) + 1;
         if (r.changed && r.prev) c[r.prev] = Math.max(0, (c[r.prev] || 0) - 1);
         const hit = memo.get(key);
         if (hit) hit.v = c;
       }
-      return json(200, { ok: true, already: !r.added && !r.changed, changed: !!r.changed, mine: r.choice, counts: c });
+      return json(200, { ok: true, already: !r.added && !r.changed, changed: !!r.changed, mine: r.choice, counts: c, bonus });
     }
     // 🎁 운영자가 준 코인 알림을 봤음 (+ 명예의 전당 한마디를 같이 적을 수 있음). 코인은 줄 때 이미 지갑에 들어가 있음
     if (p === '/api/gift/ack' && m === 'POST') {

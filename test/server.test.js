@@ -1225,11 +1225,15 @@ test('🗳 투표: 등록한 사람만 · 한 사람 한 표(바꿀 수 있음) 
   assert.equal(v1.status, 200);
   assert.equal(v1.json.already, false);
   assert.equal(v1.json.counts.a, 1);
+  assert.equal(v1.json.bonus, 500, '처음 투표 = 500코인');
+  assert.equal((await A('GET', '/api/me')).json.coins, 500);
   const same = await A('POST', '/api/poll', { id: 'piano2', choice: 'a' });
   assert.equal(same.json.already, true, '같은 쪽 다시 = 그대로');
   assert.equal(same.json.counts.a, 1);
   const v2 = await A('POST', '/api/poll', { id: 'piano2', choice: 'b' });
   assert.equal(v2.json.changed, true, '다른 쪽 = 표 바꿈');
+  assert.equal(v2.json.bonus, 0, '바꿔도 코인은 한 번만');
+  assert.equal((await A('GET', '/api/me')).json.coins, 500);
   assert.equal(v2.json.mine, 'b');
   assert.deepEqual(v2.json.counts, { a: 0, b: 1 });
   const v3 = await B('POST', '/api/poll', { id: 'piano2', choice: 'a' });
