@@ -1004,7 +1004,8 @@ export class SongPlayer {
     const s = i % STEPS_PER_BAR;
     const song = this.level.song;
     const sd = this.tempo.barLen(bar) / STEPS_PER_BAR;
-    const orch = a.orchestra;
+    // 🎹 pianoOnly(시즌 2 피아노): 반주도 피아노만 (오케스트라·크래시 없이)
+    const orch = a.orchestra && !this.level.pianoOnly;
     if (bar < COUNT_IN_BARS) {
       // 박자 맞추기 영상: 시작 전 똑딱이 노래와 겹치지 않게 (박자 소리를 켰을 때만)
       if (s % 4 === 0 && (!this.level.beat || this.level.click)) a.click(t, s === 0, this.bus);
@@ -1029,6 +1030,12 @@ export class SongPlayer {
 
     if (mb >= chartBars) {
       // 아웃트로: 곡의 으뜸화음 한 방
+      if (s === 0 && this.level.pianoOnly) {
+        // 🎹 피아노만: 으뜸화음을 피아노로 한 번
+        const home = chordAt(song, 0, 0);
+        for (const m of [home.root - 24, home.root - 12, ...home.notes]) a.pianoOr('lead', t, m, sd * 14, this.bus, 0.5);
+        return;
+      }
       if (s === 0) {
         const home = chordAt(song, 0, 0);
         a.crash(t, this.bus);

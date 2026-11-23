@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=4204c6e13a" />
+  <link rel="stylesheet" href="css/style.css?v=d8d4af8f82" />
 </head>
 <body>
   <div id="app">
@@ -485,39 +485,77 @@
         <span class="bar-spacer"></span>
       </header>
       <div class="p2">
-        <p class="p2-lead">시즌 2에 나올 <b>피아노</b>! 둘 다 쳐 보고 골라 주세요</p>
-        <div class="seg p2-songs" id="p2-songs"></div>
+        <div class="p2-hero">
+          <span class="p2-hero-tag">SEASON 2</span>
+          <b>피아노가 와요!</b>
+          <p>두 방식을 쳐 보고 마음에 드는 쪽에 투표해 주세요</p>
+        </div>
+        <div class="p2-songs" id="p2-songs"></div>
         <div class="p2-cards">
-          <button type="button" class="p2-card p2-a" data-action="p2-play" data-style="live">
+          <button type="button" class="p2-card p2-a" data-action="p2-play" data-style="tiles">
             <span class="p2-pic p2-pic-a"><i></i><i></i><i></i><i></i><em></em></span>
-            <b>A · 라이브</b><small>4줄 · 꾹 누르기</small><span class="p2-done" data-done="live">✓ 쳐 봄</span>
+            <span class="p2-card-name"><em>A</em> 타일</span>
+            <small>세로 · 4줄</small>
+            <span class="p2-best" data-best="tiles"></span>
+            <span class="p2-done" data-done="tiles">✓ 쳐 봄</span>
           </button>
           <button type="button" class="p2-card p2-b" data-action="p2-play" data-style="keys">
-            <span class="p2-pic p2-pic-b"><i></i><i></i><i></i><i></i><i></i><i></i><em></em></span>
-            <b>B · 건반</b><small>진짜 건반 · 계이름</small><span class="p2-done" data-done="keys">✓ 쳐 봄</span>
+            <span class="p2-pic p2-pic-b"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><u></u><u></u><u></u><em></em></span>
+            <span class="p2-card-name"><em>B</em> 건반</span>
+            <small>가로 · 진짜 건반</small>
+            <span class="p2-best" data-best="keys"></span>
+            <span class="p2-done" data-done="keys">✓ 쳐 봄</span>
           </button>
         </div>
         <div class="p2-vote" id="p2-vote">
-          <h3>어느 쪽이 좋아요?</h3>
+          <h3>시즌 2엔 어느 쪽?</h3>
           <div class="p2-vote-btns">
-            <button class="btn btn-primary" data-action="p2-vote" data-choice="a">A 라이브</button>
+            <button class="btn btn-primary" data-action="p2-vote" data-choice="a">A 타일</button>
             <button class="btn btn-primary" data-action="p2-vote" data-choice="b">B 건반</button>
           </div>
-          <p class="hint" id="p2-vote-hint">둘 다 쳐 보면 투표할 수 있어요 · 한 사람 한 번</p>
+          <p class="hint" id="p2-vote-hint"></p>
           <div class="p2-result" id="p2-result" hidden></div>
         </div>
       </div>
     </section>
     <section id="screen-p2play" class="screen" aria-label="피아노 미리보기">
-      <canvas id="p2-canvas"></canvas>
-      <button class="icon-btn p2-exit" data-action="p2-exit" aria-label="그만"><span data-icon="close"></span></button>
-      <div class="p2-over" id="p2-over" hidden>
-        <div class="p2-over-box">
-          <h3 id="p2-over-title">끝!</h3>
-          <div class="p2-over-score" id="p2-over-score"></div>
-          <div class="p2-over-detail" id="p2-over-detail"></div>
-          <button class="btn btn-primary" data-action="p2-again">다시</button>
-          <button class="btn" data-action="p2-back">투표하러 가기</button>
+      <div class="p2-stage" id="p2-stage">
+        <canvas id="p2-canvas"></canvas>
+        <button class="p2-pause" data-action="p2-pause" aria-label="일시정지"><i></i><i></i></button>
+        <!-- 가로 건반: 폰을 돌려 달라는 안내 -->
+        <div class="p2-layer p2-turn" id="p2-turn" hidden>
+          <div class="p2-turn-box">
+            <div class="p2-turn-phone"><i></i></div>
+            <b>폰을 가로로 돌려 주세요</b>
+            <button class="btn btn-primary" data-action="p2-go">시작</button>
+            <button class="link" data-action="p2-exit">나가기</button>
+          </div>
+        </div>
+        <div class="p2-layer" id="p2-paused" hidden>
+          <div class="p2-sheet">
+            <h3>일시정지</h3>
+            <button class="btn btn-primary" data-action="p2-resume">계속하기</button>
+            <button class="btn btn-ghost" data-action="p2-again">처음부터</button>
+            <button class="btn btn-ghost" data-action="p2-exit">나가기</button>
+          </div>
+        </div>
+        <div class="p2-layer" id="p2-over" hidden>
+          <div class="p2-res">
+            <div class="p2-res-left">
+              <img class="p2-res-buddy" id="p2-res-buddy" alt="" />
+              <div class="p2-res-song" id="p2-res-song"></div>
+              <div class="p2-res-stars" id="p2-res-stars"><i></i><i></i><i></i></div>
+              <div class="p2-res-score"><span id="p2-res-score">0</span><em id="p2-res-grade">A</em></div>
+              <div class="p2-res-new" id="p2-res-new" hidden>최고 기록!</div>
+            </div>
+            <div class="p2-res-right">
+              <div class="p2-res-stats" id="p2-res-stats"></div>
+              <div class="p2-res-btns">
+                <button class="btn btn-ghost" data-action="p2-again">다시</button>
+                <button class="btn btn-primary" data-action="p2-next" id="p2-res-next">투표하러 가기</button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -1046,6 +1084,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=c037a8c09d" defer></script>
+  <script src="js/app.js?v=3bdade7f20" defer></script>
 </body>
 </html>

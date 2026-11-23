@@ -9,7 +9,7 @@ import {
   QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds, STEPS_PER_BAR, CHAR_LANES, KICK, SNARE, HAT, CRASH, parseChord, noteCount,
 } from './charts.js';
 import { todayMission, missionDone, streakView, markDone } from './daily.js';
-import { PianoPreview } from './piano2.js';
+import { PianoPreview, P2_SONGS } from './piano2.js';
 import { DECO_THEMES, NOTE_FREE, SHOP_ITEMS, RARITY, RARITY_NAME, priceOf, legacyRefund, LIMITED, onSale } from './shop.js';
 import { startShopPreview, stopShopPreview, drawKitCloseup } from './shoppreview.js';
 import { separateVocals, resample } from './vocalsep.js';
@@ -5672,17 +5672,20 @@ async function sendSuggest() {
 }
 
 // ---------------- 🎹 시즌 2 피아노 미리보기 · 투표 (2026-11-23) ----------------
-//   A 라이브 / B 건반 을 같은 곡으로 쳐 보고 한 표 (이용 등록한 계정당 한 번, 넣으면 바로 결과)
+//   A 타일(세로) / B 건반(가로) 을 쳐 보고 한 표 (이용 등록한 계정당 한 번, 넣으면 바로 결과)
 //   치는 건 연습판: 기록·랭킹·코인·서버 요청 없음. 투표만 요청 1번 (+ 이미 투표한 폰은 화면 열 때 결과 1번)
+//   B 는 가로 화면: 폰이 세로면 무대(.p2-stage)를 90° 돌려 그림 (회전 잠금이어도 폰만 돌리면 됨)
 const P2_POLL = 'piano2';
-const P2_SONGS = [1, 2];
+const P2_NAME = { tiles: 'A 타일', keys: 'B 건반' };
 const p2 = { song: 1, style: null, game: null };
 function p2Tried() {
-  return load('p2Tried', {}) || {};
+  return load('p2Tried2', {}) || {};
+}
+function p2Bests() {
+  return load('p2Best', {}) || {};
 }
 function openP2() {
-  if (!P2_SONGS.includes(p2.song)) p2.song = 1;
-  $('#p2-songs').innerHTML = P2_SONGS.map((id) => `<button type="button" data-p2song="${id}" class="${id === p2.song ? 'on' : ''}"><b>${escapeHtml(getLevel(id).name)}</b></button>`).join('');
+  if (!P2_SONGS.some((x) => x.id === p2.song)) p2.song = P2_SONGS[0].id;
   renderP2();
   show('screen-p2');
   const mine = load('p2Vote', null);
@@ -5697,15 +5700,25 @@ function openP2() {
 }
 function renderP2() {
   const tried = p2Tried();
+  const bests = p2Bests();
+  $('#p2-songs').innerHTML = P2_SONGS.map((x) => {
+    const lv = getLevel(x.id);
+    return `<button type="button" data-p2song="${x.id}" class="${x.id === p2.song ? 'on' : ''}"><b>${escapeHtml(lv.name)}</b><small>${escapeHtml(lv.composer || '')}</small><em class="d-${x.diff === '쉬움' ? 1 : x.diff === '보통' ? 2 : 3}">${x.diff}</em></button>`;
+  }).join('');
   $$('#screen-p2 [data-done]').forEach((el) => (el.hidden = !tried[el.dataset.done]));
-  const both = !!(tried.live && tried.keys);
+  $$('#screen-p2 [data-best]').forEach((el) => {
+    const b = bests[`${el.dataset.best}:${p2.song}`];
+    el.textContent = b ? `최고 ${b.score.toLocaleString()}` : '';
+  });
+  const both = !!(tried.tiles && tried.keys);
   const mine = load('p2Vote', null);
   $$('#screen-p2 [data-action="p2-vote"]').forEach((b) => {
     b.disabled = !both || !!mine;
     b.classList.toggle('mine', !!mine && mine.choice === b.dataset.choice);
   });
-  $('#p2-vote-hint').hidden = !!mine;
-  $('#p2-vote-hint').textContent = both ? '한 사람 한 번만 투표할 수 있어요' : '둘 다 쳐 보면 투표할 수 있어요';
+  const hint = $('#p2-vote-hint');
+  hint.hidden = !!mine;
+  hint.textContent = both ? '한 사람 한 번만 투표할 수 있어요' : `둘 다 쳐 보면 투표할 수 있어요 (${(tried.tiles ? 1 : 0) + (tried.keys ? 1 : 0)}/2)`;
   const box = $('#p2-result');
   box.hidden = !mine;
   if (mine) {
@@ -5715,28 +5728,81 @@ function renderP2() {
     const total = Math.max(1, a + b);
     const row = (k, name, n) => {
       const pct = Math.round((n / total) * 100);
-      return `<div class="p2-bar ${mine.choice === k ? 'mine' : ''}"><span class="p2-bar-name">${name}${mine.choice === k ? ' <em>내 표</em>' : ''}</span><span class="p2-bar-track"><i style="width:${pct}%"></i></span><b>${pct}%</b><small>${n.toLocaleString()}표</small></div>`;
+      const lead = n >= (k === 'a' ? b : a) && n > 0;
+      return `<div class="p2-bar ${mine.choice === k ? 'mine' : ''} ${lead ? 'lead' : ''}"><span class="p2-bar-name">${name}${mine.choice === k ? ' <em>내 표</em>' : ''}</span><b>${pct}%</b><span class="p2-bar-track"><i style="width:${pct}%"></i></span><small>${n.toLocaleString()}표</small></div>`;
     };
-    box.innerHTML = row('a', 'A 라이브', a) + row('b', 'B 건반', b) + `<p class="hint">지금까지 ${(a + b).toLocaleString()}명 투표</p>`;
+    box.innerHTML = row('a', 'A 타일', a) + row('b', 'B 건반', b) + `<p class="hint">지금까지 ${(a + b).toLocaleString()}명 투표 · 많이 받은 쪽이 시즌 2에 나와요</p>`;
   }
+}
+/** 무대 크기·회전: 건반은 가로(폰이 세로면 90° 돌림), 타일은 세로(넓은 화면이면 가운데 폭만) */
+function p2Stage() {
+  const st = $('#p2-stage');
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const rot = p2.style === 'keys' && vh > vw;
+  st.classList.toggle('rot', rot);
+  st.classList.toggle('land', p2.style === 'keys');
+  if (p2.style === 'keys') {
+    st.style.width = (rot ? vh : vw) + 'px';
+    st.style.height = (rot ? vw : vh) + 'px';
+    st.style.left = rot ? vw + 'px' : '0px';
+  } else {
+    const w = Math.min(vw, Math.round(vh * 0.66));
+    st.style.width = w + 'px';
+    st.style.height = vh + 'px';
+    st.style.left = Math.round((vw - w) / 2) + 'px';
+  }
+  return rot;
+}
+window.addEventListener('resize', () => {
+  if (!$('#screen-p2play').classList.contains('active')) return;
+  p2Stage();
+  if (p2.game) p2.game.resize();
+});
+function p2Layers(id) {
+  for (const x of ['p2-turn', 'p2-paused', 'p2-over']) $('#' + x).hidden = x !== id;
 }
 async function p2Play(style) {
   if (style) p2.style = style;
   stopP2();
-  $('#p2-over').hidden = true;
   show('screen-p2play');
+  p2Stage();
+  const ctx = audio.ensure();
+  audio.unlock();
+  // 가로 건반인데 폰이 세로: 돌려 달라고 먼저 (시작 버튼)
+  if (p2.style === 'keys' && window.innerHeight > window.innerWidth && !p2.turned) {
+    p2Layers('p2-turn');
+    drawP2Idle();
+    return;
+  }
+  p2Layers(null);
+  await p2Begin(ctx);
+}
+async function p2Begin() {
+  p2Layers(null);
   await audio.unlock();
   await Promise.race([audio.loadPiano(), new Promise((r) => setTimeout(r, 3000))]);
   if (!$('#screen-p2play').classList.contains('active')) return;
+  p2Stage();
   const g = new PianoPreview({
     audio,
     canvas: $('#p2-canvas'),
     level: getLevel(p2.song),
     style: p2.style,
+    rotated: () => $('#p2-stage').classList.contains('rot'),
     onEnd: (r) => p2End(r),
   });
   p2.game = g;
   g.start();
+}
+/** 돌려 달라는 안내 뒤에 깔 빈 무대 (게임 그림 한 장) */
+function drawP2Idle() {
+  const g = new PianoPreview({ audio, canvas: $('#p2-canvas'), level: getLevel(p2.song), style: p2.style, onEnd: () => {} });
+  g.resize();
+  g.startTime = 0;
+  g.state = 'paused';
+  g.pausedAt = -5;
+  g._draw(-5);
 }
 function stopP2() {
   if (p2.game) p2.game.stop();
@@ -5746,17 +5812,54 @@ function p2End(r) {
   p2.game = null;
   const tried = p2Tried();
   tried[p2.style] = 1;
-  save('p2Tried', tried);
-  $('#p2-over-title').textContent = r.full ? '풀콤보!' : '끝!';
-  $('#p2-over-score').textContent = r.score.toLocaleString();
-  $('#p2-over-detail').innerHTML = `정확도 <b>${Math.round(r.accuracy * 100)}%</b> · 최대 콤보 <b>${r.maxCombo}</b><br><small>PERFECT ${r.perfect} · GREAT ${r.great} · GOOD ${r.good} · MISS ${r.miss} · 헛침 ${r.wrong}</small>`;
-  const other = p2.style === 'live' ? 'keys' : 'live';
-  $('#p2-over [data-action="p2-back"]').textContent = tried[other] ? '투표하러 가기' : `${other === 'live' ? 'A 라이브' : 'B 건반'}도 쳐 보기`;
-  $('#p2-over').hidden = false;
+  save('p2Tried2', tried);
+  const bests = p2Bests();
+  const key = `${p2.style}:${p2.song}`;
+  const isNew = !bests[key] || r.score > bests[key].score;
+  if (isNew) {
+    bests[key] = { score: r.score, stars: r.stars, at: Date.now() };
+    save('p2Best', bests);
+  }
+  const lv = getLevel(p2.song);
+  $('#p2-res-song').textContent = `${lv.name} · ${P2_NAME[p2.style]}`;
+  $('#p2-res-buddy').src = `assets/mascot/${r.stars >= 2 ? 'kong_cheer' : r.stars === 1 ? 'kong_idle' : 'kong_miss'}.webp`;
+  $$('#p2-res-stars i').forEach((el, i) => {
+    el.className = i < r.stars ? 'on' : '';
+    el.style.animationDelay = `${0.25 + i * 0.22}s`;
+  });
+  $('#p2-res-grade').textContent = r.full ? 'FC' : r.grade;
+  $('#p2-res-grade').className = 'g-' + (r.full ? 'fc' : r.grade.toLowerCase());
+  $('#p2-res-new').hidden = !isNew || r.score <= 0;
+  const rows = [
+    ['PERFECT', r.perfect, 'p'],
+    ['GREAT', r.great, 'g'],
+    ['GOOD', r.good, 'o'],
+    ['MISS', r.miss + r.wrong, 'm'],
+  ];
+  const tot = Math.max(1, r.items + r.wrong);
+  $('#p2-res-stats').innerHTML =
+    `<div class="p2-res-acc"><span>정확도</span><b>${(r.accuracy * 100).toFixed(1)}%</b><span>최대 콤보</span><b>${r.maxCombo}</b></div>` +
+    rows.map(([n, v, c]) => `<div class="p2-jrow j-${c}"><span>${n}</span><i><u style="width:${Math.round((v / tot) * 100)}%"></u></i><b>${v}</b></div>`).join('');
+  const other = p2.style === 'tiles' ? 'keys' : 'tiles';
+  $('#p2-res-next').textContent = tried[other] ? '투표하러 가기' : `${P2_NAME[other]}도 쳐 보기`;
+  // 점수 올라가는 숫자
+  const el = $('#p2-res-score');
+  const t0 = performance.now();
+  const step = () => {
+    const k = Math.min(1, (performance.now() - t0) / 900);
+    el.textContent = Math.round(r.score * (1 - Math.pow(1 - k, 3))).toLocaleString();
+    if (k < 1 && !$('#p2-over').hidden) requestAnimationFrame(step);
+  };
+  p2Layers('p2-over');
+  requestAnimationFrame(step);
+  audio.unlock().then(() => audio.sfxFile(r.stars >= 2 ? 'cheer' : 'combo', 0.7)).catch(() => {});
+}
+function p2Pause() {
+  if (p2.game && p2.game.pause()) p2Layers('p2-paused');
 }
 async function p2Vote(choice) {
   const tried = p2Tried();
-  if (!tried.live || !tried.keys) return toast('둘 다 쳐 보면 투표할 수 있어요');
+  if (!tried.tiles || !tried.keys) return toast('둘 다 쳐 보면 투표할 수 있어요');
   if (load('p2Vote', null)) return;
   if (!state.api || state.api.mode !== 'server') return toast('서버가 쉬는 중이에요. 조금 뒤에 다시 해 주세요');
   try {
@@ -5775,14 +5878,10 @@ document.addEventListener('click', (e) => {
   const b = e.target.closest && e.target.closest('[data-p2song]');
   if (!b) return;
   p2.song = Number(b.dataset.p2song);
-  $$('#p2-songs [data-p2song]').forEach((x) => x.classList.toggle('on', x === b));
+  renderP2();
 });
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden && p2.game) {
-    stopP2();
-    show('screen-p2');
-    renderP2();
-  }
+  if (document.hidden) p2Pause();
 });
 
 const ACTIONS = {
@@ -5844,19 +5943,30 @@ const ACTIONS = {
   'maps-open': () => openMaps(),
   'p2-open': () => openP2(),
   'p2-play': (el) => p2Play(el.dataset.style),
+  'p2-go': () => {
+    p2.turned = true;
+    p2Begin();
+  },
+  'p2-pause': () => p2Pause(),
+  'p2-resume': () => {
+    p2Layers(null);
+    if (p2.game) p2.game.resume();
+  },
   'p2-again': () => p2Play(),
   'p2-exit': () => {
     stopP2();
+    p2Layers(null);
     renderP2();
     show('screen-p2');
   },
-  'p2-back': () => {
-    $('#p2-over').hidden = true;
+  'p2-next': () => {
     const tried = p2Tried();
-    const other = p2.style === 'live' ? 'keys' : 'live';
+    const other = p2.style === 'tiles' ? 'keys' : 'tiles';
     if (!tried[other]) return p2Play(other);
+    p2Layers(null);
     renderP2();
     show('screen-p2');
+    setTimeout(() => $('#p2-vote').scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
   },
   'p2-vote': (el) => p2Vote(el.dataset.choice),
   'mm-start': (el) => startMapMode(el.dataset.mm),
