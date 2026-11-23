@@ -3711,8 +3711,12 @@ class PianoPreview {
   _py(s) {
     return this.horizonY + (this.judgeY - this.horizonY) * s;
   }
+  /** 옆으로 좁아지는 정도: 원근의 절반만 (11-23 사용자: 구석 건반 막대가 가운데로 쏠려 보여 다른 건반을 침) */
+  _sx(s) {
+    return 1 - (1 - s) * 0.45;
+  }
   _px(x, s) {
-    return this.cx + (x - this.cx) * s;
+    return this.cx + (x - this.cx) * this._sx(s);
   }
   /** 길 위 사다리꼴 (판정선 자리 x 범위 xa~xb, 크기 배율 sa(먼 쪽)~sb(가까운 쪽)) */
   _trap(g, xa, xb, sa, sb) {
@@ -3742,6 +3746,11 @@ class PianoPreview {
       return Math.max(0, Math.min(3, Math.floor(x / this.laneW)));
     }
     if (y < this.judgeY - (this.judgeY - this.hudH) * 0.45) return -1;
+    // 길 위를 누르면: 그 높이에서 막대가 보이는 자리 → 건반 자리로 되돌려 읽음 (원근 때문에 다른 건반이 눌리지 않게)
+    if (y < this.judgeY) {
+      const k = this._sx(Math.max(this.sFar, Math.min(1, (y - this.horizonY) / (this.judgeY - this.horizonY))));
+      x = this.cx + (x - this.cx) / k;
+    }
     if (y < this.kbY + this.blackH) {
       for (let i = 0; i < this.cols.length; i++) {
         const c = this.cols[i];
