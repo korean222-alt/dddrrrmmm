@@ -1,7 +1,7 @@
 // 🎹 시즌 2 피아노 미리보기 (2026-11-23): 음표 시각·건반·타일 줄
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { p2Notes, p2Keys, p2TileLanes, p2TileBeats, p2Level, p2Stars, p2Judge, p2FastMult, P2_FAST_MAX, P2_SONGS, P2_SOLFA } from '../public/js/piano2.js';
+import { p2Notes, p2Keys, p2TileLanes, p2TileBeats, p2Level, p2Stars, p2Judge, p2FastMult, p2LearnBias, P2_BIAS_MAX, P2_FAST_MAX, P2_SONGS, P2_SOLFA } from '../public/js/piano2.js';
 import { getLevel, tempoOf, COUNT_IN_BARS } from '../public/js/charts.js';
 
 test('미리보기 곡: 카운트인 뒤부터 시간 순, 30초쯤', () => {
@@ -86,4 +86,21 @@ test('⚡ 점점 빠르게: 처음 1배 → 끝 1.6배, 음표 시각이 점점 
     assert.ok(notes.at(-1).end > 30, `${id}: 너무 짧음`);
     assert.ok(!p2Level(base).tempo, '보통은 고정 빠르기');
   }
+});
+
+test('누르는 버릇 배우기 (2026-11-23): 늘 늦게 누르면 판정 가운데가 그쪽으로, 앞뒤 0.15초까지', () => {
+  assert.equal(p2LearnBias(0, [0.1, 0.1, 0.1]), 0, '3번까지는 그대로');
+  let b = 0;
+  const dts = [];
+  for (let i = 0; i < 10; i++) {
+    dts.push(0.09 + (i % 3) * 0.01);
+    b = p2LearnBias(b, dts);
+  }
+  assert.ok(b > 0.08 && b <= 0.11, `${b}`);
+  dts.push(0.5, 0.5);
+  assert.ok(p2LearnBias(b, dts) < 0.12, '튀는 값 두어 개엔 안 흔들림');
+  const big = Array(12).fill(0.4);
+  let c = 0;
+  for (let i = 0; i < 10; i++) c = p2LearnBias(c, big);
+  assert.ok(Math.abs(c - P2_BIAS_MAX) < 1e-9);
 });
