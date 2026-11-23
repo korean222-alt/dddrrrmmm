@@ -505,7 +505,11 @@ export function createHandler(cfg, { store, meter = null }) {
     const w0 = await store.getWallet(pl.igsid);
     const { wallet, changed, rest } = applyCoins(w0, c, cfg.sessionSecret);
     if (changed) await store.putWallet(pl.igsid, wallet);
-    return rest > 0 ? { coins: wallet.coins, coinRest: rest } : { coins: wallet.coins };
+    const out = { coins: wallet.coins };
+    if (rest > 0) out.coinRest = rest;
+    // 🧯 D1 쓰기가 많은 날(브레이크 1단계~)엔 폰이 다시 10분에 한 번 모아 보내게 (2026-11-23)
+    if (brake() >= 1) out.coinSlow = 1;
+    return out;
   }
   /**
    * 📴 서버 없을 때(DB 한도 초과 등) 친 판의 최고 기록 (2026-11-22): 폰이 모았다가 다음 판 시작·점수 등록에 얹어 보냄

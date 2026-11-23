@@ -12309,7 +12309,9 @@ let onChange = () => {};
 // 지갑에 적는 건 D1 쓰기 1줄 → 판마다 보내지 않고 10분에 한 번(또는 판이 많이 쌓이면) 모아서 (2026-11-22 저녁)
 //   화면 잔액은 보낼 것까지 더해서 보여 주니 그대로. 서버는 판 토큰을 14일까지 받음
 // 2026-11-23 사용자 '바로 서버로, 안전하게' → 기다리지 않고 다음 판 시작·점수 요청마다 얹어 보냄 (지갑 쓰기 판마다 1줄)
-const SEND_EVERY_MS = 0;
+//   서버가 D1 쓰기가 많다고 알려 주면(coinSlow, 브레이크 1단계~) 1시간 동안은 예전처럼 10분에 한 번
+const SLOW_MS = 10 * 60 * 1000;
+const sendEvery = () => (Number(load('coinSlowUntil', 0)) > Date.now() ? SLOW_MS : 0);
 const int = (v) => (Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
 const queue = () => {
   const q = load('coinQ', []);
@@ -12371,7 +12373,7 @@ function takeCoins({ force = false } = {}) {
   const init = load('coinInit', false) ? null : int(load('coins', 0));
   if (!runs.length && !free && init == null) return undefined;
   const last = Number(load('coinSentAt', 0)) || 0;
-  if (!force && init == null && Date.now() - last < SEND_EVERY_MS && runs.length < 25) return undefined;
+  if (!force && init == null && Date.now() - last < sendEvery() && runs.length < 25) return undefined;
   const c = { runs, free };
   if (init != null) c.init = init;
   save('coinSending', c);
@@ -12389,6 +12391,7 @@ function coinsResult(data) {
     if (s && s.init != null) save('coinInit', true);
     save('coinSending', null);
     // 오늘 한도(하루 5000)를 넘어 서버가 못 받은 만큼 → 다시 모아 뒀다가 다음 날 (2026-11-23)
+    if (data.coinSlow) save('coinSlowUntil', Date.now() + 60 * 60 * 1000);
     const rest = int(data.coinRest);
     if (rest) save('coinFree', int(load('coinFree', 0)) + rest);
   } else if (s) coinsInit();
