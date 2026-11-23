@@ -5830,16 +5830,16 @@ function p2End(r) {
   $('#p2-res-grade').textContent = r.full ? 'FC' : r.grade;
   $('#p2-res-grade').className = 'g-' + (r.full ? 'fc' : r.grade.toLowerCase());
   $('#p2-res-new').hidden = !isNew || r.score <= 0;
+  const tot = Math.max(1, r.notes + r.wrong);
   const rows = [
-    ['PERFECT', r.perfect, 'p'],
-    ['GREAT', r.great, 'g'],
-    ['GOOD', r.good, 'o'],
-    ['MISS', r.miss + r.wrong, 'm'],
+    ['맞힘', r.hit, 'p', `${r.hit} / ${r.notes}`],
+    ['놓침', r.miss, 'm', r.miss],
+    ['헛침', r.wrong, 'w', r.wrong],
   ];
-  const tot = Math.max(1, r.items + r.wrong);
   $('#p2-res-stats').innerHTML =
-    `<div class="p2-res-acc"><span>정확도</span><b>${(r.accuracy * 100).toFixed(1)}%</b><span>최대 콤보</span><b>${r.maxCombo}</b></div>` +
-    rows.map(([n, v, c]) => `<div class="p2-jrow j-${c}"><span>${n}</span><i><u style="width:${Math.round((v / tot) * 100)}%"></u></i><b>${v}</b></div>`).join('');
+    `<div class="p2-res-acc"><span>맞힌 비율</span><b>${Math.round(r.accuracy * 100)}%</b><span>최대 콤보</span><b>${r.maxCombo}</b></div>` +
+    rows.map(([n, v, c, txt]) => `<div class="p2-jrow j-${c}"><span>${n}</span><i><u style="width:${Math.round((v / tot) * 100)}%"></u></i><b>${txt}</b></div>`).join('') +
+    `<div class="p2-jrow j-h"><span>꾹 보너스</span><i><u style="width:${Math.round(r.holdPct * 100)}%"></u></i><b>+${r.bonus.toLocaleString()}</b></div>`;
   const other = p2.style === 'tiles' ? 'keys' : 'tiles';
   $('#p2-res-next').textContent = tried[other] ? '투표하러 가기' : `${P2_NAME[other]}도 쳐 보기`;
   // 점수 올라가는 숫자

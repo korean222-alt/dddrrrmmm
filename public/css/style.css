@@ -1158,14 +1158,14 @@ html.ui-live #screen-result .res-stats b { font-family: "Arial Black", "Segoe UI
 .p2-res-new[hidden] { display: none; }
 .p2-res-acc { display: grid; grid-template-columns: auto 1fr auto 1fr; gap: 2px 8px; align-items: baseline; font-size: 13px; color: var(--muted); padding: 8px 10px; background: #f7f4fb; border-radius: 14px; }
 .p2-res-acc b { font-weight: 400; color: var(--ink); font-size: 19px; }
-.p2-jrow { display: grid; grid-template-columns: 70px 1fr 34px; gap: 8px; align-items: center; font-size: 13px; }
+.p2-jrow { display: grid; grid-template-columns: 64px 1fr auto; gap: 8px; align-items: center; font-size: 13px; }
 .p2-jrow i { height: 8px; border-radius: 5px; background: #f0edf5; overflow: hidden; }
 .p2-jrow u { display: block; height: 100%; border-radius: 5px; background: currentColor; }
 .p2-jrow b { font-weight: 400; text-align: right; color: var(--ink); font-size: 15px; }
-.p2-jrow.j-p { color: #ff7a3d; }
-.p2-jrow.j-g { color: #3d8bff; }
-.p2-jrow.j-o { color: #25b865; }
+.p2-jrow.j-p { color: #25b865; }
 .p2-jrow.j-m { color: #9a94ae; }
+.p2-jrow.j-w { color: #ff4d6d; }
+.p2-jrow.j-h { color: #ff5fa2; }
 .p2-res-btns { display: grid; grid-template-columns: 1fr 1.4fr; gap: 8px; margin-top: 4px; }
 .p2-res-btns .btn { min-height: 48px; font-size: 16px; padding: 0 8px; }
 /* 가로 무대에선 결과를 옆으로 두 칸 */
