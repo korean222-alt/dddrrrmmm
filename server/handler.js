@@ -544,6 +544,32 @@ export function createHandler(cfg, { store, meter = null }) {
     if (bumpE) await hallBump(pl.igsid, 'endless');
     return { done: done.filter((k) => k != null), improved: up };
   }
+  /**
+   * 🩹 11-22 13시~11-23 9시(KST) 서버가 쉬는 동안 친 기록 되살리기 (2026-11-23, 사용자 요청: 자동으로, 표시 없이)
+   *   그때 폰이 기록을 저장도 안 하고 버렸음(main.js submitRank 버그) → 폰 '내 최고 기록'에 남은 그 시간 것을 얹어 보냄
+   *   판 토큰·판정 개수가 없어서 단계·점수 상한·콤보 상한·친 시각만 봄. 한 번에 OFFLINE_MAX 개, 받은 키를 돌려줌
+   */
+  async function takeLost(pl, list) {
+    if (!pl || !isConfirmed(pl) || !Array.isArray(list) || Date.now() > LOST_UNTIL) return null;
+    const done = [];
+    let bump = false;
+    let hallReady = false;
+    for (const e of list.slice(0, OFFLINE_MAX)) {
+      const v = validateLost(e);
+      done.push(v.key);
+      if (!v.ok) continue;
+      if (!hallReady) {
+        await ensureHall();
+        hallReady = true;
+      }
+      const out = await store.recordScore(pl.igsid, v.slot, { score: v.score, grade: v.grade, maxCombo: v.maxCombo, chk: null, at: v.at });
+      if (!out || !out.improved) continue;
+      boardChanged(v.slot, pl.igsid);
+      if (v.slot > 0 && v.slot <= LAST_LEVEL_ID) bump = true;
+    }
+    if (bump) await hallBump(pl.igsid, 'stage');
+    return { done: done.filter((k) => k != null) };
+  }
   /** 내 지갑 { coins, owned } (인증 전이면 null) — 🛒 산 것도 같이 (폰을 바꿔도 그대로) */
   const walletOf = async (pl) => {
     if (!pl || !isConfirmed(pl)) return { coins: null, owned: undefined };
@@ -1397,11 +1423,13 @@ export function createHandler(cfg, { store, meter = null }) {
       // 🕵 단계마다 몇 판 시작했나 (누군지 이미 아는 판만 = 4단계부터. 1~3단계는 쿼리 늘리지 않으려고 안 셈)
       if (runPl && runPl.igsid && level.id > 0 && brake() < 1) noteTry(runPl.igsid, level.id, 1, 0);
       const runToken = sign({ l: level.id, t: Date.now(), n: newId() }, cfg.sessionSecret);
-      const anyPl = body.coins || body.offline || preList(body).length ? runPl || (await getPlayer(request)) : null;
+      const anyPl = body.coins || body.offline || body.lost || preList(body).length ? runPl || (await getPlayer(request)) : null;
       notePre(anyPl, body);
       const coins = body.coins ? await takeCoins(anyPl, body.coins) : null;
       const offline = body.offline ? await takeOffline(anyPl, body.offline) : null;
+      const lost = body.lost ? await takeLost(anyPl, body.lost) : null;
       const out = { runToken };
+      if (lost) out.lost = lost;
       if (coins != null) Object.assign(out, coins);
       if (offline) out.offline = offline;
       return json(200, out);
@@ -1441,8 +1469,9 @@ export function createHandler(cfg, { store, meter = null }) {
       notePre(pl, body);
       const coins = body.coins ? await takeCoins(pl, body.coins) : null;
       const offline = body.offline ? await takeOffline(pl, body.offline) : null;
+      const lost = body.lost ? await takeLost(pl, body.lost) : null;
       // 코인·서버 없을 때 기록을 받았으면 오류 응답에도 실음 (폰이 두 번 안 보내게)
-      const wc = (o) => ({ ...o, ...(coins || {}), ...(offline ? { offline } : {}) });
+      const wc = (o) => ({ ...o, ...(coins || {}), ...(offline ? { offline } : {}), ...(lost ? { lost } : {}) });
       const em = endlessMode(body.level);
       if (em) {
         const e = validateEndless(body, cfg);
@@ -1749,6 +1778,26 @@ export function validateOffline(e, cfg, now = Date.now()) {
   const chk = JSON.parse(runCheck(e.check, null));
   chk.off = 1;
   return { ok: true, key, slot: level.id, score: v.score, grade: v.grade, maxCombo: v.maxCombo, chk: JSON.stringify(chk), at };
+}
+
+// 🩹 11-22 13:00 ~ 11-23 09:00 KST (D1 한도 초과로 서버가 쉬던 때). 받는 건 12-07 까지
+export const LOST_FROM = Date.parse('2026-11-22T04:00:00Z');
+export const LOST_TO = Date.parse('2026-11-23T00:00:00Z');
+export const LOST_UNTIL = Date.parse('2026-12-07T15:00:00Z');
+const LOST_GRADES = new Set(['SS', 'S', 'A', 'B', 'C', 'D']);
+/** 서버 쉬던 때 친 기록 하나 검사: { level, score, maxCombo, grade, at } (무제한은 안 받음) */
+export function validateLost(e) {
+  if (!e || typeof e !== 'object') return { ok: false, key: null };
+  const key = String(e.level);
+  const bad = (error) => ({ ok: false, key, error });
+  if (!Number.isInteger(e.at) || e.at < LOST_FROM || e.at >= LOST_TO) return bad('bad_at');
+  if (!Number.isInteger(e.level) || e.level <= 0 || endlessMode(e.level)) return bad('bad_level');
+  const level = getLevel(e.level);
+  if (!level) return bad('bad_level');
+  if (!Number.isInteger(e.score) || e.score <= 0 || e.score > maxScore(level)) return bad('bad_score');
+  const n = noteCount(level);
+  const maxCombo = Number.isInteger(e.maxCombo) ? Math.min(Math.max(0, e.maxCombo), n) : 0;
+  return { ok: true, key, slot: level.id, score: e.score, maxCombo, grade: LOST_GRADES.has(e.grade) ? e.grade : null, at: e.at };
 }
 
 /**

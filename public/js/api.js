@@ -6,7 +6,7 @@ import { load, save } from './storage.js';
 import { gradeFor } from './charts.js';
 import { takeTrack } from './track.js';
 import { takeCoins, coinsResult } from './coins.js';
-import { takeOffline, offlineResult } from './offrec.js';
+import { takeOffline, offlineResult, takeLost, lostResult } from './offrec.js';
 import { seasonAt } from './season.js';
 
 async function http(method, url, body) {
@@ -40,15 +40,18 @@ async function http(method, url, body) {
 function withCoins(send) {
   const coins = takeCoins();
   const offline = takeOffline();
-  return send(coins, offline).then(
+  const lost = takeLost();
+  return send(coins, offline, lost).then(
     (r) => {
       if (coins) coinsResult(r);
       if (offline) offlineResult(r);
+      if (lost) lostResult(r);
       return r;
     },
     (e) => {
       if (coins) coinsResult(e && e.data);
       if (offline) offlineResult(e && e.data);
+      if (lost) lostResult(e && e.data);
       throw e;
     }
   );
@@ -107,12 +110,12 @@ function serverApi(boot = null) {
         usedPre.push(k);
         return Promise.resolve({ runToken: pre.tok });
       }
-      return withCoins((coins, offline) => http('POST', '/api/runs', { level, track: takeTrack(), coins, offline, pre: usedPre.splice(0) }));
+      return withCoins((coins, offline, lost) => http('POST', '/api/runs', { level, track: takeTrack(), coins, offline, lost, pre: usedPre.splice(0) }));
     },
     submitScore: (payload) => {
       lbCache.clear();
       nextTok = {};
-      return withCoins((coins, offline) => http('POST', '/api/scores', { ...payload, track: takeTrack(), coins, offline, pre: usedPre.splice(0) })).then((r) => {
+      return withCoins((coins, offline, lost) => http('POST', '/api/scores', { ...payload, track: takeTrack(), coins, offline, lost, pre: usedPre.splice(0) })).then((r) => {
         if (r && r.next && typeof r.next === 'object') for (const [k, tok] of Object.entries(r.next)) if (typeof tok === 'string') nextTok[k] = { tok, at: Date.now() };
         return r;
       });

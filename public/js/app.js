@@ -13931,7 +13931,41 @@ function isBackedUp(levelId) {
   return !!m[k] && bk[k] === m[k].score;
 }
 
-return { queueOffline, offlineCount, takeOffline, offlineResult, backupOffline, isBackedUp };
+// 🩹 11-22 13시~11-23 9시(KST) 서버가 쉬는 동안 친 기록은 이 폰이 저장도 안 하고 버렸음(submitRank 버그, 11-23 고침)
+//   → '내 최고 기록'(bests)에 남은 그 시간 것을 다음 판 시작·점수 등록에 얹어 한 번 올림 (서버 validateLost, 12-07 까지)
+const LOST_FROM = Date.parse('2026-11-22T04:00:00Z');
+const LOST_TO = Date.parse('2026-11-23T00:00:00Z');
+const LOST_UNTIL = Date.parse('2026-12-07T15:00:00Z');
+function takeLost() {
+  if (load('lostSent', 0) || Date.now() > LOST_UNTIL) return undefined;
+  let m = load('lostRecs', null);
+  if (!m || typeof m !== 'object') {
+    m = {};
+    const bests = load('bests', {}) || {};
+    for (const [k, b] of Object.entries(bests)) {
+      if (!/^[1-9][0-9]*$/.test(k) || !b || !Number.isInteger(b.score) || !(b.at >= LOST_FROM && b.at < LOST_TO)) continue;
+      m[k] = { level: Number(k), score: b.score, maxCombo: b.maxCombo, grade: b.grade, at: b.at };
+    }
+    save('lostRecs', m);
+  }
+  const list = Object.values(m);
+  if (!list.length) {
+    save('lostSent', 1);
+    return undefined;
+  }
+  return list.slice(0, 5);
+}
+/** 응답 lost.done 에 든 단계는 지움 → 다 보냈으면 다시 안 봄 */
+function lostResult(data) {
+  const o = data && data.lost;
+  if (!o || !Array.isArray(o.done)) return;
+  const m = load('lostRecs', {}) || {};
+  for (const k of o.done) delete m[String(k)];
+  save('lostRecs', m);
+  if (!Object.keys(m).length) save('lostSent', 1);
+}
+
+return { queueOffline, offlineCount, takeOffline, offlineResult, backupOffline, isBackedUp, takeLost, lostResult };
 })();
 
 // ---- game.js ----
@@ -15295,7 +15329,7 @@ const { load, save } = __m_storage;
 const { gradeFor } = __m_charts;
 const { takeTrack } = __m_track;
 const { takeCoins, coinsResult } = __m_coins;
-const { takeOffline, offlineResult } = __m_offrec;
+const { takeOffline, offlineResult, takeLost, lostResult } = __m_offrec;
 const { seasonAt } = __m_season;
 
 async function http(method, url, body) {
@@ -15329,15 +15363,18 @@ async function http(method, url, body) {
 function withCoins(send) {
   const coins = takeCoins();
   const offline = takeOffline();
-  return send(coins, offline).then(
+  const lost = takeLost();
+  return send(coins, offline, lost).then(
     (r) => {
       if (coins) coinsResult(r);
       if (offline) offlineResult(r);
+      if (lost) lostResult(r);
       return r;
     },
     (e) => {
       if (coins) coinsResult(e && e.data);
       if (offline) offlineResult(e && e.data);
+      if (lost) lostResult(e && e.data);
       throw e;
     }
   );
@@ -15396,12 +15433,12 @@ function serverApi(boot = null) {
         usedPre.push(k);
         return Promise.resolve({ runToken: pre.tok });
       }
-      return withCoins((coins, offline) => http('POST', '/api/runs', { level, track: takeTrack(), coins, offline, pre: usedPre.splice(0) }));
+      return withCoins((coins, offline, lost) => http('POST', '/api/runs', { level, track: takeTrack(), coins, offline, lost, pre: usedPre.splice(0) }));
     },
     submitScore: (payload) => {
       lbCache.clear();
       nextTok = {};
-      return withCoins((coins, offline) => http('POST', '/api/scores', { ...payload, track: takeTrack(), coins, offline, pre: usedPre.splice(0) })).then((r) => {
+      return withCoins((coins, offline, lost) => http('POST', '/api/scores', { ...payload, track: takeTrack(), coins, offline, lost, pre: usedPre.splice(0) })).then((r) => {
         if (r && r.next && typeof r.next === 'object') for (const [k, tok] of Object.entries(r.next)) if (typeof tok === 'string') nextTok[k] = { tok, at: Date.now() };
         return r;
       });

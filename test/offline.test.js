@@ -81,3 +81,33 @@ test('📴 서버 없을 때 친 최고 기록: 판 토큰 없이 다음 판 시
   assert.ok(Math.abs(l6.at - at) < 1000);
   assert.ok(rep.reasons.some((x) => x.includes('서버 없을 때')));
 });
+
+test('🩹 11-22 13시~11-23 9시 서버 쉬던 때 친 기록: 폰 최고 기록에서 얹어 보내면 받음 (점수 상한·시각만, 표시 없음)', async () => {
+  const { validateLost, LOST_FROM, LOST_TO, LOST_UNTIL } = await import('../server/handler.js');
+  const { maxScore } = await import('../public/js/charts.js');
+  const at = LOST_FROM + 3600 * 1000;
+  const max17 = maxScore(getLevel(17));
+  assert.equal(validateLost({ level: 17, score: max17, maxCombo: 999, grade: 'S', at }).ok, true);
+  assert.equal(validateLost({ level: 17, score: max17, maxCombo: 999, at }).maxCombo, noteCount(getLevel(17)));
+  assert.equal(validateLost({ level: 17, score: max17 + 1, at }).error, 'bad_score');
+  assert.equal(validateLost({ level: 17, score: 1000, at: LOST_TO }).error, 'bad_at');
+  assert.equal(validateLost({ level: 17, score: 1000, at: LOST_FROM - 1 }).error, 'bad_at');
+  assert.equal(validateLost({ level: 999, score: 1000, at }).error, 'bad_level');
+  if (Date.now() > LOST_UNTIL) return; // 받는 기간 끝남
+  const c = client();
+  assert.equal((await c('POST', '/api/guest', { name: '되살림', ig: 'lost.rec' })).status, 200);
+  const list = [
+    { level: 9, score: 1234, maxCombo: 10, grade: 'B', at },
+    { level: 10, score: 999999999, at }, // 상한 넘음 → 버림
+  ];
+  assert.equal((await c('POST', '/api/runs', { level: 1, lost: list })).json.lost, undefined); // 인증 전엔 안 받음
+  await verifyIg('lost.rec');
+  const r = (await c('POST', '/api/runs', { level: 1, lost: list })).json;
+  assert.deepEqual(r.lost.done.sort(), ['10', '9']);
+  const lb = (await c('GET', '/api/leaderboard?level=9')).json;
+  assert.equal(lb.me.score, 1234);
+  assert.equal((await c('GET', '/api/leaderboard?level=10')).json.me, null);
+  const me = (await c('GET', '/api/admin/players', null, adm)).json.players.find((x) => x.ig === 'lost.rec');
+  const l9 = (await c('GET', '/api/admin/suspects?igsid=' + me.igsid, null, adm)).json.report.items.find((x) => x.level === 9);
+  assert.ok(!l9.off);
+});
