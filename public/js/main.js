@@ -9,6 +9,7 @@ import {
   QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds, STEPS_PER_BAR, CHAR_LANES, KICK, SNARE, HAT, CRASH, parseChord, noteCount,
 } from './charts.js';
 import { todayMission, missionDone, streakView, markDone } from './daily.js';
+import { PianoPreview } from './piano2.js';
 import { DECO_THEMES, NOTE_FREE, SHOP_ITEMS, RARITY, RARITY_NAME, priceOf, legacyRefund, LIMITED, onSale } from './shop.js';
 import { startShopPreview, stopShopPreview, drawKitCloseup } from './shoppreview.js';
 import { separateVocals, resample } from './vocalsep.js';
@@ -5670,6 +5671,120 @@ async function sendSuggest() {
   }
 }
 
+// ---------------- 🎹 시즌 2 피아노 미리보기 · 투표 (2026-11-23) ----------------
+//   A 라이브 / B 건반 을 같은 곡으로 쳐 보고 한 표 (이용 등록한 계정당 한 번, 넣으면 바로 결과)
+//   치는 건 연습판: 기록·랭킹·코인·서버 요청 없음. 투표만 요청 1번 (+ 이미 투표한 폰은 화면 열 때 결과 1번)
+const P2_POLL = 'piano2';
+const P2_SONGS = [1, 2];
+const p2 = { song: 1, style: null, game: null };
+function p2Tried() {
+  return load('p2Tried', {}) || {};
+}
+function openP2() {
+  if (!P2_SONGS.includes(p2.song)) p2.song = 1;
+  $('#p2-songs').innerHTML = P2_SONGS.map((id) => `<button type="button" data-p2song="${id}" class="${id === p2.song ? 'on' : ''}"><b>${escapeHtml(getLevel(id).name)}</b></button>`).join('');
+  renderP2();
+  show('screen-p2');
+  const mine = load('p2Vote', null);
+  if (mine && state.api && state.api.mode === 'server') {
+    state.api.poll(P2_POLL).then((r) => {
+      if (r && r.counts) {
+        save('p2Vote', { ...mine, counts: r.counts });
+        renderP2();
+      }
+    }, () => {});
+  }
+}
+function renderP2() {
+  const tried = p2Tried();
+  $$('#screen-p2 [data-done]').forEach((el) => (el.hidden = !tried[el.dataset.done]));
+  const both = !!(tried.live && tried.keys);
+  const mine = load('p2Vote', null);
+  $$('#screen-p2 [data-action="p2-vote"]').forEach((b) => {
+    b.disabled = !both || !!mine;
+    b.classList.toggle('mine', !!mine && mine.choice === b.dataset.choice);
+  });
+  $('#p2-vote-hint').hidden = !!mine;
+  $('#p2-vote-hint').textContent = both ? '한 사람 한 번만 투표할 수 있어요' : '둘 다 쳐 보면 투표할 수 있어요';
+  const box = $('#p2-result');
+  box.hidden = !mine;
+  if (mine) {
+    const c = mine.counts || {};
+    const a = c.a || 0;
+    const b = c.b || 0;
+    const total = Math.max(1, a + b);
+    const row = (k, name, n) => {
+      const pct = Math.round((n / total) * 100);
+      return `<div class="p2-bar ${mine.choice === k ? 'mine' : ''}"><span class="p2-bar-name">${name}${mine.choice === k ? ' <em>내 표</em>' : ''}</span><span class="p2-bar-track"><i style="width:${pct}%"></i></span><b>${pct}%</b><small>${n.toLocaleString()}표</small></div>`;
+    };
+    box.innerHTML = row('a', 'A 라이브', a) + row('b', 'B 건반', b) + `<p class="hint">지금까지 ${(a + b).toLocaleString()}명 투표</p>`;
+  }
+}
+async function p2Play(style) {
+  if (style) p2.style = style;
+  stopP2();
+  $('#p2-over').hidden = true;
+  show('screen-p2play');
+  await audio.unlock();
+  await Promise.race([audio.loadPiano(), new Promise((r) => setTimeout(r, 3000))]);
+  if (!$('#screen-p2play').classList.contains('active')) return;
+  const g = new PianoPreview({
+    audio,
+    canvas: $('#p2-canvas'),
+    level: getLevel(p2.song),
+    style: p2.style,
+    onEnd: (r) => p2End(r),
+  });
+  p2.game = g;
+  g.start();
+}
+function stopP2() {
+  if (p2.game) p2.game.stop();
+  p2.game = null;
+}
+function p2End(r) {
+  p2.game = null;
+  const tried = p2Tried();
+  tried[p2.style] = 1;
+  save('p2Tried', tried);
+  $('#p2-over-title').textContent = r.full ? '풀콤보!' : '끝!';
+  $('#p2-over-score').textContent = r.score.toLocaleString();
+  $('#p2-over-detail').innerHTML = `정확도 <b>${Math.round(r.accuracy * 100)}%</b> · 최대 콤보 <b>${r.maxCombo}</b><br><small>PERFECT ${r.perfect} · GREAT ${r.great} · GOOD ${r.good} · MISS ${r.miss} · 헛침 ${r.wrong}</small>`;
+  const other = p2.style === 'live' ? 'keys' : 'live';
+  $('#p2-over [data-action="p2-back"]').textContent = tried[other] ? '투표하러 가기' : `${other === 'live' ? 'A 라이브' : 'B 건반'}도 쳐 보기`;
+  $('#p2-over').hidden = false;
+}
+async function p2Vote(choice) {
+  const tried = p2Tried();
+  if (!tried.live || !tried.keys) return toast('둘 다 쳐 보면 투표할 수 있어요');
+  if (load('p2Vote', null)) return;
+  if (!state.api || state.api.mode !== 'server') return toast('서버가 쉬는 중이에요. 조금 뒤에 다시 해 주세요');
+  try {
+    const r = await state.api.vote(P2_POLL, choice);
+    save('p2Vote', { choice: r.mine || choice, counts: r.counts || {}, at: Date.now() });
+    renderP2();
+    toast(r.already ? '이미 투표했어요' : '투표했어요! 고마워요');
+  } catch (e) {
+    if (e && e.status === 401) {
+      toast('투표는 이용 등록 후에 할 수 있어요');
+      askNickname(true);
+    } else toast('투표를 못 보냈어요. 조금 뒤에 다시 해 주세요');
+  }
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('[data-p2song]');
+  if (!b) return;
+  p2.song = Number(b.dataset.p2song);
+  $$('#p2-songs [data-p2song]').forEach((x) => x.classList.toggle('on', x === b));
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && p2.game) {
+    stopP2();
+    show('screen-p2');
+    renderP2();
+  }
+});
+
 const ACTIONS = {
   'room-open': () => openRoom(),
   'room-close': () => closeModal('modal-room'),
@@ -5727,6 +5842,23 @@ const ACTIONS = {
   },
   'suggest-open': openSuggest,
   'maps-open': () => openMaps(),
+  'p2-open': () => openP2(),
+  'p2-play': (el) => p2Play(el.dataset.style),
+  'p2-again': () => p2Play(),
+  'p2-exit': () => {
+    stopP2();
+    renderP2();
+    show('screen-p2');
+  },
+  'p2-back': () => {
+    $('#p2-over').hidden = true;
+    const tried = p2Tried();
+    const other = p2.style === 'live' ? 'keys' : 'live';
+    if (!tried[other]) return p2Play(other);
+    renderP2();
+    show('screen-p2');
+  },
+  'p2-vote': (el) => p2Vote(el.dataset.choice),
   'mm-start': (el) => startMapMode(el.dataset.mm),
   'mm-close': () => closeModal('modal-mapmode'),
   // 🚧 맵 만들기 잠시 막음 (11-22 운영자 요청). 풀 땐 MAPMAKE_OFF=false + index.html #maps-make 의 disabled·문구 되돌리기

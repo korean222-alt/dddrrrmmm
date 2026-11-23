@@ -152,6 +152,9 @@ function serverApi(boot = null) {
       lbCache.delete('hall:endless');
       return http('POST', '/api/gift/ack', { msg: msg || null });
     },
+    // 🗳 투표 (2026-11-23 시즌 2 피아노 미리보기)
+    poll: (id) => http('GET', `/api/poll?id=${encodeURIComponent(id)}`),
+    vote: (id, choice) => http('POST', '/api/poll', { id, choice }),
     logout: () => http('POST', '/api/logout'),
     suggest: (kind, text, contact) => http('POST', '/api/suggestions', { kind, text, contact }),
     room: (body) => http('POST', '/api/rooms', body),
@@ -209,6 +212,12 @@ function mockApi(cfg) {
       throw Object.assign(new Error('no_server'), { status: 503 });
     },
     async hallMsg() {
+      throw Object.assign(new Error('no_server'), { status: 503 });
+    },
+    async poll() {
+      throw Object.assign(new Error('no_server'), { status: 503 });
+    },
+    async vote() {
       throw Object.assign(new Error('no_server'), { status: 503 });
     },
     async giftAck() {

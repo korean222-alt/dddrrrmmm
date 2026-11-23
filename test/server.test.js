@@ -1214,3 +1214,22 @@ test('🪙 하루 한도를 넘은 토큰 없는 코인은 버리지 않고 돌�
   assert.equal(c.rest, 0);
   assert.equal(c.wallet.coins, COIN_FREE_DAY + 3000);
 });
+
+test('🗳 투표: 등록한 사람만 · 한 사람 한 표 · 바로 결과', async () => {
+  assert.equal((await client()('GET', '/api/poll?id=nope')).status, 404);
+  assert.equal((await client()('POST', '/api/poll', { id: 'piano2', choice: 'a' })).status, 401, '등록 안 하면 못 함');
+  const A = await verifiedClient('투표손님', 'vote.guest');
+  const B = await verifiedClient('투표손님2', 'vote.guest2');
+  assert.equal((await A('POST', '/api/poll', { id: 'piano2', choice: 'z' })).status, 400);
+  const v1 = await A('POST', '/api/poll', { id: 'piano2', choice: 'a' });
+  assert.equal(v1.status, 200);
+  assert.equal(v1.json.already, false);
+  assert.equal(v1.json.counts.a, 1);
+  const v2 = await A('POST', '/api/poll', { id: 'piano2', choice: 'b' });
+  assert.equal(v2.json.already, true, '두 번째는 안 들어감');
+  assert.equal(v2.json.mine, 'a');
+  assert.equal(v2.json.counts.b || 0, 0);
+  const v3 = await B('POST', '/api/poll', { id: 'piano2', choice: 'b' });
+  assert.deepEqual(v3.json.counts, { a: 1, b: 1 });
+  assert.deepEqual((await client()('GET', '/api/poll?id=piano2')).json.counts, { a: 1, b: 1 });
+});

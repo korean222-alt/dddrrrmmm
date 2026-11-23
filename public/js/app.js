@@ -2091,6 +2091,1886 @@ function markDone(rec, today = kstDateKey()) {
 return { todayMission, missionDone, streakView, markDone };
 })();
 
+// ---- audio.js ----
+const __m_audio = (() => {
+// 오디오 엔진: 드럼은 Web Audio 합성, 곡(멜로디·화음·베이스)은 진짜 악기 샘플로 연주합니다.
+//   피아노 샘플: Salamander Grand Piano V3 (Alexander Holm, CC BY 3.0) — public/audio/piano/
+//   오케스트라 샘플: VS Chamber Orchestra Community Edition (Versilian Studios, CC0) — public/audio/orch/
+//     바이올린·첼로 합주, 호른·트롬본, 튜바, 팀파니. 피아노는 박자가 또렷하게 들리게 같이 침
+//   샘플을 못 불러오면 예전 합성음으로 대신 연주합니다.
+// - 모든 박자 판정은 AudioContext 시계 기준 (setTimeout 보다 훨씬 정확)
+// - heardTime(): "지금 스피커에서 나오고 있는 소리"의 시각. 출력 지연까지 반영.
+
+const { STEPS_PER_BAR, COUNT_IN_BARS, OUTRO_BARS, tempoOf, parseMelody, chordAt, levelLanes, CHAR_LANES, KICK, SNARE, HAT, CRASH, TOM, pianoHarmony, pianoLeftHand } = __m_charts;
+
+const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
+
+function makeSilentWavUrl() {
+  const rate = 8000;
+  const n = rate / 2;
+  const buf = new ArrayBuffer(44 + n);
+  const v = new DataView(buf);
+  const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF');
+  v.setUint32(4, 36 + n, true);
+  w(8, 'WAVE');
+  w(12, 'fmt ');
+  v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true);
+  v.setUint32(28, rate, true);
+  v.setUint16(32, 1, true);
+  v.setUint16(34, 8, true);
+  w(36, 'data');
+  v.setUint32(40, n, true);
+  for (let i = 0; i < n; i++) v.setUint8(44 + i, 128);
+  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
+}
+
+// 피아노 샘플: C · D# · F# · A (단3도 간격) → 가장 가까운 샘플을 최대 ±1.5음 올리고 내려서 씀
+const PIANO_BASE = 'audio/piano.bin';
+const PIANO_NOTES = [];
+for (let o = 2; o <= 6; o++) for (const [n, pc] of [['C', 0], ['Ds', 3], ['Fs', 6], ['A', 9]]) PIANO_NOTES.push({ file: `${n}${o}.mp3`, midi: 12 * (o + 1) + pc });
+PIANO_NOTES.push({ file: 'C7.mp3', midi: 96 });
+const PIANO_GAIN = 1.9; // 샘플이 합성음보다 작게 녹음돼 있어서 키움 (곡이 드럼에 묻히지 않게)
+
+// 오케스트라 샘플 (파일 이름 = 악기_미디번호.mp3). 소리 크기는 파일마다 맞춰 둠
+const ORCH_BASE = 'audio/orch.bin';
+
+/** 묶음 파일(scripts/pack-audio.js) 하나를 받아 files 순서대로 ArrayBuffer 배열로 (없으면 null) */
+async function fetchPack(url, files) {
+  try {
+    const r = await fetch(url);
+    if (!r.ok) return files.map(() => null);
+    const all = await r.arrayBuffer();
+    const hl = new DataView(all).getUint32(0);
+    const index = JSON.parse(new TextDecoder().decode(new Uint8Array(all, 4, hl)));
+    const base = 4 + hl;
+    return files.map((n) => {
+      const e = index[n.file];
+      return e ? all.slice(base + e[0], base + e[0] + e[1]) : null;
+    });
+  } catch {
+    return files.map(() => null);
+  }
+}
+const ORCH = {
+  vln: [55, 57, 59, 62, 66, 69, 72, 76, 79, 83, 86],
+  vc: [36, 40, 43, 47, 50, 53, 57, 60, 64],
+  br: [43, 46, 50, 53, 57, 60, 61, 63, 65, 74, 77],
+  tuba: [34, 39, 41, 46, 50],
+  timp: [37, 42],
+};
+const ORCH_FILES = Object.entries(ORCH).flatMap(([k, list]) => list.map((midi) => ({ set: k, midi, file: `${k}_${midi}.mp3` })));
+const ORCH_GAIN = { vln: 0.62, vc: 0.62, br: 0.55, tuba: 0.6, timp: 0.9 };
+
+/** 샘플 앞의 무음 길이(초): 음이 실제로 시작하는 지점부터 틀어야 박자가 정확함 */
+function onsetOf(buf) {
+  const d = buf.getChannelData(0);
+  const n = Math.min(d.length, Math.floor(buf.sampleRate * 0.2));
+  let peak = 0;
+  for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(d[i]));
+  const th = peak * 0.05;
+  for (let i = 0; i < n; i++) if (Math.abs(d[i]) > th) return Math.max(0, i / buf.sampleRate - 0.002);
+  return 0;
+}
+
+class AudioEngine {
+  constructor() {
+    this.ctx = null;
+    this.volumes = { music: 0.8, sfx: 1 };
+    this._clock = null;
+    this.piano = null; // [{ midi, buf, offset }] 불러오면 채워짐
+    this._pianoRaw = null;
+    this._pianoLoading = null;
+    this.orch = null; // { vln: [{ midi, buf, offset }], ... }
+    this._orchRaw = null;
+    this._orchLoading = null;
+    /** 반주를 오케스트라로 (false 면 피아노만) */
+    this.orchOn = true;
+  }
+
+  /** 오케스트라 샘플 미리 받기 (피아노 다음에) */
+  prefetchOrch(base = ORCH_BASE) {
+    if (this._orchRaw) return this._orchRaw;
+    this._orchRaw = fetchPack(base, ORCH_FILES);
+    return this._orchRaw;
+  }
+
+  /** 오케스트라 샘플 디코딩. 실패하면 false (피아노만으로 연주) */
+  loadOrch() {
+    if (this.orch) return Promise.resolve(true);
+    if (this._orchLoading) return this._orchLoading;
+    const ctx = this.ensure();
+    this._orchLoading = this.prefetchOrch().then(async (raws) => {
+      const out = {};
+      for (const k of Object.keys(ORCH)) out[k] = [];
+      let ok = 0;
+      for (let i = 0; i < raws.length; i++) {
+        const ab = raws[i];
+        if (!ab) continue;
+        try {
+          const buf = await new Promise((res, rej) => {
+            const p = ctx.decodeAudioData(ab.slice(0), res, rej);
+            if (p && p.then) p.then(res, rej);
+          });
+          out[ORCH_FILES[i].set].push({ midi: ORCH_FILES[i].midi, buf, offset: onsetOf(buf) });
+          ok++;
+        } catch {}
+      }
+      if (ok < ORCH_FILES.length * 0.8 || Object.values(out).some((l) => !l.length)) {
+        this._orchLoading = null;
+        return false;
+      }
+      for (const l of Object.values(out)) l.sort((a, b) => a.midi - b.midi);
+      this.orch = out;
+      return true;
+    });
+    return this._orchLoading;
+  }
+
+  /** 지금 오케스트라로 칠 수 있나 */
+  get orchestra() {
+    return this.orchOn && !!this.orch;
+  }
+
+  /**
+   * 오케스트라 악기 한 음. set = 'vln' | 'vc' | 'br' | 'tuba' | 'timp'
+   * attack 초 동안 서서히 커지고, dur 뒤 release 로 잦아듦
+   */
+  orchNote(set, t, midi, dur, vel = 0.6, dest = this.musicBus, attack = 0.015, release = 0.18) {
+    const list = this.orch && this.orch[set];
+    if (!list || !list.length) return;
+    const ctx = this.ctx;
+    let s = list[0];
+    for (const p of list) if (Math.abs(p.midi - midi) < Math.abs(s.midi - midi)) s = p;
+    const src = ctx.createBufferSource();
+    src.buffer = s.buf;
+    src.playbackRate.value = Math.pow(2, (midi - s.midi) / 12);
+    const g = ctx.createGain();
+    const v = vel * ORCH_GAIN[set];
+    const t0 = Math.max(t, ctx.currentTime);
+    const end = t0 + Math.max(0.06, dur);
+    if (attack > 0.002) {
+      g.gain.setValueAtTime(0.0001, t0);
+      g.gain.linearRampToValueAtTime(v, t0 + attack);
+    } else g.gain.setValueAtTime(v, t0);
+    g.gain.setValueAtTime(v, Math.max(end, t0 + attack));
+    g.gain.setTargetAtTime(0, Math.max(end, t0 + attack), release);
+    src.connect(g).connect(dest);
+    src.start(t0, s.offset);
+    src.stop(Math.min(end + release * 6, t0 + s.buf.duration / src.playbackRate.value));
+  }
+
+  /** 피아노 샘플 파일 미리 받기 (AudioContext 없이도 가능 → 페이지 열자마자 호출) */
+  prefetchPiano(base = PIANO_BASE) {
+    if (this._pianoRaw) return this._pianoRaw;
+    this._pianoRaw = fetchPack(base, PIANO_NOTES);
+    return this._pianoRaw;
+  }
+
+  /** 피아노 샘플 디코딩. 실패해도 에러 없이 false (합성음으로 대신 연주) */
+  loadPiano() {
+    if (this.piano) return Promise.resolve(true);
+    if (this._pianoLoading) return this._pianoLoading;
+    const ctx = this.ensure();
+    this._pianoLoading = this.prefetchPiano().then(async (raws) => {
+      const out = [];
+      await Promise.all(
+        raws.map(async (ab, i) => {
+          if (!ab) return;
+          try {
+            const buf = await new Promise((res, rej) => {
+              const p = ctx.decodeAudioData(ab, res, rej);
+              if (p && p.then) p.then(res, rej);
+            });
+            out.push({ midi: PIANO_NOTES[i].midi, buf, offset: onsetOf(buf) });
+          } catch {}
+        })
+      );
+      if (out.length < PIANO_NOTES.length * 0.8) {
+        this._pianoLoading = null;
+        return false;
+      }
+      out.sort((a, b) => a.midi - b.midi);
+      this.piano = out;
+      return true;
+    });
+    return this._pianoLoading;
+  }
+
+  /** 🎤 녹음된 곡(노래 파일) 받아서 풀어 둠. 실패하면 null. 한 번 받으면 다시 안 받음 (새 소리 엔진에서도 그대로 씀) */
+  loadTrack(src) {
+    this._tracks ??= new Map();
+    this._trackBufs ??= new Map();
+    if (this._tracks.has(src)) return this._tracks.get(src);
+    const ctx = this.ensure();
+    const p = fetch(src)
+      .then((r) => {
+        if (!r.ok) throw new Error(String(r.status));
+        return r.arrayBuffer();
+      })
+      .then(
+        (ab) =>
+          new Promise((res, rej) => {
+            const q = ctx.decodeAudioData(ab, res, rej);
+            if (q && q.then) q.then(res, rej);
+          })
+      )
+      .then((buf) => {
+        this._trackBufs.set(src, buf);
+        return buf;
+      })
+      .catch(() => {
+        this._tracks.delete(src);
+        return null;
+      });
+    this._tracks.set(src, p);
+    return p;
+  }
+
+  /**
+   * 🔔 효과음 파일 (2026-11-22, ElevenLabs 로 만든 assets/sfx/*.mp3): combo 콤보 반짝 · cheer 풀콤보 환호 · buy 상점 구매 · gift 선물 받기
+   *   처음 부를 때 받아 두고(loadTrack 캐시), 아직 못 받았으면 이번엔 조용히 넘어감. 효과음 볼륨(sfxBus)을 따름
+   */
+  sfxFile(name, vol = 1) {
+    const src = `assets/sfx/${name.includes('.') ? name : name + '.mp3'}`;
+    const ctx = this.ctx;
+    const buf = this.trackBuffer(src);
+    if (!buf) {
+      const t0 = performance.now();
+      // 아직 안 받았으면 받고 나서 바로 (1.5초 넘게 걸리면 이번엔 건너뜀)
+      this.loadTrack(src).then((b) => b && performance.now() - t0 < 1500 && this.sfxFile(name, vol));
+      return;
+    }
+    if (!ctx || !this.sfxBus || this.sfxBus.context !== ctx) return;
+    try {
+      const s = ctx.createBufferSource();
+      const g = ctx.createGain();
+      s.buffer = buf;
+      g.gain.value = vol;
+      s.connect(g).connect(this.sfxBus);
+      s.start(ctx.currentTime + 0.01);
+    } catch {}
+  }
+  /** 효과음 파일 미리 받기 (첫 터치 뒤) */
+  prefetchSfx() {
+    for (const n of ['combo', 'cheer', 'buy', 'gift', ...(this.uiSet === 'live' ? ['live2_tap', 'live2_combo', 'live2_clear'] : [])]) this.loadTrack(`assets/sfx/${n}.mp3`);
+  }
+
+  /** 받아 둔 곡 (없으면 null) */
+  trackBuffer(src) {
+    return (this._trackBufs && this._trackBufs.get(src)) || null;
+  }
+
+  /** 피아노 한 음. vel 0~1, dur 초 뒤에 건반을 뗌(댐퍼) */
+  pianoNote(t, midi, dur, vel = 0.8, dest = this.musicBus) {
+    const ctx = this.ctx;
+    let s = this.piano[0];
+    for (const p of this.piano) if (Math.abs(p.midi - midi) < Math.abs(s.midi - midi)) s = p;
+    const src = ctx.createBufferSource();
+    src.buffer = s.buf;
+    src.playbackRate.value = Math.pow(2, (midi - s.midi) / 12);
+    const g = ctx.createGain();
+    const rel = t + Math.max(0.08, dur);
+    const v = vel * PIANO_GAIN;
+    g.gain.setValueAtTime(v, t);
+    g.gain.setValueAtTime(v, rel);
+    g.gain.setTargetAtTime(0, rel, 0.08);
+    src.connect(g).connect(dest);
+    src.start(Math.max(t, ctx.currentTime), s.offset);
+    src.stop(rel + 0.6);
+  }
+
+  ensure() {
+    if (this.ctx) return this.ctx;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    let ctx;
+    try {
+      ctx = new AC({ latencyHint: 'interactive' });
+    } catch {
+      ctx = new AC();
+    }
+    this.ctx = ctx;
+    const comp = ctx.createDynamicsCompressor();
+    comp.threshold.value = -12;
+    comp.knee.value = 8;
+    comp.ratio.value = 4;
+    comp.attack.value = 0.002;
+    comp.release.value = 0.15;
+    this.master = ctx.createGain();
+    this.master.gain.value = 0.95;
+    this.master.connect(comp).connect(ctx.destination);
+    this.out = comp;
+    this.musicBus = ctx.createGain();
+    this.musicBus.connect(this.master);
+    this.sfxBus = ctx.createGain();
+    this.sfxBus.connect(this.master);
+    // 작은 방 울림(리버브): 드럼이 '방 안에서' 울리는 느낌
+    try {
+      const len = Math.floor(ctx.sampleRate * 1.1);
+      const ir = ctx.createBuffer(2, len, ctx.sampleRate);
+      for (let ch = 0; ch < 2; ch++) {
+        const d = ir.getChannelData(ch);
+        for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2);
+      }
+      const verb = ctx.createConvolver();
+      verb.buffer = ir;
+      const wet = ctx.createGain();
+      wet.gain.value = 0.16;
+      verb.connect(wet).connect(this.master);
+      const sendS = ctx.createGain();
+      sendS.gain.value = 0.55;
+      this.sfxBus.connect(sendS).connect(verb);
+      const sendM = ctx.createGain();
+      sendM.gain.value = 0.6;
+      this.musicBus.connect(sendM).connect(verb);
+    } catch {}
+    this.applyVolumes();
+    const len = ctx.sampleRate;
+    const nb = ctx.createBuffer(1, len, ctx.sampleRate);
+    const d = nb.getChannelData(0);
+    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
+    this.noiseBuf = nb;
+    return ctx;
+  }
+
+  setVolumes(v) {
+    Object.assign(this.volumes, v);
+    this.applyVolumes();
+  }
+  applyVolumes() {
+    if (!this.ctx) return;
+    this.musicBus.gain.value = this.volumes.music * 0.5;
+    this.sfxBus.gain.value = this.volumes.sfx * 1.0;
+  }
+
+  /** 반드시 사용자 터치 이벤트 안에서 호출 (iOS/인앱 브라우저 정책) */
+  async unlock() {
+    const ctx = this.ensure();
+    try {
+      if (navigator.audioSession) navigator.audioSession.type = 'playback'; // iOS 무음 스위치 우회 (Safari 17+)
+    } catch {}
+    if (!this._unlocked) {
+      setTimeout(() => this.prefetchSfx(), 1500); // 🔔 효과음 파일 미리 (작은 정적 파일, 서버 요청 아님)
+      const b = ctx.createBuffer(1, 1, 22050);
+      const s = ctx.createBufferSource();
+      s.buffer = b;
+      s.connect(ctx.destination);
+      s.start(0);
+      this._unlocked = true;
+      // 구형 iOS: 무음 <audio> 를 틀어 두면 무음 스위치에서도 Web Audio 가 들림
+      if (/iPhone|iPad|iPod/.test(navigator.userAgent) && !navigator.audioSession) {
+        try {
+          const el = document.createElement('audio');
+          el.setAttribute('playsinline', '');
+          el.loop = true;
+          el.src = makeSilentWavUrl();
+          el.play().catch(() => {});
+          this._silentEl = el;
+        } catch {}
+      }
+    }
+    if (ctx.state !== 'running') {
+      try {
+        await ctx.resume();
+      } catch {}
+    }
+    return ctx.state === 'running';
+  }
+
+  /**
+   * 소리 엔진을 통째로 새로 만듦. 반드시 터치 이벤트 안에서.
+   *   아이폰에서 다른 앱(음악·영상·화면 녹화 등)이 소리를 가져갔다 돌려주면 옛 AudioContext 가
+   *   resume() 해도 다시 안 켜지거나 'running' 인데 시계가 멈춘 채로 남는 일이 있음 → 새 엔진이면 바로 켜짐.
+   *   받아 둔 피아노·오케스트라 소리(AudioBuffer)는 새 엔진에서도 그대로 씀
+   */
+  rebuild() {
+    const old = this.ctx;
+    this.ctx = null;
+    this._streamDest = null;
+    this._clock = null;
+    // 옛 엔진에 붙어 있던 노드는 새 엔진에 못 이음 (잇는 순간 오류 → 쿵만 안 눌리던 것)
+    this._sat = null;
+    this._tickBus = null;
+    this.frozen = false;
+    try {
+      if (old) old.close().catch(() => {});
+    } catch {}
+    const ctx = this.ensure();
+    try {
+      if (navigator.audioSession) navigator.audioSession.type = 'playback';
+    } catch {}
+    try {
+      const b = ctx.createBuffer(1, 1, 22050);
+      const s = ctx.createBufferSource();
+      s.buffer = b;
+      s.connect(ctx.destination);
+      s.start(0);
+    } catch {}
+    this._unlocked = true;
+    ctx.resume().catch(() => {});
+    if (this._silentEl) this._silentEl.play().catch(() => {});
+    this.rebuiltAt = performance.now();
+    return ctx;
+  }
+
+  get running() {
+    return !!this.ctx && this.ctx.state === 'running';
+  }
+
+  resetClock() {
+    this._clock = null;
+  }
+
+  /** 지금 귀에 들리는 소리의 AudioContext 시각. perfMs 를 주면 그 순간(터치 시각) 기준. */
+  heardTime(perfMs = performance.now()) {
+    const ctx = this.ctx;
+    if (!ctx) return 0;
+    if (ctx.state === 'running' && ctx.getOutputTimestamp) {
+      const ts = ctx.getOutputTimestamp();
+      if (ts && ts.contextTime > 0 && ts.performanceTime > 0) {
+        const sample = ts.contextTime - ts.performanceTime / 1000;
+        if (this._clock === null || Math.abs(sample - this._clock) > 0.04) this._clock = sample;
+        else this._clock += (sample - this._clock) * 0.04;
+        return Math.min(perfMs / 1000 + this._clock, ctx.currentTime);
+      }
+    }
+    return ctx.currentTime - (ctx.outputLatency || ctx.baseLatency || 0);
+  }
+
+  // ---------- 악기 ----------
+  _noise(t, dur, dest) {
+    const s = this.ctx.createBufferSource();
+    s.buffer = this.noiseBuf;
+    s.connect(dest);
+    s.start(t, Math.random() * 0.5, dur + 0.05);
+    return s;
+  }
+
+  /** 킥: 서브(낮은 둥) + 펀치 + 비터 클릭 */
+  kick(t = this.ctx.currentTime, vel = 1, dest = this.sfxBus) {
+    const ctx = this.ctx;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(190, t);
+    o.frequency.exponentialRampToValueAtTime(52, t + 0.07);
+    o.frequency.exponentialRampToValueAtTime(42, t + 0.45);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(1.1 * vel, t + 0.003);
+    g.gain.setValueAtTime(1.0 * vel, t + 0.04);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
+    o.connect(g).connect(dest);
+    o.start(t);
+    o.stop(t + 0.52);
+    if (!this._sat || this._sat.context !== ctx) {
+      this._sat = ctx.createWaveShaper();
+      const c = new Float32Array(1024);
+      for (let i = 0; i < 1024; i++) c[i] = Math.tanh((i / 512 - 1) * 2.2);
+      this._sat.curve = c;
+      this._sat.connect(this.sfxBus);
+    }
+    const p = ctx.createOscillator();
+    const pg = ctx.createGain();
+    p.type = 'triangle';
+    p.frequency.setValueAtTime(260, t);
+    p.frequency.exponentialRampToValueAtTime(90, t + 0.04);
+    pg.gain.setValueAtTime(0.5 * vel, t);
+    pg.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+    p.connect(pg).connect(dest === this.sfxBus ? this._sat : dest);
+    p.start(t);
+    p.stop(t + 0.07);
+    const f = ctx.createBiquadFilter();
+    f.type = 'bandpass';
+    f.frequency.value = 3200;
+    f.Q.value = 0.8;
+    const cg = ctx.createGain();
+    cg.gain.setValueAtTime(0.45 * vel, t);
+    cg.gain.exponentialRampToValueAtTime(0.001, t + 0.02);
+    f.connect(cg).connect(dest);
+    this._noise(t, 0.03, f);
+  }
+
+  /** 스네어: 통 울림(두 톤) + 스냅(밝은 노이즈) + 스네어 줄 떨림 */
+  snare(t = this.ctx.currentTime, vel = 1, dest = this.sfxBus) {
+    const ctx = this.ctx;
+    for (const [fr, amp] of [[185, 0.5], [330, 0.28]]) {
+      const o = ctx.createOscillator();
+      const og = ctx.createGain();
+      o.type = 'triangle';
+      o.frequency.setValueAtTime(fr * 1.25, t);
+      o.frequency.exponentialRampToValueAtTime(fr, t + 0.03);
+      og.gain.setValueAtTime(0.0001, t);
+      og.gain.exponentialRampToValueAtTime(amp * vel, t + 0.002);
+      og.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+      o.connect(og).connect(dest);
+      o.start(t);
+      o.stop(t + 0.15);
+    }
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 2600;
+    bp.Q.value = 0.7;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, t);
+    ng.gain.exponentialRampToValueAtTime(0.9 * vel, t + 0.002);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+    bp.connect(ng).connect(dest);
+    this._noise(t, 0.14, bp);
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 4500;
+    const rg = ctx.createGain();
+    rg.gain.setValueAtTime(0.0001, t);
+    rg.gain.exponentialRampToValueAtTime(0.35 * vel, t + 0.005);
+    rg.gain.exponentialRampToValueAtTime(0.001, t + 0.26);
+    hp.connect(rg).connect(dest);
+    this._noise(t, 0.28, hp);
+  }
+
+  /** 탐탐 (플로어 탐): 낮게 '둥' — 음이 살짝 내려가는 통 울림 + 가죽 치는 소리 */
+  tom(t = this.ctx.currentTime, vel = 1, dest = this.sfxBus) {
+    const ctx = this.ctx;
+    for (const [fr, amp, dec] of [[130, 0.75, 0.42], [205, 0.22, 0.2]]) {
+      const o = ctx.createOscillator();
+      const og = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(fr * 1.5, t);
+      o.frequency.exponentialRampToValueAtTime(fr, t + 0.06);
+      og.gain.setValueAtTime(0.0001, t);
+      og.gain.exponentialRampToValueAtTime(amp * vel, t + 0.003);
+      og.gain.exponentialRampToValueAtTime(0.001, t + dec);
+      o.connect(og).connect(dest);
+      o.start(t);
+      o.stop(t + dec + 0.02);
+    }
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 1800;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, t);
+    ng.gain.exponentialRampToValueAtTime(0.35 * vel, t + 0.002);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
+    lp.connect(ng).connect(dest);
+    this._noise(t, 0.06, lp);
+  }
+
+  /** 하이햇 (밴드가 쳐줌. 금속성 고음) */
+  hat(t, vel = 0.5, open = false, dest = this.musicBus) {
+    const ctx = this.ctx;
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 7500;
+    const pk = ctx.createBiquadFilter();
+    pk.type = 'peaking';
+    pk.frequency.value = 10000;
+    pk.gain.value = 6;
+    const g = ctx.createGain();
+    const d = open ? 0.3 : 0.05;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.3 * vel, t + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.001, t + d);
+    hp.connect(pk).connect(g).connect(dest);
+    this._noise(t, d + 0.02, hp);
+  }
+
+  /** 🔔 썰매 방울 (캐롤): 높은 쇳소리 '찰랑' 두세 겹 */
+  sleigh(t, vel = 0.5, dest = this.musicBus) {
+    const ctx = this.ctx;
+    const bp = ctx.createBiquadFilter();
+    bp.type = 'bandpass';
+    bp.frequency.value = 9000;
+    bp.Q.value = 2.5;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.22 * vel, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
+    bp.connect(g).connect(dest);
+    // 방울 여러 개가 아주 조금씩 늦게 부딪힘
+    for (const dt of [0, 0.012, 0.027]) this._noise(t + dt, 0.05, bp);
+    for (const [f, a] of [[5200, 0.05], [6900, 0.035]]) {
+      const o = ctx.createOscillator();
+      const og = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = f;
+      og.gain.setValueAtTime(0.0001, t);
+      og.gain.exponentialRampToValueAtTime(a * vel, t + 0.003);
+      og.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
+      o.connect(og).connect(dest);
+      o.start(t);
+      o.stop(t + 0.14);
+    }
+  }
+
+  /** 🔔 글로켄슈필 (캐롤 멜로디를 한 옥타브 위에서 반짝이게) */
+  glock(t, midi, dest = this.musicBus, vel = 1) {
+    const ctx = this.ctx;
+    const g = ctx.createGain();
+    g.gain.value = 0.06 * vel;
+    g.connect(dest);
+    for (const [mult, amp, d] of [[1, 1, 1.1], [2.76, 0.25, 0.35], [5.4, 0.12, 0.15]]) {
+      const o = ctx.createOscillator();
+      const og = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.value = mtof(midi) * mult;
+      og.gain.setValueAtTime(0.0001, t);
+      og.gain.exponentialRampToValueAtTime(amp, t + 0.003);
+      og.gain.exponentialRampToValueAtTime(0.0001, t + d);
+      o.connect(og).connect(g);
+      o.start(t);
+      o.stop(t + d + 0.02);
+    }
+  }
+
+  /** 🎤 합창 '아~' (캐롤을 같이 부르는 목소리): 톱니파 세 겹(살짝 어긋나게) → 목소리 공명(포먼트) → 비브라토.
+   *  아래 한 옥타브는 남자 목소리 '오~' 로 작게 받쳐 줌 */
+  choir(t, midi, dur, dest = this.musicBus, vel = 1) {
+    const ctx = this.ctx;
+    const end = t + Math.max(0.14, dur);
+    const g = ctx.createGain();
+    const peak = 0.4 * vel;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(peak, t + 0.045);
+    g.gain.setValueAtTime(peak, Math.max(t + 0.05, end - 0.05));
+    g.gain.linearRampToValueAtTime(0.0001, end + 0.12);
+    g.connect(dest);
+    // 비브라토: 처음엔 곧게, 0.25초쯤부터 살짝 떨림
+    const lfo = ctx.createOscillator();
+    const lg = ctx.createGain();
+    lfo.frequency.value = 5.4;
+    lg.gain.setValueAtTime(0, t);
+    lg.gain.linearRampToValueAtTime(14, t + 0.3);
+    lfo.connect(lg);
+    lfo.start(t);
+    lfo.stop(end + 0.15);
+    const voice = (m, formants, amp, detunes) => {
+      const vg = ctx.createGain();
+      vg.gain.value = amp;
+      vg.connect(g);
+      const bps = formants.map(([f, q, a]) => {
+        const bp = ctx.createBiquadFilter();
+        bp.type = 'bandpass';
+        bp.frequency.value = f;
+        bp.Q.value = q;
+        const ag = ctx.createGain();
+        ag.gain.value = a;
+        bp.connect(ag).connect(vg);
+        return bp;
+      });
+      for (const d of detunes) {
+        const o = ctx.createOscillator();
+        o.type = 'sawtooth';
+        o.frequency.value = mtof(m);
+        o.detune.value = d;
+        lg.connect(o.detune);
+        for (const bp of bps) o.connect(bp);
+        o.start(t);
+        o.stop(end + 0.15);
+      }
+    };
+    voice(midi, [[800, 5, 1], [1150, 7, 0.55], [2900, 9, 0.22]], 1, [-9, 0, 8]); // 여자 '아'
+    voice(midi - 12, [[450, 5, 1], [800, 7, 0.4], [2830, 9, 0.12]], 0.45, [-6, 5]); // 남자 '오'
+  }
+
+  /** 크래시 심벌 */
+  crash(t = this.ctx.currentTime, dest = this.musicBus, vol = 0.5) {
+    const ctx = this.ctx;
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 3800;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.004);
+    g.gain.exponentialRampToValueAtTime(vol * 0.35, t + 0.25);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 1.6);
+    hp.connect(g).connect(dest);
+    this._noise(t, 0.9, hp);
+    this._noise(t + 0.85, 0.8, hp);
+  }
+
+  /** 플레이어가 누른 악기 소리 (t 를 주면 그 시각에 예약) */
+  playLane(lane, t = this.ctx.currentTime, dest = this.sfxBus) {
+    if (lane === KICK) this.kick(t, 1, dest);
+    else if (lane === SNARE) this.snare(t, 1, dest);
+    else if (lane === HAT) this.hat(t, 1.6, false, dest);
+    else if (lane === CRASH) this.crash(t, dest, 0.42);
+    else if (lane === TOM) this.tom(t, 1, dest);
+  }
+
+  /** 결과 화면 별 하나 '띵!' (i = 0,1,2 갈수록 높아짐) */
+  starChime(t = this.ctx.currentTime, i = 0) {
+    const ctx = this.ctx;
+    const base = [1046.5, 1318.5, 1568][Math.min(2, i)];
+    const out = ctx.createGain();
+    out.gain.value = 0.55;
+    out.connect(this.sfxBus);
+    for (const [mult, amp, decay] of [[1, 0.5, 0.9], [2, 0.18, 0.5], [3.01, 0.1, 0.3], [4.2, 0.06, 0.18]]) {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(base * mult * 0.985, t);
+      o.frequency.exponentialRampToValueAtTime(base * mult, t + 0.03);
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(amp, t + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0005, t + decay);
+      o.connect(g).connect(out);
+      o.start(t);
+      o.stop(t + decay + 0.05);
+    }
+    // 반짝이 (짧고 밝은 노이즈)
+    const hp = ctx.createBiquadFilter();
+    hp.type = 'highpass';
+    hp.frequency.value = 7000;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.0001, t);
+    ng.gain.exponentialRampToValueAtTime(0.12, t + 0.003);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
+    hp.connect(ng).connect(out);
+    this._noise(t, 0.27, hp);
+  }
+
+  /** 점수 올라가는 '따라라라' 한 알. p = 0~1 (갈수록 높아짐) */
+  tick(t, p = 0) {
+    const ctx = this.ctx;
+    if (!this._tickBus || this._tickBus.context !== ctx) {
+      this._tickBus = ctx.createGain();
+      this._tickBus.connect(this.sfxBus);
+    }
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'triangle';
+    o.frequency.value = 700 * Math.pow(2, p * 1.2);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.22, t + 0.003);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.045);
+    o.connect(g).connect(this._tickBus);
+    o.start(t);
+    o.stop(t + 0.06);
+  }
+
+  /** 예약해 둔 '따라라라'를 바로 멈춤 (결과 연출 건너뛸 때) */
+  silenceTicks() {
+    if (!this._tickBus) return;
+    try {
+      this._tickBus.disconnect();
+    } catch {}
+    this._tickBus = null;
+  }
+
+  /** 점수 다 오르면 '딴!' (드럼 + 밝은 화음) */
+  land(t = this.ctx.currentTime) {
+    this.kick(t, 0.7);
+    this.snare(t, 0.5);
+    for (const m of [72, 79, 84]) {
+      if (this.piano) this.pianoNote(t, m, 0.5, 0.5, this.sfxBus);
+      else this.lead(t, m, 0.3, this.sfxBus);
+    }
+  }
+
+  /** 별 3개 다 모으면 '짜잔' 화음 */
+  fanfare(t = this.ctx.currentTime) {
+    const notes = [72, 76, 79, 84];
+    if (this.orchestra) {
+      for (const m of [48, 55, 60, 64]) this.orchNote('br', t + 0.02, m, 1.1, 0.7, this.sfxBus, 0.03, 0.4);
+      for (const m of [72, 76, 79]) this.orchNote('vln', t + 0.02, m, 1.2, 0.6, this.sfxBus, 0.03, 0.4);
+      this.orchNote('timp', t, 36, 1.5, 0.9, this.sfxBus, 0, 0.5);
+    }
+    if (this.piano) {
+      notes.forEach((m, k) => this.pianoNote(t + k * 0.06, m, 1.2, 0.7, this.sfxBus));
+      return;
+    }
+    notes.forEach((m, k) => this.lead(t + k * 0.06, m, 1, this.sfxBus));
+  }
+
+  /** 별 0개 / 대결 패배: '띠로리' */
+  aww(t = this.ctx.currentTime) {
+    [[67, 0], [63, 0.22], [60, 0.44]].forEach(([m, d]) => {
+      if (this.piano) this.pianoNote(t + d, m, 0.3, 0.55, this.sfxBus);
+      else this.lead(t + d, m, 0.25, this.sfxBus);
+    });
+  }
+
+  /** 녹화용 오디오 스트림 (게임 소리 전체) */
+  captureStream() {
+    const ctx = this.ensure();
+    if (!this._streamDest) {
+      this._streamDest = ctx.createMediaStreamDestination();
+      this.out.connect(this._streamDest);
+    }
+    return this._streamDest.stream;
+  }
+
+  click(t, accent = false, dest = this.musicBus) {
+    const ctx = this.ctx;
+    const o = ctx.createOscillator();
+    const g = ctx.createGain();
+    o.type = 'sine';
+    o.frequency.value = accent ? 1760 : 1320;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(accent ? 0.7 : 0.45, t + 0.002);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+    o.connect(g).connect(dest);
+    o.start(t);
+    o.stop(t + 0.08);
+  }
+
+  /** 피아노로 lead/bass 를 vel 배율로 (오케스트라와 섞을 때 피아노는 조금 작게) */
+  pianoOr(kind, t, midi, dur, dest, scale = 1) {
+    if (!this.piano) return kind === 'bass' ? this.bass(t, midi, dur, dest) : this.lead(t, midi, dur, dest);
+    if (kind === 'bass') return this.pianoNote(t, midi + 12, dur, 0.62 * scale, dest);
+    return this.pianoNote(t, midi, dur, scale, dest);
+  }
+
+  /** 둥글고 부드러운 베이스 (킥처럼 '쿵' 하고 들리지 않게 어택을 느리게) */
+  bass(t, midi, dur, dest = this.musicBus) {
+    if (this.piano) return this.pianoNote(t, midi + 12, dur, 0.62, dest);
+    const ctx = this.ctx;
+    const o = ctx.createOscillator();
+    const f = ctx.createBiquadFilter();
+    const g = ctx.createGain();
+    o.type = 'triangle';
+    o.frequency.value = mtof(midi + 12);
+    f.type = 'lowpass';
+    f.frequency.value = 900;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.linearRampToValueAtTime(0.32, t + 0.03);
+    g.gain.setValueAtTime(0.3, t + dur * 0.6);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(f).connect(g).connect(dest);
+    o.start(t);
+    o.stop(t + dur + 0.02);
+  }
+
+  pluck(t, midis, dur, dest = this.musicBus, scale = 1) {
+    if (this.piano) {
+      for (const m of midis) this.pianoNote(t, m, dur, 0.3 * scale, dest);
+      return;
+    }
+    const ctx = this.ctx;
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.setValueAtTime(2600, t);
+    f.frequency.exponentialRampToValueAtTime(500, t + dur);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.16, t + 0.01);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    f.connect(g).connect(dest);
+    for (const m of midis) {
+      const o = ctx.createOscillator();
+      o.type = 'sawtooth';
+      o.frequency.value = mtof(m);
+      o.detune.value = (Math.random() - 0.5) * 12;
+      o.connect(f);
+      o.start(t);
+      o.stop(t + dur + 0.02);
+    }
+  }
+
+  /** 멜로디: 건반 느낌(때리면 밝고 금방 잦아드는 소리)으로 곡이 또렷하게 들리게 */
+  lead(t, midi, dur, dest = this.musicBus) {
+    if (this.piano) return this.pianoNote(t, midi, dur, 1, dest);
+    const ctx = this.ctx;
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.setValueAtTime(4200, t);
+    f.frequency.exponentialRampToValueAtTime(1400, t + Math.min(0.6, dur + 0.1));
+    const g = ctx.createGain();
+    const end = t + Math.max(0.08, dur);
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.2, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.09, t + 0.18);
+    g.gain.setTargetAtTime(0.05, t + 0.18, 0.4);
+    g.gain.setValueAtTime(0.05, end - 0.03);
+    g.gain.exponentialRampToValueAtTime(0.001, end + 0.08);
+    f.connect(g).connect(dest);
+    for (const [type, mult, amp] of [['triangle', 1, 1], ['square', 1, 0.28], ['sine', 2, 0.22]]) {
+      const o = ctx.createOscillator();
+      const og = ctx.createGain();
+      o.type = type;
+      o.frequency.value = mtof(midi) * mult;
+      og.gain.value = amp;
+      o.connect(og).connect(f);
+      o.start(t);
+      o.stop(end + 0.1);
+    }
+  }
+}
+
+// ---------- 반주 ----------
+// 곡 데이터(멜로디·코드)는 charts.js 의 level.song 에 있습니다.
+
+/**
+ * 한 판의 반주 재생기. lookahead 스케줄러로 AudioContext 시각에 정확히 예약.
+ * startTime = 카운트인 첫 박의 AudioContext 시각.
+ * 빠르기는 박자 시계(tempoOf)를 따름 → 무제한 모드처럼 단계마다 빨라져도 그대로 맞음.
+ *
+ * 오케스트라 편곡 (샘플을 받았고 설정이 '오케스트라'일 때):
+ *   멜로디 = 피아노(박자 또렷하게) + 바이올린 합주
+ *   화음   = 현악 패드(바이올린 + 첼로) / 곡이 달아오르면 호른·트롬본
+ *   베이스 = 피아노 + 첼로, 절정에서 튜바
+ *   팀파니 = 마디 첫 박 + 크래시 직전 롤
+ *   곡 앞부분은 가볍게, 뒤로 갈수록(무제한 모드는 단계가 오를수록) 악기가 늘며 웅장해짐
+ */
+class SongPlayer {
+  constructor(audio, level, startTime, { autoChart = false } = {}) {
+    this.audio = audio;
+    this.level = level;
+    this.startTime = startTime;
+    this.autoChart = autoChart;
+    this.tempo = tempoOf(level);
+    this.step = 0;
+    this.melody = parseMelody(level.song.melody || []);
+    // 🎹 유저 맵 왼손 (악보 아래 줄)
+    try {
+      this.lowNotes = level.song.low ? parseMelody(level.song.low) : [];
+    } catch {
+      this.lowNotes = [];
+    }
+    this.melodyBars = (level.song.melody || []).length;
+    const lanes = levelLanes(level);
+    this.mineCrash = lanes.includes(CRASH); // 크래시를 내가 치면 반주 크래시는 쉼
+    const ctx = audio.ctx;
+    this.bus = ctx.createGain();
+    this.bus.connect(audio.musicBus);
+    this.drumBus = ctx.createGain();
+    this.drumBus.connect(audio.sfxBus);
+    // 🎤 녹음된 곡: 반주를 만들지 않고 파일을 박자에 맞춰 틂 (song.audio.offset = 채보 첫 마디가 시작하는 파일 시각)
+    this.track = level.song.audio ? audio.trackBuffer(level.song.audio.src) : null;
+  }
+
+  get totalSteps() {
+    if (this.level.endless) return Infinity;
+    return (COUNT_IN_BARS + this.level.bars.length + OUTRO_BARS) * STEPS_PER_BAR;
+  }
+
+  start() {
+    if (this.track) this._startTrack();
+    this.timer = setInterval(() => this.tick(), 25);
+    this.tick();
+  }
+
+  /** 녹음된 곡 틀기. 이미 지난 시각이면(이어 가기·소리 엔진 새로 만듦) 그 자리부터 */
+  _startTrack() {
+    const ctx = this.audio.ctx;
+    const info = this.level.song.audio;
+    // 🐢 느리게 연습: 파일도 같은 비율로 느리게 틂 (소리도 조금 낮아짐)
+    const rate = this.level.practice || 1;
+    const t0 = this.startTime + this.tempo.barStart(COUNT_IN_BARS) - (info.offset || 0) / rate;
+    const now = ctx.currentTime + 0.03;
+    const src = ctx.createBufferSource();
+    src.buffer = this.track;
+    src.playbackRate.value = rate;
+    const g = ctx.createGain();
+    g.gain.value = info.gain ?? 1;
+    src.connect(g).connect(this.bus);
+    if (t0 >= now) src.start(t0);
+    else if ((now - t0) * rate < this.track.duration) src.start(now, (now - t0) * rate);
+    else return;
+    this.trackSrc = src;
+  }
+
+  tick() {
+    const horizon = this.audio.ctx.currentTime + 0.2;
+    while (this.step < this.totalSteps) {
+      const t = this.startTime + this.tempo.stepTime(this.step);
+      if (t > horizon) break;
+      if (t >= this.audio.ctx.currentTime - 0.01) this.scheduleStep(this.step, t);
+      this.step++;
+    }
+    if (this.step >= this.totalSteps) clearInterval(this.timer);
+  }
+
+  /** 곡이 얼마나 달아올랐나 0.35 ~ 1 (악기 수가 늘어남) */
+  intensity(mb) {
+    const lv = this.level;
+    if (lv.challenge) return Math.min(1, 0.35 + 0.15 * (lv.roundOfBar(mb) - 1));
+    // epic 곡(15단계)은 처음부터 금관·팀파니·튜바가 총출동 (첫 두 마디만 살짝 낮춰 '빠바바밤' 을 또렷하게)
+    if (lv.song.epic) return mb < 2 ? 0.65 : 1;
+    const n = lv.bars.length;
+    return mb < 4 ? 0.35 : mb < n / 2 ? 0.65 : 1;
+  }
+
+  scheduleStep(i, t) {
+    const a = this.audio;
+    const bar = Math.floor(i / STEPS_PER_BAR);
+    const s = i % STEPS_PER_BAR;
+    const song = this.level.song;
+    const sd = this.tempo.barLen(bar) / STEPS_PER_BAR;
+    const orch = a.orchestra;
+    if (bar < COUNT_IN_BARS) {
+      // 박자 맞추기 영상: 시작 전 똑딱이 노래와 겹치지 않게 (박자 소리를 켰을 때만)
+      if (s % 4 === 0 && (!this.level.beat || this.level.click)) a.click(t, s === 0, this.bus);
+      return;
+    }
+    const mb = bar - COUNT_IN_BARS; // 본편 마디 번호
+    if (mb >= this.level.bars.length && this.level.ensureBars) this.level.ensureBars(mb + 1);
+    const chartBars = this.level.bars.length;
+    // 🎵 릴스 박자 맞추기: 반주 없음 (노래는 인스타에서 입힘). 드럼(+ 고르면 조용한 박자 소리)만
+    if (this.level.beat) {
+      if (mb >= chartBars) return;
+      if (this.level.click && s % 4 === 0) a.click(t, s === 0, this.bus);
+      if (this.autoChart) for (const lane of CHAR_LANES[this.level.bars[mb][s]] || []) a.playLane(lane, t, this.drumBus);
+      return;
+    }
+    if (this.track) {
+      // 🎤 녹음된 곡: 반주는 파일이 함 (자동 연주 드럼만)
+      if (this.autoChart && mb < chartBars) for (const lane of CHAR_LANES[this.level.bars[mb][s]] || []) a.playLane(lane, t, this.drumBus);
+      return;
+    }
+    const ch = chordAt(song, mb, s);
+
+    if (mb >= chartBars) {
+      // 아웃트로: 곡의 으뜸화음 한 방
+      if (s === 0) {
+        const home = chordAt(song, 0, 0);
+        a.crash(t, this.bus);
+        a.bass(t, home.root - 24, sd * 12, this.bus);
+        a.pluck(t, home.notes, sd * 14, this.bus);
+        const last = this.melody.filter((n) => n.bar === 0)[0];
+        if (last) a.lead(t, home.root + 12 * Math.round((last.midi - home.root) / 12), sd * 10, this.bus);
+        if (orch) {
+          const d = sd * 14;
+          for (const m of home.notes) a.orchNote('vln', t, m + 12, d, 0.5, this.bus, 0.01, 0.5);
+          for (const m of home.notes) a.orchNote('br', t, m - 12, d, 0.6, this.bus, 0.01, 0.5);
+          a.orchNote('vc', t, home.root - 12, d, 0.7, this.bus, 0.01, 0.5);
+          a.orchNote('tuba', t, home.root - 24, d, 0.7, this.bus, 0.01, 0.5);
+          a.orchNote('timp', t, this._timpPitch(home.root), 2, 0.9, this.bus, 0, 0.6);
+        }
+      }
+      return;
+    }
+
+    const heat = this.intensity(mb);
+    // 하이햇
+    const hc = song.hat[s];
+    if (hc === 'x' || hc === 'o') a.hat(t, s % 4 === 0 ? 0.6 : 0.35, hc === 'o', this.bus);
+    // 🎄 캐롤: 썰매 방울
+    if (song.bells && song.bells[s] === 'x') a.sleigh(t, s % 4 === 0 ? 0.7 : 0.45, this.bus);
+    // 베이스 (오케스트라면 첼로가 같이 받쳐줌)
+    const bc = song.bass[s];
+    if (bc && bc !== '.') {
+      const m = ch.root - 24 + (bc === 'o' ? 12 : bc === '5' ? 7 : 0);
+      if (orch) {
+        a.pianoOr('bass', t, m, sd * 1.8, this.bus, 0.75);
+        a.orchNote('vc', t, m + 12, Math.max(sd * 1.8, 0.22), 0.45 + 0.25 * heat, this.bus, 0.01, 0.12);
+      } else a.bass(t, m, sd * 1.8, this.bus);
+    }
+    // 화음
+    if (song.chord[s] === 'x') a.pluck(t, ch.notes, sd * 3, this.bus, orch ? 0.6 : 1);
+    // 🎹 유저 맵 왼손: 악보 아래 줄 그대로
+    if (this.lowNotes && this.lowNotes.length) for (const n of this.lowNotes) if (n.bar === mb && n.step === s) {
+          const d = Math.max(0.2, n.len * sd * 0.95);
+          if (a.piano) a.pianoNote(t, n.midi, d, 0.8, this.bus);
+          else a.bass(t, n.midi, d, this.bus);
+        }
+    // 🎹 두 손 피아노 왼손: 베이스 + 펼친 화음 (pianoLH 곡)
+    if (song.pianoLH) {
+      const lh = pianoLeftHand(song, mb, s);
+      if (lh) a.pianoOr('lead', t, lh.midi, lh.steps * sd * 0.98, this.bus, lh.vel);
+    }
+    // 멜로디 (클래식 곡 주제 선율). 🎭 tapMelody 곡은 내가 칠 때만 남 (자동 연주·영상 찍기 땐 반주가 침)
+    if (this.melodyBars && (!this.level.tapMelody || this.autoChart)) {
+      const mbar = mb % this.melodyBars;
+      for (const n of this.melody) {
+        if (n.bar !== mbar || n.step !== s) continue;
+        const dur = n.len * sd * 0.92;
+        // 🎄 캐롤: 글로켄슈필이 한 옥타브 위에서 같이 (긴 음만, 너무 시끄럽지 않게)
+        if (song.glock && n.len >= 2) a.glock(t, n.midi + 12, this.bus, 0.6 + 0.4 * heat);
+        // 🎤 합창이 멜로디를 같이 부름 (짧은 음은 조금 작게)
+        if (song.choir) a.choir(t, n.midi, n.len * sd * 0.95, this.bus, (n.len >= 2 ? 1 : 0.7) * (0.75 + 0.25 * heat));
+        // 🎹 tapMelody 곡(자동 연주): 오른손 화음까지 피아노로 (내가 칠 때와 같은 소리)
+        if (this.level.tapMelody) {
+          a.pianoOr('lead', t, n.midi, Math.max(0.25, dur), this.drumBus, 1.25);
+          for (const h of pianoHarmony(song, mb, s, n.midi, n.len >= 4)) a.pianoOr('lead', t, h, Math.max(0.25, dur), this.drumBus, 0.6);
+          continue;
+        }
+        if (!orch) {
+          a.lead(t, n.midi, dur, this.bus);
+          continue;
+        }
+        a.pianoOr('lead', t, n.midi, dur, this.bus, 0.72);
+        // 바이올린 합주: 긴 음은 풍성하게, 16분음표 질주는 살짝만
+        if (n.len >= 2) a.orchNote('vln', t, n.midi, n.len * sd, 0.55 + 0.3 * heat, this.bus, 0.03, 0.15);
+        else a.orchNote('vln', t, n.midi, sd * 1.4, 0.3 + 0.15 * heat, this.bus, 0.004, 0.06);
+        // 절정: 호른이 한 옥타브 아래로 멜로디를 같이 (긴 음만. epic 곡은 8분음표까지)
+        const epic = !!song.epic;
+        if (heat >= 1 && n.len >= (epic ? 2 : 4) && n.midi - 12 >= 45) a.orchNote('br', t, n.midi - 12, Math.max(n.len * sd, 0.2), epic ? 0.5 : 0.4, this.bus, 0.03, 0.15);
+        // epic: 짧은 음마다 팀파니가 같이 '두두두 쿵' 말발굽처럼 받쳐 줌
+        if (epic && heat >= 0.65 && n.len <= 2) a.orchNote('timp', t, this._timpPitch(ch.root), 0.6, 0.38, this.bus, 0, 0.3);
+      }
+    }
+    if (orch) this._orchestra(mb, s, t, sd, ch, heat);
+    // 8마디마다 크래시
+    if (s === 0 && mb > 0 && mb % 8 === 0 && !this.mineCrash) a.crash(t, this.bus);
+    // 자동 연주(데모/릴스 녹화용)
+    if (this.autoChart) {
+      for (const lane of CHAR_LANES[this.level.bars[mb][s]] || []) if (!(this.level.tapMelody && lane === SNARE)) a.playLane(lane, t, this.drumBus);
+    }
+  }
+
+  /** 팀파니 음높이: 뿌리음을 C2~B2 근처로 */
+  _timpPitch(root) {
+    let m = root;
+    while (m > 44) m -= 12;
+    while (m < 33) m += 12;
+    return m;
+  }
+
+  /** 현악 패드 · 금관 · 튜바 · 팀파니 */
+  _orchestra(mb, s, t, sd, ch, heat) {
+    const a = this.audio;
+    const song = this.level.song;
+    const entry = song.prog[((mb % song.prog.length) + song.prog.length) % song.prog.length];
+    const parts = entry.trim().split(/\s+/).length;
+    const partLen = STEPS_PER_BAR / parts;
+    // 코드가 바뀌는 자리마다 현악 패드
+    if (s % partLen === 0) {
+      const d = partLen * sd;
+      const pv = 0.22 + 0.16 * heat;
+      for (const m of ch.notes.slice(0, 3)) a.orchNote('vln', t, m, d, pv, this.bus, Math.min(0.12, d * 0.25), 0.25);
+      a.orchNote('vc', t, ch.root - 12, d, pv + 0.1, this.bus, Math.min(0.1, d * 0.2), 0.25);
+      // 금관: 달아오르면 코드 첫 자리마다, 그 전엔 4마디마다 한 번
+      if (heat >= 1 || (heat >= 0.65 && s === 0 && mb % 4 === 0)) {
+        const bv = heat >= 1 ? 0.42 : 0.32;
+        for (const m of [ch.root - 12, ch.notes[1] - 12, ch.notes[2] - 12]) a.orchNote('br', t, m, d * 0.95, bv, this.bus, 0.04, 0.2);
+      }
+    }
+    // 튜바: 절정에서 마디 첫 박
+    if (heat >= 1 && s === 0) a.orchNote('tuba', t, ch.root - 24, 16 * sd * 0.85, 0.55, this.bus, 0.02, 0.2);
+    // 팀파니
+    const tp = this._timpPitch(ch.root);
+    if (heat >= 0.65 && s === 0) a.orchNote('timp', t, tp, 1.5, heat >= 1 ? 0.75 : 0.5, this.bus, 0, 0.5);
+    if (heat >= 1 && s === 8) a.orchNote('timp', t, tp, 1, 0.45, this.bus, 0, 0.4);
+    // 크래시 나오기 직전 마디 끝: 팀파니 롤 (두두두두 → 쾅)
+    const toCrash = (mb + 1) % 8 === 0 && (this.level.endless || mb + 1 < this.level.bars.length);
+    if (heat >= 0.65 && toCrash && s >= 12) a.orchNote('timp', t, tp, 0.5, 0.3 + (s - 12) * 0.12, this.bus, 0, 0.12);
+  }
+
+  stop(fade = 0.15) {
+    clearInterval(this.timer);
+    const ctx = this.audio.ctx;
+    const now = ctx.currentTime;
+    for (const b of [this.bus, this.drumBus]) {
+      try {
+        b.gain.cancelScheduledValues(now);
+        b.gain.setValueAtTime(b.gain.value, now);
+        b.gain.linearRampToValueAtTime(0, now + fade);
+      } catch {}
+    }
+    if (this.trackSrc) {
+      try {
+        this.trackSrc.stop(now + fade + 0.02);
+      } catch {}
+    }
+    setTimeout(() => {
+      try {
+        this.bus.disconnect();
+        this.drumBus.disconnect();
+      } catch {}
+    }, fade * 1000 + 300);
+  }
+}
+
+/** 싱크 보정용 메트로놈: count 번 클릭, 각 클릭의 AudioContext 시각 배열 반환 */
+function playMetronome(audio, bpm = 100, count = 12) {
+  const ctx = audio.ctx;
+  const t0 = ctx.currentTime + 0.4;
+  const beat = 60 / bpm;
+  const times = [];
+  for (let i = 0; i < count; i++) {
+    const t = t0 + i * beat;
+    audio.click(t, i % 4 === 0, audio.sfxBus);
+    times.push(t);
+  }
+  return times;
+}
+
+return { AudioEngine, SongPlayer, playMetronome };
+})();
+
+// ---- piano2.js ----
+const __m_piano2 = (() => {
+// 🎹 시즌 2 피아노 미리보기 (2026-11-23) — 두 방식을 쳐 보고 투표
+//   A 'live' : 어두운 무대, 원근 있는 4줄 길에 납작한 막대 콩 (줄 = 음 높이 대충, 누르면 그 음이 피아노로)
+//   B 'keys' : 밝은 화면, 아래 진짜 건반(흰 건반 8개 안팎)에 계이름 색 콩이 위에서 내려옴, 누른 건반 음이 그대로 남
+//   긴 음(2분음표 이상)은 끝까지 누르고 있기. 연습판: 기록·랭킹·코인·서버 요청 없음
+//   반주는 SongPlayer(멜로디 빼고 베이스·화음·하이햇), 멜로디는 내가 칠 때만 남
+
+const { parseMelody, tempoOf, COUNT_IN_BARS, STEPS_PER_BAR, JUDGE, POINTS, ACC_WEIGHT } = __m_charts;
+const { SongPlayer } = __m_audio;
+
+const P2_SOLFA = ['도', '도', '레', '레', '미', '파', '파', '솔', '솔', '라', '라', '시'];
+/** 계이름 색 (도~시) */
+const P2_COLORS = { 도: '#b77cf5', 레: '#f39a2e', 미: '#5cc72e', 파: '#d0408f', 솔: '#6f8ff7', 라: '#f07cc3', 시: '#1cc6a1' };
+const WHITE = [0, 2, 4, 5, 7, 9, 11];
+const isWhite = (m) => WHITE.includes(((m % 12) + 12) % 12);
+const HOLD_STEPS = 8; // 2분음표 이상이면 꾹 누르기
+const HOLD_GRACE = 0.14; // 끝나기 이만큼 전에 떼도 성공
+const LOOK = 1.55; // 콩이 보이기 시작하는 시간(초)
+
+/** 곡 → 칠 음표 [{ t, dur, end, midi, hold }] (곡 시작 = 카운트인 첫 박 기준 초) */
+function p2Notes(level) {
+  const tempo = tempoOf(level);
+  return parseMelody(level.song.melody).map((n) => {
+    const s0 = (COUNT_IN_BARS + n.bar) * STEPS_PER_BAR + n.step;
+    const t = tempo.stepTime(s0);
+    const end = tempo.stepTime(s0 + n.len);
+    return { t, dur: end - t, end, midi: n.midi, hold: n.len >= HOLD_STEPS };
+  });
+}
+
+/** B: 쓸 흰 건반들 (곡 음역, 적어도 8개·많아야 10개). 검은 건반 음은 아래 흰 건반으로 */
+function p2Keys(notes) {
+  let lo = Infinity;
+  let hi = -Infinity;
+  for (const n of notes) {
+    const m = isWhite(n.midi) ? n.midi : n.midi - 1;
+    lo = Math.min(lo, m);
+    hi = Math.max(hi, m);
+  }
+  const keys = [];
+  for (let m = lo; m <= hi; m++) if (isWhite(m)) keys.push(m);
+  let m = hi;
+  while (keys.length < 8) {
+    m++;
+    if (isWhite(m)) keys.push(m);
+  }
+  return keys.slice(0, 10);
+}
+
+/** A: 음 높이 → 4줄 (낮은 음 왼쪽). 같은 음은 같은 줄 */
+function p2LiveLanes(notes, lanes = 4) {
+  const pitches = [...new Set(notes.map((n) => n.midi))].sort((a, b) => a - b);
+  const lo = pitches[0];
+  const span = Math.max(1, pitches.at(-1) - lo + 1);
+  return notes.map((n) => Math.min(lanes - 1, Math.floor(((n.midi - lo) / span) * lanes)));
+}
+
+const solfa = (m) => P2_SOLFA[((m % 12) + 12) % 12];
+
+class PianoPreview {
+  /** @param {{ audio, canvas, level, style: 'live'|'keys', onEnd }} o */
+  constructor({ audio, canvas, level, style, onEnd }) {
+    this.audio = audio;
+    this.canvas = canvas;
+    this.ctx2 = canvas.getContext('2d');
+    this.style = style;
+    this.onEnd = onEnd;
+    this.level = { ...level, tapMelody: true, bars: level.song.melody.map(() => '.'.repeat(STEPS_PER_BAR)) };
+    this.notes = p2Notes(this.level);
+    if (style === 'keys') {
+      this.keys = p2Keys(this.notes);
+      for (const n of this.notes) n.lane = this.keys.indexOf(isWhite(n.midi) ? n.midi : n.midi - 1);
+      this.laneCount = this.keys.length;
+    } else {
+      const lanes = p2LiveLanes(this.notes);
+      this.notes.forEach((n, i) => (n.lane = lanes[i]));
+      this.laneCount = 4;
+    }
+    this.counts = { perfect: 0, great: 0, good: 0, miss: 0, wrong: 0 };
+    this.items = this.notes.length + this.notes.filter((n) => n.hold).length; // 긴 음은 끝도 한 번 더 판정
+    this.score = 0;
+    this.combo = 0;
+    this.maxCombo = 0;
+    this.pressed = new Map(); // pointerId → { lane, at, note }
+    this.flash = []; // 줄 빛 { lane, at }
+    this.pops = []; // 판정 글자 { kind, at, lane }
+    this.bursts = []; // 맞힌 자리 반짝 { lane, at, color }
+    this.lastEnd = this.notes.reduce((a, n) => Math.max(a, n.end), 0);
+    this._onDown = (e) => this._down(e);
+    this._onUp = (e) => this._up(e);
+    this._resize = () => this.resize();
+  }
+
+  start() {
+    const a = this.audio;
+    a.ensure();
+    this.resize();
+    window.addEventListener('resize', this._resize);
+    const c = this.canvas;
+    c.addEventListener('pointerdown', this._onDown);
+    c.addEventListener('pointerup', this._onUp);
+    c.addEventListener('pointercancel', this._onUp);
+    c.addEventListener('pointerleave', this._onUp);
+    this.startTime = a.ctx.currentTime + 0.35;
+    this.player = new SongPlayer(a, this.level, this.startTime);
+    this.player.start();
+    this.running = true;
+    const loop = () => {
+      if (!this.running) return;
+      this._tick();
+      this.raf = requestAnimationFrame(loop);
+    };
+    this.raf = requestAnimationFrame(loop);
+  }
+
+  stop() {
+    this.running = false;
+    cancelAnimationFrame(this.raf);
+    if (this.player) this.player.stop();
+    this.player = null;
+    window.removeEventListener('resize', this._resize);
+    const c = this.canvas;
+    c.removeEventListener('pointerdown', this._onDown);
+    c.removeEventListener('pointerup', this._onUp);
+    c.removeEventListener('pointercancel', this._onUp);
+    c.removeEventListener('pointerleave', this._onUp);
+  }
+
+  resize() {
+    const c = this.canvas;
+    const dpr = Math.min(2.5, window.devicePixelRatio || 1);
+    const r = c.getBoundingClientRect();
+    this.W = r.width || window.innerWidth;
+    this.H = r.height || window.innerHeight;
+    c.width = Math.round(this.W * dpr);
+    c.height = Math.round(this.H * dpr);
+    this.ctx2.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this._layout();
+  }
+
+  _layout() {
+    const { W, H } = this;
+    if (this.style === 'keys') {
+      const side = Math.max(8, W * 0.03);
+      this.kbX = side;
+      this.keyW = (W - side * 2) / this.laneCount;
+      this.kbH = Math.min(H * 0.27, this.keyW * 4.2);
+      this.kbY = H - this.kbH - Math.max(14, H * 0.03);
+      this.judgeY = this.kbY;
+      this.speed = (this.judgeY - H * 0.1) / LOOK;
+    } else {
+      this.judgeY = H * 0.8;
+      this.topY = H * 0.13;
+      this.nearW = Math.min(W * 0.96, H * 0.62);
+      this.farW = this.nearW * 0.3;
+    }
+  }
+
+  /** 지금 곡 시각 (귀에 들리는 소리 기준) */
+  now(perfMs) {
+    return this.audio.heardTime(perfMs) - this.startTime;
+  }
+
+  // ---------- 입력 ----------
+  _laneAt(x, y) {
+    if (this.style === 'keys') {
+      if (y < this.judgeY - this.H * 0.25) return -1;
+      return Math.max(0, Math.min(this.laneCount - 1, Math.floor((x - this.kbX) / this.keyW)));
+    }
+    if (y < this.H * 0.45) return -1;
+    const left = (this.W - this.nearW) / 2;
+    return Math.max(0, Math.min(3, Math.floor(((x - left) / this.nearW) * 4)));
+  }
+
+  _down(e) {
+    e.preventDefault();
+    if (!this.running) return;
+    const r = this.canvas.getBoundingClientRect();
+    const lane = this._laneAt(e.clientX - r.left, e.clientY - r.top);
+    if (lane < 0) return;
+    try {
+      this.canvas.setPointerCapture(e.pointerId);
+    } catch {}
+    const t = this.now(performance.now());
+    const rt = this.audio.ctx.currentTime;
+    // 이 줄에서 가장 가까운 안 친 콩 (GOOD 범위 안)
+    let best = null;
+    for (const n of this.notes) {
+      if (n.lane !== lane || n.judged) continue;
+      const dt = t - n.t;
+      if (dt < -JUDGE.good) break;
+      if (Math.abs(dt) <= JUDGE.good && (!best || Math.abs(dt) < Math.abs(t - best.t))) best = n;
+    }
+    const press = { lane, at: t, note: null };
+    this.pressed.set(e.pointerId, press);
+    this.flash.push({ lane, at: t });
+    if (best) {
+      const dt = Math.abs(t - best.t);
+      const kind = dt <= JUDGE.perfect ? 'perfect' : dt <= JUDGE.great ? 'great' : 'good';
+      best.judged = kind;
+      this._count(kind, lane, t);
+      this._sound(best.midi, best.hold ? best.dur : Math.max(0.3, best.dur), rt);
+      this.bursts.push({ lane, at: t, color: this._color(best) });
+      if (best.hold) {
+        best.holding = true;
+        press.note = best;
+      }
+    } else {
+      // 칠 콩이 없는데 누름: B 는 건반 소리 그대로, A 는 소리 없음 — 둘 다 헛침
+      if (this.style === 'keys') this._sound(this.keys[lane], 0.3, rt, 0.55);
+      this.counts.wrong++;
+      this.combo = 0;
+      this.pops.push({ kind: 'wrong', at: t, lane });
+    }
+  }
+
+  _up(e) {
+    const p = this.pressed.get(e.pointerId);
+    if (!p) return;
+    this.pressed.delete(e.pointerId);
+    const n = p.note;
+    if (n && n.holding) {
+      n.holding = false;
+      const t = this.now(performance.now());
+      if (t >= n.end - HOLD_GRACE) this._tail(n, true, t);
+      else this._tail(n, false, t);
+    }
+  }
+
+  _tail(n, ok, t) {
+    if (n.tail) return;
+    n.tail = ok ? 'perfect' : 'miss';
+    this._count(n.tail, n.lane, t, true);
+  }
+
+  _count(kind, lane, t, tail = false) {
+    this.counts[kind]++;
+    if (kind === 'miss') this.combo = 0;
+    else {
+      this.combo++;
+      this.maxCombo = Math.max(this.maxCombo, this.combo);
+      this.score += Math.round(POINTS[kind] * (1 + Math.min(this.combo, 100) / 100));
+    }
+    if (!tail || kind === 'miss') this.pops.push({ kind, at: t, lane });
+  }
+
+  _sound(midi, dur, rt, vel = 1) {
+    const a = this.audio;
+    try {
+      if (a.piano) a.pianoNote(rt, midi, Math.min(1.6, dur), 0.95 * vel, a.sfxBus);
+      else a.lead(rt, midi, Math.min(1.2, dur), a.sfxBus);
+    } catch {}
+  }
+
+  _color(n) {
+    if (this.style === 'keys') return P2_COLORS[solfa(this.keys[n.lane])];
+    return ['#7df2ff', '#b996ff', '#ff8ad8', '#ffe27a'][n.lane];
+  }
+
+  get accuracy() {
+    const c = this.counts;
+    const got = c.perfect * ACC_WEIGHT.perfect + c.great * ACC_WEIGHT.great + c.good * ACC_WEIGHT.good;
+    return got / Math.max(1, this.items + c.wrong);
+  }
+
+  // ---------- 매 화면 ----------
+  _tick() {
+    const t = this.now(performance.now());
+    for (const n of this.notes) {
+      if (!n.judged && t - n.t > JUDGE.good) {
+        n.judged = 'miss';
+        this._count('miss', n.lane, t);
+        if (n.hold) this._tail(n, false, t); // 머리를 놓치면 끝도 놓침
+      }
+      if (n.holding && t >= n.end) {
+        n.holding = false;
+        this._tail(n, true, t);
+      }
+    }
+    if (t > this.lastEnd + 1.2 && !this.ended) {
+      this.ended = true;
+      this.stop();
+      this._draw(t);
+      if (this.onEnd) {
+        const c = this.counts;
+        this.onEnd({ score: this.score, accuracy: this.accuracy, maxCombo: this.maxCombo, ...c, full: c.miss === 0 && c.wrong === 0 });
+      }
+      return;
+    }
+    this._draw(t);
+  }
+
+  _draw(t) {
+    const g = this.ctx2;
+    g.save();
+    if (this.style === 'keys') this._drawKeys(g, t);
+    else this._drawLive(g, t);
+    this._drawCommon(g, t);
+    g.restore();
+    const old = t - 1;
+    this.flash = this.flash.filter((f) => f.at > old);
+    this.pops = this.pops.filter((f) => f.at > old);
+    this.bursts = this.bursts.filter((f) => f.at > old);
+  }
+
+  /** 진행 줄 · 점수 · 카운트다운 */
+  _drawCommon(g, t) {
+    const { W, H } = this;
+    const dark = this.style === 'live';
+    const total = this.lastEnd;
+    const p = Math.max(0, Math.min(1, t / total));
+    const top = Math.max(10, H * 0.015) + (this.safeTop || 0);
+    g.fillStyle = dark ? 'rgba(255,255,255,0.15)' : '#e5e5ea';
+    rr(g, 16, top, W - 32, 7, 4);
+    g.fill();
+    g.fillStyle = dark ? '#7df2ff' : '#58cc02';
+    rr(g, 16, top, Math.max(7, (W - 32) * p), 7, 4);
+    g.fill();
+    g.textAlign = 'right';
+    g.textBaseline = 'top';
+    g.fillStyle = dark ? '#fff' : '#3c3c43';
+    g.font = `800 ${Math.round(Math.min(22, W * 0.055))}px system-ui, sans-serif`;
+    g.fillText(this.score.toLocaleString(), W - 18, top + 16);
+    // 3 · 2 · 1
+    const beat = 60 / this.level.bpm;
+    const first = this.notes.length ? this.notes[0].t : 0;
+    if (t < first - 0.05 && t > first - beat * 3.5) {
+      const k = Math.ceil((first - t) / beat);
+      if (k >= 1 && k <= 3) {
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.font = `900 ${Math.round(W * 0.2)}px system-ui, sans-serif`;
+        g.fillStyle = dark ? 'rgba(255,255,255,0.85)' : 'rgba(60,60,67,0.75)';
+        g.fillText(String(k), W / 2, H * 0.38);
+      }
+    }
+  }
+
+  // ======== B: 건반 ========
+  _drawKeys(g, t) {
+    const { W, H, kbX, keyW, kbY, kbH, judgeY, speed } = this;
+    g.fillStyle = '#ffffff';
+    g.fillRect(0, 0, W, H);
+    // 건반마다 옅은 길
+    for (let i = 0; i < this.laneCount; i++) {
+      const x = kbX + i * keyW;
+      g.fillStyle = i % 2 ? '#f7f7fa' : '#fbfbfd';
+      g.fillRect(x, 0, keyW, judgeY);
+      const fl = this.flash.filter((f) => f.lane === i).at(-1);
+      const held = [...this.pressed.values()].some((p) => p.lane === i);
+      if (fl || held) {
+        const a = held ? 0.5 : Math.max(0, 1 - (t - fl.at) / 0.25) * 0.5;
+        const grd = g.createLinearGradient(0, judgeY - H * 0.3, 0, judgeY);
+        const col = P2_COLORS[solfa(this.keys[i])];
+        grd.addColorStop(0, hexA(col, 0));
+        grd.addColorStop(1, hexA(col, a * 0.45));
+        g.fillStyle = grd;
+        g.fillRect(x, judgeY - H * 0.3, keyW, H * 0.3);
+      }
+    }
+    // 콩 (계이름 색 막대, 길이 = 음 길이)
+    const pad = Math.max(3, keyW * 0.09);
+    const label = Math.round(Math.min(keyW * 0.42, 22));
+    g.save();
+    g.beginPath();
+    g.rect(0, 0, W, judgeY);
+    g.clip();
+    for (const n of this.notes) {
+      if (n.t - t > LOOK + 0.2) break;
+      if (n.judged && n.judged !== 'miss' && !n.holding) continue;
+      if (n.judged === 'miss' && t - n.end > 0.3) continue;
+      const yHead = judgeY - (n.t - t) * speed;
+      const len = Math.max(keyW * 0.55, n.dur * speed - Math.max(4, speed * 0.03));
+      let yTop = yHead - len;
+      let yBot = n.holding ? judgeY : yHead;
+      if (yBot < -10) continue;
+      const x = kbX + n.lane * keyW + pad;
+      const w = keyW - pad * 2;
+      const col = P2_COLORS[solfa(this.keys[n.lane])];
+      g.globalAlpha = n.judged === 'miss' ? 0.3 : 1;
+      g.fillStyle = shade(col, -0.18);
+      rr(g, x, yTop + 4, w, yBot - yTop, Math.min(12, w * 0.3));
+      g.fill();
+      g.fillStyle = col;
+      rr(g, x, yTop, w, yBot - yTop - 3, Math.min(12, w * 0.3));
+      g.fill();
+      g.fillStyle = 'rgba(255,255,255,0.35)';
+      rr(g, x + w * 0.18, yTop + 5, w * 0.64, 4, 2);
+      g.fill();
+      if (n.holding) {
+        g.fillStyle = 'rgba(255,255,255,0.35)';
+        rr(g, x, yTop, w, yBot - yTop - 3, Math.min(12, w * 0.3));
+        g.fill();
+      }
+      if (yBot - yTop > label * 1.3) {
+        g.fillStyle = '#fff';
+        g.font = `800 ${label}px system-ui, sans-serif`;
+        g.textAlign = 'center';
+        g.textBaseline = 'bottom';
+        g.fillText(solfa(n.midi), x + w / 2, yBot - 8);
+      }
+      g.globalAlpha = 1;
+    }
+    g.restore();
+    // 맞힌 자리 반짝
+    for (const b of this.bursts) {
+      const k = (t - b.at) / 0.35;
+      if (k < 0 || k > 1) continue;
+      const cx = kbX + (b.lane + 0.5) * keyW;
+      g.globalAlpha = 1 - k;
+      g.strokeStyle = b.color;
+      g.lineWidth = 4;
+      g.beginPath();
+      g.arc(cx, judgeY, keyW * (0.3 + k * 0.5), 0, Math.PI * 2);
+      g.stroke();
+      g.globalAlpha = 1;
+    }
+    // 건반
+    for (let i = 0; i < this.laneCount; i++) {
+      const midi = this.keys[i];
+      const col = P2_COLORS[solfa(midi)];
+      const held = [...this.pressed.values()].some((p) => p.lane === i);
+      const dy = held ? 5 : 0;
+      const x = kbX + i * keyW + 2;
+      const w = keyW - 4;
+      g.fillStyle = col;
+      rr(g, x, kbY + 6, w, kbH - 6, 12);
+      g.fill();
+      g.fillStyle = held ? tint(col, 0.82) : '#ffffff';
+      g.strokeStyle = '#dcdce2';
+      g.lineWidth = 2;
+      rr(g, x, kbY + dy, w, kbH - 12, 12);
+      g.fill();
+      g.stroke();
+      g.fillStyle = col;
+      g.font = `800 ${Math.round(Math.min(keyW * 0.4, 24))}px system-ui, sans-serif`;
+      g.textAlign = 'center';
+      g.textBaseline = 'alphabetic';
+      g.fillText(solfa(midi), x + w / 2, kbY + kbH - 24 + dy);
+    }
+    // 검은 건반 (모양만, 누르면 아래 흰 건반으로)
+    for (let i = 0; i < this.laneCount - 1; i++) {
+      if (!isWhite(this.keys[i] + 1)) {
+        const x = kbX + (i + 1) * keyW - keyW * 0.3;
+        g.fillStyle = '#333338';
+        rr(g, x, kbY - 2, keyW * 0.6, kbH * 0.46, 8);
+        g.fill();
+        g.fillStyle = '#4a4a50';
+        rr(g, x, kbY - 2, keyW * 0.6, kbH * 0.46 - 8, 8);
+        g.fill();
+      }
+    }
+    // 판정선
+    g.fillStyle = 'rgba(88,204,2,0.9)';
+    g.fillRect(kbX, judgeY - 3, keyW * this.laneCount, 3);
+    this._drawPops(g, t, false);
+  }
+
+  // ======== A: 라이브 ========
+  /** 시간 차(초) → 길 위 깊이 0(판정선)~1(멀리) → 화면 y·폭 */
+  _proj(dt) {
+    const z = Math.max(0, dt / LOOK);
+    const f = (z * 1.8) / (1 + 0.8 * z); // 멀수록 촘촘하게
+    const y = this.judgeY - (this.judgeY - this.topY) * Math.min(1.15, f);
+    const k = (this.judgeY - y) / (this.judgeY - this.topY);
+    const w = this.nearW + (this.farW - this.nearW) * Math.min(1, k);
+    return { y, w, left: (this.W - w) / 2 };
+  }
+
+  _drawLive(g, t) {
+    const { W, H, judgeY } = this;
+    const bg = g.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, '#0a0d2c');
+    bg.addColorStop(0.6, '#1a1040');
+    bg.addColorStop(1, '#2a0f3e');
+    g.fillStyle = bg;
+    g.fillRect(0, 0, W, H);
+    // 길 (유리)
+    const far = this._proj(LOOK * 1.3);
+    const near = { y: H, w: this.nearW * 1.08 };
+    near.left = (W - near.w) / 2;
+    const nj = this._proj(0);
+    g.beginPath();
+    g.moveTo(far.left, far.y);
+    g.lineTo(far.left + far.w, far.y);
+    g.lineTo(near.left + near.w, near.y);
+    g.lineTo(near.left, near.y);
+    g.closePath();
+    const lg = g.createLinearGradient(0, far.y, 0, H);
+    lg.addColorStop(0, 'rgba(120,140,255,0.04)');
+    lg.addColorStop(1, 'rgba(160,200,255,0.18)');
+    g.fillStyle = lg;
+    g.fill();
+    // 줄 빛 (누른 줄)
+    for (let i = 0; i < 4; i++) {
+      const fl = this.flash.filter((f) => f.lane === i).at(-1);
+      const held = [...this.pressed.values()].some((p) => p.lane === i);
+      if (!fl && !held) continue;
+      const a = held ? 0.55 : Math.max(0, 1 - (t - fl.at) / 0.3) * 0.55;
+      if (a <= 0) continue;
+      const fx = (s) => far.left + (far.w * s) / 4;
+      const nx = (s) => nj.left + (nj.w * s) / 4;
+      g.beginPath();
+      g.moveTo(fx(i), far.y);
+      g.lineTo(fx(i + 1), far.y);
+      g.lineTo(nx(i + 1), judgeY);
+      g.lineTo(nx(i), judgeY);
+      g.closePath();
+      const cg = g.createLinearGradient(0, far.y, 0, judgeY);
+      cg.addColorStop(0, 'rgba(180,230,255,0)');
+      cg.addColorStop(1, `rgba(180,230,255,${a})`);
+      g.fillStyle = cg;
+      g.fill();
+    }
+    // 줄 경계
+    for (let s = 0; s <= 4; s++) {
+      const edge = s === 0 || s === 4;
+      g.strokeStyle = edge ? 'rgba(255,255,255,0.85)' : 'rgba(255,255,255,0.16)';
+      g.lineWidth = edge ? 2.5 : 1;
+      if (edge) {
+        g.shadowColor = 'rgba(160,220,255,0.9)';
+        g.shadowBlur = 12;
+      }
+      g.beginPath();
+      g.moveTo(far.left + (far.w * s) / 4, far.y);
+      g.lineTo(near.left + (near.w * s) / 4, near.y);
+      g.stroke();
+      g.shadowBlur = 0;
+    }
+    // 긴 음 띠
+    for (const n of this.notes) {
+      if (!n.hold || n.t - t > LOOK * 1.3) continue;
+      if (n.tail || (n.judged === 'miss' && t > n.end)) continue;
+      if (n.judged && n.judged !== 'miss' && !n.holding) continue;
+      const a = this._proj(Math.max(n.holding ? 0 : n.t - t, 0));
+      const b = this._proj(Math.max(0, n.end - t));
+      if (n.end - t < 0) continue;
+      const ax = (p, s) => p.left + (p.w * s) / 4;
+      const inset = 0.12;
+      g.beginPath();
+      g.moveTo(ax(b, n.lane + inset), b.y);
+      g.lineTo(ax(b, n.lane + 1 - inset), b.y);
+      g.lineTo(ax(a, n.lane + 1 - inset), a.y);
+      g.lineTo(ax(a, n.lane + inset), a.y);
+      g.closePath();
+      g.fillStyle = n.holding ? 'rgba(140,255,200,0.55)' : n.judged === 'miss' ? 'rgba(255,255,255,0.12)' : 'rgba(140,255,200,0.32)';
+      g.fill();
+    }
+    // 콩 (납작한 막대)
+    for (const n of this.notes) {
+      const dt = n.t - t;
+      if (dt > LOOK * 1.3) break;
+      if (n.judged && !(n.judged === 'miss' && dt > -0.25)) continue;
+      const p = this._proj(Math.max(dt, 0) + Math.min(0, dt) * 0.4);
+      const lw = p.w / 4;
+      const x = p.left + lw * n.lane + lw * 0.06;
+      const w = lw * 0.88;
+      const h = Math.max(6, 18 * (p.w / this.nearW));
+      const y = dt < 0 ? judgeY - dt * 260 : p.y;
+      const col = n.hold ? '#8dffc8' : this._color(n);
+      g.globalAlpha = n.judged === 'miss' ? 0.35 : 1;
+      g.shadowColor = col;
+      g.shadowBlur = 10;
+      const grd = g.createLinearGradient(0, y - h / 2, 0, y + h / 2);
+      grd.addColorStop(0, '#ffffff');
+      grd.addColorStop(1, col);
+      g.fillStyle = grd;
+      rr(g, x, y - h / 2, w, h, h / 2);
+      g.fill();
+      g.shadowBlur = 0;
+      g.globalAlpha = 1;
+    }
+    // 판정선
+    g.shadowColor = 'rgba(160,230,255,1)';
+    g.shadowBlur = 16;
+    g.fillStyle = '#ffffff';
+    g.fillRect(nj.left, judgeY - 2, nj.w, 4);
+    g.shadowBlur = 0;
+    // 맞힌 자리 반짝
+    for (const b of this.bursts) {
+      const k = (t - b.at) / 0.3;
+      if (k < 0 || k > 1) continue;
+      const cx = nj.left + (nj.w / 4) * (b.lane + 0.5);
+      g.globalAlpha = (1 - k) * 0.9;
+      g.fillStyle = b.color;
+      g.beginPath();
+      g.ellipse(cx, judgeY, (nj.w / 8) * (0.6 + k * 0.6), 10 + k * 14, 0, 0, Math.PI * 2);
+      g.fill();
+      g.globalAlpha = 1;
+    }
+    // 가운데 콤보
+    if (this.combo >= 3) {
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillStyle = 'rgba(255,255,255,0.28)';
+      g.font = `900 ${Math.round(W * 0.16)}px system-ui, sans-serif`;
+      g.fillText(String(this.combo), W / 2, H * 0.42);
+      g.font = `800 ${Math.round(W * 0.04)}px system-ui, sans-serif`;
+      g.fillText('COMBO', W / 2, H * 0.42 + W * 0.11);
+    }
+    this._drawPops(g, t, true);
+  }
+
+  /** 판정 글자: 줄마다 판정선 위 */
+  _drawPops(g, t, dark) {
+    const names = { perfect: 'PERFECT', great: 'GREAT', good: 'GOOD', miss: 'MISS', wrong: '헛침' };
+    const colors = dark
+      ? { perfect: ['#ff9be1', '#ffe27a', '#7df2ff'], great: ['#9be8ff', '#b9a6ff'], good: ['#c6ffb0', '#8be0a0'], miss: ['#9a9ab0'], wrong: ['#9a9ab0'] }
+      : { perfect: ['#58cc02', '#3fae00'], great: ['#1cb0f6', '#1899d6'], good: ['#ff9600', '#e58600'], miss: ['#c0c0c8'], wrong: ['#c0c0c8'] };
+    const seen = new Set();
+    for (let i = this.pops.length - 1; i >= 0; i--) {
+      const p = this.pops[i];
+      if (seen.has(p.lane)) continue;
+      seen.add(p.lane);
+      const k = (t - p.at) / 0.5;
+      if (k < 0 || k > 1) continue;
+      let cx;
+      let w;
+      if (this.style === 'keys') {
+        cx = this.kbX + (p.lane + 0.5) * this.keyW;
+        w = this.keyW;
+      } else {
+        const nj = this._proj(0);
+        cx = nj.left + (nj.w / 4) * (p.lane + 0.5);
+        w = nj.w / 4;
+      }
+      const y = this.judgeY - this.H * 0.05 - k * 18;
+      const size = Math.round(Math.min(w * (p.kind === 'perfect' ? 0.3 : 0.26), 20));
+      g.globalAlpha = 1 - k * k;
+      g.font = `italic 900 ${size}px system-ui, sans-serif`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      const cs = colors[p.kind];
+      const tw = g.measureText(names[p.kind]).width;
+      const grd = g.createLinearGradient(cx - tw / 2, 0, cx + tw / 2, 0);
+      cs.forEach((c, j) => grd.addColorStop(cs.length === 1 ? 0 : j / (cs.length - 1), c));
+      if (dark) {
+        g.strokeStyle = 'rgba(10,10,40,0.8)';
+        g.lineWidth = 3;
+        g.strokeText(names[p.kind], cx, y);
+      }
+      g.fillStyle = grd;
+      g.fillText(names[p.kind], cx, y);
+      g.globalAlpha = 1;
+    }
+  }
+}
+
+// ---------- 그리기 도우미 ----------
+function rr(g, x, y, w, h, r) {
+  r = Math.max(0, Math.min(r, w / 2, h / 2));
+  g.beginPath();
+  g.moveTo(x + r, y);
+  g.arcTo(x + w, y, x + w, y + h, r);
+  g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r);
+  g.arcTo(x, y, x + w, y, r);
+  g.closePath();
+}
+function rgbOf(hex) {
+  const v = parseInt(hex.slice(1), 16);
+  return [(v >> 16) & 255, (v >> 8) & 255, v & 255];
+}
+function hexA(hex, a) {
+  const [r, g, b] = rgbOf(hex);
+  return `rgba(${r},${g},${b},${a})`;
+}
+function shade(hex, k) {
+  const [r, g, b] = rgbOf(hex).map((c) => Math.round(c * (1 + k)));
+  return `rgb(${r},${g},${b})`;
+}
+function tint(hex, k) {
+  const [r, g, b] = rgbOf(hex).map((c) => Math.round(c + (255 - c) * k));
+  return `rgb(${r},${g},${b})`;
+}
+
+return { P2_SOLFA, p2Notes, p2Keys, p2LiveLanes, PianoPreview };
+})();
+
 // ---- season.js ----
 const __m_season = (() => {
 // 🏛 시즌 · 명예의 전당 (브라우저와 서버가 같이 씀)
@@ -10905,1206 +12785,6 @@ async function videoToAac(file, onProgress = () => {}) {
 return { videoToAac };
 })();
 
-// ---- audio.js ----
-const __m_audio = (() => {
-// 오디오 엔진: 드럼은 Web Audio 합성, 곡(멜로디·화음·베이스)은 진짜 악기 샘플로 연주합니다.
-//   피아노 샘플: Salamander Grand Piano V3 (Alexander Holm, CC BY 3.0) — public/audio/piano/
-//   오케스트라 샘플: VS Chamber Orchestra Community Edition (Versilian Studios, CC0) — public/audio/orch/
-//     바이올린·첼로 합주, 호른·트롬본, 튜바, 팀파니. 피아노는 박자가 또렷하게 들리게 같이 침
-//   샘플을 못 불러오면 예전 합성음으로 대신 연주합니다.
-// - 모든 박자 판정은 AudioContext 시계 기준 (setTimeout 보다 훨씬 정확)
-// - heardTime(): "지금 스피커에서 나오고 있는 소리"의 시각. 출력 지연까지 반영.
-
-const { STEPS_PER_BAR, COUNT_IN_BARS, OUTRO_BARS, tempoOf, parseMelody, chordAt, levelLanes, CHAR_LANES, KICK, SNARE, HAT, CRASH, TOM, pianoHarmony, pianoLeftHand } = __m_charts;
-
-const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
-
-function makeSilentWavUrl() {
-  const rate = 8000;
-  const n = rate / 2;
-  const buf = new ArrayBuffer(44 + n);
-  const v = new DataView(buf);
-  const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
-  w(0, 'RIFF');
-  v.setUint32(4, 36 + n, true);
-  w(8, 'WAVE');
-  w(12, 'fmt ');
-  v.setUint32(16, 16, true);
-  v.setUint16(20, 1, true);
-  v.setUint16(22, 1, true);
-  v.setUint32(24, rate, true);
-  v.setUint32(28, rate, true);
-  v.setUint16(32, 1, true);
-  v.setUint16(34, 8, true);
-  w(36, 'data');
-  v.setUint32(40, n, true);
-  for (let i = 0; i < n; i++) v.setUint8(44 + i, 128);
-  return URL.createObjectURL(new Blob([buf], { type: 'audio/wav' }));
-}
-
-// 피아노 샘플: C · D# · F# · A (단3도 간격) → 가장 가까운 샘플을 최대 ±1.5음 올리고 내려서 씀
-const PIANO_BASE = 'audio/piano.bin';
-const PIANO_NOTES = [];
-for (let o = 2; o <= 6; o++) for (const [n, pc] of [['C', 0], ['Ds', 3], ['Fs', 6], ['A', 9]]) PIANO_NOTES.push({ file: `${n}${o}.mp3`, midi: 12 * (o + 1) + pc });
-PIANO_NOTES.push({ file: 'C7.mp3', midi: 96 });
-const PIANO_GAIN = 1.9; // 샘플이 합성음보다 작게 녹음돼 있어서 키움 (곡이 드럼에 묻히지 않게)
-
-// 오케스트라 샘플 (파일 이름 = 악기_미디번호.mp3). 소리 크기는 파일마다 맞춰 둠
-const ORCH_BASE = 'audio/orch.bin';
-
-/** 묶음 파일(scripts/pack-audio.js) 하나를 받아 files 순서대로 ArrayBuffer 배열로 (없으면 null) */
-async function fetchPack(url, files) {
-  try {
-    const r = await fetch(url);
-    if (!r.ok) return files.map(() => null);
-    const all = await r.arrayBuffer();
-    const hl = new DataView(all).getUint32(0);
-    const index = JSON.parse(new TextDecoder().decode(new Uint8Array(all, 4, hl)));
-    const base = 4 + hl;
-    return files.map((n) => {
-      const e = index[n.file];
-      return e ? all.slice(base + e[0], base + e[0] + e[1]) : null;
-    });
-  } catch {
-    return files.map(() => null);
-  }
-}
-const ORCH = {
-  vln: [55, 57, 59, 62, 66, 69, 72, 76, 79, 83, 86],
-  vc: [36, 40, 43, 47, 50, 53, 57, 60, 64],
-  br: [43, 46, 50, 53, 57, 60, 61, 63, 65, 74, 77],
-  tuba: [34, 39, 41, 46, 50],
-  timp: [37, 42],
-};
-const ORCH_FILES = Object.entries(ORCH).flatMap(([k, list]) => list.map((midi) => ({ set: k, midi, file: `${k}_${midi}.mp3` })));
-const ORCH_GAIN = { vln: 0.62, vc: 0.62, br: 0.55, tuba: 0.6, timp: 0.9 };
-
-/** 샘플 앞의 무음 길이(초): 음이 실제로 시작하는 지점부터 틀어야 박자가 정확함 */
-function onsetOf(buf) {
-  const d = buf.getChannelData(0);
-  const n = Math.min(d.length, Math.floor(buf.sampleRate * 0.2));
-  let peak = 0;
-  for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(d[i]));
-  const th = peak * 0.05;
-  for (let i = 0; i < n; i++) if (Math.abs(d[i]) > th) return Math.max(0, i / buf.sampleRate - 0.002);
-  return 0;
-}
-
-class AudioEngine {
-  constructor() {
-    this.ctx = null;
-    this.volumes = { music: 0.8, sfx: 1 };
-    this._clock = null;
-    this.piano = null; // [{ midi, buf, offset }] 불러오면 채워짐
-    this._pianoRaw = null;
-    this._pianoLoading = null;
-    this.orch = null; // { vln: [{ midi, buf, offset }], ... }
-    this._orchRaw = null;
-    this._orchLoading = null;
-    /** 반주를 오케스트라로 (false 면 피아노만) */
-    this.orchOn = true;
-  }
-
-  /** 오케스트라 샘플 미리 받기 (피아노 다음에) */
-  prefetchOrch(base = ORCH_BASE) {
-    if (this._orchRaw) return this._orchRaw;
-    this._orchRaw = fetchPack(base, ORCH_FILES);
-    return this._orchRaw;
-  }
-
-  /** 오케스트라 샘플 디코딩. 실패하면 false (피아노만으로 연주) */
-  loadOrch() {
-    if (this.orch) return Promise.resolve(true);
-    if (this._orchLoading) return this._orchLoading;
-    const ctx = this.ensure();
-    this._orchLoading = this.prefetchOrch().then(async (raws) => {
-      const out = {};
-      for (const k of Object.keys(ORCH)) out[k] = [];
-      let ok = 0;
-      for (let i = 0; i < raws.length; i++) {
-        const ab = raws[i];
-        if (!ab) continue;
-        try {
-          const buf = await new Promise((res, rej) => {
-            const p = ctx.decodeAudioData(ab.slice(0), res, rej);
-            if (p && p.then) p.then(res, rej);
-          });
-          out[ORCH_FILES[i].set].push({ midi: ORCH_FILES[i].midi, buf, offset: onsetOf(buf) });
-          ok++;
-        } catch {}
-      }
-      if (ok < ORCH_FILES.length * 0.8 || Object.values(out).some((l) => !l.length)) {
-        this._orchLoading = null;
-        return false;
-      }
-      for (const l of Object.values(out)) l.sort((a, b) => a.midi - b.midi);
-      this.orch = out;
-      return true;
-    });
-    return this._orchLoading;
-  }
-
-  /** 지금 오케스트라로 칠 수 있나 */
-  get orchestra() {
-    return this.orchOn && !!this.orch;
-  }
-
-  /**
-   * 오케스트라 악기 한 음. set = 'vln' | 'vc' | 'br' | 'tuba' | 'timp'
-   * attack 초 동안 서서히 커지고, dur 뒤 release 로 잦아듦
-   */
-  orchNote(set, t, midi, dur, vel = 0.6, dest = this.musicBus, attack = 0.015, release = 0.18) {
-    const list = this.orch && this.orch[set];
-    if (!list || !list.length) return;
-    const ctx = this.ctx;
-    let s = list[0];
-    for (const p of list) if (Math.abs(p.midi - midi) < Math.abs(s.midi - midi)) s = p;
-    const src = ctx.createBufferSource();
-    src.buffer = s.buf;
-    src.playbackRate.value = Math.pow(2, (midi - s.midi) / 12);
-    const g = ctx.createGain();
-    const v = vel * ORCH_GAIN[set];
-    const t0 = Math.max(t, ctx.currentTime);
-    const end = t0 + Math.max(0.06, dur);
-    if (attack > 0.002) {
-      g.gain.setValueAtTime(0.0001, t0);
-      g.gain.linearRampToValueAtTime(v, t0 + attack);
-    } else g.gain.setValueAtTime(v, t0);
-    g.gain.setValueAtTime(v, Math.max(end, t0 + attack));
-    g.gain.setTargetAtTime(0, Math.max(end, t0 + attack), release);
-    src.connect(g).connect(dest);
-    src.start(t0, s.offset);
-    src.stop(Math.min(end + release * 6, t0 + s.buf.duration / src.playbackRate.value));
-  }
-
-  /** 피아노 샘플 파일 미리 받기 (AudioContext 없이도 가능 → 페이지 열자마자 호출) */
-  prefetchPiano(base = PIANO_BASE) {
-    if (this._pianoRaw) return this._pianoRaw;
-    this._pianoRaw = fetchPack(base, PIANO_NOTES);
-    return this._pianoRaw;
-  }
-
-  /** 피아노 샘플 디코딩. 실패해도 에러 없이 false (합성음으로 대신 연주) */
-  loadPiano() {
-    if (this.piano) return Promise.resolve(true);
-    if (this._pianoLoading) return this._pianoLoading;
-    const ctx = this.ensure();
-    this._pianoLoading = this.prefetchPiano().then(async (raws) => {
-      const out = [];
-      await Promise.all(
-        raws.map(async (ab, i) => {
-          if (!ab) return;
-          try {
-            const buf = await new Promise((res, rej) => {
-              const p = ctx.decodeAudioData(ab, res, rej);
-              if (p && p.then) p.then(res, rej);
-            });
-            out.push({ midi: PIANO_NOTES[i].midi, buf, offset: onsetOf(buf) });
-          } catch {}
-        })
-      );
-      if (out.length < PIANO_NOTES.length * 0.8) {
-        this._pianoLoading = null;
-        return false;
-      }
-      out.sort((a, b) => a.midi - b.midi);
-      this.piano = out;
-      return true;
-    });
-    return this._pianoLoading;
-  }
-
-  /** 🎤 녹음된 곡(노래 파일) 받아서 풀어 둠. 실패하면 null. 한 번 받으면 다시 안 받음 (새 소리 엔진에서도 그대로 씀) */
-  loadTrack(src) {
-    this._tracks ??= new Map();
-    this._trackBufs ??= new Map();
-    if (this._tracks.has(src)) return this._tracks.get(src);
-    const ctx = this.ensure();
-    const p = fetch(src)
-      .then((r) => {
-        if (!r.ok) throw new Error(String(r.status));
-        return r.arrayBuffer();
-      })
-      .then(
-        (ab) =>
-          new Promise((res, rej) => {
-            const q = ctx.decodeAudioData(ab, res, rej);
-            if (q && q.then) q.then(res, rej);
-          })
-      )
-      .then((buf) => {
-        this._trackBufs.set(src, buf);
-        return buf;
-      })
-      .catch(() => {
-        this._tracks.delete(src);
-        return null;
-      });
-    this._tracks.set(src, p);
-    return p;
-  }
-
-  /**
-   * 🔔 효과음 파일 (2026-11-22, ElevenLabs 로 만든 assets/sfx/*.mp3): combo 콤보 반짝 · cheer 풀콤보 환호 · buy 상점 구매 · gift 선물 받기
-   *   처음 부를 때 받아 두고(loadTrack 캐시), 아직 못 받았으면 이번엔 조용히 넘어감. 효과음 볼륨(sfxBus)을 따름
-   */
-  sfxFile(name, vol = 1) {
-    const src = `assets/sfx/${name.includes('.') ? name : name + '.mp3'}`;
-    const ctx = this.ctx;
-    const buf = this.trackBuffer(src);
-    if (!buf) {
-      const t0 = performance.now();
-      // 아직 안 받았으면 받고 나서 바로 (1.5초 넘게 걸리면 이번엔 건너뜀)
-      this.loadTrack(src).then((b) => b && performance.now() - t0 < 1500 && this.sfxFile(name, vol));
-      return;
-    }
-    if (!ctx || !this.sfxBus || this.sfxBus.context !== ctx) return;
-    try {
-      const s = ctx.createBufferSource();
-      const g = ctx.createGain();
-      s.buffer = buf;
-      g.gain.value = vol;
-      s.connect(g).connect(this.sfxBus);
-      s.start(ctx.currentTime + 0.01);
-    } catch {}
-  }
-  /** 효과음 파일 미리 받기 (첫 터치 뒤) */
-  prefetchSfx() {
-    for (const n of ['combo', 'cheer', 'buy', 'gift', ...(this.uiSet === 'live' ? ['live2_tap', 'live2_combo', 'live2_clear'] : [])]) this.loadTrack(`assets/sfx/${n}.mp3`);
-  }
-
-  /** 받아 둔 곡 (없으면 null) */
-  trackBuffer(src) {
-    return (this._trackBufs && this._trackBufs.get(src)) || null;
-  }
-
-  /** 피아노 한 음. vel 0~1, dur 초 뒤에 건반을 뗌(댐퍼) */
-  pianoNote(t, midi, dur, vel = 0.8, dest = this.musicBus) {
-    const ctx = this.ctx;
-    let s = this.piano[0];
-    for (const p of this.piano) if (Math.abs(p.midi - midi) < Math.abs(s.midi - midi)) s = p;
-    const src = ctx.createBufferSource();
-    src.buffer = s.buf;
-    src.playbackRate.value = Math.pow(2, (midi - s.midi) / 12);
-    const g = ctx.createGain();
-    const rel = t + Math.max(0.08, dur);
-    const v = vel * PIANO_GAIN;
-    g.gain.setValueAtTime(v, t);
-    g.gain.setValueAtTime(v, rel);
-    g.gain.setTargetAtTime(0, rel, 0.08);
-    src.connect(g).connect(dest);
-    src.start(Math.max(t, ctx.currentTime), s.offset);
-    src.stop(rel + 0.6);
-  }
-
-  ensure() {
-    if (this.ctx) return this.ctx;
-    const AC = window.AudioContext || window.webkitAudioContext;
-    let ctx;
-    try {
-      ctx = new AC({ latencyHint: 'interactive' });
-    } catch {
-      ctx = new AC();
-    }
-    this.ctx = ctx;
-    const comp = ctx.createDynamicsCompressor();
-    comp.threshold.value = -12;
-    comp.knee.value = 8;
-    comp.ratio.value = 4;
-    comp.attack.value = 0.002;
-    comp.release.value = 0.15;
-    this.master = ctx.createGain();
-    this.master.gain.value = 0.95;
-    this.master.connect(comp).connect(ctx.destination);
-    this.out = comp;
-    this.musicBus = ctx.createGain();
-    this.musicBus.connect(this.master);
-    this.sfxBus = ctx.createGain();
-    this.sfxBus.connect(this.master);
-    // 작은 방 울림(리버브): 드럼이 '방 안에서' 울리는 느낌
-    try {
-      const len = Math.floor(ctx.sampleRate * 1.1);
-      const ir = ctx.createBuffer(2, len, ctx.sampleRate);
-      for (let ch = 0; ch < 2; ch++) {
-        const d = ir.getChannelData(ch);
-        for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 3.2);
-      }
-      const verb = ctx.createConvolver();
-      verb.buffer = ir;
-      const wet = ctx.createGain();
-      wet.gain.value = 0.16;
-      verb.connect(wet).connect(this.master);
-      const sendS = ctx.createGain();
-      sendS.gain.value = 0.55;
-      this.sfxBus.connect(sendS).connect(verb);
-      const sendM = ctx.createGain();
-      sendM.gain.value = 0.6;
-      this.musicBus.connect(sendM).connect(verb);
-    } catch {}
-    this.applyVolumes();
-    const len = ctx.sampleRate;
-    const nb = ctx.createBuffer(1, len, ctx.sampleRate);
-    const d = nb.getChannelData(0);
-    for (let i = 0; i < len; i++) d[i] = Math.random() * 2 - 1;
-    this.noiseBuf = nb;
-    return ctx;
-  }
-
-  setVolumes(v) {
-    Object.assign(this.volumes, v);
-    this.applyVolumes();
-  }
-  applyVolumes() {
-    if (!this.ctx) return;
-    this.musicBus.gain.value = this.volumes.music * 0.5;
-    this.sfxBus.gain.value = this.volumes.sfx * 1.0;
-  }
-
-  /** 반드시 사용자 터치 이벤트 안에서 호출 (iOS/인앱 브라우저 정책) */
-  async unlock() {
-    const ctx = this.ensure();
-    try {
-      if (navigator.audioSession) navigator.audioSession.type = 'playback'; // iOS 무음 스위치 우회 (Safari 17+)
-    } catch {}
-    if (!this._unlocked) {
-      setTimeout(() => this.prefetchSfx(), 1500); // 🔔 효과음 파일 미리 (작은 정적 파일, 서버 요청 아님)
-      const b = ctx.createBuffer(1, 1, 22050);
-      const s = ctx.createBufferSource();
-      s.buffer = b;
-      s.connect(ctx.destination);
-      s.start(0);
-      this._unlocked = true;
-      // 구형 iOS: 무음 <audio> 를 틀어 두면 무음 스위치에서도 Web Audio 가 들림
-      if (/iPhone|iPad|iPod/.test(navigator.userAgent) && !navigator.audioSession) {
-        try {
-          const el = document.createElement('audio');
-          el.setAttribute('playsinline', '');
-          el.loop = true;
-          el.src = makeSilentWavUrl();
-          el.play().catch(() => {});
-          this._silentEl = el;
-        } catch {}
-      }
-    }
-    if (ctx.state !== 'running') {
-      try {
-        await ctx.resume();
-      } catch {}
-    }
-    return ctx.state === 'running';
-  }
-
-  /**
-   * 소리 엔진을 통째로 새로 만듦. 반드시 터치 이벤트 안에서.
-   *   아이폰에서 다른 앱(음악·영상·화면 녹화 등)이 소리를 가져갔다 돌려주면 옛 AudioContext 가
-   *   resume() 해도 다시 안 켜지거나 'running' 인데 시계가 멈춘 채로 남는 일이 있음 → 새 엔진이면 바로 켜짐.
-   *   받아 둔 피아노·오케스트라 소리(AudioBuffer)는 새 엔진에서도 그대로 씀
-   */
-  rebuild() {
-    const old = this.ctx;
-    this.ctx = null;
-    this._streamDest = null;
-    this._clock = null;
-    // 옛 엔진에 붙어 있던 노드는 새 엔진에 못 이음 (잇는 순간 오류 → 쿵만 안 눌리던 것)
-    this._sat = null;
-    this._tickBus = null;
-    this.frozen = false;
-    try {
-      if (old) old.close().catch(() => {});
-    } catch {}
-    const ctx = this.ensure();
-    try {
-      if (navigator.audioSession) navigator.audioSession.type = 'playback';
-    } catch {}
-    try {
-      const b = ctx.createBuffer(1, 1, 22050);
-      const s = ctx.createBufferSource();
-      s.buffer = b;
-      s.connect(ctx.destination);
-      s.start(0);
-    } catch {}
-    this._unlocked = true;
-    ctx.resume().catch(() => {});
-    if (this._silentEl) this._silentEl.play().catch(() => {});
-    this.rebuiltAt = performance.now();
-    return ctx;
-  }
-
-  get running() {
-    return !!this.ctx && this.ctx.state === 'running';
-  }
-
-  resetClock() {
-    this._clock = null;
-  }
-
-  /** 지금 귀에 들리는 소리의 AudioContext 시각. perfMs 를 주면 그 순간(터치 시각) 기준. */
-  heardTime(perfMs = performance.now()) {
-    const ctx = this.ctx;
-    if (!ctx) return 0;
-    if (ctx.state === 'running' && ctx.getOutputTimestamp) {
-      const ts = ctx.getOutputTimestamp();
-      if (ts && ts.contextTime > 0 && ts.performanceTime > 0) {
-        const sample = ts.contextTime - ts.performanceTime / 1000;
-        if (this._clock === null || Math.abs(sample - this._clock) > 0.04) this._clock = sample;
-        else this._clock += (sample - this._clock) * 0.04;
-        return Math.min(perfMs / 1000 + this._clock, ctx.currentTime);
-      }
-    }
-    return ctx.currentTime - (ctx.outputLatency || ctx.baseLatency || 0);
-  }
-
-  // ---------- 악기 ----------
-  _noise(t, dur, dest) {
-    const s = this.ctx.createBufferSource();
-    s.buffer = this.noiseBuf;
-    s.connect(dest);
-    s.start(t, Math.random() * 0.5, dur + 0.05);
-    return s;
-  }
-
-  /** 킥: 서브(낮은 둥) + 펀치 + 비터 클릭 */
-  kick(t = this.ctx.currentTime, vel = 1, dest = this.sfxBus) {
-    const ctx = this.ctx;
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = 'sine';
-    o.frequency.setValueAtTime(190, t);
-    o.frequency.exponentialRampToValueAtTime(52, t + 0.07);
-    o.frequency.exponentialRampToValueAtTime(42, t + 0.45);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(1.1 * vel, t + 0.003);
-    g.gain.setValueAtTime(1.0 * vel, t + 0.04);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.5);
-    o.connect(g).connect(dest);
-    o.start(t);
-    o.stop(t + 0.52);
-    if (!this._sat || this._sat.context !== ctx) {
-      this._sat = ctx.createWaveShaper();
-      const c = new Float32Array(1024);
-      for (let i = 0; i < 1024; i++) c[i] = Math.tanh((i / 512 - 1) * 2.2);
-      this._sat.curve = c;
-      this._sat.connect(this.sfxBus);
-    }
-    const p = ctx.createOscillator();
-    const pg = ctx.createGain();
-    p.type = 'triangle';
-    p.frequency.setValueAtTime(260, t);
-    p.frequency.exponentialRampToValueAtTime(90, t + 0.04);
-    pg.gain.setValueAtTime(0.5 * vel, t);
-    pg.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
-    p.connect(pg).connect(dest === this.sfxBus ? this._sat : dest);
-    p.start(t);
-    p.stop(t + 0.07);
-    const f = ctx.createBiquadFilter();
-    f.type = 'bandpass';
-    f.frequency.value = 3200;
-    f.Q.value = 0.8;
-    const cg = ctx.createGain();
-    cg.gain.setValueAtTime(0.45 * vel, t);
-    cg.gain.exponentialRampToValueAtTime(0.001, t + 0.02);
-    f.connect(cg).connect(dest);
-    this._noise(t, 0.03, f);
-  }
-
-  /** 스네어: 통 울림(두 톤) + 스냅(밝은 노이즈) + 스네어 줄 떨림 */
-  snare(t = this.ctx.currentTime, vel = 1, dest = this.sfxBus) {
-    const ctx = this.ctx;
-    for (const [fr, amp] of [[185, 0.5], [330, 0.28]]) {
-      const o = ctx.createOscillator();
-      const og = ctx.createGain();
-      o.type = 'triangle';
-      o.frequency.setValueAtTime(fr * 1.25, t);
-      o.frequency.exponentialRampToValueAtTime(fr, t + 0.03);
-      og.gain.setValueAtTime(0.0001, t);
-      og.gain.exponentialRampToValueAtTime(amp * vel, t + 0.002);
-      og.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
-      o.connect(og).connect(dest);
-      o.start(t);
-      o.stop(t + 0.15);
-    }
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.frequency.value = 2600;
-    bp.Q.value = 0.7;
-    const ng = ctx.createGain();
-    ng.gain.setValueAtTime(0.0001, t);
-    ng.gain.exponentialRampToValueAtTime(0.9 * vel, t + 0.002);
-    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
-    bp.connect(ng).connect(dest);
-    this._noise(t, 0.14, bp);
-    const hp = ctx.createBiquadFilter();
-    hp.type = 'highpass';
-    hp.frequency.value = 4500;
-    const rg = ctx.createGain();
-    rg.gain.setValueAtTime(0.0001, t);
-    rg.gain.exponentialRampToValueAtTime(0.35 * vel, t + 0.005);
-    rg.gain.exponentialRampToValueAtTime(0.001, t + 0.26);
-    hp.connect(rg).connect(dest);
-    this._noise(t, 0.28, hp);
-  }
-
-  /** 탐탐 (플로어 탐): 낮게 '둥' — 음이 살짝 내려가는 통 울림 + 가죽 치는 소리 */
-  tom(t = this.ctx.currentTime, vel = 1, dest = this.sfxBus) {
-    const ctx = this.ctx;
-    for (const [fr, amp, dec] of [[130, 0.75, 0.42], [205, 0.22, 0.2]]) {
-      const o = ctx.createOscillator();
-      const og = ctx.createGain();
-      o.type = 'sine';
-      o.frequency.setValueAtTime(fr * 1.5, t);
-      o.frequency.exponentialRampToValueAtTime(fr, t + 0.06);
-      og.gain.setValueAtTime(0.0001, t);
-      og.gain.exponentialRampToValueAtTime(amp * vel, t + 0.003);
-      og.gain.exponentialRampToValueAtTime(0.001, t + dec);
-      o.connect(og).connect(dest);
-      o.start(t);
-      o.stop(t + dec + 0.02);
-    }
-    const lp = ctx.createBiquadFilter();
-    lp.type = 'lowpass';
-    lp.frequency.value = 1800;
-    const ng = ctx.createGain();
-    ng.gain.setValueAtTime(0.0001, t);
-    ng.gain.exponentialRampToValueAtTime(0.35 * vel, t + 0.002);
-    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.05);
-    lp.connect(ng).connect(dest);
-    this._noise(t, 0.06, lp);
-  }
-
-  /** 하이햇 (밴드가 쳐줌. 금속성 고음) */
-  hat(t, vel = 0.5, open = false, dest = this.musicBus) {
-    const ctx = this.ctx;
-    const hp = ctx.createBiquadFilter();
-    hp.type = 'highpass';
-    hp.frequency.value = 7500;
-    const pk = ctx.createBiquadFilter();
-    pk.type = 'peaking';
-    pk.frequency.value = 10000;
-    pk.gain.value = 6;
-    const g = ctx.createGain();
-    const d = open ? 0.3 : 0.05;
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.3 * vel, t + 0.002);
-    g.gain.exponentialRampToValueAtTime(0.001, t + d);
-    hp.connect(pk).connect(g).connect(dest);
-    this._noise(t, d + 0.02, hp);
-  }
-
-  /** 🔔 썰매 방울 (캐롤): 높은 쇳소리 '찰랑' 두세 겹 */
-  sleigh(t, vel = 0.5, dest = this.musicBus) {
-    const ctx = this.ctx;
-    const bp = ctx.createBiquadFilter();
-    bp.type = 'bandpass';
-    bp.frequency.value = 9000;
-    bp.Q.value = 2.5;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.22 * vel, t + 0.004);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
-    bp.connect(g).connect(dest);
-    // 방울 여러 개가 아주 조금씩 늦게 부딪힘
-    for (const dt of [0, 0.012, 0.027]) this._noise(t + dt, 0.05, bp);
-    for (const [f, a] of [[5200, 0.05], [6900, 0.035]]) {
-      const o = ctx.createOscillator();
-      const og = ctx.createGain();
-      o.type = 'sine';
-      o.frequency.value = f;
-      og.gain.setValueAtTime(0.0001, t);
-      og.gain.exponentialRampToValueAtTime(a * vel, t + 0.003);
-      og.gain.exponentialRampToValueAtTime(0.0001, t + 0.12);
-      o.connect(og).connect(dest);
-      o.start(t);
-      o.stop(t + 0.14);
-    }
-  }
-
-  /** 🔔 글로켄슈필 (캐롤 멜로디를 한 옥타브 위에서 반짝이게) */
-  glock(t, midi, dest = this.musicBus, vel = 1) {
-    const ctx = this.ctx;
-    const g = ctx.createGain();
-    g.gain.value = 0.06 * vel;
-    g.connect(dest);
-    for (const [mult, amp, d] of [[1, 1, 1.1], [2.76, 0.25, 0.35], [5.4, 0.12, 0.15]]) {
-      const o = ctx.createOscillator();
-      const og = ctx.createGain();
-      o.type = 'sine';
-      o.frequency.value = mtof(midi) * mult;
-      og.gain.setValueAtTime(0.0001, t);
-      og.gain.exponentialRampToValueAtTime(amp, t + 0.003);
-      og.gain.exponentialRampToValueAtTime(0.0001, t + d);
-      o.connect(og).connect(g);
-      o.start(t);
-      o.stop(t + d + 0.02);
-    }
-  }
-
-  /** 🎤 합창 '아~' (캐롤을 같이 부르는 목소리): 톱니파 세 겹(살짝 어긋나게) → 목소리 공명(포먼트) → 비브라토.
-   *  아래 한 옥타브는 남자 목소리 '오~' 로 작게 받쳐 줌 */
-  choir(t, midi, dur, dest = this.musicBus, vel = 1) {
-    const ctx = this.ctx;
-    const end = t + Math.max(0.14, dur);
-    const g = ctx.createGain();
-    const peak = 0.4 * vel;
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(peak, t + 0.045);
-    g.gain.setValueAtTime(peak, Math.max(t + 0.05, end - 0.05));
-    g.gain.linearRampToValueAtTime(0.0001, end + 0.12);
-    g.connect(dest);
-    // 비브라토: 처음엔 곧게, 0.25초쯤부터 살짝 떨림
-    const lfo = ctx.createOscillator();
-    const lg = ctx.createGain();
-    lfo.frequency.value = 5.4;
-    lg.gain.setValueAtTime(0, t);
-    lg.gain.linearRampToValueAtTime(14, t + 0.3);
-    lfo.connect(lg);
-    lfo.start(t);
-    lfo.stop(end + 0.15);
-    const voice = (m, formants, amp, detunes) => {
-      const vg = ctx.createGain();
-      vg.gain.value = amp;
-      vg.connect(g);
-      const bps = formants.map(([f, q, a]) => {
-        const bp = ctx.createBiquadFilter();
-        bp.type = 'bandpass';
-        bp.frequency.value = f;
-        bp.Q.value = q;
-        const ag = ctx.createGain();
-        ag.gain.value = a;
-        bp.connect(ag).connect(vg);
-        return bp;
-      });
-      for (const d of detunes) {
-        const o = ctx.createOscillator();
-        o.type = 'sawtooth';
-        o.frequency.value = mtof(m);
-        o.detune.value = d;
-        lg.connect(o.detune);
-        for (const bp of bps) o.connect(bp);
-        o.start(t);
-        o.stop(end + 0.15);
-      }
-    };
-    voice(midi, [[800, 5, 1], [1150, 7, 0.55], [2900, 9, 0.22]], 1, [-9, 0, 8]); // 여자 '아'
-    voice(midi - 12, [[450, 5, 1], [800, 7, 0.4], [2830, 9, 0.12]], 0.45, [-6, 5]); // 남자 '오'
-  }
-
-  /** 크래시 심벌 */
-  crash(t = this.ctx.currentTime, dest = this.musicBus, vol = 0.5) {
-    const ctx = this.ctx;
-    const hp = ctx.createBiquadFilter();
-    hp.type = 'highpass';
-    hp.frequency.value = 3800;
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(vol, t + 0.004);
-    g.gain.exponentialRampToValueAtTime(vol * 0.35, t + 0.25);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 1.6);
-    hp.connect(g).connect(dest);
-    this._noise(t, 0.9, hp);
-    this._noise(t + 0.85, 0.8, hp);
-  }
-
-  /** 플레이어가 누른 악기 소리 (t 를 주면 그 시각에 예약) */
-  playLane(lane, t = this.ctx.currentTime, dest = this.sfxBus) {
-    if (lane === KICK) this.kick(t, 1, dest);
-    else if (lane === SNARE) this.snare(t, 1, dest);
-    else if (lane === HAT) this.hat(t, 1.6, false, dest);
-    else if (lane === CRASH) this.crash(t, dest, 0.42);
-    else if (lane === TOM) this.tom(t, 1, dest);
-  }
-
-  /** 결과 화면 별 하나 '띵!' (i = 0,1,2 갈수록 높아짐) */
-  starChime(t = this.ctx.currentTime, i = 0) {
-    const ctx = this.ctx;
-    const base = [1046.5, 1318.5, 1568][Math.min(2, i)];
-    const out = ctx.createGain();
-    out.gain.value = 0.55;
-    out.connect(this.sfxBus);
-    for (const [mult, amp, decay] of [[1, 0.5, 0.9], [2, 0.18, 0.5], [3.01, 0.1, 0.3], [4.2, 0.06, 0.18]]) {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.type = 'sine';
-      o.frequency.setValueAtTime(base * mult * 0.985, t);
-      o.frequency.exponentialRampToValueAtTime(base * mult, t + 0.03);
-      g.gain.setValueAtTime(0.0001, t);
-      g.gain.exponentialRampToValueAtTime(amp, t + 0.004);
-      g.gain.exponentialRampToValueAtTime(0.0005, t + decay);
-      o.connect(g).connect(out);
-      o.start(t);
-      o.stop(t + decay + 0.05);
-    }
-    // 반짝이 (짧고 밝은 노이즈)
-    const hp = ctx.createBiquadFilter();
-    hp.type = 'highpass';
-    hp.frequency.value = 7000;
-    const ng = ctx.createGain();
-    ng.gain.setValueAtTime(0.0001, t);
-    ng.gain.exponentialRampToValueAtTime(0.12, t + 0.003);
-    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.25);
-    hp.connect(ng).connect(out);
-    this._noise(t, 0.27, hp);
-  }
-
-  /** 점수 올라가는 '따라라라' 한 알. p = 0~1 (갈수록 높아짐) */
-  tick(t, p = 0) {
-    const ctx = this.ctx;
-    if (!this._tickBus || this._tickBus.context !== ctx) {
-      this._tickBus = ctx.createGain();
-      this._tickBus.connect(this.sfxBus);
-    }
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = 'triangle';
-    o.frequency.value = 700 * Math.pow(2, p * 1.2);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.22, t + 0.003);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.045);
-    o.connect(g).connect(this._tickBus);
-    o.start(t);
-    o.stop(t + 0.06);
-  }
-
-  /** 예약해 둔 '따라라라'를 바로 멈춤 (결과 연출 건너뛸 때) */
-  silenceTicks() {
-    if (!this._tickBus) return;
-    try {
-      this._tickBus.disconnect();
-    } catch {}
-    this._tickBus = null;
-  }
-
-  /** 점수 다 오르면 '딴!' (드럼 + 밝은 화음) */
-  land(t = this.ctx.currentTime) {
-    this.kick(t, 0.7);
-    this.snare(t, 0.5);
-    for (const m of [72, 79, 84]) {
-      if (this.piano) this.pianoNote(t, m, 0.5, 0.5, this.sfxBus);
-      else this.lead(t, m, 0.3, this.sfxBus);
-    }
-  }
-
-  /** 별 3개 다 모으면 '짜잔' 화음 */
-  fanfare(t = this.ctx.currentTime) {
-    const notes = [72, 76, 79, 84];
-    if (this.orchestra) {
-      for (const m of [48, 55, 60, 64]) this.orchNote('br', t + 0.02, m, 1.1, 0.7, this.sfxBus, 0.03, 0.4);
-      for (const m of [72, 76, 79]) this.orchNote('vln', t + 0.02, m, 1.2, 0.6, this.sfxBus, 0.03, 0.4);
-      this.orchNote('timp', t, 36, 1.5, 0.9, this.sfxBus, 0, 0.5);
-    }
-    if (this.piano) {
-      notes.forEach((m, k) => this.pianoNote(t + k * 0.06, m, 1.2, 0.7, this.sfxBus));
-      return;
-    }
-    notes.forEach((m, k) => this.lead(t + k * 0.06, m, 1, this.sfxBus));
-  }
-
-  /** 별 0개 / 대결 패배: '띠로리' */
-  aww(t = this.ctx.currentTime) {
-    [[67, 0], [63, 0.22], [60, 0.44]].forEach(([m, d]) => {
-      if (this.piano) this.pianoNote(t + d, m, 0.3, 0.55, this.sfxBus);
-      else this.lead(t + d, m, 0.25, this.sfxBus);
-    });
-  }
-
-  /** 녹화용 오디오 스트림 (게임 소리 전체) */
-  captureStream() {
-    const ctx = this.ensure();
-    if (!this._streamDest) {
-      this._streamDest = ctx.createMediaStreamDestination();
-      this.out.connect(this._streamDest);
-    }
-    return this._streamDest.stream;
-  }
-
-  click(t, accent = false, dest = this.musicBus) {
-    const ctx = this.ctx;
-    const o = ctx.createOscillator();
-    const g = ctx.createGain();
-    o.type = 'sine';
-    o.frequency.value = accent ? 1760 : 1320;
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(accent ? 0.7 : 0.45, t + 0.002);
-    g.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
-    o.connect(g).connect(dest);
-    o.start(t);
-    o.stop(t + 0.08);
-  }
-
-  /** 피아노로 lead/bass 를 vel 배율로 (오케스트라와 섞을 때 피아노는 조금 작게) */
-  pianoOr(kind, t, midi, dur, dest, scale = 1) {
-    if (!this.piano) return kind === 'bass' ? this.bass(t, midi, dur, dest) : this.lead(t, midi, dur, dest);
-    if (kind === 'bass') return this.pianoNote(t, midi + 12, dur, 0.62 * scale, dest);
-    return this.pianoNote(t, midi, dur, scale, dest);
-  }
-
-  /** 둥글고 부드러운 베이스 (킥처럼 '쿵' 하고 들리지 않게 어택을 느리게) */
-  bass(t, midi, dur, dest = this.musicBus) {
-    if (this.piano) return this.pianoNote(t, midi + 12, dur, 0.62, dest);
-    const ctx = this.ctx;
-    const o = ctx.createOscillator();
-    const f = ctx.createBiquadFilter();
-    const g = ctx.createGain();
-    o.type = 'triangle';
-    o.frequency.value = mtof(midi + 12);
-    f.type = 'lowpass';
-    f.frequency.value = 900;
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.linearRampToValueAtTime(0.32, t + 0.03);
-    g.gain.setValueAtTime(0.3, t + dur * 0.6);
-    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    o.connect(f).connect(g).connect(dest);
-    o.start(t);
-    o.stop(t + dur + 0.02);
-  }
-
-  pluck(t, midis, dur, dest = this.musicBus, scale = 1) {
-    if (this.piano) {
-      for (const m of midis) this.pianoNote(t, m, dur, 0.3 * scale, dest);
-      return;
-    }
-    const ctx = this.ctx;
-    const f = ctx.createBiquadFilter();
-    f.type = 'lowpass';
-    f.frequency.setValueAtTime(2600, t);
-    f.frequency.exponentialRampToValueAtTime(500, t + dur);
-    const g = ctx.createGain();
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.16, t + 0.01);
-    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-    f.connect(g).connect(dest);
-    for (const m of midis) {
-      const o = ctx.createOscillator();
-      o.type = 'sawtooth';
-      o.frequency.value = mtof(m);
-      o.detune.value = (Math.random() - 0.5) * 12;
-      o.connect(f);
-      o.start(t);
-      o.stop(t + dur + 0.02);
-    }
-  }
-
-  /** 멜로디: 건반 느낌(때리면 밝고 금방 잦아드는 소리)으로 곡이 또렷하게 들리게 */
-  lead(t, midi, dur, dest = this.musicBus) {
-    if (this.piano) return this.pianoNote(t, midi, dur, 1, dest);
-    const ctx = this.ctx;
-    const f = ctx.createBiquadFilter();
-    f.type = 'lowpass';
-    f.frequency.setValueAtTime(4200, t);
-    f.frequency.exponentialRampToValueAtTime(1400, t + Math.min(0.6, dur + 0.1));
-    const g = ctx.createGain();
-    const end = t + Math.max(0.08, dur);
-    g.gain.setValueAtTime(0.0001, t);
-    g.gain.exponentialRampToValueAtTime(0.2, t + 0.006);
-    g.gain.exponentialRampToValueAtTime(0.09, t + 0.18);
-    g.gain.setTargetAtTime(0.05, t + 0.18, 0.4);
-    g.gain.setValueAtTime(0.05, end - 0.03);
-    g.gain.exponentialRampToValueAtTime(0.001, end + 0.08);
-    f.connect(g).connect(dest);
-    for (const [type, mult, amp] of [['triangle', 1, 1], ['square', 1, 0.28], ['sine', 2, 0.22]]) {
-      const o = ctx.createOscillator();
-      const og = ctx.createGain();
-      o.type = type;
-      o.frequency.value = mtof(midi) * mult;
-      og.gain.value = amp;
-      o.connect(og).connect(f);
-      o.start(t);
-      o.stop(end + 0.1);
-    }
-  }
-}
-
-// ---------- 반주 ----------
-// 곡 데이터(멜로디·코드)는 charts.js 의 level.song 에 있습니다.
-
-/**
- * 한 판의 반주 재생기. lookahead 스케줄러로 AudioContext 시각에 정확히 예약.
- * startTime = 카운트인 첫 박의 AudioContext 시각.
- * 빠르기는 박자 시계(tempoOf)를 따름 → 무제한 모드처럼 단계마다 빨라져도 그대로 맞음.
- *
- * 오케스트라 편곡 (샘플을 받았고 설정이 '오케스트라'일 때):
- *   멜로디 = 피아노(박자 또렷하게) + 바이올린 합주
- *   화음   = 현악 패드(바이올린 + 첼로) / 곡이 달아오르면 호른·트롬본
- *   베이스 = 피아노 + 첼로, 절정에서 튜바
- *   팀파니 = 마디 첫 박 + 크래시 직전 롤
- *   곡 앞부분은 가볍게, 뒤로 갈수록(무제한 모드는 단계가 오를수록) 악기가 늘며 웅장해짐
- */
-class SongPlayer {
-  constructor(audio, level, startTime, { autoChart = false } = {}) {
-    this.audio = audio;
-    this.level = level;
-    this.startTime = startTime;
-    this.autoChart = autoChart;
-    this.tempo = tempoOf(level);
-    this.step = 0;
-    this.melody = parseMelody(level.song.melody || []);
-    // 🎹 유저 맵 왼손 (악보 아래 줄)
-    try {
-      this.lowNotes = level.song.low ? parseMelody(level.song.low) : [];
-    } catch {
-      this.lowNotes = [];
-    }
-    this.melodyBars = (level.song.melody || []).length;
-    const lanes = levelLanes(level);
-    this.mineCrash = lanes.includes(CRASH); // 크래시를 내가 치면 반주 크래시는 쉼
-    const ctx = audio.ctx;
-    this.bus = ctx.createGain();
-    this.bus.connect(audio.musicBus);
-    this.drumBus = ctx.createGain();
-    this.drumBus.connect(audio.sfxBus);
-    // 🎤 녹음된 곡: 반주를 만들지 않고 파일을 박자에 맞춰 틂 (song.audio.offset = 채보 첫 마디가 시작하는 파일 시각)
-    this.track = level.song.audio ? audio.trackBuffer(level.song.audio.src) : null;
-  }
-
-  get totalSteps() {
-    if (this.level.endless) return Infinity;
-    return (COUNT_IN_BARS + this.level.bars.length + OUTRO_BARS) * STEPS_PER_BAR;
-  }
-
-  start() {
-    if (this.track) this._startTrack();
-    this.timer = setInterval(() => this.tick(), 25);
-    this.tick();
-  }
-
-  /** 녹음된 곡 틀기. 이미 지난 시각이면(이어 가기·소리 엔진 새로 만듦) 그 자리부터 */
-  _startTrack() {
-    const ctx = this.audio.ctx;
-    const info = this.level.song.audio;
-    // 🐢 느리게 연습: 파일도 같은 비율로 느리게 틂 (소리도 조금 낮아짐)
-    const rate = this.level.practice || 1;
-    const t0 = this.startTime + this.tempo.barStart(COUNT_IN_BARS) - (info.offset || 0) / rate;
-    const now = ctx.currentTime + 0.03;
-    const src = ctx.createBufferSource();
-    src.buffer = this.track;
-    src.playbackRate.value = rate;
-    const g = ctx.createGain();
-    g.gain.value = info.gain ?? 1;
-    src.connect(g).connect(this.bus);
-    if (t0 >= now) src.start(t0);
-    else if ((now - t0) * rate < this.track.duration) src.start(now, (now - t0) * rate);
-    else return;
-    this.trackSrc = src;
-  }
-
-  tick() {
-    const horizon = this.audio.ctx.currentTime + 0.2;
-    while (this.step < this.totalSteps) {
-      const t = this.startTime + this.tempo.stepTime(this.step);
-      if (t > horizon) break;
-      if (t >= this.audio.ctx.currentTime - 0.01) this.scheduleStep(this.step, t);
-      this.step++;
-    }
-    if (this.step >= this.totalSteps) clearInterval(this.timer);
-  }
-
-  /** 곡이 얼마나 달아올랐나 0.35 ~ 1 (악기 수가 늘어남) */
-  intensity(mb) {
-    const lv = this.level;
-    if (lv.challenge) return Math.min(1, 0.35 + 0.15 * (lv.roundOfBar(mb) - 1));
-    // epic 곡(15단계)은 처음부터 금관·팀파니·튜바가 총출동 (첫 두 마디만 살짝 낮춰 '빠바바밤' 을 또렷하게)
-    if (lv.song.epic) return mb < 2 ? 0.65 : 1;
-    const n = lv.bars.length;
-    return mb < 4 ? 0.35 : mb < n / 2 ? 0.65 : 1;
-  }
-
-  scheduleStep(i, t) {
-    const a = this.audio;
-    const bar = Math.floor(i / STEPS_PER_BAR);
-    const s = i % STEPS_PER_BAR;
-    const song = this.level.song;
-    const sd = this.tempo.barLen(bar) / STEPS_PER_BAR;
-    const orch = a.orchestra;
-    if (bar < COUNT_IN_BARS) {
-      // 박자 맞추기 영상: 시작 전 똑딱이 노래와 겹치지 않게 (박자 소리를 켰을 때만)
-      if (s % 4 === 0 && (!this.level.beat || this.level.click)) a.click(t, s === 0, this.bus);
-      return;
-    }
-    const mb = bar - COUNT_IN_BARS; // 본편 마디 번호
-    if (mb >= this.level.bars.length && this.level.ensureBars) this.level.ensureBars(mb + 1);
-    const chartBars = this.level.bars.length;
-    // 🎵 릴스 박자 맞추기: 반주 없음 (노래는 인스타에서 입힘). 드럼(+ 고르면 조용한 박자 소리)만
-    if (this.level.beat) {
-      if (mb >= chartBars) return;
-      if (this.level.click && s % 4 === 0) a.click(t, s === 0, this.bus);
-      if (this.autoChart) for (const lane of CHAR_LANES[this.level.bars[mb][s]] || []) a.playLane(lane, t, this.drumBus);
-      return;
-    }
-    if (this.track) {
-      // 🎤 녹음된 곡: 반주는 파일이 함 (자동 연주 드럼만)
-      if (this.autoChart && mb < chartBars) for (const lane of CHAR_LANES[this.level.bars[mb][s]] || []) a.playLane(lane, t, this.drumBus);
-      return;
-    }
-    const ch = chordAt(song, mb, s);
-
-    if (mb >= chartBars) {
-      // 아웃트로: 곡의 으뜸화음 한 방
-      if (s === 0) {
-        const home = chordAt(song, 0, 0);
-        a.crash(t, this.bus);
-        a.bass(t, home.root - 24, sd * 12, this.bus);
-        a.pluck(t, home.notes, sd * 14, this.bus);
-        const last = this.melody.filter((n) => n.bar === 0)[0];
-        if (last) a.lead(t, home.root + 12 * Math.round((last.midi - home.root) / 12), sd * 10, this.bus);
-        if (orch) {
-          const d = sd * 14;
-          for (const m of home.notes) a.orchNote('vln', t, m + 12, d, 0.5, this.bus, 0.01, 0.5);
-          for (const m of home.notes) a.orchNote('br', t, m - 12, d, 0.6, this.bus, 0.01, 0.5);
-          a.orchNote('vc', t, home.root - 12, d, 0.7, this.bus, 0.01, 0.5);
-          a.orchNote('tuba', t, home.root - 24, d, 0.7, this.bus, 0.01, 0.5);
-          a.orchNote('timp', t, this._timpPitch(home.root), 2, 0.9, this.bus, 0, 0.6);
-        }
-      }
-      return;
-    }
-
-    const heat = this.intensity(mb);
-    // 하이햇
-    const hc = song.hat[s];
-    if (hc === 'x' || hc === 'o') a.hat(t, s % 4 === 0 ? 0.6 : 0.35, hc === 'o', this.bus);
-    // 🎄 캐롤: 썰매 방울
-    if (song.bells && song.bells[s] === 'x') a.sleigh(t, s % 4 === 0 ? 0.7 : 0.45, this.bus);
-    // 베이스 (오케스트라면 첼로가 같이 받쳐줌)
-    const bc = song.bass[s];
-    if (bc && bc !== '.') {
-      const m = ch.root - 24 + (bc === 'o' ? 12 : bc === '5' ? 7 : 0);
-      if (orch) {
-        a.pianoOr('bass', t, m, sd * 1.8, this.bus, 0.75);
-        a.orchNote('vc', t, m + 12, Math.max(sd * 1.8, 0.22), 0.45 + 0.25 * heat, this.bus, 0.01, 0.12);
-      } else a.bass(t, m, sd * 1.8, this.bus);
-    }
-    // 화음
-    if (song.chord[s] === 'x') a.pluck(t, ch.notes, sd * 3, this.bus, orch ? 0.6 : 1);
-    // 🎹 유저 맵 왼손: 악보 아래 줄 그대로
-    if (this.lowNotes && this.lowNotes.length) for (const n of this.lowNotes) if (n.bar === mb && n.step === s) {
-          const d = Math.max(0.2, n.len * sd * 0.95);
-          if (a.piano) a.pianoNote(t, n.midi, d, 0.8, this.bus);
-          else a.bass(t, n.midi, d, this.bus);
-        }
-    // 🎹 두 손 피아노 왼손: 베이스 + 펼친 화음 (pianoLH 곡)
-    if (song.pianoLH) {
-      const lh = pianoLeftHand(song, mb, s);
-      if (lh) a.pianoOr('lead', t, lh.midi, lh.steps * sd * 0.98, this.bus, lh.vel);
-    }
-    // 멜로디 (클래식 곡 주제 선율). 🎭 tapMelody 곡은 내가 칠 때만 남 (자동 연주·영상 찍기 땐 반주가 침)
-    if (this.melodyBars && (!this.level.tapMelody || this.autoChart)) {
-      const mbar = mb % this.melodyBars;
-      for (const n of this.melody) {
-        if (n.bar !== mbar || n.step !== s) continue;
-        const dur = n.len * sd * 0.92;
-        // 🎄 캐롤: 글로켄슈필이 한 옥타브 위에서 같이 (긴 음만, 너무 시끄럽지 않게)
-        if (song.glock && n.len >= 2) a.glock(t, n.midi + 12, this.bus, 0.6 + 0.4 * heat);
-        // 🎤 합창이 멜로디를 같이 부름 (짧은 음은 조금 작게)
-        if (song.choir) a.choir(t, n.midi, n.len * sd * 0.95, this.bus, (n.len >= 2 ? 1 : 0.7) * (0.75 + 0.25 * heat));
-        // 🎹 tapMelody 곡(자동 연주): 오른손 화음까지 피아노로 (내가 칠 때와 같은 소리)
-        if (this.level.tapMelody) {
-          a.pianoOr('lead', t, n.midi, Math.max(0.25, dur), this.drumBus, 1.25);
-          for (const h of pianoHarmony(song, mb, s, n.midi, n.len >= 4)) a.pianoOr('lead', t, h, Math.max(0.25, dur), this.drumBus, 0.6);
-          continue;
-        }
-        if (!orch) {
-          a.lead(t, n.midi, dur, this.bus);
-          continue;
-        }
-        a.pianoOr('lead', t, n.midi, dur, this.bus, 0.72);
-        // 바이올린 합주: 긴 음은 풍성하게, 16분음표 질주는 살짝만
-        if (n.len >= 2) a.orchNote('vln', t, n.midi, n.len * sd, 0.55 + 0.3 * heat, this.bus, 0.03, 0.15);
-        else a.orchNote('vln', t, n.midi, sd * 1.4, 0.3 + 0.15 * heat, this.bus, 0.004, 0.06);
-        // 절정: 호른이 한 옥타브 아래로 멜로디를 같이 (긴 음만. epic 곡은 8분음표까지)
-        const epic = !!song.epic;
-        if (heat >= 1 && n.len >= (epic ? 2 : 4) && n.midi - 12 >= 45) a.orchNote('br', t, n.midi - 12, Math.max(n.len * sd, 0.2), epic ? 0.5 : 0.4, this.bus, 0.03, 0.15);
-        // epic: 짧은 음마다 팀파니가 같이 '두두두 쿵' 말발굽처럼 받쳐 줌
-        if (epic && heat >= 0.65 && n.len <= 2) a.orchNote('timp', t, this._timpPitch(ch.root), 0.6, 0.38, this.bus, 0, 0.3);
-      }
-    }
-    if (orch) this._orchestra(mb, s, t, sd, ch, heat);
-    // 8마디마다 크래시
-    if (s === 0 && mb > 0 && mb % 8 === 0 && !this.mineCrash) a.crash(t, this.bus);
-    // 자동 연주(데모/릴스 녹화용)
-    if (this.autoChart) {
-      for (const lane of CHAR_LANES[this.level.bars[mb][s]] || []) if (!(this.level.tapMelody && lane === SNARE)) a.playLane(lane, t, this.drumBus);
-    }
-  }
-
-  /** 팀파니 음높이: 뿌리음을 C2~B2 근처로 */
-  _timpPitch(root) {
-    let m = root;
-    while (m > 44) m -= 12;
-    while (m < 33) m += 12;
-    return m;
-  }
-
-  /** 현악 패드 · 금관 · 튜바 · 팀파니 */
-  _orchestra(mb, s, t, sd, ch, heat) {
-    const a = this.audio;
-    const song = this.level.song;
-    const entry = song.prog[((mb % song.prog.length) + song.prog.length) % song.prog.length];
-    const parts = entry.trim().split(/\s+/).length;
-    const partLen = STEPS_PER_BAR / parts;
-    // 코드가 바뀌는 자리마다 현악 패드
-    if (s % partLen === 0) {
-      const d = partLen * sd;
-      const pv = 0.22 + 0.16 * heat;
-      for (const m of ch.notes.slice(0, 3)) a.orchNote('vln', t, m, d, pv, this.bus, Math.min(0.12, d * 0.25), 0.25);
-      a.orchNote('vc', t, ch.root - 12, d, pv + 0.1, this.bus, Math.min(0.1, d * 0.2), 0.25);
-      // 금관: 달아오르면 코드 첫 자리마다, 그 전엔 4마디마다 한 번
-      if (heat >= 1 || (heat >= 0.65 && s === 0 && mb % 4 === 0)) {
-        const bv = heat >= 1 ? 0.42 : 0.32;
-        for (const m of [ch.root - 12, ch.notes[1] - 12, ch.notes[2] - 12]) a.orchNote('br', t, m, d * 0.95, bv, this.bus, 0.04, 0.2);
-      }
-    }
-    // 튜바: 절정에서 마디 첫 박
-    if (heat >= 1 && s === 0) a.orchNote('tuba', t, ch.root - 24, 16 * sd * 0.85, 0.55, this.bus, 0.02, 0.2);
-    // 팀파니
-    const tp = this._timpPitch(ch.root);
-    if (heat >= 0.65 && s === 0) a.orchNote('timp', t, tp, 1.5, heat >= 1 ? 0.75 : 0.5, this.bus, 0, 0.5);
-    if (heat >= 1 && s === 8) a.orchNote('timp', t, tp, 1, 0.45, this.bus, 0, 0.4);
-    // 크래시 나오기 직전 마디 끝: 팀파니 롤 (두두두두 → 쾅)
-    const toCrash = (mb + 1) % 8 === 0 && (this.level.endless || mb + 1 < this.level.bars.length);
-    if (heat >= 0.65 && toCrash && s >= 12) a.orchNote('timp', t, tp, 0.5, 0.3 + (s - 12) * 0.12, this.bus, 0, 0.12);
-  }
-
-  stop(fade = 0.15) {
-    clearInterval(this.timer);
-    const ctx = this.audio.ctx;
-    const now = ctx.currentTime;
-    for (const b of [this.bus, this.drumBus]) {
-      try {
-        b.gain.cancelScheduledValues(now);
-        b.gain.setValueAtTime(b.gain.value, now);
-        b.gain.linearRampToValueAtTime(0, now + fade);
-      } catch {}
-    }
-    if (this.trackSrc) {
-      try {
-        this.trackSrc.stop(now + fade + 0.02);
-      } catch {}
-    }
-    setTimeout(() => {
-      try {
-        this.bus.disconnect();
-        this.drumBus.disconnect();
-      } catch {}
-    }, fade * 1000 + 300);
-  }
-}
-
-/** 싱크 보정용 메트로놈: count 번 클릭, 각 클릭의 AudioContext 시각 배열 반환 */
-function playMetronome(audio, bpm = 100, count = 12) {
-  const ctx = audio.ctx;
-  const t0 = ctx.currentTime + 0.4;
-  const beat = 60 / bpm;
-  const times = [];
-  for (let i = 0; i < count; i++) {
-    const t = t0 + i * beat;
-    audio.click(t, i % 4 === 0, audio.sfxBus);
-    times.push(t);
-  }
-  return times;
-}
-
-return { AudioEngine, SongPlayer, playMetronome };
-})();
-
 // ---- storage.js ----
 const __m_storage = (() => {
 // localStorage 래퍼 (인앱 브라우저/사생활 모드에서 막혀도 게임은 돌아가게)
@@ -14008,6 +14688,9 @@ function serverApi(boot = null) {
       lbCache.delete('hall:endless');
       return http('POST', '/api/gift/ack', { msg: msg || null });
     },
+    // 🗳 투표 (2026-11-23 시즌 2 피아노 미리보기)
+    poll: (id) => http('GET', `/api/poll?id=${encodeURIComponent(id)}`),
+    vote: (id, choice) => http('POST', '/api/poll', { id, choice }),
     logout: () => http('POST', '/api/logout'),
     suggest: (kind, text, contact) => http('POST', '/api/suggestions', { kind, text, contact }),
     room: (body) => http('POST', '/api/rooms', body),
@@ -14065,6 +14748,12 @@ function mockApi(cfg) {
       throw Object.assign(new Error('no_server'), { status: 503 });
     },
     async hallMsg() {
+      throw Object.assign(new Error('no_server'), { status: 503 });
+    },
+    async poll() {
+      throw Object.assign(new Error('no_server'), { status: 503 });
+    },
+    async vote() {
       throw Object.assign(new Error('no_server'), { status: 503 });
     },
     async giftAck() {
@@ -14267,14 +14956,13 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-23e',
+    id: '2026-11-23f',
     date: '11월 23일',
-    title: '🖐 터치 씹힘 고침 · 🎹 내 맵 만들기 다시 열림',
+    title: '🎹 시즌 2 피아노 미리보기 · 투표 · 🖐 터치 씹힘 고침',
     items: [
-      '<b>🖐 쳐야 할 게 많은 곳·엇박에서 터치가 씹히던 것 고쳤어요!</b> 쿵을 살짝 늦게 치면 MISS 가 되던 것, 한 번 잘못 누르면 뒤 콩들이 줄줄이 MISS 되던 것이에요',
-      '엄지가 가운데 선을 넘어가 옆 줄을 눌러도 <b>원래 치려던 콩</b>으로 잡아 줘요',
-      '<b>🎹 내 맵 만들기 다시 열렸어요!</b> 원하는 마디부터 듣기 · 건반 녹음 박자 고르기(16분 칸까지 자세히)',
-      '<b>🎹 유저 맵</b>에선 코인이 <b>PERFECT 때만 1개</b>씩 쌓여요',
+      '<b>🎹 시즌 2 미리보기!</b> 피아노 두 가지(A 라이브 · B 건반)를 쳐 보고 <b>마음에 드는 쪽에 투표</b>해 주세요. 많이 받은 쪽이 시즌 2에 나와요',
+      '<b>🖐 엇박·빽빽한 곳에서 터치가 씹히던 것 고쳤어요!</b> 옆 줄을 살짝 눌러도 원래 치려던 콩으로 잡아 줘요',
+      '<b>🎹 내 맵 만들기 다시 열렸어요!</b> 원하는 마디부터 듣기 · 건반 녹음 16분 칸까지 · 유저 맵 코인은 <b>PERFECT 때만 1개</b>',
       '<b>🥇 시즌 1 한정 세트</b> — 금빛 「1」 콩 + 시즌 1 무대 + 황금 드럼! 시즌 1 이 끝나면 다시는 안 팔아요',
     ],
   },
@@ -15299,6 +15987,7 @@ const __m_main = (() => {
 
 const { LEVELS, getLevel, levelLanes, DIFFICULTY_WORDS, STAR_RULES, ENDLESS_ID, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, makeEndless, isUnlocked, unlockHint, nextChallenge, DIAMOND_RULES, roundInfo, ENDLESS_FROM, LEVEL_ENDLESS_STEP, makeLevelEndless, levelEndlessBase, levelEndlessId, needsVerify, FREE_UPTO, isClosed, prevOpenId, nextOpenId, STUDIO_LEVELS, getStudioLevel, levelSurvivalId, levelSurvivalBase, COUNT_IN_BARS, ROUND_BARS, BEAT_ID, makeBeatReel, beatOpts, beatSeconds, BEAT_MAX_ROUNDS, BEAT_STYLES, BEAT_DIFFS, beatStyleName, QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds, STEPS_PER_BAR, CHAR_LANES, KICK, SNARE, HAT, CRASH, parseChord, noteCount } = __m_charts;
 const { todayMission, missionDone, streakView, markDone } = __m_daily;
+const { PianoPreview } = __m_piano2;
 const { DECO_THEMES, NOTE_FREE, SHOP_ITEMS, RARITY, RARITY_NAME, priceOf, legacyRefund, LIMITED, onSale } = __m_shop;
 const { startShopPreview, stopShopPreview, drawKitCloseup } = __m_shoppreview;
 const { separateVocals, resample } = __m_vocalsep;
@@ -20960,6 +21649,120 @@ async function sendSuggest() {
   }
 }
 
+// ---------------- 🎹 시즌 2 피아노 미리보기 · 투표 (2026-11-23) ----------------
+//   A 라이브 / B 건반 을 같은 곡으로 쳐 보고 한 표 (이용 등록한 계정당 한 번, 넣으면 바로 결과)
+//   치는 건 연습판: 기록·랭킹·코인·서버 요청 없음. 투표만 요청 1번 (+ 이미 투표한 폰은 화면 열 때 결과 1번)
+const P2_POLL = 'piano2';
+const P2_SONGS = [1, 2];
+const p2 = { song: 1, style: null, game: null };
+function p2Tried() {
+  return load('p2Tried', {}) || {};
+}
+function openP2() {
+  if (!P2_SONGS.includes(p2.song)) p2.song = 1;
+  $('#p2-songs').innerHTML = P2_SONGS.map((id) => `<button type="button" data-p2song="${id}" class="${id === p2.song ? 'on' : ''}"><b>${escapeHtml(getLevel(id).name)}</b></button>`).join('');
+  renderP2();
+  show('screen-p2');
+  const mine = load('p2Vote', null);
+  if (mine && state.api && state.api.mode === 'server') {
+    state.api.poll(P2_POLL).then((r) => {
+      if (r && r.counts) {
+        save('p2Vote', { ...mine, counts: r.counts });
+        renderP2();
+      }
+    }, () => {});
+  }
+}
+function renderP2() {
+  const tried = p2Tried();
+  $$('#screen-p2 [data-done]').forEach((el) => (el.hidden = !tried[el.dataset.done]));
+  const both = !!(tried.live && tried.keys);
+  const mine = load('p2Vote', null);
+  $$('#screen-p2 [data-action="p2-vote"]').forEach((b) => {
+    b.disabled = !both || !!mine;
+    b.classList.toggle('mine', !!mine && mine.choice === b.dataset.choice);
+  });
+  $('#p2-vote-hint').hidden = !!mine;
+  $('#p2-vote-hint').textContent = both ? '한 사람 한 번만 투표할 수 있어요' : '둘 다 쳐 보면 투표할 수 있어요';
+  const box = $('#p2-result');
+  box.hidden = !mine;
+  if (mine) {
+    const c = mine.counts || {};
+    const a = c.a || 0;
+    const b = c.b || 0;
+    const total = Math.max(1, a + b);
+    const row = (k, name, n) => {
+      const pct = Math.round((n / total) * 100);
+      return `<div class="p2-bar ${mine.choice === k ? 'mine' : ''}"><span class="p2-bar-name">${name}${mine.choice === k ? ' <em>내 표</em>' : ''}</span><span class="p2-bar-track"><i style="width:${pct}%"></i></span><b>${pct}%</b><small>${n.toLocaleString()}표</small></div>`;
+    };
+    box.innerHTML = row('a', 'A 라이브', a) + row('b', 'B 건반', b) + `<p class="hint">지금까지 ${(a + b).toLocaleString()}명 투표</p>`;
+  }
+}
+async function p2Play(style) {
+  if (style) p2.style = style;
+  stopP2();
+  $('#p2-over').hidden = true;
+  show('screen-p2play');
+  await audio.unlock();
+  await Promise.race([audio.loadPiano(), new Promise((r) => setTimeout(r, 3000))]);
+  if (!$('#screen-p2play').classList.contains('active')) return;
+  const g = new PianoPreview({
+    audio,
+    canvas: $('#p2-canvas'),
+    level: getLevel(p2.song),
+    style: p2.style,
+    onEnd: (r) => p2End(r),
+  });
+  p2.game = g;
+  g.start();
+}
+function stopP2() {
+  if (p2.game) p2.game.stop();
+  p2.game = null;
+}
+function p2End(r) {
+  p2.game = null;
+  const tried = p2Tried();
+  tried[p2.style] = 1;
+  save('p2Tried', tried);
+  $('#p2-over-title').textContent = r.full ? '풀콤보!' : '끝!';
+  $('#p2-over-score').textContent = r.score.toLocaleString();
+  $('#p2-over-detail').innerHTML = `정확도 <b>${Math.round(r.accuracy * 100)}%</b> · 최대 콤보 <b>${r.maxCombo}</b><br><small>PERFECT ${r.perfect} · GREAT ${r.great} · GOOD ${r.good} · MISS ${r.miss} · 헛침 ${r.wrong}</small>`;
+  const other = p2.style === 'live' ? 'keys' : 'live';
+  $('#p2-over [data-action="p2-back"]').textContent = tried[other] ? '투표하러 가기' : `${other === 'live' ? 'A 라이브' : 'B 건반'}도 쳐 보기`;
+  $('#p2-over').hidden = false;
+}
+async function p2Vote(choice) {
+  const tried = p2Tried();
+  if (!tried.live || !tried.keys) return toast('둘 다 쳐 보면 투표할 수 있어요');
+  if (load('p2Vote', null)) return;
+  if (!state.api || state.api.mode !== 'server') return toast('서버가 쉬는 중이에요. 조금 뒤에 다시 해 주세요');
+  try {
+    const r = await state.api.vote(P2_POLL, choice);
+    save('p2Vote', { choice: r.mine || choice, counts: r.counts || {}, at: Date.now() });
+    renderP2();
+    toast(r.already ? '이미 투표했어요' : '투표했어요! 고마워요');
+  } catch (e) {
+    if (e && e.status === 401) {
+      toast('투표는 이용 등록 후에 할 수 있어요');
+      askNickname(true);
+    } else toast('투표를 못 보냈어요. 조금 뒤에 다시 해 주세요');
+  }
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('[data-p2song]');
+  if (!b) return;
+  p2.song = Number(b.dataset.p2song);
+  $$('#p2-songs [data-p2song]').forEach((x) => x.classList.toggle('on', x === b));
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && p2.game) {
+    stopP2();
+    show('screen-p2');
+    renderP2();
+  }
+});
+
 const ACTIONS = {
   'room-open': () => openRoom(),
   'room-close': () => closeModal('modal-room'),
@@ -21017,6 +21820,23 @@ const ACTIONS = {
   },
   'suggest-open': openSuggest,
   'maps-open': () => openMaps(),
+  'p2-open': () => openP2(),
+  'p2-play': (el) => p2Play(el.dataset.style),
+  'p2-again': () => p2Play(),
+  'p2-exit': () => {
+    stopP2();
+    renderP2();
+    show('screen-p2');
+  },
+  'p2-back': () => {
+    $('#p2-over').hidden = true;
+    const tried = p2Tried();
+    const other = p2.style === 'live' ? 'keys' : 'live';
+    if (!tried[other]) return p2Play(other);
+    renderP2();
+    show('screen-p2');
+  },
+  'p2-vote': (el) => p2Vote(el.dataset.choice),
   'mm-start': (el) => startMapMode(el.dataset.mm),
   'mm-close': () => closeModal('modal-mapmode'),
   // 🚧 맵 만들기 잠시 막음 (11-22 운영자 요청). 풀 땐 MAPMAKE_OFF=false + index.html #maps-make 의 disabled·문구 되돌리기

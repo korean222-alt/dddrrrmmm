@@ -24,7 +24,7 @@ export const sortPlayers = (rows) => rows.sort((a, b) => !!a.hiddenAt - !!b.hidd
 export class JsonStore {
   constructor(file) {
     this.file = file;
-    this.data = { players: {}, usedRuns: {}, sessions: {}, plays: {}, settings: {}, suggestions: [], rooms: {}, transfers: {}, recoverRequests: [], maps: {}, mapVotes: {}, mapScores: {}, ranked: {}, rankedRuns: {}, seasonScores: {}, hall: [], wallet: {} };
+    this.data = { players: {}, usedRuns: {}, sessions: {}, plays: {}, settings: {}, suggestions: [], rooms: {}, transfers: {}, recoverRequests: [], maps: {}, mapVotes: {}, mapScores: {}, ranked: {}, rankedRuns: {}, seasonScores: {}, hall: [], wallet: {}, polls: {} };
     this._timer = null;
   }
 
@@ -32,7 +32,7 @@ export class JsonStore {
     try {
       const raw = fs.readFileSync(this.file, 'utf8');
       const d = JSON.parse(raw);
-      this.data = { players: d.players || {}, usedRuns: d.usedRuns || {}, sessions: d.sessions || {}, plays: d.plays || {}, settings: d.settings || {}, suggestions: d.suggestions || [], rooms: d.rooms || {}, transfers: d.transfers || {}, recoverRequests: d.recoverRequests || [], maps: d.maps || {}, mapVotes: d.mapVotes || {}, mapScores: d.mapScores || {}, ranked: d.ranked || {}, rankedRuns: d.rankedRuns || {}, seasonScores: d.seasonScores || {}, hall: d.hall || [], wallet: d.wallet || {} };
+      this.data = { players: d.players || {}, usedRuns: d.usedRuns || {}, sessions: d.sessions || {}, plays: d.plays || {}, settings: d.settings || {}, suggestions: d.suggestions || [], rooms: d.rooms || {}, transfers: d.transfers || {}, recoverRequests: d.recoverRequests || [], maps: d.maps || {}, mapVotes: d.mapVotes || {}, mapScores: d.mapScores || {}, ranked: d.ranked || {}, rankedRuns: d.rankedRuns || {}, seasonScores: d.seasonScores || {}, hall: d.hall || [], wallet: d.wallet || {}, polls: d.polls || {} };
       // 인스타 아이디 등록 기능을 없앴으므로, 예전에 인증된 인스타 계정 기록과 인증 코드는 지움
       for (const [k, p] of Object.entries(this.data.players)) if (p.followVerifiedAt) delete this.data.players[k];
       // 무제한 기록(level <= 0): 예전 방식(깬 단계 × 100만 + 점수) → 새 방식(× 10억)
@@ -321,6 +321,20 @@ export class JsonStore {
       if (!this.data.hall.some((h) => h.season === r.season && h.board === r.board && h.rank === r.rank))
         this.data.hall.push({ season: r.season, board: r.board, rank: r.rank, igsid: r.igsid, username: r.username, score: r.score, n: r.n ?? null, rounds: r.rounds ?? null, at: r.at, image: null });
     this._save();
+  }
+  /** 🗳 한 표 (한 사람 한 표) */
+  async pollVote(poll, igsid, choice, at = Date.now()) {
+    const key = `${poll}|${igsid}`;
+    const old = this.data.polls[key];
+    if (old) return { added: false, choice: old.choice };
+    this.data.polls[key] = { choice, at };
+    this._save();
+    return { added: true, choice };
+  }
+  async pollCounts(poll) {
+    const out = {};
+    for (const [k, v] of Object.entries(this.data.polls)) if (k.startsWith(`${poll}|`)) out[v.choice] = (out[v.choice] || 0) + 1;
+    return out;
   }
   hallSetMsg(season, board, rank, msg, igsid = null) {
     const h = this.data.hall.find((x) => x.season === season && x.board === board && x.rank === rank && (!igsid || x.igsid === igsid));

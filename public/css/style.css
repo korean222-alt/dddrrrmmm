@@ -1042,3 +1042,67 @@ html.ui-live #screen-result .res-badge { background: linear-gradient(90deg, #ff8
 html.ui-live #screen-result .res-stats div { background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.35); border-radius: 6px; }
 html.ui-live #screen-result .res-stats small, html.ui-live #screen-result .res-meta, html.ui-live #screen-result .res-star-hint { color: rgba(255, 255, 255, 0.75); }
 html.ui-live #screen-result .res-stats b { font-family: "Arial Black", "Segoe UI Black", Arial, sans-serif; font-style: italic; font-size: 19px; }
+
+/* ---------- 🎹 시즌 2 피아노 미리보기 · 투표 (2026-11-23) ---------- */
+.p2-btn { width: 100%; background: linear-gradient(90deg, #6f8ff7, #b77cf5 55%, #f07cc3); color: #fff; box-shadow: 0 5px 0 var(--ink); text-shadow: 0 2px 0 rgba(0, 0, 0, 0.15); }
+.p2-btn:active { box-shadow: 0 2px 0 var(--ink); }
+.p2 { width: 100%; max-width: 520px; margin: 0 auto; display: grid; gap: 14px; }
+.p2-lead { margin: 0; color: #fff; text-align: center; font-size: 18px; }
+.p2-lead b { color: #ffe27a; font-weight: 400; }
+.p2-songs button { text-align: center; }
+.p2-songs button.on { background: #fff1e6; box-shadow: inset 0 0 0 3px var(--grass); }
+.p2-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.p2-card { position: relative; display: grid; gap: 4px; justify-items: center; padding: 10px 8px 14px; border-radius: 20px; border: 3px solid var(--ink); box-shadow: 0 5px 0 var(--ink); text-align: center; }
+.p2-card:active { transform: translateY(3px); box-shadow: 0 2px 0 var(--ink); }
+.p2-card b { font-weight: 400; font-size: 19px; }
+.p2-card small { font-size: 12px; opacity: 0.8; }
+.p2-a { background: linear-gradient(180deg, #121540, #2a1250); color: #fff; }
+.p2-b { background: #fff; color: var(--ink); }
+.p2-done { position: absolute; top: 8px; right: 8px; font-size: 12px; padding: 2px 8px; border-radius: 99px; background: #58cc02; color: #fff; }
+.p2-done[hidden] { display: none; }
+.p2-pic { position: relative; width: 100%; height: 118px; border-radius: 12px; overflow: hidden; display: block; }
+.p2-pic-a { background: radial-gradient(120% 80% at 50% 100%, #3a2a8a, #0b0d2c); }
+.p2-pic-a::before { content: ''; position: absolute; left: 50%; bottom: 0; width: 92%; height: 100%; transform: translateX(-50%); clip-path: polygon(34% 0, 66% 0, 100% 100%, 0 100%); background: linear-gradient(180deg, rgba(150, 170, 255, 0.05), rgba(170, 210, 255, 0.25)); border-bottom: 3px solid #fff; }
+.p2-pic-a i { position: absolute; height: 7px; border-radius: 4px; background: linear-gradient(#fff, #7df2ff); box-shadow: 0 0 8px #7df2ff; }
+.p2-pic-a i:nth-child(1) { left: 16%; width: 16%; bottom: 18%; }
+.p2-pic-a i:nth-child(2) { left: 52%; width: 10%; bottom: 52%; background: linear-gradient(#fff, #ff8ad8); box-shadow: 0 0 8px #ff8ad8; }
+.p2-pic-a i:nth-child(3) { left: 41%; width: 8%; bottom: 76%; background: linear-gradient(#fff, #b996ff); box-shadow: 0 0 8px #b996ff; }
+.p2-pic-a i:nth-child(4) { left: 64%; width: 17%; bottom: 30%; background: linear-gradient(#fff, #ffe27a); box-shadow: 0 0 8px #ffe27a; }
+.p2-pic-a em { position: absolute; left: 6%; right: 6%; bottom: 8%; height: 3px; background: #fff; box-shadow: 0 0 10px #9be8ff; }
+.p2-pic-b { background: #f7f7fa; }
+.p2-pic-b i { position: absolute; bottom: 0; width: 16.6%; height: 40%; background: #fff; border: 2px solid #dcdce2; border-bottom: 5px solid var(--c); border-radius: 6px; }
+.p2-pic-b i:nth-child(1) { left: 0; --c: #b77cf5; }
+.p2-pic-b i:nth-child(2) { left: 16.6%; --c: #f39a2e; }
+.p2-pic-b i:nth-child(3) { left: 33.2%; --c: #5cc72e; }
+.p2-pic-b i:nth-child(4) { left: 49.8%; --c: #d0408f; }
+.p2-pic-b i:nth-child(5) { left: 66.4%; --c: #6f8ff7; }
+.p2-pic-b i:nth-child(6) { left: 83%; --c: #f07cc3; }
+.p2-pic-b em { position: absolute; left: 35%; top: 12%; width: 13%; height: 38%; border-radius: 6px; background: #5cc72e; box-shadow: 30px -26px 0 -2px #6f8ff7, -30px -4px 0 #b77cf5; }
+.p2-vote { background: #fff; border: 3px solid var(--ink); border-radius: 20px; padding: 14px; display: grid; gap: 10px; }
+.p2-vote h3 { margin: 0; text-align: center; font-weight: 400; font-size: 20px; }
+.p2-vote-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.p2-vote-btns .btn { font-size: 17px; padding: 0 8px; }
+.p2-vote-btns .btn:disabled { opacity: 0.45; }
+.p2-vote-btns .btn.mine { opacity: 1; background: #58cc02; }
+.p2-vote .hint { text-align: center; margin: 0; }
+.p2-result { display: grid; gap: 8px; }
+.p2-result[hidden] { display: none; }
+.p2-bar { display: grid; grid-template-columns: 1fr auto; grid-template-areas: 'name pct' 'track track' 'n n'; gap: 2px 8px; align-items: center; }
+.p2-bar-name { grid-area: name; font-size: 16px; }
+.p2-bar-name em { font-style: normal; font-size: 12px; background: #58cc02; color: #fff; padding: 1px 7px; border-radius: 99px; }
+.p2-bar b { grid-area: pct; font-weight: 400; font-size: 18px; }
+.p2-bar small { grid-area: n; color: var(--muted); font-size: 12px; }
+.p2-bar-track { grid-area: track; height: 14px; border-radius: 8px; background: #eee9f3; overflow: hidden; }
+.p2-bar-track i { display: block; height: 100%; border-radius: 8px; background: #b9b0c8; transition: width 0.6s ease; }
+.p2-bar.mine .p2-bar-track i { background: linear-gradient(90deg, #6f8ff7, #b77cf5); }
+#screen-p2play { padding: 0; overflow: hidden; touch-action: none; background: #111; }
+#p2-canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
+.p2-exit { position: absolute; z-index: 3; left: 14px; top: calc(30px + var(--safe-top)); width: 40px; height: 40px; }
+.p2-over { position: absolute; inset: 0; z-index: 4; display: grid; place-items: center; background: rgba(10, 8, 30, 0.55); padding: 16px; }
+.p2-over[hidden] { display: none; }
+.p2-over-box { width: 100%; max-width: 360px; background: #fff; border: 3px solid var(--ink); border-radius: 22px; padding: 18px; display: grid; gap: 10px; text-align: center; }
+.p2-over-box h3 { margin: 0; font-weight: 400; font-size: 24px; }
+.p2-over-score { font-size: 40px; color: var(--grass-dark); }
+.p2-over-detail { font-size: 15px; line-height: 1.6; }
+.p2-over-detail b { font-weight: 400; color: var(--grass-dark); }
+.p2-over-detail small { color: var(--muted); font-size: 12px; }

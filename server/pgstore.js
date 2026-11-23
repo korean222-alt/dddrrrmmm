@@ -106,6 +106,8 @@ const SCHEMA = [
   // msg = 명예의 전당 한마디 (2026-11-22)
   `ALTER TABLE hall ADD COLUMN IF NOT EXISTS msg TEXT`,
   `CREATE TABLE IF NOT EXISTS ranked_runs (igsid TEXT NOT NULL, level INTEGER NOT NULL, rating INTEGER NOT NULL, at BIGINT NOT NULL, data JSONB NOT NULL, PRIMARY KEY (igsid, level))`,
+  // 🗳 투표 (2026-11-23 시즌 2 피아노 미리보기): 한 사람 한 표
+  `CREATE TABLE IF NOT EXISTS poll_votes (poll TEXT NOT NULL, igsid TEXT NOT NULL, choice TEXT NOT NULL, at BIGINT NOT NULL, PRIMARY KEY (poll, igsid))`,
 ];
 
 /** init 에서 도는 옛 기록 옮기기 목록 — 새로 추가하면 여기에도 이름을 붙임 (SCHEMA_FLAG 가 바뀌어 다시 돎) */
@@ -603,6 +605,20 @@ END $$`);
       );
   }
   /** 💬 한마디 (null = 지우기). igsid 를 주면 본인 것만 */
+  /** 🗳 한 표 넣기. 이미 넣었으면 그대로 두고 { added: false, choice: 예전 표 } */
+  async pollVote(poll, igsid, choice, at = Date.now()) {
+    const rows = await this.q('INSERT INTO poll_votes (poll, igsid, choice, at) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING RETURNING choice', [poll, igsid, choice, at]);
+    if (rows.length) return { added: true, choice };
+    const old = await this.q('SELECT choice FROM poll_votes WHERE poll = $1 AND igsid = $2', [poll, igsid]);
+    return { added: false, choice: old.length ? old[0].choice : null };
+  }
+  /** 🗳 표 수 { 선택: 수 } */
+  async pollCounts(poll) {
+    const rows = await this.q('SELECT choice, COUNT(*) AS n FROM poll_votes WHERE poll = $1 GROUP BY choice', [poll]);
+    const out = {};
+    for (const r of rows) out[r.choice] = Number(r.n);
+    return out;
+  }
   async hallSetMsg(season, board, rank, msg, igsid = null) {
     const rows = await this.q(
       `UPDATE hall SET msg = $4 WHERE season = $1 AND board = $2 AND rank = $3 ${igsid ? 'AND igsid = $5' : ''} RETURNING rank`,

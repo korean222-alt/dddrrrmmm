@@ -68,6 +68,8 @@ export const D1_SCHEMA = [
   // 랭킹에서 내린 사람만 담는 작은 색인 (지우기 purgeHidden 이 참여자 표 전체를 안 읽게). 안 내린 사람은 색인에 안 들어가 쓰기도 안 늚
   `CREATE INDEX IF NOT EXISTS players_hidden ON players (hidden_at) WHERE hidden_at IS NOT NULL`,
   `CREATE TABLE IF NOT EXISTS ranked_runs (igsid TEXT NOT NULL, level INTEGER NOT NULL, rating INTEGER NOT NULL, at INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (igsid, level))`,
+  // 🗳 투표 (2026-11-23 시즌 2 피아노 미리보기): 한 사람 한 표
+  `CREATE TABLE IF NOT EXISTS poll_votes (poll TEXT NOT NULL, igsid TEXT NOT NULL, choice TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (poll, igsid)) WITHOUT ROWID`,
 ];
 
 /** 이미 있는 표에 열 더하기 — SQLite 엔 'IF NOT EXISTS' 가 없어서 하나씩 해 보고, 이미 있으면 오류를 그냥 넘김 */

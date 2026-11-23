@@ -37,6 +37,8 @@ export function endlessMode(id) {
 //   init: 서버 지갑 생기기 전 폰에 모은 코인, 계정마다 한 번 COIN_INIT_MAX 까지
 //   쓰기는 지갑 한 줄(바뀐 게 있을 때만) → D1 하루 쓰기에 판당 1줄 정도
 export const COIN_FREE_DAY = 5000;
+/** 🗳 열린 투표 → 고를 수 있는 것 (2026-11-23 시즌 2 피아노: a = 라이브 스타일, b = 건반 스타일) */
+export const POLLS = { piano2: ['a', 'b'] };
 export const COIN_INIT_MAX = 20000;
 // 폰이 코인을 10분에 한 번 모아 보내고 한동안 안 들어올 수도 있어서 넉넉히 (판 순서 t 로 같은 판 두 번은 안 받음)
 const COIN_TOKEN_AGE = 14 * 24 * 3600 * 1000;
@@ -1501,6 +1503,29 @@ export function createHandler(cfg, { store, meter = null }) {
       const ok = await store.hallSetMsg(b.season, board, b.rank, cleanHallMsg(b.msg), pl.igsid);
       memo.delete('hall:list');
       return ok ? json(200, { ok: true }) : json(403, { error: 'not_yours' });
+    }
+    // 🗳 투표 (2026-11-23 시즌 2 피아노 미리보기): 한 사람(이용 등록한 계정) 한 표, 넣으면 바로 결과
+    //   표 수는 인스턴스 메모리에 1분(브레이크 땐 5분) — 표를 넣으면 그 자리에서 +1
+    if (p === '/api/poll' && (m === 'GET' || m === 'POST')) {
+      const b = m === 'POST' ? await readJson(request) : {};
+      const id = m === 'POST' ? b.id : url.searchParams.get('id');
+      const opts = POLLS[id];
+      if (!opts) return json(404, { error: 'no_poll' });
+      const key = 'poll:' + id;
+      const counts = () => cached(key, brake() >= 1 ? 5 * 60_000 : 60_000, () => store.pollCounts(id), { shared: false });
+      if (m === 'GET') return json(200, { counts: await counts() });
+      if (!limitHallPhoto(ip)) return json(429, { error: 'rate_limited' });
+      if (!opts.includes(b.choice)) return json(400, { error: 'bad_choice' });
+      const pl = await getPlayer(request);
+      if (!pl) return json(401, { error: 'verify_required' });
+      const c = { ...(await counts()) }; // 표 넣기 전 수 (넣은 뒤 +1)
+      const r = await store.pollVote(id, pl.igsid, b.choice);
+      if (r.added) {
+        c[b.choice] = (c[b.choice] || 0) + 1;
+        const hit = memo.get(key);
+        if (hit) hit.v = c;
+      }
+      return json(200, { ok: true, already: !r.added, mine: r.choice, counts: c });
     }
     // 🎁 운영자가 준 코인 알림을 봤음 (+ 명예의 전당 한마디를 같이 적을 수 있음). 코인은 줄 때 이미 지갑에 들어가 있음
     if (p === '/api/gift/ack' && m === 'POST') {
