@@ -3374,6 +3374,16 @@ const isWhite = (m) => WHITE.includes(pc(m));
 const P2_HIT_WIN = 0.18;
 /** 이 안이면 PERFECT */
 const P2_PERFECT = 0.12;
+/** 누르는 버릇 보정은 앞뒤 이만큼까지 */
+const P2_BIAS_MAX = 0.15;
+
+/** 맞힌 시간 차들(초) → 새 버릇 값: 최근 것의 가운데값 쪽으로 반씩 (튀는 값에 안 흔들리게) */
+function p2LearnBias(bias, dts) {
+  if (dts.length < 4) return bias;
+  const r = dts.slice(-12).sort((a, b) => a - b);
+  const mid = r[Math.floor(r.length / 2)];
+  return Math.max(-P2_BIAS_MAX, Math.min(P2_BIAS_MAX, bias + (mid - bias) * 0.5));
+}
 const HIT_POINTS = { perfect: 1000, great: 650, ok: 1000 };
 /** 타일: 아래 끝이 화면 높이의 이만큼 아래로 내려오면 누를 수 있음 */
 const TILE_READY = 0.42;
@@ -3526,7 +3536,12 @@ class PianoPreview {
    * @param {{ audio, canvas, level, style: 'tiles'|'keys', fast?: boolean, rotated?: () => boolean, onEnd }} o
    *   rotated(): 가로 화면을 세로 폰에 90° 돌려 그리는 중인지 (터치 좌표를 돌려 읽음)
    */
-  constructor({ audio, canvas, level, style, fast, rotated, onEnd }) {
+  constructor({ audio, canvas, level, style, fast, rotated, onEnd, offsetMs = 0, bias = 0 }) {
+    // 드럼 게임과 같은 싱크 보정(설정의 offsetMs) + 이 폰에서 배운 '누르는 버릇'(bias, 초)
+    //   11-23 사용자 'PERFECT 가 막대가 오기 전에 눌러야 뜸' → 판정 가운데를 내가 실제로 누르는 때로 옮김 (화면은 그대로)
+    this.offset = (offsetMs || 0) / 1000;
+    this.bias = Math.max(-P2_BIAS_MAX, Math.min(P2_BIAS_MAX, bias || 0));
+    this.hitDts = [];
     this.audio = audio;
     this.canvas = canvas;
     this.g = canvas.getContext('2d');
@@ -3732,7 +3747,7 @@ class PianoPreview {
 
   /** 지금 곡 시각 (귀에 들리는 소리 기준) */
   now(perfMs = performance.now()) {
-    return this.audio.heardTime(perfMs) - this.startTime;
+    return this.audio.heardTime(perfMs) - this.startTime - this.offset;
   }
 
   // ---------- 입력 ----------
@@ -3788,8 +3803,11 @@ class PianoPreview {
     try {
       this.canvas.setPointerCapture(e.pointerId);
     } catch {}
-    const t = this.now();
+    // 손가락이 닿은 때 (이벤트 처리까지 걸린 시간은 빼고)
+    const ts = e.timeStamp > 0 && Math.abs(performance.now() - e.timeStamp) < 300 ? e.timeStamp : performance.now();
+    const t = this.now(ts);
     const rt = this.audio.ctx.currentTime;
+    const bias = this.style === 'keys' ? this.bias : 0;
     let best = null;
     if (this.style === 'tiles') {
       // 타일: 이 줄에서 화면 아래쪽에 온 가장 먼저 안 친 타일 (판정선 밑으로 지나갔어도 화면 안이면)
@@ -3806,7 +3824,7 @@ class PianoPreview {
       let bestD = Infinity;
       for (const n of this.notes) {
         if (n.hit || n.miss) continue;
-        const dt = t - n.t;
+        const dt = t - n.t - bias;
         if (dt < -P2_HIT_WIN) break;
         if (Math.abs(dt) > P2_HIT_WIN) continue;
         const near = n.lane === lane ? 0 : Math.abs(this._laneX(n.lane) - tx) / this.keyW;
@@ -3829,7 +3847,11 @@ class PianoPreview {
       best.hitX = x;
       best.hitY = y;
       this._sound(best, rt);
-      this._hit(best, t, this.style === 'tiles' ? 'ok' : p2Judge(t - best.t) || 'great');
+      if (this.style === 'keys') {
+        this.hitDts.push(t - best.t);
+        this.bias = p2LearnBias(this.bias, this.hitDts);
+      }
+      this._hit(best, t, this.style === 'tiles' ? 'ok' : p2Judge(t - best.t - bias) || 'great');
       this._burst(best, t, x, y);
       if (best.holdable) {
         best.holding = true;
@@ -3982,6 +4004,7 @@ class PianoPreview {
       holdPct: this.holdMax ? Math.min(1, this.holdSec / this.holdMax) : 0,
       topSpeed: this.topSpeed,
       style: this.style,
+      bias: this.bias,
       full: c.miss === 0 && c.wrong === 0,
       stars: p2Stars(acc, c.miss),
       grade: p2Grade(acc),
@@ -3997,7 +4020,7 @@ class PianoPreview {
     const b = this.tempo.beatAt(t);
     const tiles = this.style === 'tiles';
     for (const n of this.notes) {
-      if (!n.hit && !n.miss && (tiles ? b - n.beat > this.goneB : t - n.t > P2_HIT_WIN)) this._missNote(n, t);
+      if (!n.hit && !n.miss && (tiles ? b - n.beat > this.goneB : t - n.t - this.bias > P2_HIT_WIN)) this._missNote(n, t);
       if (n.holding) {
         this._credit(n, t);
         if (t >= n.end) this._release(n, t);
@@ -4717,7 +4740,7 @@ function mix(a, b, k) {
   return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * k)).join(',')})`;
 }
 
-return { P2_SONGS, P2_SOLFA, P2_HIT_WIN, P2_PERFECT, P2_FAST_MAX, p2Level, p2FastMult, p2Notes, p2Judge, p2TileLanes, p2TileBeats, p2Keys, p2Solfa, p2Stars, p2Grade, PianoPreview };
+return { P2_SONGS, P2_SOLFA, P2_HIT_WIN, P2_PERFECT, P2_BIAS_MAX, p2LearnBias, P2_FAST_MAX, p2Level, p2FastMult, p2Notes, p2Judge, p2TileLanes, p2TileBeats, p2Keys, p2Solfa, p2Stars, p2Grade, PianoPreview };
 })();
 
 // ---- season.js ----
@@ -22483,6 +22506,8 @@ async function p2Begin() {
     level: getLevel(p2.song),
     style: p2.style,
     fast: p2.fast,
+    offsetMs: state.settings.offsetMs || 0,
+    bias: Number(load('p2Bias', 0)) || 0,
     rotated: () => $('#p2-stage').classList.contains('rot'),
     onEnd: (r) => p2End(r),
   });
@@ -22504,6 +22529,7 @@ function stopP2() {
 }
 function p2End(r) {
   p2.game = null;
+  if (r.style === 'keys' && Number.isFinite(r.bias)) save('p2Bias', Math.round(r.bias * 1000) / 1000);
   const tried = p2Tried();
   tried[p2.style] = 1;
   save('p2Tried2', tried);

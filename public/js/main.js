@@ -5792,6 +5792,8 @@ async function p2Begin() {
     level: getLevel(p2.song),
     style: p2.style,
     fast: p2.fast,
+    offsetMs: state.settings.offsetMs || 0,
+    bias: Number(load('p2Bias', 0)) || 0,
     rotated: () => $('#p2-stage').classList.contains('rot'),
     onEnd: (r) => p2End(r),
   });
@@ -5813,6 +5815,7 @@ function stopP2() {
 }
 function p2End(r) {
   p2.game = null;
+  if (r.style === 'keys' && Number.isFinite(r.bias)) save('p2Bias', Math.round(r.bias * 1000) / 1000);
   const tried = p2Tried();
   tried[p2.style] = 1;
   save('p2Tried2', tried);
