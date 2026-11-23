@@ -814,6 +814,7 @@ async function startLevel(id, opts = {}) {
   $('#hud-coin').textContent = '0';
   $('#hud-coin-box').hidden = !!(state.auto || st.active);
   renderer.coinFx = !(state.auto || st.active);
+  renderer.coinPerfectOnly = !!lv.userMap; // 🎹 유저 맵: PERFECT 때만 코인 하나
   const starBox = $('#hud-stars');
   starBox.hidden = !!lv.endless;
   starBox.innerHTML = starsHTML(0);
@@ -2121,10 +2122,11 @@ function refreshCoins() {
   const el = $('#coin-num');
   if (el) el.textContent = fmt(getCoins());
 }
-/** 이 판에서 번 코인: PERFECT 2 · GREAT·GOOD·연타 1 (자동 연주·영상 찍기는 0) */
+/** 이 판에서 번 코인: PERFECT 2 · GREAT·GOOD·연타 1 (자동 연주·영상 찍기는 0) · 🎹 유저 맵은 PERFECT 1 만 */
 function runCoins(g) {
   if (!g || state.auto || g.auto || state.studio.active) return 0;
   const c = g.counts || {};
+  if (g.level && g.level.userMap) return Math.max(0, Math.min(40000, c.perfect || 0));
   return Math.max(0, Math.min(40000, (c.perfect || 0) * 2 + (c.great || 0) + (c.good || 0) + (g.rollHits || 0)));
 }
 /**

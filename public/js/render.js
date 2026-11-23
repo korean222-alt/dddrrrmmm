@@ -519,9 +519,9 @@ export class Renderer {
     const L = this.L;
     const style = JUDGE_STYLE[judge];
     // 🪙 코인 튀기: PERFECT 2개 · GREAT·GOOD 1개. 판정선에서 살짝 튀어 올랐다가 아래(엄지 자리, 지나간 콩 쪽)로 떨어짐
-    if (this.coinFx && (judge === 'perfect' || judge === 'great' || judge === 'good') && this.L) {
+    if (this.coinFx && (judge === 'perfect' || (!this.coinPerfectOnly && (judge === 'great' || judge === 'good'))) && this.L) {
       const L = this.L;
-      const n = judge === 'perfect' ? 2 : 1;
+      const n = judge === 'perfect' && !this.coinPerfectOnly ? 2 : 1;
       for (let i = 0; i < n; i++) {
         const side = n === 2 ? (i ? 1 : -1) : Math.random() < 0.5 ? -1 : 1;
         this.fx.coins.push({

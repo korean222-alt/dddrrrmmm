@@ -5478,9 +5478,9 @@ class Renderer {
     const L = this.L;
     const style = JUDGE_STYLE[judge];
     // 🪙 코인 튀기: PERFECT 2개 · GREAT·GOOD 1개. 판정선에서 살짝 튀어 올랐다가 아래(엄지 자리, 지나간 콩 쪽)로 떨어짐
-    if (this.coinFx && (judge === 'perfect' || judge === 'great' || judge === 'good') && this.L) {
+    if (this.coinFx && (judge === 'perfect' || (!this.coinPerfectOnly && (judge === 'great' || judge === 'good'))) && this.L) {
       const L = this.L;
-      const n = judge === 'perfect' ? 2 : 1;
+      const n = judge === 'perfect' && !this.coinPerfectOnly ? 2 : 1;
       for (let i = 0; i < n; i++) {
         const side = n === 2 ? (i ? 1 : -1) : Math.random() < 0.5 ? -1 : 1;
         this.fx.coins.push({
@@ -14197,12 +14197,13 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-23a',
+    id: '2026-11-23b',
     date: '11월 23일',
-    title: '🖐 빽빽한 구간·엇박 터치 씹힘 고침',
+    title: '🖐 빽빽한 구간·엇박 터치 씹힘 고침 · 🎹 유저 맵 코인',
     items: [
       '<b>🖐 쳐야 할 게 많은 곳·엇박에서 터치가 씹히던 것 고쳤어요!</b> 쿵을 살짝 늦게 치면 MISS 가 되던 것, 한 번 잘못 누르면 뒤 콩들이 줄줄이 MISS 되던 것이에요',
       '엄지가 가운데 선을 넘어가 옆 줄을 눌러도 <b>원래 치려던 콩</b>으로 잡아 줘요',
+      '<b>🎹 유저 맵</b>에선 코인이 <b>PERFECT 때만 1개</b>씩 쌓여요',
     ],
   },
   {
@@ -16031,6 +16032,7 @@ async function startLevel(id, opts = {}) {
   $('#hud-coin').textContent = '0';
   $('#hud-coin-box').hidden = !!(state.auto || st.active);
   renderer.coinFx = !(state.auto || st.active);
+  renderer.coinPerfectOnly = !!lv.userMap; // 🎹 유저 맵: PERFECT 때만 코인 하나
   const starBox = $('#hud-stars');
   starBox.hidden = !!lv.endless;
   starBox.innerHTML = starsHTML(0);
@@ -17338,10 +17340,11 @@ function refreshCoins() {
   const el = $('#coin-num');
   if (el) el.textContent = fmt(getCoins());
 }
-/** 이 판에서 번 코인: PERFECT 2 · GREAT·GOOD·연타 1 (자동 연주·영상 찍기는 0) */
+/** 이 판에서 번 코인: PERFECT 2 · GREAT·GOOD·연타 1 (자동 연주·영상 찍기는 0) · 🎹 유저 맵은 PERFECT 1 만 */
 function runCoins(g) {
   if (!g || state.auto || g.auto || state.studio.active) return 0;
   const c = g.counts || {};
+  if (g.level && g.level.userMap) return Math.max(0, Math.min(40000, c.perfect || 0));
   return Math.max(0, Math.min(40000, (c.perfect || 0) * 2 + (c.great || 0) + (c.good || 0) + (g.rollHits || 0)));
 }
 /**
