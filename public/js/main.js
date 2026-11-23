@@ -1489,7 +1489,9 @@ async function submitRank(r = state.lastResult) {
   const endless = !!r && (r.levelId === ENDLESS_ID || !!levelEndlessBase(r.levelId));
   if (!r || r.auto || r.practice || (r.challenge && !endless) || (r.failed && !endless) || r.submitted || r.submitting) return;
   if (endless && !(r.roundsCleared >= 1)) return;
-  if (demoOnly()) return;
+  // 서버 없이 올린 사이트(apiMode mock)만 안 올림. 진짜 사이트가 서버 없는 모드(api.mode mock)일 땐 아래 keepOffline 으로 폰·서버 보관함에
+  //   (2026-11-23: 예전엔 demoOnly() 만 봐서 서버가 쉬는 동안 친 기록이 저장도 안 되고 버려졌음)
+  if (demoOnly() && CONFIG.apiMode === 'mock') return;
   // 📴 서버 없는 모드(DB 한도 초과 등)·판 토큰을 못 받은 판: 인증한 폰이면 최고 기록을 폰에 모았다가 서버가 돌아오면 올림
   const realTok = r.runToken && !String(r.runToken).startsWith('mock.');
   const keepOffline = () => {
