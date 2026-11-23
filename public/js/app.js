@@ -3346,14 +3346,14 @@ const __m_piano2 = (() => {
 // 🎹 시즌 2 피아노 미리보기 (2026-11-23) — 두 방식을 쳐 보고 투표
 //   A 'tiles' : 세로 화면 · 4줄 피아노 타일. 검은 타일이 내려오고 판정선에 닿을 때 누르면 그 음(+화음)이 피아노로
 //              줄은 멜로디 움직임대로(올라가면 오른쪽, 내려가면 왼쪽, 같은 줄 연속 없음)
-//   B 'keys'  : 가로 화면 · 아래 진짜 건반(흰 건반 10개 안팎 + 검은 건반)에 계이름 색 막대가 위에서 떨어짐,
-//              누른 건반 음이 그대로 남. 위에 쿵콩이·짝콩이가 반응
-//   판정은 PERFECT 같은 단계 없이 '맞힘 / 놓침' 만 (11-23 사용자: 너무 깐깐함). 칠 게 없는데 누르면 헛침(콤보 끊김)
-//   꾹 누르기 = 누르고 있는 동안 점수가 더 쌓임: 건반은 모든 음(막대 길이만큼), 타일은 긴 타일(2분음표 이상)
-//   타일의 긴 타일 게이지는 손가락 자리에서 타일 위쪽으로 차오름(타일이 손가락 밑으로 지나간 만큼)
+//              타일은 모두 같은 크기, 꾹 누르기 없음 (11-23 사용자)
+//   B 'keys'  : 가로 화면 · 아래 진짜 피아노 건반(흰 건반 10개 안팎 + 검은 건반)에 빛 막대가 위에서 떨어짐(글자 없음),
+//              누른 건반 음이 그대로 남. 위에 쿵콩이·짝콩이가 반응. 막대 길이만큼 꾹 누르면 점수 더
+//   판정: 앞뒤 0.12초 안 = PERFECT, 0.18초 안 = GREAT (넉넉하게 — 웬만하면 PERFECT, 11-23 사용자)
+//   ⚡ 점점 빠르게(fast): 곡을 길게 되풀이하며 마디마다 빨라짐(끝에 1.6배). 화면은 박자 기준이라 타일 간격은 그대로
 //   연습판: 기록·랭킹·코인·서버 요청 없음. 반주는 피아노 왼손만(SongPlayer pianoOnly)
 
-const { parseMelody, tempoOf, COUNT_IN_BARS, STEPS_PER_BAR, CRASH, pianoHarmony } = __m_charts;
+const { parseMelody, tempoOf, TempoMap, COUNT_IN_BARS, STEPS_PER_BAR, CRASH, pianoHarmony } = __m_charts;
 const { SongPlayer } = __m_audio;
 const { buddyUrl } = __m_buddies;
 
@@ -3365,44 +3365,64 @@ const P2_SONGS = [
   { id: 12, diff: '어려움' },
 ];
 const P2_SOLFA = ['도', '도#', '레', '레#', '미', '파', '파#', '솔', '솔#', '라', '라#', '시'];
-/** 계이름 색 (도~시, 반음은 아래 음 색) */
-const SOLFA_COLOR = ['#a970f0', '#a970f0', '#f2962a', '#f2962a', '#53c22b', '#d23f8e', '#d23f8e', '#5f86f5', '#5f86f5', '#ee75bd', '#ee75bd', '#14bf99'];
 const WHITE = [0, 2, 4, 5, 7, 9, 11];
 const pc = (m) => ((m % 12) + 12) % 12;
 const isWhite = (m) => WHITE.includes(pc(m));
-const HOLD_STEPS = 8; // 타일: 2분음표 이상이면 긴 타일(꾹)
-/** 맞힘으로 치는 범위(초, 앞뒤). 넉넉하게 — 판정 단계 없음 */
+/** 맞힘으로 치는 범위(초, 앞뒤). 넉넉하게 */
 const P2_HIT_WIN = 0.18;
-const HIT_POINTS = 1000;
-const HOLD_POINTS = 900; // 꾹 누르는 1초마다
+/** 이 안이면 PERFECT */
+const P2_PERFECT = 0.12;
+const HIT_POINTS = { perfect: 1000, great: 650 };
+const HOLD_POINTS = 900; // 꾹 누르는 1초마다 (건반만)
+/** ⚡ 점점 빠르게: 끝에서 이만큼 (1.6 = 1.6배) */
+const P2_FAST_MAX = 1.6;
 const ease = (k) => 1 - Math.pow(1 - Math.max(0, Math.min(1, k)), 3);
 const FONT = "Jua, 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif";
 const font = (px) => `${Math.round(px)}px ${FONT}`;
 
-/** 게임 단계 → 미리보기용 (멜로디는 내가 침, 반주는 피아노 왼손만) */
-function p2Level(level) {
+/** 게임 단계 → 미리보기용 (멜로디는 내가 침, 반주는 피아노 왼손만). fast = 점점 빠르게 */
+function p2Level(level, { fast = false } = {}) {
   const dots = '.'.repeat(STEPS_PER_BAR);
   const song = { ...level.song, pianoLH: true, bass: dots, chord: dots, hat: dots, bells: undefined, glock: undefined, choir: undefined, audio: undefined, epic: false };
-  // 짧은 멜로디는 30초쯤 되게 되풀이 (코드 진행도 멜로디 길이에 맞춰 같이)
+  // 짧은 멜로디는 30초쯤(빨라지기면 55초쯤) 되게 되풀이 (코드 진행도 멜로디 길이에 맞춰 같이)
   const bars = level.song.melody.length;
-  const reps = Math.max(1, Math.ceil(30 / ((bars * 240) / level.bpm)));
+  const reps = Math.max(1, Math.ceil((fast ? 55 : 30) / ((bars * 240) / level.bpm)));
   if (reps > 1) {
     song.melody = Array.from({ length: reps }, () => level.song.melody).flat();
     const prog = level.song.prog || ['C'];
     song.prog = Array.from({ length: bars }, (_, i) => prog[i % prog.length]);
   }
-  return { ...level, song, tapMelody: true, pianoOnly: true, lanes: [CRASH], bars: song.melody.map(() => dots) };
+  const out = { ...level, song, tapMelody: true, pianoOnly: true, lanes: [CRASH], bars: song.melody.map(() => dots) };
+  delete out.tempo;
+  if (fast) {
+    const total = song.melody.length;
+    out.fast = true;
+    out.tempo = new TempoMap((bar) => level.bpm * p2FastMult(bar - COUNT_IN_BARS, total));
+  }
+  return out;
 }
 
-/** 곡 → 칠 음표 [{ t, dur, end, midi, hold, bar, step }] (곡 시작 = 카운트인 첫 박 기준 초) */
+/** 점점 빠르게: 곡 마디 b (0 부터) 의 빠르기 배수. 처음 1배 → 끝 P2_FAST_MAX */
+function p2FastMult(b, total) {
+  const k = Math.max(0, Math.min(1, b / Math.max(1, total - 1)));
+  return 1 + (P2_FAST_MAX - 1) * k;
+}
+
+/** 곡 → 칠 음표 [{ t, dur, end, midi, bar, step, len, beat, lenB }] (곡 시작 = 카운트인 첫 박 기준 초, beat = 박 위치) */
 function p2Notes(level) {
   const tempo = tempoOf(level);
   return parseMelody(level.song.melody).map((n) => {
     const s0 = (COUNT_IN_BARS + n.bar) * STEPS_PER_BAR + n.step;
     const t = tempo.stepTime(s0);
     const end = tempo.stepTime(s0 + n.len);
-    return { t, dur: end - t, end, midi: n.midi, hold: n.len >= HOLD_STEPS, bar: n.bar, step: n.step, len: n.len };
+    return { t, dur: end - t, end, midi: n.midi, bar: n.bar, step: n.step, len: n.len, beat: s0 / 4, lenB: n.len / 4 };
   });
+}
+
+/** 판정: 시간 차(초) → 'perfect' | 'great' | null(못 맞힘) */
+function p2Judge(dt) {
+  const a = Math.abs(dt);
+  return a <= P2_PERFECT ? 'perfect' : a <= P2_HIT_WIN ? 'great' : null;
 }
 
 /** A: 4줄 — 올라가면 오른쪽, 내려가면 왼쪽(크게 뛰면 두 칸), 같은 음은 옆 줄. 같은 줄 연속 없음 */
@@ -3425,6 +3445,18 @@ function p2TileLanes(notes) {
     prev = L;
   });
   return out;
+}
+
+/** A: 모든 타일 같은 크기(박 단위) — 같은 줄 다음 타일과 안 겹치게, 0.4~0.95박 */
+function p2TileBeats(notes, lanes) {
+  let min = Infinity;
+  const last = [null, null, null, null];
+  notes.forEach((n, i) => {
+    const L = lanes[i];
+    if (last[L] != null) min = Math.min(min, n.beat - last[L]);
+    last[L] = n.beat;
+  });
+  return Math.max(0.4, Math.min(0.95, (isFinite(min) ? min : 1) * 0.9));
 }
 
 /** B: 쓸 건반 [{ midi, white }] — 곡 음역(검은 건반 포함), 흰 건반 10개 이상이 되게 양쪽으로 넓힘, 많아야 15개 */
@@ -3480,19 +3512,26 @@ function buddies() {
   return buddyImgs;
 }
 
+/** 건반 빛 색: 왼쪽(낮은 음) 하늘색 → 파랑 → 보라 → 오른쪽 분홍 */
+function laneHue(i, n) {
+  return 188 + (n > 1 ? i / (n - 1) : 0) * 140;
+}
+
 class PianoPreview {
   /**
-   * @param {{ audio, canvas, level, style: 'tiles'|'keys', rotated?: () => boolean, onEnd }} o
+   * @param {{ audio, canvas, level, style: 'tiles'|'keys', fast?: boolean, rotated?: () => boolean, onEnd }} o
    *   rotated(): 가로 화면을 세로 폰에 90° 돌려 그리는 중인지 (터치 좌표를 돌려 읽음)
    */
-  constructor({ audio, canvas, level, style, rotated, onEnd }) {
+  constructor({ audio, canvas, level, style, fast, rotated, onEnd }) {
     this.audio = audio;
     this.canvas = canvas;
     this.g = canvas.getContext('2d');
     this.style = style;
     this.rotated = rotated || (() => false);
     this.onEnd = onEnd;
-    this.level = p2Level(level);
+    this.level = p2Level(level, { fast: !!fast });
+    this.tempo = tempoOf(this.level);
+    this.baseBpm = level.bpm;
     this.notes = p2Notes(this.level);
     if (style === 'keys') {
       this.keys = p2Keys(this.notes);
@@ -3501,16 +3540,18 @@ class PianoPreview {
         n.lane = idx.get(n.midi);
         n.holdable = true; // 건반은 모든 음을 막대 길이만큼 꾹
       }
+      this.hues = this.keys.map((_, i) => laneHue(i, this.keys.length));
       if (typeof window !== 'undefined') buddies();
     } else {
       const lanes = p2TileLanes(this.notes);
       this.notes.forEach((n, i) => {
         n.lane = lanes[i];
-        n.holdable = n.hold;
+        n.holdable = false; // 타일은 꾹 없음
       });
+      this.tileB = p2TileBeats(this.notes, lanes);
     }
     this.lanes = style === 'keys' ? this.keys.length : 4;
-    this.counts = { hit: 0, miss: 0, wrong: 0 };
+    this.counts = { hit: 0, perfect: 0, great: 0, miss: 0, wrong: 0 };
     this.holdSec = 0; // 꾹 누른 시간
     this.holdMax = this.notes.filter((n) => n.holdable).reduce((a, n) => a + n.dur, 0);
     this.bonus = 0;
@@ -3518,6 +3559,8 @@ class PianoPreview {
     this.shown = 0; // 화면에 보이는 점수 (부드럽게 따라감)
     this.combo = 0;
     this.maxCombo = 0;
+    this.topSpeed = 1;
+    this.speedNow = 1;
     this.pressed = new Map(); // pointerId → { lane, note, x, y }
     this.press = new Float32Array(this.lanes); // 건반·줄 눌림 0~1 (부드럽게)
     this.fx = { flash: [], pops: [], rings: [], parts: [], bad: [] };
@@ -3601,6 +3644,7 @@ class PianoPreview {
     c.width = Math.round(this.W * dpr);
     c.height = Math.round(this.H * dpr);
     this.g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this._bgCache = null;
     this._layout();
     if (this.state === 'paused') this._draw(this.pausedAt, 0);
   }
@@ -3610,8 +3654,10 @@ class PianoPreview {
     if (this.style === 'tiles') {
       this.laneW = W / 4;
       this.judgeY = H * 0.8;
-      this.speed = (H * 0.25) / this.beat; // 4분음표 하나 = 화면 높이 1/4
-      this.look = this.judgeY / this.speed + 0.2;
+      // 박 하나의 높이: 타일이 화면 1/5쯤 되게 (0.22~0.4 화면)
+      this.ppb = Math.max(H * 0.22, Math.min(H * 0.4, (H * 0.2) / this.tileB));
+      this.tileH = this.tileB * this.ppb;
+      this.lookB = (this.judgeY + this.tileH) / this.ppb + 0.2;
       return;
     }
     // 건반: 위 정보 줄 → 떨어지는 칸 → 건반
@@ -3622,8 +3668,9 @@ class PianoPreview {
     this.kbH = Math.min(H * 0.36, this.keyW * 2.6);
     this.kbY = H - this.kbH - Math.max(6, H * 0.02);
     this.judgeY = this.kbY;
-    this.speed = (this.judgeY - this.hudH) / Math.max(1.25, this.beat * 2.1);
-    this.look = (this.judgeY - this.hudH) / this.speed + 0.15;
+    // 화면 높이에 박 몇 개: 1.25초어치 또는 2.1박 중 큰 쪽 (처음 빠르기 기준)
+    this.ppb = (this.judgeY - this.hudH) / Math.max(1.25 / this.beat, 2.1);
+    this.lookB = (this.judgeY - this.hudH) / this.ppb + 0.2;
     let wi = 0;
     this.cols = this.keys.map((k) => {
       if (k.white) {
@@ -3631,10 +3678,10 @@ class PianoPreview {
         wi++;
         return { x, w: this.keyW, white: true };
       }
-      const bw = this.keyW * 0.62;
+      const bw = this.keyW * 0.6;
       return { x: side + wi * this.keyW - bw / 2, w: bw, white: false };
     });
-    this.blackH = this.kbH * 0.56;
+    this.blackH = this.kbH * 0.6;
   }
 
   /** 지금 곡 시각 (귀에 들리는 소리 기준) */
@@ -3690,7 +3737,7 @@ class PianoPreview {
     } catch {}
     const t = this.now();
     const rt = this.audio.ctx.currentTime;
-    // 이 줄에서 가장 가까운 안 친 콩 (앞뒤 P2_HIT_WIN 안이면 맞힘)
+    // 이 줄에서 가장 가까운 안 친 음 (앞뒤 P2_HIT_WIN 안이면 맞힘)
     let best = null;
     for (const n of this.notes) {
       if (n.lane !== lane || n.hit || n.miss) continue;
@@ -3707,14 +3754,12 @@ class PianoPreview {
       best.hitX = x;
       best.hitY = y;
       this._sound(best, rt);
-      this._hit(best, t);
+      this._hit(best, t, p2Judge(t - best.t) || 'great');
       this._burst(best, t, x, y);
       if (best.holdable) {
         best.holding = true;
         best.heldTo = Math.max(t, best.t);
         best.bonus = 0;
-        best.fingerY = y;
-        best.fill = 0;
         press.note = best;
       }
     } else {
@@ -3730,10 +3775,8 @@ class PianoPreview {
 
   _move(e) {
     const p = this.pressed.get(e.pointerId);
-    if (!p || !p.note) return;
-    const { y } = this._local(e);
-    p.y = y;
-    p.note.fingerY = y;
+    if (!p) return;
+    p.y = this._local(e).y;
   }
 
   _up(e) {
@@ -3744,11 +3787,10 @@ class PianoPreview {
   }
 
   /** 꾹 누르던 손을 뗌 (또는 음이 끝남): 그때까지 쌓인 보너스를 보여 줌 */
-  _release(n, t, p) {
+  _release(n, t) {
     this._credit(n, t);
     n.holding = false;
     n.releasedAt = t;
-    if (t >= n.end - 0.05) n.full = true; // 끝까지 누름 → 타일 게이지 가득
     // 긴 음만 '+보너스' 글자 (짧은 음까지 띄우면 어지러움)
     if (n.bonus >= 150 && n.dur >= this.beat * 1.5) this.fx.pops.push({ kind: 'bonus', lane: n.lane, at: t, v: Math.round(n.bonus) });
   }
@@ -3766,12 +3808,15 @@ class PianoPreview {
     this.score += pts;
   }
 
-  _hit(n, t) {
+  _hit(n, t, kind) {
     this.counts.hit++;
+    this.counts[kind]++;
+    n.judge = kind;
     this.combo++;
     this.maxCombo = Math.max(this.maxCombo, this.combo);
-    this.score += HIT_POINTS * (1 + Math.min(this.combo, 100) / 100);
+    this.score += HIT_POINTS[kind] * (1 + Math.min(this.combo, 100) / 100) * this.speedNow;
     this.comboAt = t;
+    this.fx.pops.push({ kind, lane: n.lane, at: t });
     if (this.combo % 10 === 0) {
       this._mood(-1, 'cheer', t, 0.9);
       this.comboBig = t;
@@ -3825,16 +3870,21 @@ class PianoPreview {
     return c.x + c.w / 2;
   }
 
-  /** 맞힌 자리: 손가락 자리에서 퍼지는 고리 + 몇 개 안 되는 부드러운 빛 알갱이 */
+  _laneColor(lane, l = 66, a = 1) {
+    return `hsla(${this.hues[lane]},95%,${l}%,${a})`;
+  }
+
+  /** 맞힌 자리: 퍼지는 고리 + 빛 알갱이 */
   _burst(n, t, x, y) {
-    const col = this.style === 'keys' ? SOLFA_COLOR[pc(n.midi)] : '#ff8a4c';
-    const cx = this.style === 'tiles' ? x : this._laneX(n.lane);
-    const cy = this.style === 'tiles' ? Math.min(y, this.H - 20) : this.judgeY;
+    const keys = this.style === 'keys';
+    const col = keys ? this._laneColor(n.lane, 70) : '#ffc35c';
+    const cx = keys ? this._laneX(n.lane) : this._laneX(n.lane);
+    const cy = keys ? this.judgeY : this.judgeY - this.tileH * 0.5;
     this.fx.rings.push({ x: cx, y: cy, at: t, color: col });
-    for (let i = 0; i < 6; i++) {
-      const a = -Math.PI * (0.15 + 0.7 * Math.random());
-      const v = 90 + Math.random() * 90;
-      this.fx.parts.push({ x: cx, y: cy, vx: Math.cos(a) * v, vy: Math.sin(a) * v, at: t, life: 0.5 + Math.random() * 0.2, color: col, s: 2.5 + Math.random() * 2.5 });
+    for (let i = 0; i < 8; i++) {
+      const a = -Math.PI * (0.1 + 0.8 * Math.random());
+      const v = 110 + Math.random() * 120;
+      this.fx.parts.push({ x: cx, y: cy, vx: Math.cos(a) * v, vy: Math.sin(a) * v, at: t, life: 0.45 + Math.random() * 0.25, color: col, s: 2 + Math.random() * 2.5 });
     }
   }
 
@@ -3853,7 +3903,9 @@ class PianoPreview {
       ...c,
       notes: this.notes.length,
       bonus: Math.round(this.bonus),
+      holdMax: this.holdMax,
       holdPct: this.holdMax ? Math.min(1, this.holdSec / this.holdMax) : 0,
+      topSpeed: this.topSpeed,
       full: c.miss === 0 && c.wrong === 0,
       stars: p2Stars(acc, c.miss),
       grade: p2Grade(acc),
@@ -3883,14 +3935,20 @@ class PianoPreview {
     this._draw(t, dt);
   }
 
-  _draw(t, dt) {
+  _draw(t, dt = 0) {
+    // 지금 박 위치 · 빠르기
+    this.bNow = this.tempo.beatAt(t);
+    if (this.level.fast) {
+      this.speedNow = this.tempo.bpm(Math.max(0, Math.floor(this.bNow / 4))) / this.baseBpm;
+      if (t > 0 && t < this.lastEnd) this.topSpeed = Math.max(this.topSpeed, this.speedNow);
+    }
     // 부드럽게 따라가는 값들: 점수 숫자, 줄·건반 눌림
     this.shown += (this.score - this.shown) * Math.min(1, dt * 10);
     if (Math.abs(this.score - this.shown) < 1) this.shown = this.score;
     const held = new Set([...this.pressed.values()].map((p) => p.lane));
     for (let i = 0; i < this.lanes; i++) {
       const target = held.has(i) ? 1 : 0;
-      const rate = target ? 40 : 14;
+      const rate = target ? 40 : 12;
       this.press[i] += (target - this.press[i]) * Math.min(1, dt * rate);
     }
     const g = this.g;
@@ -3941,58 +3999,101 @@ class PianoPreview {
     g.restore();
   }
 
+  /** ⚡ ×1.25 (점점 빠르게일 때만) */
+  _drawSpeed(g, x, y, size, color) {
+    if (!this.level.fast) return;
+    g.save();
+    g.font = font(size);
+    g.textAlign = 'right';
+    g.textBaseline = 'middle';
+    g.fillStyle = color;
+    g.fillText(`⚡ ×${this.speedNow.toFixed(2)}`, x, y);
+    g.restore();
+  }
+
   // ======== A: 피아노 타일 (세로) ========
-  _drawTiles(g, t) {
-    const { W, H, laneW, judgeY, speed } = this;
-    g.fillStyle = '#fbf8f3';
-    g.fillRect(0, 0, W, H);
-    g.fillStyle = '#f6f1ea';
-    for (let i = 1; i < 4; i += 2) g.fillRect(i * laneW, 0, laneW, H);
-    // 누르는 자리 띠
-    if (!this._zone || this._zoneH !== H) {
-      this._zone = g.createLinearGradient(0, judgeY - 30, 0, H);
-      this._zone.addColorStop(0, 'rgba(255,138,76,0)');
-      this._zone.addColorStop(0.25, 'rgba(255,138,76,0.07)');
-      this._zone.addColorStop(1, 'rgba(255,138,76,0.13)');
-      this._zoneH = H;
+  _tilesBg(g) {
+    const { W, H } = this;
+    if (!this._bgCache) {
+      const bg = g.createLinearGradient(0, 0, 0, H);
+      bg.addColorStop(0, '#fff8ee');
+      bg.addColorStop(0.55, '#fdf0f3');
+      bg.addColorStop(1, '#efe8ff');
+      const zone = g.createLinearGradient(0, this.judgeY - this.tileH, 0, H);
+      zone.addColorStop(0, 'rgba(255,190,110,0)');
+      zone.addColorStop(0.5, 'rgba(255,190,110,0.10)');
+      zone.addColorStop(1, 'rgba(255,170,140,0.18)');
+      const line = g.createLinearGradient(0, 0, W, 0);
+      line.addColorStop(0, 'rgba(255,196,92,0)');
+      line.addColorStop(0.2, '#ffc45c');
+      line.addColorStop(0.8, '#ff8fb8');
+      line.addColorStop(1, 'rgba(255,143,184,0)');
+      const div = g.createLinearGradient(0, 0, 0, H);
+      div.addColorStop(0, 'rgba(150,120,190,0)');
+      div.addColorStop(0.5, 'rgba(150,120,190,0.16)');
+      div.addColorStop(1, 'rgba(150,120,190,0.26)');
+      this._bgCache = { bg, zone, line, div };
     }
-    g.fillStyle = this._zone;
-    g.fillRect(0, judgeY - 30, W, H - judgeY + 30);
+    return this._bgCache;
+  }
+
+  _drawTiles(g, t) {
+    const { W, H, laneW, judgeY, ppb, tileH } = this;
+    const C = this._tilesBg(g);
+    g.fillStyle = C.bg;
+    g.fillRect(0, 0, W, H);
+    // 천천히 떠오르는 빛 방울
+    for (let i = 0; i < 7; i++) {
+      const r = (0.08 + (i % 4) * 0.035) * W;
+      const x = ((i * 0.293 + 0.11) % 1) * W + Math.sin(t * 0.5 + i) * 12;
+      const span = H + r * 2;
+      const y = H + r - ((t * (14 + (i % 3) * 7) + i * 211) % span);
+      const gr = g.createRadialGradient(x, y, 0, x, y, r);
+      const hue = i % 2 ? '255,186,140' : '196,160,255';
+      gr.addColorStop(0, `rgba(${hue},0.22)`);
+      gr.addColorStop(1, `rgba(${hue},0)`);
+      g.fillStyle = gr;
+      g.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+    g.fillStyle = C.zone;
+    g.fillRect(0, judgeY - tileH, W, H - judgeY + tileH);
     // 누른 줄 빛 (부드럽게 켜지고 꺼짐)
     for (let i = 0; i < 4; i++) {
       const a = this.press[i];
       if (a < 0.01) continue;
-      const gr = g.createLinearGradient(0, judgeY - H * 0.3, 0, H);
-      gr.addColorStop(0, 'rgba(255,170,120,0)');
-      gr.addColorStop(1, `rgba(255,170,120,${0.32 * a})`);
+      const gr = g.createLinearGradient(0, judgeY - H * 0.35, 0, H);
+      gr.addColorStop(0, 'rgba(255,200,120,0)');
+      gr.addColorStop(1, `rgba(255,180,120,${0.38 * a})`);
       g.fillStyle = gr;
-      g.fillRect(i * laneW, judgeY - H * 0.3, laneW, H * 0.3 + H - judgeY);
+      g.fillRect(i * laneW, judgeY - H * 0.35, laneW, H * 0.35 + H - judgeY);
     }
     // 헛침: 그 칸이 빨갛게 (부드럽게 사라짐)
     for (const b of this.fx.bad) {
       const a = 1 - ease((t - b.at) / 0.45);
       if (a <= 0) continue;
       g.fillStyle = `rgba(255,77,109,${0.38 * a})`;
-      rr(g, b.lane * laneW + 3, judgeY - 6, laneW - 6, H - judgeY, 10);
+      rr(g, b.lane * laneW + 3, judgeY - tileH, laneW - 6, H - judgeY + tileH - 4, 12);
       g.fill();
     }
-    g.fillStyle = '#e8e1d6';
+    g.fillStyle = C.div;
     for (let i = 1; i < 4; i++) g.fillRect(Math.round(i * laneW) - 0.5, 0, 1, H);
-    // 타일
-    const gap = 3;
+    // 타일 (모두 같은 크기, 아래 끝이 판정선에 닿을 때 누름)
+    const gap = 4;
+    const h = tileH - gap;
     for (const n of this.notes) {
-      const d = n.t - t;
-      if (d > this.look) break;
-      const yB = judgeY - d * speed;
-      const len = Math.max(this.beat * speed * 0.48, n.dur * speed) - gap;
-      if (yB - len > H + 10) continue;
-      if (n.hit && !n.holdable && t - n.hitAt > 0.3) continue;
+      const d = n.beat - this.bNow;
+      if (d > this.lookB) break;
+      const yB = judgeY - d * ppb;
+      if (yB - h > H + 10) continue;
+      if (n.hit && t - n.hitAt > 0.32) continue;
       if (n.miss && t - n.missAt > 0.6) continue;
-      if (n.hit && n.holdable && !n.holding && t - (n.releasedAt ?? n.end) > 0.4) continue;
-      this._tile(g, n, n.lane * laneW + 2, yB - len, laneW - 4, len, t);
+      this._tile(g, n, n.lane * laneW + 3, yB - h, laneW - 6, h, t);
     }
-    g.fillStyle = 'rgba(59,42,74,0.2)';
-    g.fillRect(0, judgeY, W, 2);
+    // 판정선: 금빛
+    g.fillStyle = 'rgba(255,190,110,0.18)';
+    g.fillRect(0, judgeY - 5, W, 10);
+    g.fillStyle = C.line;
+    g.fillRect(0, judgeY - 1.5, W, 3);
     // 위: 진행 줄 · 점수 · 콤보
     const p = Math.max(0, Math.min(1, t / this.lastEnd));
     const top = 12;
@@ -4001,8 +4102,8 @@ class PianoPreview {
     g.fill();
     if (!this._pg || this._pgW !== W) {
       this._pg = g.createLinearGradient(70, 0, W - 70, 0);
-      this._pg.addColorStop(0, '#ffb27e');
-      this._pg.addColorStop(1, '#ff5fa2');
+      this._pg.addColorStop(0, '#ffc45c');
+      this._pg.addColorStop(1, '#ff6fae');
       this._pgW = W;
     }
     g.fillStyle = this._pg;
@@ -4014,11 +4115,12 @@ class PianoPreview {
     const sTxt = Math.round(this.shown).toLocaleString();
     g.font = font(Math.min(52, W * 0.13));
     g.lineWidth = 6;
-    g.strokeStyle = '#fbf8f3';
+    g.strokeStyle = '#fff8ee';
     g.strokeText(sTxt, W / 2, top + 26);
     g.fillStyle = '#3b2a4a';
     g.fillText(sTxt, W / 2, top + 26);
-    this._drawCombo(g, t, W / 2, top + 26 + Math.min(58, W * 0.145), Math.min(22, W * 0.056), '#fbf8f3');
+    this._drawCombo(g, t, W / 2, top + 26 + Math.min(58, W * 0.145), Math.min(22, W * 0.056), '#fff8ee');
+    this._drawSpeed(g, W - 14, top + 44, Math.min(18, W * 0.045), '#ff7a2e');
   }
 
   /** 콤보 글자: 맞힐 때마다 살짝 통 튀고, 10콤보마다 크게 */
@@ -4043,210 +4145,297 @@ class PianoPreview {
   }
 
   _tile(g, n, x, y, w, h, t) {
-    const r = Math.min(10, w * 0.12);
+    const r = Math.min(12, w * 0.14);
     if (n.miss) {
       // 놓친 타일: 빨갛게 됐다가 사라짐
-      const a = 1 - ease((t - n.missAt) / 0.6);
-      g.globalAlpha = a;
+      g.globalAlpha = 1 - ease((t - n.missAt) / 0.6);
       g.fillStyle = '#ff4d6d';
       rr(g, x, y, w, h, r);
       g.fill();
       g.globalAlpha = 1;
       return;
     }
-    if (n.hit && !n.holdable) {
-      // 친 타일: 살짝 작아지며 옅어짐
-      const k = ease((t - n.hitAt) / 0.3);
-      const sx = w * 0.06 * k;
-      const sy = h * 0.06 * k;
-      g.globalAlpha = (1 - k) * 0.9;
-      g.fillStyle = '#d9cfe8';
+    if (n.hit) {
+      // 친 타일: 금빛으로 번쩍 → 살짝 커지며 사라짐
+      const k = ease((t - n.hitAt) / 0.32);
+      const sx = -w * 0.05 * k;
+      const sy = -h * 0.05 * k;
+      g.globalAlpha = 1 - k;
+      const gr = g.createLinearGradient(0, y, 0, y + h);
+      gr.addColorStop(0, '#fff6dc');
+      gr.addColorStop(1, '#ffc35c');
+      g.fillStyle = gr;
       rr(g, x + sx, y + sy, w - sx * 2, h - sy * 2, r);
       g.fill();
       g.globalAlpha = 1;
       return;
     }
-    if (n.hit && n.holdable && !n.holding) g.globalAlpha = 1 - ease((t - (n.releasedAt ?? n.end)) / 0.4);
-    // 검은 타일 (위 빛 줄)
-    const gr = g.createLinearGradient(0, y, 0, y + h);
-    gr.addColorStop(0, '#3a3450');
-    gr.addColorStop(1, '#17141f');
+    // 그림자
+    g.fillStyle = 'rgba(40,20,60,0.16)';
+    rr(g, x + 2, y + 5, w, h, r);
+    g.fill();
+    // 검은 유광 타일
+    const gr = g.createLinearGradient(x, y, x + w, y + h);
+    gr.addColorStop(0, '#3d3854');
+    gr.addColorStop(0.5, '#1d1a2a');
+    gr.addColorStop(1, '#0c0a12');
     g.fillStyle = gr;
     rr(g, x, y, w, h, r);
     g.fill();
-    g.fillStyle = 'rgba(255,255,255,0.10)';
-    rr(g, x + 4, y + 3, w - 8, Math.min(6, h * 0.2), 3);
+    // 위쪽 빛 반사
+    g.save();
+    rr(g, x, y, w, h, r);
+    g.clip();
+    const gl = g.createLinearGradient(0, y, 0, y + h * 0.5);
+    gl.addColorStop(0, 'rgba(255,255,255,0.20)');
+    gl.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gl;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.lineTo(x + w, y);
+    g.lineTo(x + w, y + h * 0.22);
+    g.lineTo(x, y + h * 0.42);
+    g.closePath();
     g.fill();
-    if (n.holdable) {
-      const yB = y + h;
-      // 가운데 줄 = 꾹
-      g.fillStyle = 'rgba(255,255,255,0.16)';
-      rr(g, x + w / 2 - 2, y + 14, 4, Math.max(0, h - 36), 2);
-      g.fill();
-      if (n.hit) {
-        // 게이지: 타일 아래에서 손가락 자리까지 (타일이 손가락 밑으로 지나간 만큼 위로 차오름)
-        if (n.holding) n.fill = Math.max(n.fill || 0, Math.min(h, yB - Math.min(yB, n.fingerY ?? this.judgeY)));
-        const fh = n.full ? h : Math.min(h, n.fill || 0);
-        if (fh > 0) {
-          const fg = g.createLinearGradient(0, yB, 0, yB - Math.max(40, fh));
-          fg.addColorStop(0, '#ffb27e');
-          fg.addColorStop(1, '#ff5fa2');
-          g.save();
-          rr(g, x, y, w, h, r);
-          g.clip();
-          g.fillStyle = fg;
-          g.fillRect(x, yB - fh, w, fh);
-          if (n.holding) {
-            // 손가락 자리: 빛나는 줄
-            const glow = 0.75 + 0.25 * Math.sin(t * 16);
-            g.fillStyle = `rgba(255,255,255,${glow})`;
-            g.fillRect(x + 5, yB - fh - 2, w - 10, 4);
-          }
-          g.restore();
-        }
-      }
-      const cy = yB - Math.min(24, h * 0.3);
-      if (!n.hit) {
-        g.fillStyle = 'rgba(255,255,255,0.85)';
-        g.beginPath();
-        g.arc(x + w / 2, cy, Math.min(9, w * 0.1), 0, Math.PI * 2);
-        g.fill();
-      }
-    }
-    g.globalAlpha = 1;
+    // 아래 금빛 테두리 (누를 끝)
+    g.fillStyle = '#ffc35c';
+    g.fillRect(x, y + h - 3, w, 3);
+    g.restore();
+    // 가운데 작은 금빛 마름모
+    const cx = x + w / 2;
+    const cy = y + h * 0.62;
+    const s = Math.min(7, w * 0.07);
+    g.fillStyle = 'rgba(255,205,120,0.85)';
+    g.beginPath();
+    g.moveTo(cx, cy - s);
+    g.lineTo(cx + s, cy);
+    g.lineTo(cx, cy + s);
+    g.lineTo(cx - s, cy);
+    g.closePath();
+    g.fill();
   }
 
   // ======== B: 건반 (가로) ========
+  _keysBg(g) {
+    const { W, H, hudH, judgeY } = this;
+    if (!this._bgCache) {
+      const bg = g.createLinearGradient(0, 0, 0, H);
+      bg.addColorStop(0, '#080a1a');
+      bg.addColorStop(0.6, '#15103a');
+      bg.addColorStop(1, '#241450');
+      const floor = g.createLinearGradient(0, judgeY - (judgeY - hudH) * 0.35, 0, judgeY);
+      floor.addColorStop(0, 'rgba(120,110,255,0)');
+      floor.addColorStop(1, 'rgba(150,120,255,0.16)');
+      const line = g.createLinearGradient(this.cols[0].x, 0, this.cols.at(-1).x + this.cols.at(-1).w, 0);
+      line.addColorStop(0, this._laneColor(0, 70));
+      line.addColorStop(1, this._laneColor(this.lanes - 1, 70));
+      const hud = g.createLinearGradient(0, 0, 0, hudH);
+      hud.addColorStop(0, 'rgba(8,10,26,0.96)');
+      hud.addColorStop(1, 'rgba(8,10,26,0.7)');
+      const pgr = g.createLinearGradient(0, 0, W, 0);
+      pgr.addColorStop(0, '#6ee7ff');
+      pgr.addColorStop(0.5, '#8a7dff');
+      pgr.addColorStop(1, '#ff7ad9');
+      this._bgCache = { bg, floor, line, hud, pgr };
+    }
+    return this._bgCache;
+  }
+
   _drawKeys(g, t) {
-    const { W, H, judgeY, hudH, speed } = this;
-    g.fillStyle = '#ffffff';
+    const { W, H, judgeY, hudH, ppb } = this;
+    const C = this._keysBg(g);
+    g.fillStyle = C.bg;
     g.fillRect(0, 0, W, H);
+    // 무대 조명 두 줄기 (천천히 흔들림)
+    for (const side of [0, 1]) {
+      const sw = Math.sin(t * 0.45 + side * 2) * W * 0.08;
+      const x0 = side ? W * 0.82 : W * 0.18;
+      const gr = g.createLinearGradient(0, 0, 0, judgeY);
+      gr.addColorStop(0, side ? 'rgba(255,140,220,0.16)' : 'rgba(110,200,255,0.16)');
+      gr.addColorStop(1, 'rgba(140,120,255,0)');
+      g.fillStyle = gr;
+      g.beginPath();
+      g.moveTo(x0 - 14, 0);
+      g.lineTo(x0 + 14, 0);
+      g.lineTo(x0 + sw + W * 0.17, judgeY);
+      g.lineTo(x0 + sw - W * 0.17, judgeY);
+      g.closePath();
+      g.fill();
+    }
+    // 반짝이는 작은 별
+    for (let i = 0; i < 26; i++) {
+      const x = ((i * 0.618 + 0.05) % 1) * W;
+      const y = hudH + (((i * 0.377 + 0.1) % 1) * (judgeY - hudH) - t * (6 + (i % 4) * 3) + 4000) % (judgeY - hudH);
+      const a = 0.15 + 0.35 * (0.5 + 0.5 * Math.sin(t * (1.5 + (i % 5) * 0.4) + i));
+      g.fillStyle = `rgba(220,225,255,${a})`;
+      g.fillRect(x, y, 1.6, 1.6);
+    }
+    g.fillStyle = C.floor;
+    g.fillRect(0, judgeY - (judgeY - hudH) * 0.35, W, (judgeY - hudH) * 0.35);
+    // 흰 건반 칸 안내선 (도 자리는 조금 밝게)
     this.cols.forEach((c, i) => {
       if (!c.white) return;
-      g.fillStyle = i % 2 ? '#f8f7fb' : '#fcfbfe';
-      g.fillRect(c.x, hudH, c.w, judgeY - hudH);
-    });
-    g.fillStyle = '#efedf4';
-    this.cols.forEach((c) => {
-      if (c.white) g.fillRect(Math.round(c.x) - 0.5, hudH, 1, judgeY - hudH);
+      g.fillStyle = pc(this.keys[i].midi) === 0 ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.04)';
+      g.fillRect(Math.round(c.x) - 0.5, hudH, 1, judgeY - hudH);
     });
     // 누른 건반 빛 기둥 (눌림 값 따라 부드럽게)
-    for (let i = 0; i < this.lanes; i++) if (this.press[i] > 0.01) this._column(g, i, this.press[i] * 0.5);
-    // 떨어지는 막대
+    for (let i = 0; i < this.lanes; i++) if (this.press[i] > 0.01) this._column(g, i, this.press[i]);
+    // 떨어지는 빛 막대 (글자 없음)
     g.save();
     g.beginPath();
     g.rect(0, hudH, W, judgeY - hudH);
     g.clip();
-    const label = Math.min(this.keyW * 0.42, H * 0.06);
     for (const n of this.notes) {
-      const d = n.t - t;
-      if (d > this.look) break;
+      const d = n.beat - this.bNow;
+      if (d > this.lookB) break;
       if (n.miss && t - n.missAt > 0.45) continue;
       const fade = n.hit && !n.holding ? 1 - ease((t - (n.releasedAt ?? n.hitAt)) / 0.22) : 1;
       if (fade <= 0) continue;
       const c = this.cols[n.lane];
-      const pad = c.white ? Math.max(3, c.w * 0.1) : 2;
-      const yHead = judgeY - d * speed;
-      const len = Math.max(c.w * 0.5, n.dur * speed - Math.max(4, speed * 0.035));
+      const pad = c.white ? Math.max(3, c.w * 0.14) : 2;
+      const yHead = judgeY - d * ppb;
+      const len = Math.max(c.w * 0.45, n.lenB * ppb - Math.max(4, ppb * 0.05));
       const yTop = yHead - len;
       const yBot = n.hit ? Math.min(judgeY, yHead) : yHead;
       if (yBot < hudH - 4 || yBot <= yTop + 2) continue;
       const x = c.x + pad;
       const w = c.w - pad * 2;
-      const col = SOLFA_COLOR[pc(n.midi)];
-      const r = Math.min(12, w * 0.32);
-      g.globalAlpha = (n.miss ? 0.3 * (1 - ease((t - n.missAt) / 0.45)) : 1) * fade;
-      g.fillStyle = shade(col, -0.22);
-      rr(g, x, yTop + 4, w, yBot - yTop, r);
+      const r = Math.min(9, w * 0.35);
+      const L = n.miss ? 0.3 * (1 - ease((t - n.missAt) / 0.45)) : 1;
+      g.globalAlpha = L * fade;
+      // 바깥 빛
+      g.fillStyle = this._laneColor(n.lane, 62, n.holding ? 0.38 : 0.2);
+      rr(g, x - 4, yTop - 4, w + 8, yBot - yTop + 8, r + 4);
       g.fill();
-      g.fillStyle = col;
-      rr(g, x, yTop, w, yBot - yTop - 3, r);
+      // 몸통: 위는 진하게, 아래(건반 쪽)는 밝게
+      const gr = g.createLinearGradient(0, yTop, 0, yBot);
+      gr.addColorStop(0, this._laneColor(n.lane, c.white ? 48 : 42, 0.85));
+      gr.addColorStop(1, this._laneColor(n.lane, c.white ? 74 : 66));
+      g.fillStyle = gr;
+      rr(g, x, yTop, w, yBot - yTop, r);
       g.fill();
-      g.fillStyle = 'rgba(255,255,255,0.32)';
-      rr(g, x + w * 0.2, yTop + 5, w * 0.6, Math.min(5, (yBot - yTop) * 0.2), 2.5);
+      // 가운데 빛 줄
+      g.fillStyle = 'rgba(255,255,255,0.35)';
+      rr(g, x + w * 0.36, yTop + 4, w * 0.28, Math.max(0, yBot - yTop - 8), w * 0.14);
+      g.fill();
+      // 머리(건반 쪽 끝) 하얀 줄
+      g.fillStyle = 'rgba(255,255,255,0.95)';
+      rr(g, x + 2, yBot - 4, w - 4, 3, 1.5);
       g.fill();
       if (n.holding) {
-        // 꾹 누르는 중: 건반 쪽 끝이 빛나며 빨려 들어감
-        const pulse = 0.22 + 0.12 * Math.sin(t * 14);
+        const pulse = 0.18 + 0.12 * Math.sin(t * 14);
         g.fillStyle = `rgba(255,255,255,${pulse})`;
-        rr(g, x, yTop, w, yBot - yTop - 3, r);
+        rr(g, x, yTop, w, yBot - yTop, r);
         g.fill();
-        g.fillStyle = 'rgba(255,255,255,0.9)';
-        g.fillRect(x + 3, yBot - 6, w - 6, 3);
-      }
-      if (yBot - yTop > label * 1.2 && w > label * 0.9) {
-        g.fillStyle = '#fff';
-        g.font = font(Math.min(label, w * 0.62));
-        g.textAlign = 'center';
-        g.textBaseline = 'bottom';
-        g.fillText(p2Solfa(n.midi), x + w / 2, yBot - 7);
       }
       g.globalAlpha = 1;
     }
     g.restore();
     this._keyboard(g, t);
-    g.fillStyle = 'rgba(88,204,2,0.55)';
-    g.fillRect(this.cols[0].x, judgeY - 2, this.cols.at(-1).x + this.cols.at(-1).w - this.cols[0].x, 2);
+    // 판정선: 무지개 빛 줄
+    g.fillStyle = 'rgba(180,160,255,0.22)';
+    g.fillRect(this.cols[0].x, judgeY - 6, this.cols.at(-1).x + this.cols.at(-1).w - this.cols[0].x, 6);
+    g.fillStyle = C.line;
+    g.fillRect(this.cols[0].x, judgeY - 2.5, this.cols.at(-1).x + this.cols.at(-1).w - this.cols[0].x, 2.5);
     this._keysHud(g, t);
   }
 
   _column(g, lane, a) {
     const c = this.cols[lane];
-    const col = SOLFA_COLOR[pc(this.keys[lane].midi)];
-    const top = this.judgeY - (this.judgeY - this.hudH) * 0.6;
+    const top = this.judgeY - (this.judgeY - this.hudH) * 0.7;
     const gr = g.createLinearGradient(0, top, 0, this.judgeY);
-    gr.addColorStop(0, hexA(col, 0));
-    gr.addColorStop(1, hexA(col, a * 0.5));
+    gr.addColorStop(0, this._laneColor(lane, 65, 0));
+    gr.addColorStop(1, this._laneColor(lane, 65, a * 0.42));
     g.fillStyle = gr;
     g.fillRect(c.x, top, c.w, this.judgeY - top);
   }
 
+  /** 진짜 피아노 같은 건반: 검은 건반 바닥 + 빨간 펠트 + 상아빛 흰 건반 + 유광 검은 건반 */
   _keyboard(g) {
-    const { kbY, kbH } = this;
-    const lip = Math.max(5, kbH * 0.07);
+    const { kbY, kbH, H } = this;
+    const x0 = this.cols[0].x - 6;
+    const x1 = this.cols.at(-1).x + this.cols.at(-1).w + 6;
+    // 건반 바닥(검은 칠)
+    const base = g.createLinearGradient(0, kbY - 6, 0, H);
+    base.addColorStop(0, '#1a1822');
+    base.addColorStop(1, '#050408');
+    g.fillStyle = base;
+    rr(g, x0, kbY - 6, x1 - x0, H - kbY + 6, 10);
+    g.fill();
+    const lip = Math.max(4, kbH * 0.05);
+    const label = Math.min(this.keyW * 0.3, kbH * 0.12);
     this.cols.forEach((c, i) => {
       if (!c.white) return;
-      const k = this.keys[i];
-      const col = SOLFA_COLOR[pc(k.midi)];
       const p = this.press[i];
-      const dy = lip * 0.65 * p;
-      const x = c.x + 2;
-      const w = c.w - 4;
-      g.fillStyle = col;
-      rr(g, x, kbY + lip, w, kbH - lip, 12);
+      const dy = lip * 0.8 * p;
+      const x = c.x + 1.5;
+      const w = c.w - 3;
+      const top = kbY + 2;
+      const hh = kbH - 2;
+      // 아래 두께(앞면)
+      g.fillStyle = p > 0.02 ? mix('#c9c4d4', '#a9a3b8', p) : '#c9c4d4';
+      rr(g, x, top + lip, w, hh - lip, 7);
       g.fill();
-      g.fillStyle = p > 0.02 ? mix('#ffffff', tint(col, 0.78), p) : '#ffffff';
-      rr(g, x, kbY + dy, w, kbH - lip, 12);
+      // 윗면
+      const gr = g.createLinearGradient(0, top + dy, 0, top + dy + hh - lip);
+      gr.addColorStop(0, '#dcd8e4');
+      gr.addColorStop(0.12, '#fbfaff');
+      gr.addColorStop(1, '#efedf5');
+      g.fillStyle = gr;
+      rr(g, x, top + dy, w, hh - lip, 7);
       g.fill();
-      g.strokeStyle = p > 0.02 ? mix('#dddbe4', col, p) : '#dddbe4';
-      g.lineWidth = 2;
-      g.stroke();
-      g.fillStyle = col;
-      g.font = font(Math.min(c.w * 0.42, kbH * 0.2));
+      if (p > 0.02) {
+        const tg = g.createLinearGradient(0, top + dy, 0, top + dy + hh - lip);
+        tg.addColorStop(0, this._laneColor(i, 70, 0.7 * p));
+        tg.addColorStop(1, this._laneColor(i, 80, 0.15 * p));
+        g.fillStyle = tg;
+        rr(g, x, top + dy, w, hh - lip, 7);
+        g.fill();
+      }
+      g.fillStyle = 'rgba(150,140,170,0.75)';
+      g.font = font(label);
       g.textAlign = 'center';
       g.textBaseline = 'alphabetic';
-      g.fillText(p2Solfa(k.midi), x + w / 2, kbY + kbH - lip - kbH * 0.1 + dy);
+      g.fillText(p2Solfa(this.keys[i].midi), x + w / 2, top + dy + hh - lip - label * 0.6);
     });
     this.cols.forEach((c, i) => {
       if (c.white) return;
       const p = this.press[i];
       const dy = 3 * p;
-      const bl = Math.max(4, this.blackH * 0.1);
-      g.fillStyle = '#26242c';
-      rr(g, c.x, kbY - 2, c.w, this.blackH, 9);
+      const bl = Math.max(4, this.blackH * 0.09);
+      g.fillStyle = 'rgba(0,0,0,0.35)';
+      rr(g, c.x + 2, kbY, c.w, this.blackH + 3, 5);
       g.fill();
-      g.fillStyle = p > 0.02 ? mix('#4a4852', shade(SOLFA_COLOR[pc(this.keys[i].midi)], -0.15), p) : '#4a4852';
-      rr(g, c.x, kbY - 2 + dy, c.w, this.blackH - bl, 9);
+      g.fillStyle = '#121117';
+      rr(g, c.x, kbY - 1, c.w, this.blackH, 5);
       g.fill();
-      g.fillStyle = 'rgba(255,255,255,0.12)';
-      rr(g, c.x + c.w * 0.18, kbY + 4 + dy, c.w * 0.64, 4, 2);
+      const gr = g.createLinearGradient(c.x, 0, c.x + c.w, 0);
+      gr.addColorStop(0, '#2c2a35');
+      gr.addColorStop(0.5, '#44414f');
+      gr.addColorStop(1, '#25232d');
+      g.fillStyle = gr;
+      rr(g, c.x + 1.5, kbY - 1 + dy, c.w - 3, this.blackH - bl, 4);
+      g.fill();
+      if (p > 0.02) {
+        g.fillStyle = this._laneColor(i, 60, 0.55 * p);
+        rr(g, c.x + 1.5, kbY - 1 + dy, c.w - 3, this.blackH - bl, 4);
+        g.fill();
+      }
+      g.fillStyle = 'rgba(255,255,255,0.22)';
+      rr(g, c.x + c.w * 0.25, kbY + 3 + dy, c.w * 0.5, this.blackH * 0.45, 2);
       g.fill();
     });
+    // 빨간 펠트 (건반 위 가장자리)
+    g.fillStyle = '#9e1430';
+    g.fillRect(x0 + 4, kbY - 1, x1 - x0 - 8, 3);
+    g.fillStyle = 'rgba(0,0,0,0.35)';
+    g.fillRect(x0 + 4, kbY + 2, x1 - x0 - 8, 2);
   }
 
   _keysHud(g, t) {
     const { W, hudH } = this;
-    g.fillStyle = '#ffffff';
+    const C = this._keysBg(g);
+    g.fillStyle = C.hud;
     g.fillRect(0, 0, W, hudH);
     const midY = hudH * 0.5;
     const imgs = buddyImgs || {};
@@ -4269,35 +4458,34 @@ class PianoPreview {
     const px0 = bx0 + size + 14;
     const px1 = W - 150 - size - 14;
     const p = Math.max(0, Math.min(1, t / this.lastEnd));
-    g.fillStyle = '#ecebf1';
-    rr(g, px0, midY - 6, px1 - px0, 12, 6);
+    g.fillStyle = 'rgba(255,255,255,0.12)';
+    rr(g, px0, midY - 5, px1 - px0, 10, 5);
     g.fill();
-    g.fillStyle = '#58cc02';
-    rr(g, px0, midY - 6, Math.max(12, (px1 - px0) * p), 12, 6);
+    g.fillStyle = C.pgr;
+    rr(g, px0, midY - 5, Math.max(10, (px1 - px0) * p), 10, 5);
     g.fill();
-    g.fillStyle = 'rgba(255,255,255,0.4)';
-    rr(g, px0 + 6, midY - 4, Math.max(0, (px1 - px0) * p - 12), 3, 1.5);
-    g.fill();
-    this._drawCombo(g, t, (px0 + px1) / 2, midY + 9, Math.min(18, hudH * 0.3), '#ffffff');
+    this._drawCombo(g, t, (px0 + px1) / 2, midY + 9, Math.min(18, hudH * 0.3), '#0b0d1f');
     g.textAlign = 'right';
     g.textBaseline = 'middle';
-    g.fillStyle = '#3b2a4a';
+    g.fillStyle = '#ffffff';
     g.font = font(Math.min(30, hudH * 0.48));
-    g.fillText(Math.round(this.shown).toLocaleString(), W - 16, midY);
+    g.fillText(Math.round(this.shown).toLocaleString(), W - 16, midY - (this.level.fast ? 7 : 0));
+    this._drawSpeed(g, W - 16, midY + hudH * 0.27, Math.min(14, hudH * 0.24), '#ffd36b');
   }
 
   // ======== 효과 · 글자 ========
   _drawFx(g, t) {
+    const keys = this.style === 'keys';
     for (const r of this.fx.rings) {
       const k = (t - r.at) / 0.4;
       if (k < 0 || k > 1) continue;
       const e = ease(k);
-      g.globalAlpha = (1 - e) * 0.8;
+      g.globalAlpha = (1 - e) * 0.85;
       g.strokeStyle = r.color;
       g.lineWidth = 4 * (1 - e) + 1;
-      const R = (this.style === 'keys' ? this.keyW * 0.32 : this.laneW * 0.22) * (0.5 + e * 1.1);
+      const R = (keys ? this.keyW * 0.34 : this.laneW * 0.26) * (0.5 + e * 1.1);
       g.beginPath();
-      g.ellipse(r.x, r.y, R, R * (this.style === 'keys' ? 0.5 : 1), 0, 0, Math.PI * 2);
+      g.ellipse(r.x, r.y, R, R * (keys ? 0.45 : 0.8), 0, 0, Math.PI * 2);
       g.stroke();
     }
     for (const p of this.fx.parts) {
@@ -4306,40 +4494,51 @@ class PianoPreview {
       const k = d / p.life;
       const x = p.x + p.vx * d;
       const y = p.y + p.vy * d + 160 * d * d;
-      g.globalAlpha = (1 - ease(k)) * 0.85;
+      g.globalAlpha = (1 - ease(k)) * 0.9;
       g.fillStyle = p.color;
       g.beginPath();
       g.arc(x, y, p.s * (1 - k * 0.4), 0, Math.PI * 2);
       g.fill();
     }
     g.globalAlpha = 1;
-    // 글자: MISS(놓침·헛침) · 꾹 보너스(+점수). 맞힘은 글자 없이 고리만
+    // 글자: PERFECT · GREAT · MISS(놓침·헛침) · 꾹 보너스(+점수)
     const seen = new Set();
     for (let i = this.fx.pops.length - 1; i >= 0; i--) {
       const p = this.fx.pops[i];
-      // 타일은 줄마다 하나, 건반은 줄이 좁아서 화면에 하나만
-      const key = this.style === 'keys' ? 'k' : p.kind === 'bonus' ? 'b' + p.lane : p.lane;
+      // 타일은 줄마다 하나, 건반은 줄이 좁아서 화면에 하나만 (보너스는 따로)
+      const bonus = p.kind === 'bonus';
+      const key = keys ? (bonus ? 'b' : 'k') : bonus ? 'b' + p.lane : p.lane;
       if (seen.has(key)) continue;
       seen.add(key);
-      const k = (t - p.at) / (p.kind === 'bonus' ? 0.8 : 0.55);
+      const life = bonus ? 0.8 : p.kind === 'perfect' || p.kind === 'great' ? 0.45 : 0.55;
+      const k = (t - p.at) / life;
       if (k < 0 || k > 1) continue;
       let cx = this._laneX(p.lane);
-      const bonus = p.kind === 'bonus';
-      const name = bonus ? `+${p.v.toLocaleString()}` : 'MISS';
-      const color = bonus ? '#ff5fa2' : p.kind === 'wrong' ? '#ff4d6d' : '#9a94ae';
-      const pop = k < 0.2 ? 0.75 + 0.35 * ease(k / 0.2) : 1.1 - 0.1 * ease((k - 0.2) / 0.8);
-      const size = (this.style === 'keys' ? Math.min(this.H * 0.065, 26) : Math.min(this.laneW * 0.26, 26)) * pop;
-      if (this.style === 'keys') cx = Math.max(size * 2.4, Math.min(this.W - size * 2.4, cx));
-      const y = this.judgeY - (this.style === 'keys' ? this.H * 0.09 : this.H * 0.06) - ease(k) * (bonus ? 34 : 14);
+      const name = bonus ? `+${p.v.toLocaleString()}` : p.kind === 'perfect' ? 'PERFECT' : p.kind === 'great' ? 'GREAT' : 'MISS';
+      const pop = k < 0.2 ? 0.7 + 0.4 * ease(k / 0.2) : 1.1 - 0.1 * ease((k - 0.2) / 0.8);
+      const base = keys ? Math.min(this.H * 0.07, 28) : Math.min(this.laneW * (name.length > 5 ? 0.2 : 0.26), 26);
+      const size = base * pop;
+      if (keys) cx = Math.max(size * 3, Math.min(this.W - size * 3, cx));
+      else cx = Math.max(size * 2.2, Math.min(this.W - size * 2.2, cx));
+      const y = keys
+        ? (bonus ? this.judgeY - this.H * 0.2 : this.judgeY - this.H * 0.1) - ease(k) * (bonus ? 30 : 12)
+        : this.judgeY - this.tileH - this.H * 0.035 - ease(k) * (bonus ? 34 : 16);
       g.globalAlpha = k > 0.6 ? (1 - k) / 0.4 : 1;
       g.font = font(size);
       g.textAlign = 'center';
       g.textBaseline = 'middle';
       g.lineJoin = 'round';
       g.lineWidth = Math.max(3, size * 0.24);
-      g.strokeStyle = '#ffffff';
+      g.strokeStyle = keys ? 'rgba(8,10,26,0.9)' : '#ffffff';
       g.strokeText(name, cx, y);
-      g.fillStyle = color;
+      if (p.kind === 'perfect') {
+        const tw = g.measureText(name).width / 2;
+        const gr = g.createLinearGradient(cx - tw, y - size / 2, cx + tw, y + size / 2);
+        gr.addColorStop(0, '#ffd24a');
+        gr.addColorStop(0.5, '#ff8a3d');
+        gr.addColorStop(1, '#ff5fa2');
+        g.fillStyle = gr;
+      } else g.fillStyle = bonus ? '#ff5fa2' : p.kind === 'great' ? '#3d9bff' : p.kind === 'wrong' ? '#ff4d6d' : '#9a94ae';
       g.fillText(name, cx, y);
     }
     g.globalAlpha = 1;
@@ -4365,25 +4564,13 @@ function rgbOf(c) {
   const m = c.match(/\d+/g) || [0, 0, 0];
   return m.slice(0, 3).map(Number);
 }
-function hexA(hex, a) {
-  const [r, g, b] = rgbOf(hex);
-  return `rgba(${r},${g},${b},${a})`;
-}
-function shade(hex, k) {
-  const [r, g, b] = rgbOf(hex).map((c) => Math.max(0, Math.round(c * (1 + k))));
-  return `rgb(${r},${g},${b})`;
-}
-function tint(hex, k) {
-  const [r, g, b] = rgbOf(hex).map((c) => Math.round(c + (255 - c) * k));
-  return `rgb(${r},${g},${b})`;
-}
 function mix(a, b, k) {
   const A = rgbOf(a);
   const B = rgbOf(b);
   return `rgb(${A.map((v, i) => Math.round(v + (B[i] - v) * k)).join(',')})`;
 }
 
-return { P2_SONGS, P2_SOLFA, P2_HIT_WIN, p2Level, p2Notes, p2TileLanes, p2Keys, p2Solfa, p2Stars, p2Grade, PianoPreview };
+return { P2_SONGS, P2_SOLFA, P2_HIT_WIN, P2_PERFECT, P2_FAST_MAX, p2Level, p2FastMult, p2Notes, p2Judge, p2TileLanes, p2TileBeats, p2Keys, p2Solfa, p2Stars, p2Grade, PianoPreview };
 })();
 
 // ---- season.js ----
@@ -15328,11 +15515,12 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-23g',
+    id: '2026-11-23h',
     date: '11월 23일',
     title: '🎹 시즌 2 피아노 미리보기 · 투표 · 🖐 터치 씹힘 고침',
     items: [
-      '<b>🎹 시즌 2 미리보기!</b> 피아노 두 가지(A 세로 타일 · B 가로 건반)를 쳐 보고 <b>마음에 드는 쪽에 투표</b>해 주세요. 많이 받은 쪽이 시즌 2에 나와요',
+      '<b>🎹 시즌 2 미리보기!</b> 피아노 두 가지(A 세로 타일 · B 가로 건반)를 쳐 보고 <b>마음에 드는 쪽에 투표</b>해 주세요. 표는 나중에 바꿀 수 있어요',
+      '미리보기에 <b>PERFECT</b> 판정 · <b>⚡ 점점 빠르게</b> 추가, 건반 무대도 새로 꾸몄어요',
       '<b>🖐 엇박·빽빽한 곳에서 터치가 씹히던 것 고쳤어요!</b> 옆 줄을 살짝 눌러도 원래 치려던 콩으로 잡아 줘요',
       '<b>🎹 내 맵 만들기 다시 열렸어요!</b> 원하는 마디부터 듣기 · 건반 녹음 16분 칸까지 · 유저 맵 코인은 <b>PERFECT 때만 1개</b>',
       '<b>🥇 시즌 1 한정 세트</b> — 금빛 「1」 콩 + 시즌 1 무대 + 황금 드럼! 시즌 1 이 끝나면 다시는 안 팔아요',
@@ -22027,7 +22215,7 @@ async function sendSuggest() {
 //   B 는 가로 화면: 폰이 세로면 무대(.p2-stage)를 90° 돌려 그림 (회전 잠금이어도 폰만 돌리면 됨)
 const P2_POLL = 'piano2';
 const P2_NAME = { tiles: 'A 타일', keys: 'B 건반' };
-const p2 = { song: 1, style: null, game: null };
+const p2 = { song: 1, style: null, game: null, fast: !!load('p2Fast', false) };
 function p2Tried() {
   return load('p2Tried2', {}) || {};
 }
@@ -22055,20 +22243,22 @@ function renderP2() {
     const lv = getLevel(x.id);
     return `<button type="button" data-p2song="${x.id}" class="${x.id === p2.song ? 'on' : ''}"><b>${escapeHtml(lv.name)}</b><small>${escapeHtml(lv.composer || '')}</small><em class="d-${x.diff === '쉬움' ? 1 : x.diff === '보통' ? 2 : 3}">${x.diff}</em></button>`;
   }).join('');
+  const fb = $('#p2-fast');
+  fb.classList.toggle('on', p2.fast);
+  fb.setAttribute('aria-pressed', String(p2.fast));
   $$('#screen-p2 [data-done]').forEach((el) => (el.hidden = !tried[el.dataset.done]));
   $$('#screen-p2 [data-best]').forEach((el) => {
-    const b = bests[`${el.dataset.best}:${p2.song}`];
+    const b = bests[`${el.dataset.best}:${p2.song}${p2.fast ? ':f' : ''}`];
     el.textContent = b ? `최고 ${b.score.toLocaleString()}` : '';
   });
   const both = !!(tried.tiles && tried.keys);
   const mine = load('p2Vote', null);
   $$('#screen-p2 [data-action="p2-vote"]').forEach((b) => {
-    b.disabled = !both || !!mine;
+    b.disabled = !both || (!!mine && mine.choice === b.dataset.choice);
     b.classList.toggle('mine', !!mine && mine.choice === b.dataset.choice);
   });
   const hint = $('#p2-vote-hint');
-  hint.hidden = !!mine;
-  hint.textContent = both ? '한 사람 한 번만 투표할 수 있어요' : `둘 다 쳐 보면 투표할 수 있어요 (${(tried.tiles ? 1 : 0) + (tried.keys ? 1 : 0)}/2)`;
+  hint.textContent = mine ? '다른 쪽을 누르면 표를 바꿀 수 있어요' : both ? '한 사람 한 표 · 나중에 바꿀 수 있어요' : `둘 다 쳐 보면 투표할 수 있어요 (${(tried.tiles ? 1 : 0) + (tried.keys ? 1 : 0)}/2)`;
   const box = $('#p2-result');
   box.hidden = !mine;
   if (mine) {
@@ -22139,6 +22329,7 @@ async function p2Begin() {
     canvas: $('#p2-canvas'),
     level: getLevel(p2.song),
     style: p2.style,
+    fast: p2.fast,
     rotated: () => $('#p2-stage').classList.contains('rot'),
     onEnd: (r) => p2End(r),
   });
@@ -22164,14 +22355,14 @@ function p2End(r) {
   tried[p2.style] = 1;
   save('p2Tried2', tried);
   const bests = p2Bests();
-  const key = `${p2.style}:${p2.song}`;
+  const key = `${p2.style}:${p2.song}${p2.fast ? ':f' : ''}`;
   const isNew = !bests[key] || r.score > bests[key].score;
   if (isNew) {
     bests[key] = { score: r.score, stars: r.stars, at: Date.now() };
     save('p2Best', bests);
   }
   const lv = getLevel(p2.song);
-  $('#p2-res-song').textContent = `${lv.name} · ${P2_NAME[p2.style]}`;
+  $('#p2-res-song').textContent = `${lv.name} · ${P2_NAME[p2.style]}${p2.fast ? ' · ⚡' : ''}`;
   $('#p2-res-buddy').src = `assets/mascot/${r.stars >= 2 ? 'kong_cheer' : r.stars === 1 ? 'kong_idle' : 'kong_miss'}.webp`;
   $$('#p2-res-stars i').forEach((el, i) => {
     el.className = i < r.stars ? 'on' : '';
@@ -22182,14 +22373,16 @@ function p2End(r) {
   $('#p2-res-new').hidden = !isNew || r.score <= 0;
   const tot = Math.max(1, r.notes + r.wrong);
   const rows = [
-    ['맞힘', r.hit, 'p', `${r.hit} / ${r.notes}`],
+    ['PERFECT', r.perfect, 'p', r.perfect],
+    ['GREAT', r.great, 'g', r.great],
     ['놓침', r.miss, 'm', r.miss],
     ['헛침', r.wrong, 'w', r.wrong],
   ];
   $('#p2-res-stats').innerHTML =
     `<div class="p2-res-acc"><span>맞힌 비율</span><b>${Math.round(r.accuracy * 100)}%</b><span>최대 콤보</span><b>${r.maxCombo}</b></div>` +
     rows.map(([n, v, c, txt]) => `<div class="p2-jrow j-${c}"><span>${n}</span><i><u style="width:${Math.round((v / tot) * 100)}%"></u></i><b>${txt}</b></div>`).join('') +
-    `<div class="p2-jrow j-h"><span>꾹 보너스</span><i><u style="width:${Math.round(r.holdPct * 100)}%"></u></i><b>+${r.bonus.toLocaleString()}</b></div>`;
+    (r.holdMax ? `<div class="p2-jrow j-h"><span>꾹 보너스</span><i><u style="width:${Math.round(r.holdPct * 100)}%"></u></i><b>+${r.bonus.toLocaleString()}</b></div>` : '') +
+    (r.topSpeed > 1.01 ? `<div class="p2-res-acc"><span>최고 빠르기</span><b>×${r.topSpeed.toFixed(2)}</b></div>` : '');
   const other = p2.style === 'tiles' ? 'keys' : 'tiles';
   $('#p2-res-next').textContent = tried[other] ? '투표하러 가기' : `${P2_NAME[other]}도 쳐 보기`;
   // 점수 올라가는 숫자
@@ -22210,13 +22403,14 @@ function p2Pause() {
 async function p2Vote(choice) {
   const tried = p2Tried();
   if (!tried.tiles || !tried.keys) return toast('둘 다 쳐 보면 투표할 수 있어요');
-  if (load('p2Vote', null)) return;
+  const prev = load('p2Vote', null);
+  if (prev && prev.choice === choice) return;
   if (!state.api || state.api.mode !== 'server') return toast('서버가 쉬는 중이에요. 조금 뒤에 다시 해 주세요');
   try {
     const r = await state.api.vote(P2_POLL, choice);
     save('p2Vote', { choice: r.mine || choice, counts: r.counts || {}, at: Date.now() });
     renderP2();
-    toast(r.already ? '이미 투표했어요' : '투표했어요! 고마워요');
+    toast(r.changed ? `${choice === 'a' ? 'A 타일' : 'B 건반'}로 표를 바꿨어요` : r.already ? '이미 이쪽에 투표했어요' : '투표했어요! 고마워요');
   } catch (e) {
     if (e && e.status === 401) {
       toast('투표는 이용 등록 후에 할 수 있어요');
@@ -22319,6 +22513,11 @@ const ACTIONS = {
     setTimeout(() => $('#p2-vote').scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
   },
   'p2-vote': (el) => p2Vote(el.dataset.choice),
+  'p2-fast': () => {
+    p2.fast = !p2.fast;
+    save('p2Fast', p2.fast);
+    renderP2();
+  },
   'mm-start': (el) => startMapMode(el.dataset.mm),
   'mm-close': () => closeModal('modal-mapmode'),
   // 🚧 맵 만들기 잠시 막음 (11-22 운영자 요청). 풀 땐 MAPMAKE_OFF=false + index.html #maps-make 의 disabled·문구 되돌리기

@@ -605,12 +605,17 @@ END $$`);
       );
   }
   /** 💬 한마디 (null = 지우기). igsid 를 주면 본인 것만 */
-  /** 🗳 한 표 넣기. 이미 넣었으면 그대로 두고 { added: false, choice: 예전 표 } */
+  /** 🗳 한 표 넣기 / 바꾸기 (2026-11-23 사용자: 표 바꿀 수 있게). { added, changed, prev, choice } */
   async pollVote(poll, igsid, choice, at = Date.now()) {
-    const rows = await this.q('INSERT INTO poll_votes (poll, igsid, choice, at) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING RETURNING choice', [poll, igsid, choice, at]);
-    if (rows.length) return { added: true, choice };
     const old = await this.q('SELECT choice FROM poll_votes WHERE poll = $1 AND igsid = $2', [poll, igsid]);
-    return { added: false, choice: old.length ? old[0].choice : null };
+    if (!old.length) {
+      await this.q('INSERT INTO poll_votes (poll, igsid, choice, at) VALUES ($1, $2, $3, $4) ON CONFLICT DO NOTHING', [poll, igsid, choice, at]);
+      return { added: true, changed: false, prev: null, choice };
+    }
+    const prev = old[0].choice;
+    if (prev === choice) return { added: false, changed: false, prev, choice };
+    await this.q('UPDATE poll_votes SET choice = $3, at = $4 WHERE poll = $1 AND igsid = $2', [poll, igsid, choice, at]);
+    return { added: false, changed: true, prev, choice };
   }
   /** 🗳 표 수 { 선택: 수 } */
   async pollCounts(poll) {

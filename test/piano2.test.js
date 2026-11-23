@@ -1,10 +1,10 @@
 // 🎹 시즌 2 피아노 미리보기 (2026-11-23): 음표 시각·건반·타일 줄
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { p2Notes, p2Keys, p2TileLanes, p2Level, p2Stars, P2_SONGS, P2_SOLFA } from '../public/js/piano2.js';
+import { p2Notes, p2Keys, p2TileLanes, p2TileBeats, p2Level, p2Stars, p2Judge, p2FastMult, P2_FAST_MAX, P2_SONGS, P2_SOLFA } from '../public/js/piano2.js';
 import { getLevel, tempoOf, COUNT_IN_BARS } from '../public/js/charts.js';
 
-test('미리보기 곡: 카운트인 뒤부터 시간 순, 30초쯤, 2분음표 이상은 꾹', () => {
+test('미리보기 곡: 카운트인 뒤부터 시간 순, 30초쯤', () => {
   for (const { id } of P2_SONGS) {
     const lv = p2Level(getLevel(id));
     const notes = p2Notes(lv);
@@ -47,4 +47,43 @@ test('별: 정확도·MISS', () => {
   assert.equal(p2Stars(0.95, 1), 2);
   assert.equal(p2Stars(0.7, 3), 1);
   assert.equal(p2Stars(0.3, 9), 0);
+});
+
+test('판정 (2026-11-23): 0.12초 안 PERFECT, 0.18초 안 GREAT', () => {
+  assert.equal(p2Judge(0), 'perfect');
+  assert.equal(p2Judge(-0.11), 'perfect');
+  assert.equal(p2Judge(0.15), 'great');
+  assert.equal(p2Judge(0.2), null);
+});
+
+test('A 타일: 모두 같은 크기, 같은 줄 다음 타일과 안 겹침', () => {
+  for (const { id } of P2_SONGS) {
+    const notes = p2Notes(p2Level(getLevel(id)));
+    const lanes = p2TileLanes(notes);
+    const tb = p2TileBeats(notes, lanes);
+    assert.ok(tb >= 0.4 && tb <= 0.95);
+    const last = {};
+    notes.forEach((n, i) => {
+      if (last[lanes[i]] != null) assert.ok(n.beat - last[lanes[i]] >= tb, `${id}: 겹침`);
+      last[lanes[i]] = n.beat;
+    });
+  }
+});
+
+test('⚡ 점점 빠르게: 처음 1배 → 끝 1.6배, 음표 시각이 점점 촘촘', () => {
+  assert.equal(p2FastMult(0, 20), 1);
+  assert.ok(Math.abs(p2FastMult(19, 20) - P2_FAST_MAX) < 1e-9);
+  for (const { id } of P2_SONGS) {
+    const base = getLevel(id);
+    const lv = p2Level(base, { fast: true });
+    assert.ok(lv.fast && lv.tempo);
+    const tempo = tempoOf(lv);
+    assert.equal(tempo.bpm(0), base.bpm, '카운트인은 원래 빠르기');
+    const last = lv.song.melody.length - 1 + COUNT_IN_BARS;
+    assert.ok(Math.abs(tempo.bpm(last) - base.bpm * P2_FAST_MAX) < 1e-6);
+    const notes = p2Notes(lv);
+    for (let i = 1; i < notes.length; i++) assert.ok(notes[i].t >= notes[i - 1].t);
+    assert.ok(notes.at(-1).end > 30, `${id}: 너무 짧음`);
+    assert.ok(!p2Level(base).tempo, '보통은 고정 빠르기');
+  }
 });

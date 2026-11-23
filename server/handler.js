@@ -1504,7 +1504,7 @@ export function createHandler(cfg, { store, meter = null }) {
       memo.delete('hall:list');
       return ok ? json(200, { ok: true }) : json(403, { error: 'not_yours' });
     }
-    // 🗳 투표 (2026-11-23 시즌 2 피아노 미리보기): 한 사람(이용 등록한 계정) 한 표, 넣으면 바로 결과
+    // 🗳 투표 (2026-11-23 시즌 2 피아노 미리보기): 한 사람(이용 등록한 계정) 한 표, 넣으면 바로 결과, 다른 쪽을 보내면 표를 바꿈
     //   표 수는 인스턴스 메모리에 1분(브레이크 땐 5분) — 표를 넣으면 그 자리에서 +1
     if (p === '/api/poll' && (m === 'GET' || m === 'POST')) {
       const b = m === 'POST' ? await readJson(request) : {};
@@ -1520,12 +1520,13 @@ export function createHandler(cfg, { store, meter = null }) {
       if (!pl) return json(401, { error: 'verify_required' });
       const c = { ...(await counts()) }; // 표 넣기 전 수 (넣은 뒤 +1)
       const r = await store.pollVote(id, pl.igsid, b.choice);
-      if (r.added) {
+      if (r.added || r.changed) {
         c[b.choice] = (c[b.choice] || 0) + 1;
+        if (r.changed && r.prev) c[r.prev] = Math.max(0, (c[r.prev] || 0) - 1);
         const hit = memo.get(key);
         if (hit) hit.v = c;
       }
-      return json(200, { ok: true, already: !r.added, mine: r.choice, counts: c });
+      return json(200, { ok: true, already: !r.added && !r.changed, changed: !!r.changed, mine: r.choice, counts: c });
     }
     // 🎁 운영자가 준 코인 알림을 봤음 (+ 명예의 전당 한마디를 같이 적을 수 있음). 코인은 줄 때 이미 지갑에 들어가 있음
     if (p === '/api/gift/ack' && m === 'POST') {

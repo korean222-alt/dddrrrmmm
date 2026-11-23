@@ -322,14 +322,14 @@ export class JsonStore {
         this.data.hall.push({ season: r.season, board: r.board, rank: r.rank, igsid: r.igsid, username: r.username, score: r.score, n: r.n ?? null, rounds: r.rounds ?? null, at: r.at, image: null });
     this._save();
   }
-  /** 🗳 한 표 (한 사람 한 표) */
+  /** 🗳 한 표 (한 사람 한 표, 바꿀 수 있음) */
   async pollVote(poll, igsid, choice, at = Date.now()) {
     const key = `${poll}|${igsid}`;
     const old = this.data.polls[key];
-    if (old) return { added: false, choice: old.choice };
+    if (old && old.choice === choice) return { added: false, changed: false, prev: choice, choice };
     this.data.polls[key] = { choice, at };
     this._save();
-    return { added: true, choice };
+    return { added: !old, changed: !!old, prev: old ? old.choice : null, choice };
   }
   async pollCounts(poll) {
     const out = {};

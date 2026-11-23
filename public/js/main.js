@@ -5677,7 +5677,7 @@ async function sendSuggest() {
 //   B 는 가로 화면: 폰이 세로면 무대(.p2-stage)를 90° 돌려 그림 (회전 잠금이어도 폰만 돌리면 됨)
 const P2_POLL = 'piano2';
 const P2_NAME = { tiles: 'A 타일', keys: 'B 건반' };
-const p2 = { song: 1, style: null, game: null };
+const p2 = { song: 1, style: null, game: null, fast: !!load('p2Fast', false) };
 function p2Tried() {
   return load('p2Tried2', {}) || {};
 }
@@ -5705,20 +5705,22 @@ function renderP2() {
     const lv = getLevel(x.id);
     return `<button type="button" data-p2song="${x.id}" class="${x.id === p2.song ? 'on' : ''}"><b>${escapeHtml(lv.name)}</b><small>${escapeHtml(lv.composer || '')}</small><em class="d-${x.diff === '쉬움' ? 1 : x.diff === '보통' ? 2 : 3}">${x.diff}</em></button>`;
   }).join('');
+  const fb = $('#p2-fast');
+  fb.classList.toggle('on', p2.fast);
+  fb.setAttribute('aria-pressed', String(p2.fast));
   $$('#screen-p2 [data-done]').forEach((el) => (el.hidden = !tried[el.dataset.done]));
   $$('#screen-p2 [data-best]').forEach((el) => {
-    const b = bests[`${el.dataset.best}:${p2.song}`];
+    const b = bests[`${el.dataset.best}:${p2.song}${p2.fast ? ':f' : ''}`];
     el.textContent = b ? `최고 ${b.score.toLocaleString()}` : '';
   });
   const both = !!(tried.tiles && tried.keys);
   const mine = load('p2Vote', null);
   $$('#screen-p2 [data-action="p2-vote"]').forEach((b) => {
-    b.disabled = !both || !!mine;
+    b.disabled = !both || (!!mine && mine.choice === b.dataset.choice);
     b.classList.toggle('mine', !!mine && mine.choice === b.dataset.choice);
   });
   const hint = $('#p2-vote-hint');
-  hint.hidden = !!mine;
-  hint.textContent = both ? '한 사람 한 번만 투표할 수 있어요' : `둘 다 쳐 보면 투표할 수 있어요 (${(tried.tiles ? 1 : 0) + (tried.keys ? 1 : 0)}/2)`;
+  hint.textContent = mine ? '다른 쪽을 누르면 표를 바꿀 수 있어요' : both ? '한 사람 한 표 · 나중에 바꿀 수 있어요' : `둘 다 쳐 보면 투표할 수 있어요 (${(tried.tiles ? 1 : 0) + (tried.keys ? 1 : 0)}/2)`;
   const box = $('#p2-result');
   box.hidden = !mine;
   if (mine) {
@@ -5789,6 +5791,7 @@ async function p2Begin() {
     canvas: $('#p2-canvas'),
     level: getLevel(p2.song),
     style: p2.style,
+    fast: p2.fast,
     rotated: () => $('#p2-stage').classList.contains('rot'),
     onEnd: (r) => p2End(r),
   });
@@ -5814,14 +5817,14 @@ function p2End(r) {
   tried[p2.style] = 1;
   save('p2Tried2', tried);
   const bests = p2Bests();
-  const key = `${p2.style}:${p2.song}`;
+  const key = `${p2.style}:${p2.song}${p2.fast ? ':f' : ''}`;
   const isNew = !bests[key] || r.score > bests[key].score;
   if (isNew) {
     bests[key] = { score: r.score, stars: r.stars, at: Date.now() };
     save('p2Best', bests);
   }
   const lv = getLevel(p2.song);
-  $('#p2-res-song').textContent = `${lv.name} · ${P2_NAME[p2.style]}`;
+  $('#p2-res-song').textContent = `${lv.name} · ${P2_NAME[p2.style]}${p2.fast ? ' · ⚡' : ''}`;
   $('#p2-res-buddy').src = `assets/mascot/${r.stars >= 2 ? 'kong_cheer' : r.stars === 1 ? 'kong_idle' : 'kong_miss'}.webp`;
   $$('#p2-res-stars i').forEach((el, i) => {
     el.className = i < r.stars ? 'on' : '';
@@ -5832,14 +5835,16 @@ function p2End(r) {
   $('#p2-res-new').hidden = !isNew || r.score <= 0;
   const tot = Math.max(1, r.notes + r.wrong);
   const rows = [
-    ['맞힘', r.hit, 'p', `${r.hit} / ${r.notes}`],
+    ['PERFECT', r.perfect, 'p', r.perfect],
+    ['GREAT', r.great, 'g', r.great],
     ['놓침', r.miss, 'm', r.miss],
     ['헛침', r.wrong, 'w', r.wrong],
   ];
   $('#p2-res-stats').innerHTML =
     `<div class="p2-res-acc"><span>맞힌 비율</span><b>${Math.round(r.accuracy * 100)}%</b><span>최대 콤보</span><b>${r.maxCombo}</b></div>` +
     rows.map(([n, v, c, txt]) => `<div class="p2-jrow j-${c}"><span>${n}</span><i><u style="width:${Math.round((v / tot) * 100)}%"></u></i><b>${txt}</b></div>`).join('') +
-    `<div class="p2-jrow j-h"><span>꾹 보너스</span><i><u style="width:${Math.round(r.holdPct * 100)}%"></u></i><b>+${r.bonus.toLocaleString()}</b></div>`;
+    (r.holdMax ? `<div class="p2-jrow j-h"><span>꾹 보너스</span><i><u style="width:${Math.round(r.holdPct * 100)}%"></u></i><b>+${r.bonus.toLocaleString()}</b></div>` : '') +
+    (r.topSpeed > 1.01 ? `<div class="p2-res-acc"><span>최고 빠르기</span><b>×${r.topSpeed.toFixed(2)}</b></div>` : '');
   const other = p2.style === 'tiles' ? 'keys' : 'tiles';
   $('#p2-res-next').textContent = tried[other] ? '투표하러 가기' : `${P2_NAME[other]}도 쳐 보기`;
   // 점수 올라가는 숫자
@@ -5860,13 +5865,14 @@ function p2Pause() {
 async function p2Vote(choice) {
   const tried = p2Tried();
   if (!tried.tiles || !tried.keys) return toast('둘 다 쳐 보면 투표할 수 있어요');
-  if (load('p2Vote', null)) return;
+  const prev = load('p2Vote', null);
+  if (prev && prev.choice === choice) return;
   if (!state.api || state.api.mode !== 'server') return toast('서버가 쉬는 중이에요. 조금 뒤에 다시 해 주세요');
   try {
     const r = await state.api.vote(P2_POLL, choice);
     save('p2Vote', { choice: r.mine || choice, counts: r.counts || {}, at: Date.now() });
     renderP2();
-    toast(r.already ? '이미 투표했어요' : '투표했어요! 고마워요');
+    toast(r.changed ? `${choice === 'a' ? 'A 타일' : 'B 건반'}로 표를 바꿨어요` : r.already ? '이미 이쪽에 투표했어요' : '투표했어요! 고마워요');
   } catch (e) {
     if (e && e.status === 401) {
       toast('투표는 이용 등록 후에 할 수 있어요');
@@ -5969,6 +5975,11 @@ const ACTIONS = {
     setTimeout(() => $('#p2-vote').scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
   },
   'p2-vote': (el) => p2Vote(el.dataset.choice),
+  'p2-fast': () => {
+    p2.fast = !p2.fast;
+    save('p2Fast', p2.fast);
+    renderP2();
+  },
   'mm-start': (el) => startMapMode(el.dataset.mm),
   'mm-close': () => closeModal('modal-mapmode'),
   // 🚧 맵 만들기 잠시 막음 (11-22 운영자 요청). 풀 땐 MAPMAKE_OFF=false + index.html #maps-make 의 disabled·문구 되돌리기
