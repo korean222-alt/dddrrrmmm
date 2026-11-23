@@ -6,6 +6,10 @@
 //     bars = 드럼 채보(charts.js 표기), melody = 마디별 멜로디(charts.js 표기), prog = 마디별 코드(자동)
 
 import { STEPS_PER_BAR, parseMelody, parseChord, CHAR_LANES, KICK, SNARE, HAT, CRASH } from './charts.js';
+import { DECO_THEMES, NOTE_FREE } from './shop.js';
+
+/** 🎨 만든 사람이 고르는 맵 꾸미기 (2026-11-23 사용자): 상점의 무료 것만 — 무대·드럼 = 맵 8개, 콩 = 색 콩 */
+export const MAP_DECO = { bg: DECO_THEMES, kit: DECO_THEMES, notes: NOTE_FREE };
 
 export const MAP_LIMITS = { minBars: 2, maxBars: 64, minBpm: 60, maxBpm: 180, nameMax: 30, minNotes: 8 };
 const DRUM_RE = /^[KSHCBJX.]{16}$/;
@@ -215,6 +219,13 @@ export function cleanMap(raw) {
       if (ns.length && ns.every((n) => n.midi >= LOW_LH && n.midi <= HIGH)) out.low = low.map((m) => m.trim().replace(/\s+/g, ' '));
     } catch {}
   }
+  // 🎨 꾸미기(있을 때만, 무료 것만). 이상한 값은 빼고 맵은 살림
+  const deco = raw.deco;
+  if (deco && typeof deco === 'object') {
+    const d = {};
+    for (const [k, list] of Object.entries(MAP_DECO)) if (typeof deco[k] === 'string' && list.includes(deco[k])) d[k] = deco[k];
+    if (Object.keys(d).length) out.deco = d;
+  }
   return out;
 }
 
@@ -246,7 +257,9 @@ export function mapLevel(map, { id = 'um', by = '', mapId = null } = {}) {
     composer: by ? `${by} 님 맵` : '유저 맵',
     songName: map.name,
     tagline: '',
-    theme: THEME_KEYS[h % THEME_KEYS.length],
+    theme: (map.deco && map.deco.bg) || THEME_KEYS[h % THEME_KEYS.length],
+    // 🎨 만든 사람이 고른 드럼·콩 색 (치는 사람이 상점에서 장착한 게 있으면 그게 먼저, main.js setKit)
+    deco: map.deco || null,
     difficulty: mapDifficulty(map),
     bpm: map.bpm,
     bars: map.bars,

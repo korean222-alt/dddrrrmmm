@@ -1178,3 +1178,12 @@ html.ui-live #screen-result .res-stats b { font-family: "Arial Black", "Segoe UI
 .p2-stage.land .p2-res-buddy { width: 80px; height: 80px; margin: 0 0 -4px; }
 .p2-stage.land .p2-layer { padding: 10px; }
 .p2-stage.rot .p2-layer { -webkit-backdrop-filter: none; backdrop-filter: none; background: rgba(27, 18, 64, 0.58); }
+
+/* 🎨 맵 만들기 꾸미기 (2026-11-23) */
+.mk-deco { margin: 10px 0 4px; }
+.mk-deco h4 { margin: 0 0 6px; }
+.mk-deco-row { margin-bottom: 8px; }
+.mk-deco-row > b { display: block; font-size: 14px; margin-bottom: 4px; }
+.mk-deco .chips { gap: 6px; }
+.mk-deco .chips button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; font-size: 14px; }
+.mk-deco .chips button i { width: 18px; height: 18px; border-radius: 50%; border: 1px solid rgba(0,0,0,.25); flex: none; }

@@ -10514,6 +10514,10 @@ const __m_usermap = (() => {
 //     bars = 드럼 채보(charts.js 표기), melody = 마디별 멜로디(charts.js 표기), prog = 마디별 코드(자동)
 
 const { STEPS_PER_BAR, parseMelody, parseChord, CHAR_LANES, KICK, SNARE, HAT, CRASH } = __m_charts;
+const { DECO_THEMES, NOTE_FREE } = __m_shop;
+
+/** 🎨 만든 사람이 고르는 맵 꾸미기 (2026-11-23 사용자): 상점의 무료 것만 — 무대·드럼 = 맵 8개, 콩 = 색 콩 */
+const MAP_DECO = { bg: DECO_THEMES, kit: DECO_THEMES, notes: NOTE_FREE };
 
 const MAP_LIMITS = { minBars: 2, maxBars: 64, minBpm: 60, maxBpm: 180, nameMax: 30, minNotes: 8 };
 const DRUM_RE = /^[KSHCBJX.]{16}$/;
@@ -10723,6 +10727,13 @@ function cleanMap(raw) {
       if (ns.length && ns.every((n) => n.midi >= LOW_LH && n.midi <= HIGH)) out.low = low.map((m) => m.trim().replace(/\s+/g, ' '));
     } catch {}
   }
+  // 🎨 꾸미기(있을 때만, 무료 것만). 이상한 값은 빼고 맵은 살림
+  const deco = raw.deco;
+  if (deco && typeof deco === 'object') {
+    const d = {};
+    for (const [k, list] of Object.entries(MAP_DECO)) if (typeof deco[k] === 'string' && list.includes(deco[k])) d[k] = deco[k];
+    if (Object.keys(d).length) out.deco = d;
+  }
   return out;
 }
 
@@ -10754,7 +10765,9 @@ function mapLevel(map, { id = 'um', by = '', mapId = null } = {}) {
     composer: by ? `${by} 님 맵` : '유저 맵',
     songName: map.name,
     tagline: '',
-    theme: THEME_KEYS[h % THEME_KEYS.length],
+    theme: (map.deco && map.deco.bg) || THEME_KEYS[h % THEME_KEYS.length],
+    // 🎨 만든 사람이 고른 드럼·콩 색 (치는 사람이 상점에서 장착한 게 있으면 그게 먼저, main.js setKit)
+    deco: map.deco || null,
     difficulty: mapDifficulty(map),
     bpm: map.bpm,
     bars: map.bars,
@@ -11194,7 +11207,7 @@ function cleanMelody(bars, { grid = 2, key = true } = {}) {
   return res;
 }
 
-return { MAP_LIMITS, midiName, SOLFA, barToMelody, melodyToBars, drumCell, cellChar, toggleDrum, guessKey, harmonize, autoDrums, cleanMap, mapDifficulty, isDrumOnly, mapLevel, fft, transcribe, notesToMelody, cleanMelody };
+return { MAP_DECO, MAP_LIMITS, midiName, SOLFA, barToMelody, melodyToBars, drumCell, cellChar, toggleDrum, guessKey, harmonize, autoDrums, cleanMap, mapDifficulty, isDrumOnly, mapLevel, fft, transcribe, notesToMelody, cleanMelody };
 })();
 
 // ---- vocalsep.js ----
@@ -15691,14 +15704,14 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-23j',
+    id: '2026-11-23k',
     date: '11월 23일',
     title: '🎹 시즌 2 피아노 미리보기 · 투표 · 🖐 터치 씹힘 고침',
     items: [
       '<b>🎹 시즌 2 미리보기!</b> 피아노 두 가지(A 세로 타일 · B 가로 건반)를 쳐 보고 <b>마음에 드는 쪽에 투표</b>하면 <b>🪙 500코인</b>! 표는 나중에 바꿀 수 있어요',
       '미리보기 새로: <b>⚡ 점점 빠르게</b> · 건반은 멀리서 다가오는 <b>원근 길</b>과 꾹 게이지 · 타일은 아래로 내려온 걸 <b>누르기만 하면</b> 돼요',
       '<b>🖐 엇박·빽빽한 곳에서 터치가 씹히던 것 고쳤어요!</b> 옆 줄을 살짝 눌러도 원래 치려던 콩으로 잡아 줘요',
-      '<b>🎹 내 맵 만들기 다시 열렸어요!</b> 원하는 마디부터 듣기 · 건반 녹음 16분 칸까지 · 유저 맵 코인은 <b>PERFECT 때만 1개</b>',
+      '<b>🎹 내 맵 만들기 다시 열렸어요!</b> 원하는 마디부터 듣기 · 건반 녹음 16분 칸까지 · 📤 올리기에서 <b>🎨 무대·드럼·콩 색</b>도 골라요 · 유저 맵 코인은 <b>PERFECT 때만 1개</b>',
       '<b>🥇 시즌 1 한정 세트</b> — 금빛 「1」 콩 + 시즌 1 무대 + 황금 드럼! 시즌 1 이 끝나면 다시는 안 팔아요',
     ],
   },
@@ -16731,7 +16744,7 @@ const { transcribeSong } = __m_songmap;
 const { instrumentNotes } = __m_instnotes;
 const { readScoreFile, scoreInfo, scoreToMap, recommendStart } = __m_scorefile;
 const { videoToAac } = __m_mp4audio;
-const { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmonize, autoDrums, cleanMap, mapLevel } = __m_usermap;
+const { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmonize, autoDrums, cleanMap, mapLevel, MAP_DECO } = __m_usermap;
 const { AudioEngine, playMetronome } = __m_audio;
 const { Renderer, NOTE_PALETTES, LANE, applyNoteColors } = __m_render;
 const { coinsInit, setCoinAccount, coinTotal, addRunCoins, addServerCoins } = __m_coins;
@@ -17679,6 +17692,12 @@ function setKit(lv) {
   renderer.laneOrder = levelLanes(lv);
   renderer.newLane = lv.newInstrument ?? -1;
   applyDeco();
+  // 🎨 유저 맵: 만든 사람이 고른 드럼·콩 색 — 치는 사람이 상점에서 장착한 게(세트 포함) 있으면 그게 먼저. 무대는 lv.theme 으로
+  const md = lv.userMap && lv.deco;
+  if (md && !renderer.uiStyle && !renderer.studio) {
+    if (md.kit && !renderer.kitPick) renderer.kitPick = md.kit;
+    if (md.notes && decoPick('notes') === DECO_FREE.notes) applyNoteColors(md.notes);
+  }
   renderer.setTheme(lv); // 단계 묶음마다 맵 분위기가 다름 (themes.js)
   // 마우스·키보드 쓰는 컴퓨터면 줄마다 키 글자를 보여줌 (폰·태블릿은 안 보임)
   renderer.keyLabels = null;
@@ -19824,6 +19843,23 @@ function mkBarText() {
 }
 const mkDrumNotes = () => mk.drums.reduce((a, d) => a + [...d].reduce((x, c) => x + (CHAR_LANES[c] || []).length, 0), 0);
 const mkMelNotes = () => mk.mel.reduce((a, b) => a + b.length, 0);
+/** 🎨 맵 꾸미기 (2026-11-23 사용자): 상점 무료 것(맵 무대·맵 드럼·색 콩) 중에서 만든 사람이 고름 → 맵에 같이 올라감 */
+const MK_DECO_ROWS = [['bg', '🌄 무대'], ['kit', '🥁 드럼'], ['notes', '✨ 콩 색']];
+function mkDecoRender() {
+  const d = mk.deco || {};
+  $('#mk-deco').innerHTML =
+    '<h4>🎨 꾸미기</h4>' +
+    MK_DECO_ROWS.map(([type, label]) => {
+      const keys = [null, ...MAP_DECO[type]];
+      return `<div class="mk-deco-row"><b>${label}</b><div class="chips">${keys
+        .map((k) => {
+          const name = k ? shopName(type, k) : type === 'notes' ? '기본 콩' : '자동';
+          const sw = shopSwatch(type, k || DECO_FREE[type]);
+          return `<button type="button" data-mkdeco="${type}:${k || ''}" aria-pressed="${(d[type] || null) === k}"><i style="background:${sw}"></i>${escapeHtml(name)}</button>`;
+        })
+        .join('')}</div></div>`;
+    }).join('');
+}
 function mkRender() {
   $('#mk-bpm').textContent = String(mk.bpm);
   mkBarText();
@@ -19836,6 +19872,7 @@ function mkRender() {
   $('#mk-tab-mel').textContent = mn ? `음 ${mn}개` : '없음 (드럼만)';
   $('#mk-tab-bars').textContent = `${mk.mel.length}마디`;
   $('#mk-sum').innerHTML = `🥁 드럼 노트 <b>${dn}</b>개 · 🎹 멜로디 ${mn ? `음 <b>${mn}</b>개` : '<b>없음</b> (드럼만 나오는 맵)'}<br>${mk.mel.length}마디 · ${mk.bpm} BPM · 약 ${Math.round((mk.mel.length * 4 * 60) / mk.bpm)}초`;
+  mkDecoRender();
   $$('#mk-way button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.way === mk.way));
   $('#mk-way-file').hidden = mk.way !== 'file';
   $('#mk-way-play').hidden = mk.way !== 'play';
@@ -20504,6 +20541,7 @@ function mkMap(strict = true) {
   mkSave();
   const raw = { name: mk.name || (strict ? '' : '내 맵'), bpm: mk.bpm, bars: mk.drums, melody: mk.mel.map(barToMelody), prog: mkProg() };
   if (Array.isArray(mk.low) && mk.low.length === mk.mel.length) raw.low = mk.low.map(barToMelody);
+  if (mk.deco) raw.deco = mk.deco;
   const map = cleanMap(raw);
   if (map) return map;
   if (!raw.name) toast('곡 이름을 적어 주세요', 1800);
@@ -23164,6 +23202,17 @@ function bindActions() {
     mkRender();
   });
   $('#mk-drum-more').addEventListener('toggle', () => mkGrid());
+  $('#mk-deco').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-mkdeco]');
+    if (!b) return;
+    const [type, key] = b.dataset.mkdeco.split(':');
+    const d = { ...(mk.deco || {}) };
+    if (key) d[type] = key;
+    else delete d[type];
+    mk.deco = Object.keys(d).length ? d : null;
+    mkSave();
+    mkDecoRender();
+  });
   $('#mk-tabs').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-tab]');
     if (!b || b.dataset.tab === mk.tab) return;

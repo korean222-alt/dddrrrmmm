@@ -114,3 +114,17 @@ test('🥁 드럼만 맵: 멜로디가 다 쉼이어도 올라가고, 반주 없
   const withMel = mapLevel({ ...map, melody: ['C5:16', '_:16', '_:16'] }, { mapId: 'x' });
   assert.equal(withMel.song.bass, 'x.......x.......');
 });
+
+test('맵 꾸미기(deco): 무료 것만 남고 무대는 theme 으로', () => {
+  const base = { name: 'x', bpm: 120, bars: ['K...S...K...S...', 'K...S...K...S...', 'K...S...K...S...', 'K...S...K...S...'], melody: ['_:16', '_:16', '_:16', '_:16'], prog: ['C', 'C', 'C', 'C'] };
+  const m = cleanMap({ ...base, deco: { bg: 'xmas', kit: 'lava', notes: 'neon' } });
+  assert.deepEqual(m.deco, { bg: 'xmas', kit: 'lava', notes: 'neon' });
+  const lv = mapLevel(m);
+  assert.equal(lv.theme, 'xmas');
+  assert.deepEqual(lv.deco, m.deco);
+  // 상점 전용·이상한 값은 빠짐
+  const bad = cleanMap({ ...base, deco: { bg: 'photo', kit: 'goldkit', notes: 'galaxy' } });
+  assert.ok(bad);
+  assert.equal(bad.deco, undefined);
+  assert.equal(cleanMap({ ...base, deco: { bg: 'city', notes: 'gold' } }).deco.notes, undefined);
+});

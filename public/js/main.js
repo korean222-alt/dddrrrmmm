@@ -17,7 +17,7 @@ import { transcribeSong } from './songmap.js';
 import { instrumentNotes } from './instnotes.js';
 import { readScoreFile, scoreInfo, scoreToMap, recommendStart } from './scorefile.js';
 import { videoToAac } from './mp4audio.js';
-import { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmonize, autoDrums, cleanMap, mapLevel } from './usermap.js';
+import { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmonize, autoDrums, cleanMap, mapLevel, MAP_DECO } from './usermap.js';
 import { AudioEngine, playMetronome } from './audio.js';
 import { Renderer, NOTE_PALETTES, LANE, applyNoteColors } from './render.js';
 import { coinsInit, setCoinAccount, coinTotal, addRunCoins, addServerCoins } from './coins.js';
@@ -965,6 +965,12 @@ function setKit(lv) {
   renderer.laneOrder = levelLanes(lv);
   renderer.newLane = lv.newInstrument ?? -1;
   applyDeco();
+  // 🎨 유저 맵: 만든 사람이 고른 드럼·콩 색 — 치는 사람이 상점에서 장착한 게(세트 포함) 있으면 그게 먼저. 무대는 lv.theme 으로
+  const md = lv.userMap && lv.deco;
+  if (md && !renderer.uiStyle && !renderer.studio) {
+    if (md.kit && !renderer.kitPick) renderer.kitPick = md.kit;
+    if (md.notes && decoPick('notes') === DECO_FREE.notes) applyNoteColors(md.notes);
+  }
   renderer.setTheme(lv); // 단계 묶음마다 맵 분위기가 다름 (themes.js)
   // 마우스·키보드 쓰는 컴퓨터면 줄마다 키 글자를 보여줌 (폰·태블릿은 안 보임)
   renderer.keyLabels = null;
@@ -3110,6 +3116,23 @@ function mkBarText() {
 }
 const mkDrumNotes = () => mk.drums.reduce((a, d) => a + [...d].reduce((x, c) => x + (CHAR_LANES[c] || []).length, 0), 0);
 const mkMelNotes = () => mk.mel.reduce((a, b) => a + b.length, 0);
+/** 🎨 맵 꾸미기 (2026-11-23 사용자): 상점 무료 것(맵 무대·맵 드럼·색 콩) 중에서 만든 사람이 고름 → 맵에 같이 올라감 */
+const MK_DECO_ROWS = [['bg', '🌄 무대'], ['kit', '🥁 드럼'], ['notes', '✨ 콩 색']];
+function mkDecoRender() {
+  const d = mk.deco || {};
+  $('#mk-deco').innerHTML =
+    '<h4>🎨 꾸미기</h4>' +
+    MK_DECO_ROWS.map(([type, label]) => {
+      const keys = [null, ...MAP_DECO[type]];
+      return `<div class="mk-deco-row"><b>${label}</b><div class="chips">${keys
+        .map((k) => {
+          const name = k ? shopName(type, k) : type === 'notes' ? '기본 콩' : '자동';
+          const sw = shopSwatch(type, k || DECO_FREE[type]);
+          return `<button type="button" data-mkdeco="${type}:${k || ''}" aria-pressed="${(d[type] || null) === k}"><i style="background:${sw}"></i>${escapeHtml(name)}</button>`;
+        })
+        .join('')}</div></div>`;
+    }).join('');
+}
 function mkRender() {
   $('#mk-bpm').textContent = String(mk.bpm);
   mkBarText();
@@ -3122,6 +3145,7 @@ function mkRender() {
   $('#mk-tab-mel').textContent = mn ? `음 ${mn}개` : '없음 (드럼만)';
   $('#mk-tab-bars').textContent = `${mk.mel.length}마디`;
   $('#mk-sum').innerHTML = `🥁 드럼 노트 <b>${dn}</b>개 · 🎹 멜로디 ${mn ? `음 <b>${mn}</b>개` : '<b>없음</b> (드럼만 나오는 맵)'}<br>${mk.mel.length}마디 · ${mk.bpm} BPM · 약 ${Math.round((mk.mel.length * 4 * 60) / mk.bpm)}초`;
+  mkDecoRender();
   $$('#mk-way button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.way === mk.way));
   $('#mk-way-file').hidden = mk.way !== 'file';
   $('#mk-way-play').hidden = mk.way !== 'play';
@@ -3790,6 +3814,7 @@ function mkMap(strict = true) {
   mkSave();
   const raw = { name: mk.name || (strict ? '' : '내 맵'), bpm: mk.bpm, bars: mk.drums, melody: mk.mel.map(barToMelody), prog: mkProg() };
   if (Array.isArray(mk.low) && mk.low.length === mk.mel.length) raw.low = mk.low.map(barToMelody);
+  if (mk.deco) raw.deco = mk.deco;
   const map = cleanMap(raw);
   if (map) return map;
   if (!raw.name) toast('곡 이름을 적어 주세요', 1800);
@@ -6450,6 +6475,17 @@ function bindActions() {
     mkRender();
   });
   $('#mk-drum-more').addEventListener('toggle', () => mkGrid());
+  $('#mk-deco').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-mkdeco]');
+    if (!b) return;
+    const [type, key] = b.dataset.mkdeco.split(':');
+    const d = { ...(mk.deco || {}) };
+    if (key) d[type] = key;
+    else delete d[type];
+    mk.deco = Object.keys(d).length ? d : null;
+    mkSave();
+    mkDecoRender();
+  });
   $('#mk-tabs').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-tab]');
     if (!b || b.dataset.tab === mk.tab) return;
