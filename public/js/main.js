@@ -5835,8 +5835,12 @@ function p2End(r) {
   $('#p2-res-new').hidden = !isNew || r.score <= 0;
   const tot = Math.max(1, r.notes + r.wrong);
   const rows = [
-    ['PERFECT', r.perfect, 'p', r.perfect],
-    ['GREAT', r.great, 'g', r.great],
+    ...(r.style === 'tiles'
+      ? [['맞힘', r.hit, 'p', `${r.hit} / ${r.notes}`]]
+      : [
+          ['PERFECT', r.perfect, 'p', r.perfect],
+          ['GREAT', r.great, 'g', r.great],
+        ]),
     ['놓침', r.miss, 'm', r.miss],
     ['헛침', r.wrong, 'w', r.wrong],
   ];

@@ -1,10 +1,12 @@
 // 🎹 시즌 2 피아노 미리보기 (2026-11-23) — 두 방식을 쳐 보고 투표
 //   A 'tiles' : 세로 화면 · 4줄 피아노 타일. 검은 타일이 내려오고 판정선에 닿을 때 누르면 그 음(+화음)이 피아노로
 //              줄은 멜로디 움직임대로(올라가면 오른쪽, 내려가면 왼쪽, 같은 줄 연속 없음)
-//              타일은 모두 같은 크기, 꾹 누르기 없음 (11-23 사용자)
-//   B 'keys'  : 가로 화면 · 아래 진짜 피아노 건반(흰 건반 10개 안팎 + 검은 건반)에 빛 막대가 위에서 떨어짐(글자 없음),
-//              누른 건반 음이 그대로 남. 위에 쿵콩이·짝콩이가 반응. 막대 길이만큼 꾹 누르면 점수 더
-//   판정: 앞뒤 0.12초 안 = PERFECT, 0.18초 안 = GREAT (넉넉하게 — 웬만하면 PERFECT, 11-23 사용자)
+//              타일은 모두 같은 크기, 꾹 누르기 없음, 판정 글자 없음 — 화면 아래쪽에 온 타일을 누르기만 하면 됨
+//              (판정선 밑으로 지나가도 화면 밖으로 나가기 전이면 맞힘, 11-23 사용자)
+//   B 'keys'  : 가로 화면 · 아래 진짜 피아노 건반(흰 건반 10개 안팎 + 검은 건반)에 빛 막대가 원근 길을 따라 멀리서 다가옴
+//              (드럼 게임처럼 멀리 있는 것도 보임, 글자 없음). 누른 건반 음이 그대로 남. 위에 쿵콩이·짝콩이가 반응.
+//              막대 길이만큼 꾹 누르면 점수 더 — 누르는 동안 건반에 게이지가 차오름
+//   건반 판정: 앞뒤 0.12초 안 = PERFECT, 0.18초 안 = GREAT (넉넉하게 — 웬만하면 PERFECT, 11-23 사용자)
 //   ⚡ 점점 빠르게(fast): 곡을 길게 되풀이하며 마디마다 빨라짐(끝에 1.6배). 화면은 박자 기준이라 타일 간격은 그대로
 //   연습판: 기록·랭킹·코인·서버 요청 없음. 반주는 피아노 왼손만(SongPlayer pianoOnly)
 
@@ -27,7 +29,9 @@ const isWhite = (m) => WHITE.includes(pc(m));
 export const P2_HIT_WIN = 0.18;
 /** 이 안이면 PERFECT */
 export const P2_PERFECT = 0.12;
-const HIT_POINTS = { perfect: 1000, great: 650 };
+const HIT_POINTS = { perfect: 1000, great: 650, ok: 1000 };
+/** 타일: 아래 끝이 화면 높이의 이만큼 아래로 내려오면 누를 수 있음 */
+const TILE_READY = 0.42;
 const HOLD_POINTS = 900; // 꾹 누르는 1초마다 (건반만)
 /** ⚡ 점점 빠르게: 끝에서 이만큼 (1.6 = 1.6배) */
 export const P2_FAST_MAX = 1.6;
@@ -206,7 +210,7 @@ export class PianoPreview {
       this.tileB = p2TileBeats(this.notes, lanes);
     }
     this.lanes = style === 'keys' ? this.keys.length : 4;
-    this.counts = { hit: 0, perfect: 0, great: 0, miss: 0, wrong: 0 };
+    this.counts = { hit: 0, perfect: 0, great: 0, ok: 0, miss: 0, wrong: 0 };
     this.holdSec = 0; // 꾹 누른 시간
     this.holdMax = this.notes.filter((n) => n.holdable).reduce((a, n) => a + n.dur, 0);
     this.bonus = 0;
@@ -226,6 +230,10 @@ export class PianoPreview {
     this._onDown = (e) => this._down(e);
     this._onUp = (e) => this._up(e);
     this._onMove = (e) => this._move(e);
+    // 아이폰: 꾹 누르면 뜨는 돋보기(확대경)·글자 고르기 막기 — 터치 기본 동작만 끔(포인터 이벤트는 그대로 옴)
+    this._onTouch = (e) => {
+      if (e.cancelable) e.preventDefault();
+    };
   }
 
   // ---------- 시작·멈춤 ----------
@@ -236,6 +244,7 @@ export class PianoPreview {
     c.addEventListener('pointerdown', this._onDown);
     c.addEventListener('pointermove', this._onMove);
     for (const ev of ['pointerup', 'pointercancel']) c.addEventListener(ev, this._onUp);
+    for (const ev of ['touchstart', 'touchmove', 'touchend']) c.addEventListener(ev, this._onTouch, { passive: false });
     this._play(this.audio.ctx.currentTime + 0.35);
   }
 
@@ -289,6 +298,7 @@ export class PianoPreview {
     c.removeEventListener('pointerdown', this._onDown);
     c.removeEventListener('pointermove', this._onMove);
     for (const ev of ['pointerup', 'pointercancel']) c.removeEventListener(ev, this._onUp);
+    for (const ev of ['touchstart', 'touchmove', 'touchend']) c.removeEventListener(ev, this._onTouch);
   }
 
   resize() {
@@ -313,6 +323,8 @@ export class PianoPreview {
       this.ppb = Math.max(H * 0.22, Math.min(H * 0.4, (H * 0.2) / this.tileB));
       this.tileH = this.tileB * this.ppb;
       this.lookB = (this.judgeY + this.tileH) / this.ppb + 0.2;
+      this.readyB = (this.judgeY - H * TILE_READY) / this.ppb; // 이만큼 박 앞이면 누를 수 있음
+      this.goneB = (H - this.judgeY + this.tileH) / this.ppb; // 이만큼 지나면(화면 밖) 놓침
       return;
     }
     // 건반: 위 정보 줄 → 떨어지는 칸 → 건반
@@ -323,9 +335,14 @@ export class PianoPreview {
     this.kbH = Math.min(H * 0.36, this.keyW * 2.6);
     this.kbY = H - this.kbH - Math.max(6, H * 0.02);
     this.judgeY = this.kbY;
-    // 화면 높이에 박 몇 개: 1.25초어치 또는 2.1박 중 큰 쪽 (처음 빠르기 기준)
-    this.ppb = (this.judgeY - this.hudH) / Math.max(1.25 / this.beat, 2.1);
-    this.lookB = (this.judgeY - this.hudH) / this.ppb + 0.2;
+    // 원근 길: 판정선에서 VB 박 앞까지 보임 (멀수록 작고 좁게). 처음 빠르기로 2.4초어치 또는 3.5박
+    this.VB = Math.max(3.5, 2.4 / this.beat);
+    this.lookB = this.VB;
+    this.topY = this.hudH + 6;
+    this.FAR = 3.2;
+    this.sFar = 1 / (1 + this.FAR);
+    this.horizonY = (this.topY - this.judgeY * this.sFar) / (1 - this.sFar);
+    this.cx = W / 2;
     let wi = 0;
     this.cols = this.keys.map((k) => {
       if (k.white) {
@@ -337,6 +354,29 @@ export class PianoPreview {
       return { x: side + wi * this.keyW - bw / 2, w: bw, white: false };
     });
     this.blackH = this.kbH * 0.6;
+    this.roadX0 = this.cols[0].x;
+    this.roadX1 = this.cols.at(-1).x + this.cols.at(-1).w;
+  }
+
+  // ---------- 건반 원근 ----------
+  /** 판정선까지 남은 박 d → 크기 배율 (판정선 1, 멀수록 작게) */
+  _s(d) {
+    return 1 / (1 + Math.max(-0.4, (d / this.VB) * this.FAR));
+  }
+  _py(s) {
+    return this.horizonY + (this.judgeY - this.horizonY) * s;
+  }
+  _px(x, s) {
+    return this.cx + (x - this.cx) * s;
+  }
+  /** 길 위 사다리꼴 (판정선 자리 x 범위 xa~xb, 크기 배율 sa(먼 쪽)~sb(가까운 쪽)) */
+  _trap(g, xa, xb, sa, sb) {
+    g.beginPath();
+    g.moveTo(this._px(xa, sa), this._py(sa));
+    g.lineTo(this._px(xb, sa), this._py(sa));
+    g.lineTo(this._px(xb, sb), this._py(sb));
+    g.lineTo(this._px(xa, sb), this._py(sb));
+    g.closePath();
   }
 
   /** 지금 곡 시각 (귀에 들리는 소리 기준) */
@@ -392,13 +432,23 @@ export class PianoPreview {
     } catch {}
     const t = this.now();
     const rt = this.audio.ctx.currentTime;
-    // 이 줄에서 가장 가까운 안 친 음 (앞뒤 P2_HIT_WIN 안이면 맞힘)
     let best = null;
-    for (const n of this.notes) {
-      if (n.lane !== lane || n.hit || n.miss) continue;
-      const dt = t - n.t;
-      if (dt < -P2_HIT_WIN) break;
-      if (Math.abs(dt) <= P2_HIT_WIN && (!best || Math.abs(dt) < Math.abs(t - best.t))) best = n;
+    if (this.style === 'tiles') {
+      // 타일: 이 줄에서 화면 아래쪽에 온 가장 먼저 안 친 타일 (판정선 밑으로 지나갔어도 화면 안이면)
+      const b = this.tempo.beatAt(t);
+      for (const n of this.notes) {
+        if (n.lane !== lane || n.hit || n.miss) continue;
+        if (n.beat - b <= this.readyB) best = n;
+        break;
+      }
+    } else {
+      // 건반: 가장 가까운 안 친 음 (앞뒤 P2_HIT_WIN 안이면 맞힘)
+      for (const n of this.notes) {
+        if (n.lane !== lane || n.hit || n.miss) continue;
+        const dt = t - n.t;
+        if (dt < -P2_HIT_WIN) break;
+        if (Math.abs(dt) <= P2_HIT_WIN && (!best || Math.abs(dt) < Math.abs(t - best.t))) best = n;
+      }
     }
     const press = { lane, note: null, x, y, at: t };
     this.pressed.set(e.pointerId, press);
@@ -409,7 +459,7 @@ export class PianoPreview {
       best.hitX = x;
       best.hitY = y;
       this._sound(best, rt);
-      this._hit(best, t, p2Judge(t - best.t) || 'great');
+      this._hit(best, t, this.style === 'tiles' ? 'ok' : p2Judge(t - best.t) || 'great');
       this._burst(best, t, x, y);
       if (best.holdable) {
         best.holding = true;
@@ -471,7 +521,7 @@ export class PianoPreview {
     this.maxCombo = Math.max(this.maxCombo, this.combo);
     this.score += HIT_POINTS[kind] * (1 + Math.min(this.combo, 100) / 100) * this.speedNow;
     this.comboAt = t;
-    this.fx.pops.push({ kind, lane: n.lane, at: t });
+    if (kind !== 'ok') this.fx.pops.push({ kind, lane: n.lane, at: t });
     if (this.combo % 10 === 0) {
       this._mood(-1, 'cheer', t, 0.9);
       this.comboBig = t;
@@ -561,6 +611,7 @@ export class PianoPreview {
       holdMax: this.holdMax,
       holdPct: this.holdMax ? Math.min(1, this.holdSec / this.holdMax) : 0,
       topSpeed: this.topSpeed,
+      style: this.style,
       full: c.miss === 0 && c.wrong === 0,
       stars: p2Stars(acc, c.miss),
       grade: p2Grade(acc),
@@ -573,8 +624,10 @@ export class PianoPreview {
     const dt = Math.min(0.05, (nowMs - this.lastFrame) / 1000);
     this.lastFrame = nowMs;
     const t = this.now(nowMs);
+    const b = this.tempo.beatAt(t);
+    const tiles = this.style === 'tiles';
     for (const n of this.notes) {
-      if (!n.hit && !n.miss && t - n.t > P2_HIT_WIN) this._missNote(n, t);
+      if (!n.hit && !n.miss && (tiles ? b - n.beat > this.goneB : t - n.t > P2_HIT_WIN)) this._missNote(n, t);
       if (n.holding) {
         this._credit(n, t);
         if (t >= n.end) this._release(n, t);
@@ -891,13 +944,16 @@ export class PianoPreview {
       pgr.addColorStop(0, '#6ee7ff');
       pgr.addColorStop(0.5, '#8a7dff');
       pgr.addColorStop(1, '#ff7ad9');
-      this._bgCache = { bg, floor, line, hud, pgr };
+      const road = g.createLinearGradient(0, this.topY, 0, judgeY);
+      road.addColorStop(0, 'rgba(30,24,80,0.35)');
+      road.addColorStop(1, 'rgba(40,30,100,0.75)');
+      this._bgCache = { bg, floor, line, hud, pgr, road };
     }
     return this._bgCache;
   }
 
   _drawKeys(g, t) {
-    const { W, H, judgeY, hudH, ppb } = this;
+    const { W, H, judgeY, hudH } = this;
     const C = this._keysBg(g);
     g.fillStyle = C.bg;
     g.fillRect(0, 0, W, H);
@@ -925,62 +981,95 @@ export class PianoPreview {
       g.fillStyle = `rgba(220,225,255,${a})`;
       g.fillRect(x, y, 1.6, 1.6);
     }
+    // 원근 길 (어두운 유리) + 가장자리 빛
+    const sF = this.sFar;
+    this._trap(g, this.roadX0, this.roadX1, sF, 1);
+    g.fillStyle = C.road;
+    g.fill();
+    // 흰 건반 칸 나눔 선 (도 자리는 조금 밝게)
+    g.lineWidth = 1;
+    this.cols.forEach((c, i) => {
+      if (!c.white || i === 0) return;
+      g.strokeStyle = pc(this.keys[i].midi) === 0 ? 'rgba(255,255,255,0.16)' : 'rgba(255,255,255,0.06)';
+      g.beginPath();
+      g.moveTo(this._px(c.x, sF), this._py(sF));
+      g.lineTo(c.x, judgeY);
+      g.stroke();
+    });
+    // 박마다 가로줄 (흘러오는 느낌)
+    for (let k = Math.ceil(this.bNow); k < this.bNow + this.VB; k++) {
+      const d = k - this.bNow;
+      const s = this._s(d);
+      const y = this._py(s);
+      g.fillStyle = `rgba(200,190,255,${(k % 4 === 0 ? 0.16 : 0.07) * Math.min(1, (this.VB - d) / 0.8)})`;
+      g.fillRect(this._px(this.roadX0, s), y, this._px(this.roadX1, s) - this._px(this.roadX0, s), Math.max(1, 2 * s));
+    }
     g.fillStyle = C.floor;
     g.fillRect(0, judgeY - (judgeY - hudH) * 0.35, W, (judgeY - hudH) * 0.35);
-    // 흰 건반 칸 안내선 (도 자리는 조금 밝게)
-    this.cols.forEach((c, i) => {
-      if (!c.white) return;
-      g.fillStyle = pc(this.keys[i].midi) === 0 ? 'rgba(255,255,255,0.10)' : 'rgba(255,255,255,0.04)';
-      g.fillRect(Math.round(c.x) - 0.5, hudH, 1, judgeY - hudH);
-    });
+    // 길 가장자리 빛
+    for (const [x, col] of [
+      [this.roadX0, this._laneColor(0, 70, 0.8)],
+      [this.roadX1, this._laneColor(this.lanes - 1, 70, 0.8)],
+    ]) {
+      g.strokeStyle = col;
+      g.lineWidth = 2;
+      g.beginPath();
+      g.moveTo(this._px(x, sF), this._py(sF));
+      g.lineTo(x, judgeY);
+      g.stroke();
+    }
     // 누른 건반 빛 기둥 (눌림 값 따라 부드럽게)
     for (let i = 0; i < this.lanes; i++) if (this.press[i] > 0.01) this._column(g, i, this.press[i]);
-    // 떨어지는 빛 막대 (글자 없음)
+    // 다가오는 빛 막대 (원근: 멀리선 작고 좁게, 글자 없음)
     g.save();
     g.beginPath();
     g.rect(0, hudH, W, judgeY - hudH);
     g.clip();
     for (const n of this.notes) {
-      const d = n.beat - this.bNow;
-      if (d > this.lookB) break;
+      let dH = n.beat - this.bNow;
+      if (dH > this.VB) break;
       if (n.miss && t - n.missAt > 0.45) continue;
       const fade = n.hit && !n.holding ? 1 - ease((t - (n.releasedAt ?? n.hitAt)) / 0.22) : 1;
       if (fade <= 0) continue;
+      let dT = dH + Math.max(0.2, n.lenB - 0.06);
+      if (n.hit) dH = Math.max(0, dH);
+      if (dT <= dH + 0.02) continue;
+      dT = Math.min(dT, this.VB);
       const c = this.cols[n.lane];
       const pad = c.white ? Math.max(3, c.w * 0.14) : 2;
-      const yHead = judgeY - d * ppb;
-      const len = Math.max(c.w * 0.45, n.lenB * ppb - Math.max(4, ppb * 0.05));
-      const yTop = yHead - len;
-      const yBot = n.hit ? Math.min(judgeY, yHead) : yHead;
-      if (yBot < hudH - 4 || yBot <= yTop + 2) continue;
-      const x = c.x + pad;
-      const w = c.w - pad * 2;
-      const r = Math.min(9, w * 0.35);
+      const xa = c.x + pad;
+      const xb = c.x + c.w - pad;
+      const sH = this._s(dH);
+      const sT = this._s(dT);
+      const far = Math.min(1, (this.VB - dH) / 0.7);
       const L = n.miss ? 0.3 * (1 - ease((t - n.missAt) / 0.45)) : 1;
-      g.globalAlpha = L * fade;
+      g.globalAlpha = L * fade * far;
       // 바깥 빛
+      this._trap(g, xa - 4, xb + 4, sT, sH);
       g.fillStyle = this._laneColor(n.lane, 62, n.holding ? 0.38 : 0.2);
-      rr(g, x - 4, yTop - 4, w + 8, yBot - yTop + 8, r + 4);
       g.fill();
-      // 몸통: 위는 진하게, 아래(건반 쪽)는 밝게
-      const gr = g.createLinearGradient(0, yTop, 0, yBot);
+      // 몸통: 먼 쪽은 진하게, 건반 쪽은 밝게
+      const yT = this._py(sT);
+      const yH = this._py(sH);
+      const gr = g.createLinearGradient(0, yT, 0, yH);
       gr.addColorStop(0, this._laneColor(n.lane, c.white ? 48 : 42, 0.85));
       gr.addColorStop(1, this._laneColor(n.lane, c.white ? 74 : 66));
+      this._trap(g, xa, xb, sT, sH);
       g.fillStyle = gr;
-      rr(g, x, yTop, w, yBot - yTop, r);
       g.fill();
       // 가운데 빛 줄
-      g.fillStyle = 'rgba(255,255,255,0.35)';
-      rr(g, x + w * 0.36, yTop + 4, w * 0.28, Math.max(0, yBot - yTop - 8), w * 0.14);
+      const mw = (xb - xa) * 0.14;
+      const mx = (xa + xb) / 2;
+      this._trap(g, mx - mw, mx + mw, sT, sH);
+      g.fillStyle = 'rgba(255,255,255,0.3)';
       g.fill();
       // 머리(건반 쪽 끝) 하얀 줄
       g.fillStyle = 'rgba(255,255,255,0.95)';
-      rr(g, x + 2, yBot - 4, w - 4, 3, 1.5);
-      g.fill();
+      g.fillRect(this._px(xa, sH) + 1, yH - Math.max(2, 4 * sH), this._px(xb, sH) - this._px(xa, sH) - 2, Math.max(1.5, 3 * sH));
       if (n.holding) {
         const pulse = 0.18 + 0.12 * Math.sin(t * 14);
+        this._trap(g, xa, xb, sT, sH);
         g.fillStyle = `rgba(255,255,255,${pulse})`;
-        rr(g, x, yTop, w, yBot - yTop, r);
         g.fill();
       }
       g.globalAlpha = 1;
@@ -997,17 +1086,30 @@ export class PianoPreview {
 
   _column(g, lane, a) {
     const c = this.cols[lane];
-    const top = this.judgeY - (this.judgeY - this.hudH) * 0.7;
+    const sTop = this._s(this.VB * 0.55);
+    const top = this._py(sTop);
     const gr = g.createLinearGradient(0, top, 0, this.judgeY);
     gr.addColorStop(0, this._laneColor(lane, 65, 0));
     gr.addColorStop(1, this._laneColor(lane, 65, a * 0.42));
+    this._trap(g, c.x, c.x + c.w, sTop, 1);
     g.fillStyle = gr;
-    g.fillRect(c.x, top, c.w, this.judgeY - top);
+    g.fill();
   }
 
   /** 진짜 피아노 같은 건반: 검은 건반 바닥 + 빨간 펠트 + 상아빛 흰 건반 + 유광 검은 건반 */
-  _keyboard(g) {
+  /** 꾹 누르는 음의 진행 0~1 (건반마다) — 건반 위에 게이지로 */
+  _holdGauge(t) {
+    const m = new Map();
+    for (const p of this.pressed.values()) {
+      const n = p.note;
+      if (n && n.holding && n.dur >= 0.4) m.set(n.lane, Math.max(0, Math.min(1, (t - n.t) / n.dur)));
+    }
+    return m;
+  }
+
+  _keyboard(g, t) {
     const { kbY, kbH, H } = this;
+    const gauge = this._holdGauge(t);
     const x0 = this.cols[0].x - 6;
     const x1 = this.cols.at(-1).x + this.cols.at(-1).w + 6;
     // 건반 바닥(검은 칠)
@@ -1047,6 +1149,7 @@ export class PianoPreview {
         rr(g, x, top + dy, w, hh - lip, 7);
         g.fill();
       }
+      if (gauge.has(i)) this._gauge(g, i, x + 3, top + dy + 3, w - 6, hh - lip - 6, gauge.get(i), t);
       g.fillStyle = 'rgba(150,140,170,0.75)';
       g.font = font(label);
       g.textAlign = 'center';
@@ -1079,12 +1182,31 @@ export class PianoPreview {
       g.fillStyle = 'rgba(255,255,255,0.22)';
       rr(g, c.x + c.w * 0.25, kbY + 3 + dy, c.w * 0.5, this.blackH * 0.45, 2);
       g.fill();
+      if (gauge.has(i)) this._gauge(g, i, c.x + 3, kbY + 1 + dy, c.w - 6, this.blackH - bl - 4, gauge.get(i), t);
     });
     // 빨간 펠트 (건반 위 가장자리)
     g.fillStyle = '#9e1430';
     g.fillRect(x0 + 4, kbY - 1, x1 - x0 - 8, 3);
     g.fillStyle = 'rgba(0,0,0,0.35)';
     g.fillRect(x0 + 4, kbY + 2, x1 - x0 - 8, 2);
+  }
+
+  /** 꾹 게이지: 건반 아래에서 위로 차오름 + 위 끝 빛 줄 */
+  _gauge(g, lane, x, y, w, h, k, t) {
+    const fh = h * k;
+    g.save();
+    rr(g, x, y, w, h, 5);
+    g.clip();
+    g.fillStyle = 'rgba(20,16,40,0.18)';
+    g.fillRect(x, y, w, h);
+    const gr = g.createLinearGradient(0, y + h, 0, y + h - Math.max(10, fh));
+    gr.addColorStop(0, this._laneColor(lane, 52, 0.95));
+    gr.addColorStop(1, this._laneColor(lane, 72, 0.95));
+    g.fillStyle = gr;
+    g.fillRect(x, y + h - fh, w, fh);
+    g.fillStyle = `rgba(255,255,255,${0.75 + 0.25 * Math.sin(t * 16)})`;
+    g.fillRect(x, y + h - fh - 1.5, w, 3);
+    g.restore();
   }
 
   _keysHud(g, t) {
@@ -1177,7 +1299,7 @@ export class PianoPreview {
       else cx = Math.max(size * 2.2, Math.min(this.W - size * 2.2, cx));
       const y = keys
         ? (bonus ? this.judgeY - this.H * 0.2 : this.judgeY - this.H * 0.1) - ease(k) * (bonus ? 30 : 12)
-        : this.judgeY - this.tileH - this.H * 0.035 - ease(k) * (bonus ? 34 : 16);
+        : p.kind === 'miss' ? this.H - this.H * 0.06 - ease(k) * 16 : this.judgeY - this.tileH - this.H * 0.035 - ease(k) * (bonus ? 34 : 16);
       g.globalAlpha = k > 0.6 ? (1 - k) / 0.4 : 1;
       g.font = font(size);
       g.textAlign = 'center';
