@@ -15,8 +15,8 @@ export const NOTE_FREE = ['candy', 'neon', 'ocean', 'fire', 'mono'];
 export const SHOP_ITEMS = [
   // 🎤 세트 (2026-11-22, 사용자 요청: 리듬게임 라이브 화면 스타일 세트) = 화면 스타일(render.js live) + 세트 무대 · 11-23 사용자 1만 → 2만
   ['ui:live', 20000, 'epic'],
-  // 🥇 시즌 1 한정 콩 스킨 (2026-11-23 사용자 '시즌1 때만 얻을 수 있는 스킨, 1 을 강조') — 값도 1 로만, 시즌 1 끝나면 못 삼(LIMITED)
-  ['notes:s1', 11111, 'legend'],
+  // 🥇 시즌 1 한정 세트 (2026-11-23 사용자 '시즌1 때만, 1 을 강조, 세트로, 1111') = 금빛 「1」 콩 + 시즌 1 무대 + 황금 드럼. 시즌 1 끝나면 못 삼(LIMITED)
+  ['ui:s1', 1111, 'legend'],
   ['notes:galaxy', 50000, 'legend'],
   ['notes:gold', 30000, 'legend'],
   ['notes:cyber', 9000, 'epic'],
@@ -34,7 +34,7 @@ export const SHOP_ITEMS = [
   ['kit:rainbow', 7000, 'rare'],
 ];
 /** 기간 한정: 이 시각(ms)이 지나면 못 삼 (산 사람은 계속 씀) */
-export const LIMITED = { 'notes:s1': SEASONS[0].end };
+export const LIMITED = { 'ui:s1': SEASONS[0].end };
 /** 지금 살 수 있나 (한정 물건 기간 확인) */
 export const onSale = (id, now = Date.now()) => !(LIMITED[id] && now > LIMITED[id]);
 const PRICE = new Map(SHOP_ITEMS.map(([id, p]) => [id, p]));

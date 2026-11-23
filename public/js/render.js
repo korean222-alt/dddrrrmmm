@@ -34,7 +34,7 @@ export const NOTE_PALETTES = {
   cyber: { name: '⚡ 사이버', shop: true, fx: { tex: 'cyber', trail: '0,240,255', trail2: '255,40,220', aura: '0,240,255', spark: '#E8FFFF', glitch: true }, c: [['#00F0FF', '#B8FCFF', '#007A8A'], ['#FF2BD6', '#FFB8F2', '#8A0072'], ['#C6FF00', '#F0FFB0', '#6A8A00'], ['#8C5CFF', '#D8CCFF', '#3A1FA8'], ['#00FF9C', '#B0FFDD', '#00A365']] },
   gold: { name: '👑 황금', shop: true, fx: { tex: 'gold', trail: '255,200,60', aura: '255,210,80', spark: '#FFFDE0', big: true }, c: [['#FFC83D', '#FFF1B8', '#B07A00'], ['#FFD75A', '#FFF6CC', '#B8860B'], ['#FFE07A', '#FFF8D6', '#B89520'], ['#F2B84A', '#FFE9BF', '#A8701E'], ['#D9B45A', '#F7EBC7', '#8C6C1E']] },
   // 🥇 시즌 1 한정 (2026-11-23): 남색 바탕에 금빛 「1」 을 크게 새김, 금빛 꼬리 (shop.js LIMITED — 시즌 1 동안만 팖)
-  s1: { name: '🥇 시즌 1', shop: true, fx: { tex: 's1', trail: '255,205,70', aura: '255,215,90', spark: '#FFF6C8', big: true }, c: [['#2B3A8C', '#8FA2FF', '#121A4A'], ['#2B3A8C', '#8FA2FF', '#121A4A'], ['#33459E', '#A3B3FF', '#16205A'], ['#2B3A8C', '#8FA2FF', '#121A4A'], ['#2B3A8C', '#8FA2FF', '#121A4A']] },
+  s1: { name: '🥇 시즌 1', set: true, fx: { tex: 's1', trail: '255,205,70', aura: '255,215,90', spark: '#FFF6C8', big: true }, c: [['#2B3A8C', '#8FA2FF', '#121A4A'], ['#2B3A8C', '#8FA2FF', '#121A4A'], ['#33459E', '#A3B3FF', '#16205A'], ['#2B3A8C', '#8FA2FF', '#121A4A'], ['#2B3A8C', '#8FA2FF', '#121A4A']] },
   galaxy: { name: '🌌 은하수', shop: true, fx: { tex: 'galaxy', trail: 'rainbow', aura: '180,120,255', spark: '#FFFFFF', big: true }, c: [['#B26BFF', '#E6D0FF', '#6A22C2'], ['#4FD8FF', '#CFF5FF', '#1688B0'], ['#FF7AD9', '#FFD3F2', '#B8338F'], ['#7C8CFF', '#D9DEFF', '#3B46C2'], ['#5CFFC8', '#CCFFEE', '#1FA67A']] },
 };
 let noteSkin = 'basic';
@@ -170,6 +170,7 @@ export class Renderer {
     if (pick === 'photo' && !this.bgPhoto) pick = null; // 사진이 없으면(지웠거나 못 읽음) 원래 맵
     // 🎤 라이브 스테이지 세트: 배경을 '단계별'로 둔 사람은 세트 무대가 깔림
     if (!pick && !this.studio && this.uiStyle === 'live') pick = 'livestage';
+    if (!this.studio && this.uiStyle === 's1') pick = 's1stage'; // 🥇 시즌 1 세트 무대
     // 같은 맵 키여도 사진·밝기가 바뀌었으면 배경을 다시 그림
     const pk = pick === 'photo' ? `${this.bgPhoto && this.bgPhoto.src}|${this.photoDim}` : '';
     if (pk !== this._photoKey) {

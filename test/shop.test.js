@@ -48,18 +48,19 @@ test('🏆 시즌 보상: 등수별 · 두 판에 다 들면 큰 것 하나만',
   assert.deepEqual([by.c.coins, by.c.board, by.c.rank], [50000, 'endless', 3]);
 });
 
-test('🥇 시즌 1 한정 스킨: 시즌 1 동안만 팖, 산 사람은 계속 가짐 · 라이브 세트 2만', async () => {
+test('🥇 시즌 1 한정 세트: 시즌 1 동안만 팖, 산 사람은 계속 가짐 · 라이브 세트 2만', async () => {
   const { SEASONS } = await import('../public/js/season.js');
   const end = SEASONS[0].end;
   assert.equal(priceOf('ui:live'), 20000);
-  assert.equal(priceOf('notes:s1'), 11111);
+  assert.equal(priceOf('ui:s1'), 1111);
+  assert.equal(priceOf('notes:s1'), null);
   assert.ok(NOTE_PALETTES.s1 && NOTE_PALETTES.s1.fx.tex === 's1');
   const w = { coins: 20000, owned: [] };
-  assert.equal(buyItem(w, 'notes:s1', end - 1000).ok, true);
-  const late = buyItem(w, 'notes:s1', end + 1000);
+  assert.equal(buyItem(w, 'ui:s1', end - 1000).ok, true);
+  const late = buyItem(w, 'ui:s1', end + 1000);
   assert.equal(late.ok, false);
   assert.equal(late.error, 'season_over');
   // 시즌 뒤에도 산 사람 목록엔 그대로
-  assert.deepEqual(cleanOwned(['notes:s1']), ['notes:s1']);
-  assert.equal(buyItem({ coins: 0, owned: ['notes:s1'] }, 'notes:s1', end + 1000).already, true);
+  assert.deepEqual(cleanOwned(['ui:s1']), ['ui:s1']);
+  assert.equal(buyItem({ coins: 0, owned: ['ui:s1'] }, 'ui:s1', end + 1000).already, true);
 });

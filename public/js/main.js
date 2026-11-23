@@ -2170,16 +2170,18 @@ const decoPick = (type) => {
 function applyDeco() {
   const s = state.settings;
   // 🎤 라이브 스테이지 세트는 화면 전체가 세트 것(세트 무대·기본 콩) — 장착한 배경·콩 스킨은 세트를 빼면 돌아옴 (2026-11-22 사용자)
-  const live = decoPick('ui') === 'live';
-  const bg = live ? 'auto' : decoPick('bg');
-  const kit = live ? 'auto' : decoPick('kit');
+  const ui = decoPick('ui');
+  const live = ui === 'live';
+  const s1 = ui === 's1'; // 🥇 시즌 1 세트 = 금빛 「1」 콩 + 시즌 1 무대 + 황금 드럼 (2026-11-23)
+  const bg = live || s1 ? 'auto' : decoPick('bg');
+  const kit = live ? 'auto' : s1 ? 'goldkit' : decoPick('kit');
   renderer.bgPick = bg !== 'auto' ? bg : null;
   renderer.kitPick = kit !== 'auto' ? kit : null;
   renderer.photoDim = s.photoDim ?? 0.4;
-  renderer.uiStyle = live ? 'live' : null;
+  renderer.uiStyle = live ? 'live' : s1 ? 's1' : null;
   document.documentElement.classList.toggle('ui-live', live); // 게임 위 정보 칸·결과 화면도 세트 모양
   audio.uiSet = live ? 'live' : null; // 세트 버튼 소리
-  applyNoteColors(renderer.studio || live ? 'basic' : decoPick('notes'));
+  applyNoteColors(renderer.studio || live ? 'basic' : s1 ? 's1' : decoPick('notes'));
 }
 // 2026-11-22 사용자: 설정의 꾸미기 칸은 없애고 상점 한 곳에서 (장착 중 표시 + 「보유」 탭)
 function renderDeco() {
@@ -2262,6 +2264,7 @@ function shopSwatch(type, key) {
     if (type === 'notes') return `conic-gradient(${LANE_DEFAULT.join(',')})`;
     return type === 'kit' ? 'radial-gradient(circle at 35% 30%,#FFB27A,#E2562E 55%,#7A1E10)' : 'linear-gradient(#FF9A6B,#6A1B78)';
   }
+  if (type === 'ui' && key === 's1') return 'radial-gradient(circle at 50% 40%,#FFF3B0,#FFD23F 30%,#2B3A8C 60%,#0C1036)';
   if (type === 'ui') return 'linear-gradient(160deg,#1A1450 0%,#3A2A8A 45%,#FF8AD8 70%,#7DF2FF 100%)';
   if (type === 'notes') {
     const p = NOTE_PALETTES[key];
@@ -2287,7 +2290,7 @@ function shopSwatch(type, key) {
 }
 function shopName(type, key) {
   if (key === DECO_FREE[type]) return { ui: '기본 화면', notes: '기본 콩', bg: '기본 무대 (단계별)', kit: '기본 드럼 (맵 따라)' }[type];
-  if (type === 'ui') return '🎤 라이브 스테이지 세트';
+  if (type === 'ui') return key === 's1' ? '🥇 시즌 1 세트' : '🎤 라이브 스테이지 세트';
   if (type === 'notes') return (NOTE_PALETTES[key] || {}).name || key;
   if (key === 'photo') return '📷 내 사진 배경';
   if (type === 'kit' && SHOP_KITS[key]) return SHOP_KITS[key].name;
@@ -2301,7 +2304,7 @@ const SHOP_DESC = {
   ui: '판정선·콩·판정 글자·콤보·무대·버튼 소리가 리듬게임 라이브 화면처럼 한 번에 바뀌어요',
   basic: '처음 화면 그대로예요 · 누르면 이 분야만 기본으로 돌아가요',
   free: '무료예요',
-  s1: '시즌 1 동안만 살 수 있어요 · 콩마다 금빛 「1」 이 새겨져요 · 시즌이 끝나면 다시는 안 팔아요',
+  s1: '시즌 1 동안만 살 수 있어요 · 금빛 「1」 콩 + 시즌 1 무대 + 황금 드럼이 한 번에 · 시즌이 끝나면 다시는 안 팔아요',
 };
 const isBasicId = (id) => {
   const [type, key] = String(id || '').split(':');
@@ -2326,7 +2329,7 @@ var shopTab = 'all';
 function renderShop() {
   $('#shop-coins').textContent = fmt(getCoins());
   $('#shop-closed').hidden = shopIsOpen();
-  const live = decoPick('ui') === 'live';
+  const live = decoPick('ui') !== 'basic'; // 세트(라이브·시즌 1)를 끼면
   // 👕 지금 장착 중 (세트를 끼면 배경·드럼·콩은 세트 것)
   $('#shop-now').innerHTML =
     `<b>장착 중</b><div class="now-row">` +
@@ -2401,6 +2404,9 @@ function previewShop(id) {
   pick[type] = key;
   // 🎤 세트는 화면 전체가 바뀜: 세트 미리보기는 세트 무대·기본 콩으로 (장착한 배경·콩 스킨에 안 섞이게, 2026-11-22)
   if (type === 'ui' && key === 'live') Object.assign(pick, { bg: 'auto', kit: 'auto', notes: 'basic' });
+  if (type === 'ui' && key === 's1') Object.assign(pick, { bg: 'auto', kit: 'goldkit', notes: 's1' });
+  // 세트를 낀 채 다른 걸 미리보면 세트 빼고 (세트가 화면을 다 덮어서)
+  if (type !== 'ui') pick.ui = 'basic';
   // 콩 스킨은 어두운 무대에서 (화려한 맵 위에선 잘 안 보임)
   if (type === 'notes' && pick.bg === 'auto') pick.bg = 'void';
   const kc = $('#shopitem-kit');

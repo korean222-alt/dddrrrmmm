@@ -11,7 +11,8 @@ let onChange = () => {};
 
 // 지갑에 적는 건 D1 쓰기 1줄 → 판마다 보내지 않고 10분에 한 번(또는 판이 많이 쌓이면) 모아서 (2026-11-22 저녁)
 //   화면 잔액은 보낼 것까지 더해서 보여 주니 그대로. 서버는 판 토큰을 14일까지 받음
-const SEND_EVERY_MS = 10 * 60 * 1000;
+// 2026-11-23 사용자 '바로 서버로, 안전하게' → 기다리지 않고 다음 판 시작·점수 요청마다 얹어 보냄 (지갑 쓰기 판마다 1줄)
+const SEND_EVERY_MS = 0;
 const int = (v) => (Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
 const queue = () => {
   const q = load('coinQ', []);

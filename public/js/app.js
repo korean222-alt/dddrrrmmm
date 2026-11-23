@@ -2158,8 +2158,8 @@ const NOTE_FREE = ['candy', 'neon', 'ocean', 'fire', 'mono'];
 const SHOP_ITEMS = [
   // 🎤 세트 (2026-11-22, 사용자 요청: 리듬게임 라이브 화면 스타일 세트) = 화면 스타일(render.js live) + 세트 무대 · 11-23 사용자 1만 → 2만
   ['ui:live', 20000, 'epic'],
-  // 🥇 시즌 1 한정 콩 스킨 (2026-11-23 사용자 '시즌1 때만 얻을 수 있는 스킨, 1 을 강조') — 값도 1 로만, 시즌 1 끝나면 못 삼(LIMITED)
-  ['notes:s1', 11111, 'legend'],
+  // 🥇 시즌 1 한정 세트 (2026-11-23 사용자 '시즌1 때만, 1 을 강조, 세트로, 1111') = 금빛 「1」 콩 + 시즌 1 무대 + 황금 드럼. 시즌 1 끝나면 못 삼(LIMITED)
+  ['ui:s1', 1111, 'legend'],
   ['notes:galaxy', 50000, 'legend'],
   ['notes:gold', 30000, 'legend'],
   ['notes:cyber', 9000, 'epic'],
@@ -2177,7 +2177,7 @@ const SHOP_ITEMS = [
   ['kit:rainbow', 7000, 'rare'],
 ];
 /** 기간 한정: 이 시각(ms)이 지나면 못 삼 (산 사람은 계속 씀) */
-const LIMITED = { 'notes:s1': SEASONS[0].end };
+const LIMITED = { 'ui:s1': SEASONS[0].end };
 /** 지금 살 수 있나 (한정 물건 기간 확인) */
 const onSale = (id, now = Date.now()) => !(LIMITED[id] && now > LIMITED[id]);
 const PRICE = new Map(SHOP_ITEMS.map(([id, p]) => [id, p]));
@@ -3719,6 +3719,40 @@ const THEMES = {
       cym: 'gold',
     },
   },
+  // 🥇 시즌 1 세트 무대 (2026-11-23, ElevenLabs 그림 assets/bg/s1stage.webp — 남색 공연장에 커다란 금빛 「1」). 따로 안 팖: 세트(ui:s1)를 끼면 깔림
+  s1stage: {
+    key: 's1stage',
+    name: '시즌 1 무대',
+    icon: 'spot',
+    shop: true,
+    img: 'assets/bg/s1stage.webp',
+    imgDim: 0.3,
+    sky: ['#070A24', '#121A4A', '#2B3A8C'],
+    ground: ['#0C1036', '#05061A'],
+    glow: '255,215,90',
+    hot: '255,190,60',
+    laneBase: 'rgba(10,12,40,0.45)',
+    laneTint: 0.85,
+    rail: null,
+    beat: '255,225,140',
+    fog: '0,0,0',
+    fogA: 0.15,
+    spots: ['255,215,90', '255,255,255', '150,170,255', '255,190,60'],
+    particle: 'neon',
+    kit: {
+      shell: ['#FFF3B0', '#FFD23F', '#B07A00'],
+      finish: 'gloss',
+      snare: ['#FFFFFF', '#FFE07A', '#B8860B'],
+      snareFinish: 'metal',
+      hoop: ['#FFFFFF', '#FFE9A8', '#B8860B'],
+      inlay: '#2B3A8C',
+      hw: 'chrome',
+      head: '#FFFFFF',
+      emblem: '#2B3A8C',
+      emblemText: '#FFD23F',
+      cym: 'gold',
+    },
+  },
   // 🛒 상점 전용 배경 (2026-11-22, ElevenLabs 그림 assets/bg/abyss.webp). 사진 배경처럼 그림을 깔고 길은 반투명
   abyss: {
     key: 'abyss',
@@ -5050,7 +5084,7 @@ const NOTE_PALETTES = {
   cyber: { name: '⚡ 사이버', shop: true, fx: { tex: 'cyber', trail: '0,240,255', trail2: '255,40,220', aura: '0,240,255', spark: '#E8FFFF', glitch: true }, c: [['#00F0FF', '#B8FCFF', '#007A8A'], ['#FF2BD6', '#FFB8F2', '#8A0072'], ['#C6FF00', '#F0FFB0', '#6A8A00'], ['#8C5CFF', '#D8CCFF', '#3A1FA8'], ['#00FF9C', '#B0FFDD', '#00A365']] },
   gold: { name: '👑 황금', shop: true, fx: { tex: 'gold', trail: '255,200,60', aura: '255,210,80', spark: '#FFFDE0', big: true }, c: [['#FFC83D', '#FFF1B8', '#B07A00'], ['#FFD75A', '#FFF6CC', '#B8860B'], ['#FFE07A', '#FFF8D6', '#B89520'], ['#F2B84A', '#FFE9BF', '#A8701E'], ['#D9B45A', '#F7EBC7', '#8C6C1E']] },
   // 🥇 시즌 1 한정 (2026-11-23): 남색 바탕에 금빛 「1」 을 크게 새김, 금빛 꼬리 (shop.js LIMITED — 시즌 1 동안만 팖)
-  s1: { name: '🥇 시즌 1', shop: true, fx: { tex: 's1', trail: '255,205,70', aura: '255,215,90', spark: '#FFF6C8', big: true }, c: [['#2B3A8C', '#8FA2FF', '#121A4A'], ['#2B3A8C', '#8FA2FF', '#121A4A'], ['#33459E', '#A3B3FF', '#16205A'], ['#2B3A8C', '#8FA2FF', '#121A4A'], ['#2B3A8C', '#8FA2FF', '#121A4A']] },
+  s1: { name: '🥇 시즌 1', set: true, fx: { tex: 's1', trail: '255,205,70', aura: '255,215,90', spark: '#FFF6C8', big: true }, c: [['#2B3A8C', '#8FA2FF', '#121A4A'], ['#2B3A8C', '#8FA2FF', '#121A4A'], ['#33459E', '#A3B3FF', '#16205A'], ['#2B3A8C', '#8FA2FF', '#121A4A'], ['#2B3A8C', '#8FA2FF', '#121A4A']] },
   galaxy: { name: '🌌 은하수', shop: true, fx: { tex: 'galaxy', trail: 'rainbow', aura: '180,120,255', spark: '#FFFFFF', big: true }, c: [['#B26BFF', '#E6D0FF', '#6A22C2'], ['#4FD8FF', '#CFF5FF', '#1688B0'], ['#FF7AD9', '#FFD3F2', '#B8338F'], ['#7C8CFF', '#D9DEFF', '#3B46C2'], ['#5CFFC8', '#CCFFEE', '#1FA67A']] },
 };
 let noteSkin = 'basic';
@@ -5186,6 +5220,7 @@ class Renderer {
     if (pick === 'photo' && !this.bgPhoto) pick = null; // 사진이 없으면(지웠거나 못 읽음) 원래 맵
     // 🎤 라이브 스테이지 세트: 배경을 '단계별'로 둔 사람은 세트 무대가 깔림
     if (!pick && !this.studio && this.uiStyle === 'live') pick = 'livestage';
+    if (!this.studio && this.uiStyle === 's1') pick = 's1stage'; // 🥇 시즌 1 세트 무대
     // 같은 맵 키여도 사진·밝기가 바뀌었으면 배경을 다시 그림
     const pk = pick === 'photo' ? `${this.bgPhoto && this.bgPhoto.src}|${this.photoDim}` : '';
     if (pk !== this._photoKey) {
@@ -7775,7 +7810,7 @@ async function startShopPreview(cv, { bg, kit, notes, ui, photo }) {
   r.quality = 2;
   r.bgPick = bg && bg !== 'auto' ? bg : null;
   r.kitPick = kit && kit !== 'auto' ? kit : null;
-  r.uiStyle = ui === 'live' ? 'live' : null;
+  r.uiStyle = ui === 'live' || ui === 's1' ? ui : null;
   if (bg === 'photo') {
     r.bgPhoto = photo || samplePhoto();
     r.photoDim = 0.35;
@@ -12273,7 +12308,8 @@ let onChange = () => {};
 
 // 지갑에 적는 건 D1 쓰기 1줄 → 판마다 보내지 않고 10분에 한 번(또는 판이 많이 쌓이면) 모아서 (2026-11-22 저녁)
 //   화면 잔액은 보낼 것까지 더해서 보여 주니 그대로. 서버는 판 토큰을 14일까지 받음
-const SEND_EVERY_MS = 10 * 60 * 1000;
+// 2026-11-23 사용자 '바로 서버로, 안전하게' → 기다리지 않고 다음 판 시작·점수 요청마다 얹어 보냄 (지갑 쓰기 판마다 1줄)
+const SEND_EVERY_MS = 0;
 const int = (v) => (Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
 const queue = () => {
   const q = load('coinQ', []);
@@ -14228,7 +14264,7 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-23d',
+    id: '2026-11-23e',
     date: '11월 23일',
     title: '🖐 터치 씹힘 고침 · 🎹 내 맵 만들기 다시 열림',
     items: [
@@ -14236,7 +14272,7 @@ const NEWS = [
       '엄지가 가운데 선을 넘어가 옆 줄을 눌러도 <b>원래 치려던 콩</b>으로 잡아 줘요',
       '<b>🎹 내 맵 만들기 다시 열렸어요!</b> 원하는 마디부터 듣기 · 건반 녹음 박자 고르기(16분 칸까지 자세히)',
       '<b>🎹 유저 맵</b>에선 코인이 <b>PERFECT 때만 1개</b>씩 쌓여요',
-      '<b>🥇 시즌 1 한정 콩 스킨</b> — 콩마다 금빛 「1」! 시즌 1 이 끝나면 다시는 안 팔아요',
+      '<b>🥇 시즌 1 한정 세트</b> — 금빛 「1」 콩 + 시즌 1 무대 + 황금 드럼! 시즌 1 이 끝나면 다시는 안 팔아요',
     ],
   },
   {
@@ -17421,16 +17457,18 @@ const decoPick = (type) => {
 function applyDeco() {
   const s = state.settings;
   // 🎤 라이브 스테이지 세트는 화면 전체가 세트 것(세트 무대·기본 콩) — 장착한 배경·콩 스킨은 세트를 빼면 돌아옴 (2026-11-22 사용자)
-  const live = decoPick('ui') === 'live';
-  const bg = live ? 'auto' : decoPick('bg');
-  const kit = live ? 'auto' : decoPick('kit');
+  const ui = decoPick('ui');
+  const live = ui === 'live';
+  const s1 = ui === 's1'; // 🥇 시즌 1 세트 = 금빛 「1」 콩 + 시즌 1 무대 + 황금 드럼 (2026-11-23)
+  const bg = live || s1 ? 'auto' : decoPick('bg');
+  const kit = live ? 'auto' : s1 ? 'goldkit' : decoPick('kit');
   renderer.bgPick = bg !== 'auto' ? bg : null;
   renderer.kitPick = kit !== 'auto' ? kit : null;
   renderer.photoDim = s.photoDim ?? 0.4;
-  renderer.uiStyle = live ? 'live' : null;
+  renderer.uiStyle = live ? 'live' : s1 ? 's1' : null;
   document.documentElement.classList.toggle('ui-live', live); // 게임 위 정보 칸·결과 화면도 세트 모양
   audio.uiSet = live ? 'live' : null; // 세트 버튼 소리
-  applyNoteColors(renderer.studio || live ? 'basic' : decoPick('notes'));
+  applyNoteColors(renderer.studio || live ? 'basic' : s1 ? 's1' : decoPick('notes'));
 }
 // 2026-11-22 사용자: 설정의 꾸미기 칸은 없애고 상점 한 곳에서 (장착 중 표시 + 「보유」 탭)
 function renderDeco() {
@@ -17513,6 +17551,7 @@ function shopSwatch(type, key) {
     if (type === 'notes') return `conic-gradient(${LANE_DEFAULT.join(',')})`;
     return type === 'kit' ? 'radial-gradient(circle at 35% 30%,#FFB27A,#E2562E 55%,#7A1E10)' : 'linear-gradient(#FF9A6B,#6A1B78)';
   }
+  if (type === 'ui' && key === 's1') return 'radial-gradient(circle at 50% 40%,#FFF3B0,#FFD23F 30%,#2B3A8C 60%,#0C1036)';
   if (type === 'ui') return 'linear-gradient(160deg,#1A1450 0%,#3A2A8A 45%,#FF8AD8 70%,#7DF2FF 100%)';
   if (type === 'notes') {
     const p = NOTE_PALETTES[key];
@@ -17538,7 +17577,7 @@ function shopSwatch(type, key) {
 }
 function shopName(type, key) {
   if (key === DECO_FREE[type]) return { ui: '기본 화면', notes: '기본 콩', bg: '기본 무대 (단계별)', kit: '기본 드럼 (맵 따라)' }[type];
-  if (type === 'ui') return '🎤 라이브 스테이지 세트';
+  if (type === 'ui') return key === 's1' ? '🥇 시즌 1 세트' : '🎤 라이브 스테이지 세트';
   if (type === 'notes') return (NOTE_PALETTES[key] || {}).name || key;
   if (key === 'photo') return '📷 내 사진 배경';
   if (type === 'kit' && SHOP_KITS[key]) return SHOP_KITS[key].name;
@@ -17552,7 +17591,7 @@ const SHOP_DESC = {
   ui: '판정선·콩·판정 글자·콤보·무대·버튼 소리가 리듬게임 라이브 화면처럼 한 번에 바뀌어요',
   basic: '처음 화면 그대로예요 · 누르면 이 분야만 기본으로 돌아가요',
   free: '무료예요',
-  s1: '시즌 1 동안만 살 수 있어요 · 콩마다 금빛 「1」 이 새겨져요 · 시즌이 끝나면 다시는 안 팔아요',
+  s1: '시즌 1 동안만 살 수 있어요 · 금빛 「1」 콩 + 시즌 1 무대 + 황금 드럼이 한 번에 · 시즌이 끝나면 다시는 안 팔아요',
 };
 const isBasicId = (id) => {
   const [type, key] = String(id || '').split(':');
@@ -17577,7 +17616,7 @@ var shopTab = 'all';
 function renderShop() {
   $('#shop-coins').textContent = fmt(getCoins());
   $('#shop-closed').hidden = shopIsOpen();
-  const live = decoPick('ui') === 'live';
+  const live = decoPick('ui') !== 'basic'; // 세트(라이브·시즌 1)를 끼면
   // 👕 지금 장착 중 (세트를 끼면 배경·드럼·콩은 세트 것)
   $('#shop-now').innerHTML =
     `<b>장착 중</b><div class="now-row">` +
@@ -17652,6 +17691,9 @@ function previewShop(id) {
   pick[type] = key;
   // 🎤 세트는 화면 전체가 바뀜: 세트 미리보기는 세트 무대·기본 콩으로 (장착한 배경·콩 스킨에 안 섞이게, 2026-11-22)
   if (type === 'ui' && key === 'live') Object.assign(pick, { bg: 'auto', kit: 'auto', notes: 'basic' });
+  if (type === 'ui' && key === 's1') Object.assign(pick, { bg: 'auto', kit: 'goldkit', notes: 's1' });
+  // 세트를 낀 채 다른 걸 미리보면 세트 빼고 (세트가 화면을 다 덮어서)
+  if (type !== 'ui') pick.ui = 'basic';
   // 콩 스킨은 어두운 무대에서 (화려한 맵 위에선 잘 안 보임)
   if (type === 'notes' && pick.bg === 'auto') pick.bg = 'void';
   const kc = $('#shopitem-kit');

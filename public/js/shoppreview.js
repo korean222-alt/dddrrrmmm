@@ -58,7 +58,7 @@ export async function startShopPreview(cv, { bg, kit, notes, ui, photo }) {
   r.quality = 2;
   r.bgPick = bg && bg !== 'auto' ? bg : null;
   r.kitPick = kit && kit !== 'auto' ? kit : null;
-  r.uiStyle = ui === 'live' ? 'live' : null;
+  r.uiStyle = ui === 'live' || ui === 's1' ? ui : null;
   if (bg === 'photo') {
     r.bgPhoto = photo || samplePhoto();
     r.photoDim = 0.35;
