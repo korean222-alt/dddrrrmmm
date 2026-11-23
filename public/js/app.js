@@ -3538,13 +3538,15 @@ class PianoPreview {
     this.baseBpm = level.bpm;
     this.notes = p2Notes(this.level);
     if (style === 'keys') {
-      this.keys = p2Keys(this.notes);
+      // 건반은 곡 음역만 (흰 건반 7개부터) → 건반이 넓어져 치기 쉬움 (11-23 사용자 '치기 너무 어려워')
+      this.keys = p2Keys(this.notes, 7, 15);
       const idx = new Map(this.keys.map((k, i) => [k.midi, i]));
       for (const n of this.notes) {
         n.lane = idx.get(n.midi);
         n.holdable = true; // 건반은 모든 음을 막대 길이만큼 꾹
       }
       this.hues = this.keys.map((_, i) => laneHue(i, this.keys.length));
+      this.usedLane = new Set(this.notes.map((n) => n.lane));
       if (typeof window !== 'undefined') buddies();
     } else {
       const lanes = p2TileLanes(this.notes);
@@ -3751,10 +3753,12 @@ class PianoPreview {
       const k = this._sx(Math.max(this.sFar, Math.min(1, (y - this.horizonY) / (this.judgeY - this.horizonY))));
       x = this.cx + (x - this.cx) / k;
     }
+    this._tapX = x;
+    // 검은 건반은 곡에 그 음이 있을 때만 따로 눌림 (없으면 밑의 흰 건반으로)
     if (y < this.kbY + this.blackH) {
       for (let i = 0; i < this.cols.length; i++) {
         const c = this.cols[i];
-        if (!c.white && x >= c.x && x < c.x + c.w) return i;
+        if (!c.white && this.usedLane.has(i) && x >= c.x && x < c.x + c.w) return i;
       }
     }
     let best = 0;
@@ -3779,7 +3783,7 @@ class PianoPreview {
     e.preventDefault();
     if (this.state !== 'playing') return;
     const { x, y } = this._local(e);
-    const lane = this._laneAt(x, y);
+    let lane = this._laneAt(x, y);
     if (lane < 0) return;
     try {
       this.canvas.setPointerCapture(e.pointerId);
@@ -3797,13 +3801,25 @@ class PianoPreview {
       }
     } else {
       // 건반: 가장 가까운 안 친 음 (앞뒤 P2_HIT_WIN 안이면 맞힘)
+      //   누른 건반에 칠 음이 없으면 옆 건반(손가락 자리에서 건반 한 칸 안)의 음도 받아 줌 — 판정 칸을 막대보다 넉넉하게
+      const tx = this._tapX ?? x;
+      let bestD = Infinity;
       for (const n of this.notes) {
-        if (n.lane !== lane || n.hit || n.miss) continue;
+        if (n.hit || n.miss) continue;
         const dt = t - n.t;
         if (dt < -P2_HIT_WIN) break;
-        if (Math.abs(dt) <= P2_HIT_WIN && (!best || Math.abs(dt) < Math.abs(t - best.t))) best = n;
+        if (Math.abs(dt) > P2_HIT_WIN) continue;
+        const near = n.lane === lane ? 0 : Math.abs(this._laneX(n.lane) - tx) / this.keyW;
+        if (near > 1.05) continue;
+        // 같은 건반 먼저, 그다음 시간이 잘 맞는 것, 그다음 가까운 건반
+        const score = (n.lane === lane ? 0 : 1) + Math.abs(dt) * 2 + near * 0.3;
+        if (score < bestD) {
+          bestD = score;
+          best = n;
+        }
       }
     }
+    if (best && best.lane !== lane) lane = best.lane; // 옆 건반 음을 받아 줬으면 그 건반이 눌린 걸로
     const press = { lane, note: null, x, y, at: t };
     this.pressed.set(e.pointerId, press);
     this.fx.flash.push({ lane, at: t });
