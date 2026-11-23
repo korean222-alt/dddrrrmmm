@@ -763,3 +763,38 @@ test('방 대기실: 변화 없으면 천천히 주고받기 (자리 비움 1분
   assert.equal(roomSig(a), roomSig({ ...a, players: { a: { ...a.players.a, ago: 3000 } } }));
   assert.notEqual(roomSig(a), roomSig({ ...a, players: { a: { ...a.players.a, ready: true } } }));
 });
+
+test('🖐 두 엄지가 하나로 합쳐 온 터치(2026-11-23 DM 영상): 한 번에 훌쩍 다른 줄로 = 새 터치, 굴리거나 미끄러지는 손가락은 아님', async () => {
+  const { moveIsTap, MOVE_WINDOW } = await import('../public/js/game.js');
+  // main.js 의 touchmove 처리와 같은 모양: 누른 자리 → 움직임들 → 새 터치로 본 움직임 수
+  const run = (start, moves, n = 4) => {
+    let anchor = start.u;
+    let trail = [{ at: start.at, u: start.u }];
+    let taps = 0;
+    for (const [at, u] of moves) {
+      const tap = moveIsTap(anchor, trail, u, at, n);
+      if (tap) {
+        taps++;
+        anchor = u;
+        trail = [];
+      }
+      trail.push({ at, u });
+      while (trail.length > 1 && trail[1].at <= at - MOVE_WINDOW) trail.shift();
+    }
+    return taps;
+  };
+  // 왼엄지가 쿵(1.7)을 누르고 가만히 → 떼는 순간 오른엄지가 짝(2.2)에 닿음 → 폰은 '같은 손가락이 옮겨 감'으로 보냄 (예전 규칙은 2.3 미만이라 놓침)
+  assert.equal(run({ at: 0, u: 1.7 }, [[90, 2.2]]), 1);
+  // 쿵짝쿵짝 연타가 전부 하나로 합쳐 와도 하나하나 새 터치
+  assert.equal(run({ at: 0, u: 1.75 }, [[114, 2.25], [228, 1.75], [342, 2.25], [456, 1.75]]), 4);
+  // 옮겨 간 게 두 번에 나눠 와도 (8ms 간격)
+  assert.equal(run({ at: 0, u: 1.7 }, [[100, 1.95], [108, 2.2]]), 1);
+  // 경계 근처에서 굴리며 떼는 손가락: 조금씩 선을 넘어가도 새 터치 아님 (11-22 '굴리며 떼면 헛침')
+  assert.equal(run({ at: 0, u: 1.9 }, [[100, 1.95], [108, 2.0], [116, 2.05], [124, 2.1], [132, 2.15]]), 0);
+  // 폰이 버벅여 움직임이 한 번에 몰려 와도 조금이면 아님
+  assert.equal(run({ at: 0, u: 1.85 }, [[150, 2.15]]), 0);
+  // 같은 줄 안에서는 아무리 움직여도 아님
+  assert.equal(run({ at: 0, u: 1.05 }, [[40, 1.95], [80, 1.1]]), 0);
+  // 다른 줄 안으로 깊이(0.3 넘게) 들어가면 천천히 가도 새 터치 (11-22 규칙 그대로)
+  assert.equal(run({ at: 0, u: 1.5 }, [[100, 1.8], [200, 2.1], [300, 2.35]]), 1);
+});

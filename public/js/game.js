@@ -57,6 +57,33 @@ const CROSS_DIST = 0.3;
  */
 const DEEP_EDGE = 0.5;
 
+/**
+ * 누른 손가락의 움직임(touchmove)이 사실은 '새로 누른 것'인지 (main.js 터치 처리). 자리는 줄 너비 단위(render.laneHit 의 u), at 은 ms.
+ *   anchor = 누른 자리(또는 마지막으로 새 터치로 본 자리), trail = 지금까지 움직인 자리 [{ at, u }] (main 이 MOVE_WINDOW 만큼 들고 있음)
+ *   ① 누른 줄에서 다른 줄 안으로 줄 너비 MOVE_DEEP 넘게 들어감 (11-22: 두 엄지가 거의 같이 닿아 폰이 하나로 합침)
+ *   ② MOVE_WINDOW 안에 줄 너비 MOVE_JUMP 넘게 훌쩍 옮겨 다른 줄로 (11-23 DM 영상 '위 위시 유 어 메리 크리스마스':
+ *      쿵 → 0.11초 뒤 짝일 때마다 짝 북이 아예 안 눌림 = 왼엄지가 떼는 순간 오른엄지가 닿아 아이폰이 '한 손가락이 옮겨 간 것'으로 보냄.
+ *      엄지가 가운데 선 가까이 있으면 ①에 안 걸려 짝이 통째로 빠졌음)
+ *   굴리거나 떼며 미끄러지는 손가락은 조금씩 움직여서 안 걸림 (11-22 '굴리며 떼면 헛침' 다시 안 생기게: 같은 줄 안 움직임은 절대 안 셈)
+ */
+export const MOVE_DEEP = 0.3;
+export const MOVE_JUMP = 0.35;
+export const MOVE_WINDOW = 60;
+export function moveIsTap(anchor, trail, u, at, n) {
+  const cl = (v) => Math.min(n - 1e-6, Math.max(0, v));
+  const cu = cl(u);
+  const pi = Math.floor(cl(anchor));
+  if (cu >= pi + 1 + MOVE_DEEP || cu <= pi - MOVE_DEEP) return true;
+  // MOVE_WINDOW 전에 있던 자리(그 뒤로 안 움직였으면 그대로)부터 지금까지
+  let i0 = 0;
+  for (let i = 0; i < trail.length; i++) if (trail[i].at <= at - MOVE_WINDOW) i0 = i;
+  for (let i = i0; i < trail.length; i++) {
+    const pu = cl(trail[i].u);
+    if (Math.abs(cu - pu) >= MOVE_JUMP && Math.floor(cu) !== Math.floor(pu)) return true;
+  }
+  return false;
+}
+
 export class Game {
   /**
    * @param {object} o

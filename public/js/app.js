@@ -14025,6 +14025,33 @@ const CROSS_DIST = 0.3;
  */
 const DEEP_EDGE = 0.5;
 
+/**
+ * 누른 손가락의 움직임(touchmove)이 사실은 '새로 누른 것'인지 (main.js 터치 처리). 자리는 줄 너비 단위(render.laneHit 의 u), at 은 ms.
+ *   anchor = 누른 자리(또는 마지막으로 새 터치로 본 자리), trail = 지금까지 움직인 자리 [{ at, u }] (main 이 MOVE_WINDOW 만큼 들고 있음)
+ *   ① 누른 줄에서 다른 줄 안으로 줄 너비 MOVE_DEEP 넘게 들어감 (11-22: 두 엄지가 거의 같이 닿아 폰이 하나로 합침)
+ *   ② MOVE_WINDOW 안에 줄 너비 MOVE_JUMP 넘게 훌쩍 옮겨 다른 줄로 (11-23 DM 영상 '위 위시 유 어 메리 크리스마스':
+ *      쿵 → 0.11초 뒤 짝일 때마다 짝 북이 아예 안 눌림 = 왼엄지가 떼는 순간 오른엄지가 닿아 아이폰이 '한 손가락이 옮겨 간 것'으로 보냄.
+ *      엄지가 가운데 선 가까이 있으면 ①에 안 걸려 짝이 통째로 빠졌음)
+ *   굴리거나 떼며 미끄러지는 손가락은 조금씩 움직여서 안 걸림 (11-22 '굴리며 떼면 헛침' 다시 안 생기게: 같은 줄 안 움직임은 절대 안 셈)
+ */
+const MOVE_DEEP = 0.3;
+const MOVE_JUMP = 0.35;
+const MOVE_WINDOW = 60;
+function moveIsTap(anchor, trail, u, at, n) {
+  const cl = (v) => Math.min(n - 1e-6, Math.max(0, v));
+  const cu = cl(u);
+  const pi = Math.floor(cl(anchor));
+  if (cu >= pi + 1 + MOVE_DEEP || cu <= pi - MOVE_DEEP) return true;
+  // MOVE_WINDOW 전에 있던 자리(그 뒤로 안 움직였으면 그대로)부터 지금까지
+  let i0 = 0;
+  for (let i = 0; i < trail.length; i++) if (trail[i].at <= at - MOVE_WINDOW) i0 = i;
+  for (let i = i0; i < trail.length; i++) {
+    const pu = cl(trail[i].u);
+    if (Math.abs(cu - pu) >= MOVE_JUMP && Math.floor(cu) !== Math.floor(pu)) return true;
+  }
+  return false;
+}
+
 class Game {
   /**
    * @param {object} o
@@ -15123,7 +15150,7 @@ class Game {
   }
 }
 
-return { MAX_LIVES, LIFE_REGEN_COMBO, MAX_CONTINUES, REVIVE_LIVES, Game };
+return { MAX_LIVES, LIFE_REGEN_COMBO, MAX_CONTINUES, REVIVE_LIVES, MOVE_DEEP, MOVE_JUMP, MOVE_WINDOW, moveIsTap, Game };
 })();
 
 // ---- ads.js ----
@@ -15845,13 +15872,13 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-23l',
+    id: '2026-11-23m',
     date: '11월 23일',
     title: '🎹 시즌 2 피아노 미리보기 · 투표 · 🖐 터치 씹힘 고침',
     items: [
       '<b>🎹 시즌 2 미리보기!</b> 피아노 두 가지(A 세로 타일 · B 가로 건반)를 쳐 보고 <b>마음에 드는 쪽에 투표</b>하면 <b>🪙 500코인</b>! 표는 나중에 바꿀 수 있어요',
       '미리보기 새로: <b>⚡ 점점 빠르게</b> · 건반은 멀리서 다가오는 <b>원근 길</b>과 꾹 게이지 · 타일은 아래로 내려온 걸 <b>누르기만 하면</b> 돼요',
-      '<b>🖐 엇박·빽빽한 곳에서 터치가 씹히던 것 고쳤어요!</b> 옆 줄을 살짝 눌러도 원래 치려던 콩으로 잡고, <b>폰이 잠깐 버벅여도 제때 친 콩은 MISS 가 안 돼요</b>',
+      '<b>🖐 터치 씹힘 고쳤어요!</b> <b>쿵 바로 뒤 짝</b>처럼 두 엄지로 빠르게 번갈아 칠 때 하나가 안 눌리던 것 · 폰이 잠깐 버벅이면 제때 친 콩이 MISS 되던 것 · 옆 줄을 살짝 누르면 씹히던 것',
       '<b>🎹 내 맵 만들기 다시 열렸어요!</b> 원하는 마디부터 듣기 · 건반 녹음 16분 칸까지 · 📤 올리기에서 <b>🎨 무대·드럼·콩 색</b>도 골라요 · 유저 맵 코인은 <b>PERFECT 때만 1개</b>',
       '<b>🥇 시즌 1 한정 세트</b> — 금빛 「1」 콩 + 시즌 1 무대 + 황금 드럼! 시즌 1 이 끝나면 다시는 안 팔아요',
     ],
@@ -16890,7 +16917,7 @@ const { AudioEngine, playMetronome } = __m_audio;
 const { Renderer, NOTE_PALETTES, LANE, applyNoteColors } = __m_render;
 const { coinsInit, setCoinAccount, coinTotal, addRunCoins, addServerCoins } = __m_coins;
 const { queueOffline, backupOffline } = __m_offrec;
-const { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } = __m_game;
+const { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES, moveIsTap, MOVE_WINDOW } = __m_game;
 const { initAds, showRewarded } = __m_ads;
 const { createApi, serverResting } = __m_api;
 const { initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay } = __m_track;
@@ -17901,7 +17928,10 @@ function bindGameInput() {
     (e) => {
       e.preventDefault();
       // 게임 시작 전부터 대고 있던 손가락도 기억 (안 그러면 시작 뒤 첫 움직임이 '새 터치'로 잡힘)
-      for (const t of e.changedTouches) held.set(t.identifier, { at: e.timeStamp, x: t.clientX, y: t.clientY, u: state.game ? laneFromPoint(t.clientX, t.clientY).u : null });
+      for (const t of e.changedTouches) {
+        const u = state.game ? laneFromPoint(t.clientX, t.clientY).u : null;
+        held.set(t.identifier, { at: e.timeStamp, x: t.clientX, y: t.clientY, u, trail: u == null ? [] : [{ at: e.timeStamp, u }] });
+      }
       if (!state.game) return;
       if (!e.isTrusted) state.game.fakeTaps += e.changedTouches.length;
       // 한 터치에서 오류가 나도 같이 온 다른 엄지 터치는 꼭 침 (두 엄지가 동시에 닿으면 한 이벤트에 같이 옴)
@@ -17914,9 +17944,9 @@ function bindGameInput() {
     { passive: false }
   );
   // 손가락 움직임(touchmove)이 사실은 '새로 누른 것'인 경우 → 보통 터치와 똑같이 판정 (헛침·MISS 벌도 똑같이, 랭킹 공정):
-  //   두 엄지가 가까이(4줄 곡의 쿵·짝은 화면 가운데에 붙어 있음) 거의 동시에 닿으면 폰이 둘을 '손가락 하나가 움직인 것'으로 합쳐 보냄
-  //   → 누른 손가락이 다른 줄 안으로 줄 너비 0.3 넘게 들어감 (경계에서 떨리거나 떼면서 살짝 미끄러진 건 안 셈)
-  //   (2026-11-22 '윌리엄 텔 쿵짝쿵에서 분명히 눌렀는데 쿵이나 짝 하나가 안 눌림')
+  //   두 엄지가 가까이(4줄 곡의 쿵·짝은 화면 가운데에 붙어 있음) 거의 동시에 닿거나, 한 엄지가 떼는 순간 다른 엄지가 닿으면
+  //   폰이 둘을 '손가락 하나가 움직인 것'으로 합쳐 보냄 → 다른 줄 안으로 깊이 들어가거나, 한 번에 훌쩍 옮겨 가면 새 터치 (game.js moveIsTap)
+  //   (2026-11-22 '윌리엄 텔 쿵짝쿵에서 분명히 눌렀는데 쿵이나 짝 하나가 안 눌림', 11-23 DM 영상 '쿵 다음 짝이 자주 안 눌림')
   //   ⚠ 같은 줄 안에서 '조용하다 움직이면 새 터치' 규칙(예전 0.25초·10px, 11-22 21시 70ms·4px)은 없앰: 누른 채 굴리며 떼는
   //   손가락이 터치 한 번 더로 잡혀 헛침이 쏟아짐('터치가 자꾸 씹혀요' 댓글 폭주, 헤드리스 재현). 다시 넣지 말 것.
   //   벌을 없애는 것도 안 됨 (손가락 문지르기로 공짜 시도 → 랭킹 의미 없어짐)
@@ -17928,19 +17958,23 @@ function bindGameInput() {
       for (const t of e.changedTouches) {
         const h = held.get(t.identifier);
         const { u } = laneFromPoint(t.clientX, t.clientY);
+        const at = e.timeStamp;
         let revived = !h;
         let hu = h && h.u != null ? h.u : u;
-        if (!revived && u != null && hu != null) {
-          // 줄 경계에서 0.3 넘게 다른 줄 안으로 들어옴 (길 밖 가장자리는 맨 끝 줄로 봄)
-          const n = renderer.laneOrder.length;
-          const cl = (v) => Math.min(n - 1e-6, Math.max(0, v));
-          const pi = Math.floor(cl(hu));
-          const cu = cl(u);
-          if (cu >= pi + 1.3 || cu <= pi - 0.3) revived = true;
+        let trail = (h && h.trail) || [];
+        if (!revived && u != null && hu != null) revived = moveIsTap(hu, trail.length ? trail : [{ at, u: hu }], u, at, renderer.laneOrder.length);
+        if (revived) {
+          hu = u;
+          trail = [];
         }
-        if (revived) hu = u;
-        held.set(t.identifier, { at: e.timeStamp, x: t.clientX, y: t.clientY, u: hu });
-        if (revived) tapAt(t.clientX, t.clientY, e.timeStamp);
+        // 지나온 자리는 MOVE_WINDOW 전 것 하나까지만 (그 전 자리에서 안 움직였으면 그게 '조금 전 자리')
+        if (u != null) {
+          trail.push({ at, u });
+          while (trail.length > 1 && trail[1].at <= at - MOVE_WINDOW) trail.shift();
+          if (trail.length > 12) trail.splice(0, trail.length - 12);
+        }
+        held.set(t.identifier, { at, x: t.clientX, y: t.clientY, u: hu, trail });
+        if (revived) tapAt(t.clientX, t.clientY, at);
       }
     },
     { passive: false }
