@@ -506,6 +506,95 @@ test('🖐 터치 씹힘(2026-11-23): 엇박 늦은 쿵·선을 넘은 엄지·�
   assert.ok(a2.judged && a2.result !== 'miss', '다음 쿵이 씹히면 안 됨');
 });
 
+test('🖐 폰 버벅임(2026-11-23): 화면 갱신이 밀린 터치보다 먼저 돌아도 제때 친 콩은 안 씹힘, 일찍 누름 벌은 그대로', async () => {
+  const { Game, MAX_LIVES } = await import('../public/js/game.js');
+  const { KICK, SNARE } = await import('../public/js/charts.js');
+  const noop = () => {};
+  globalThis.cancelAnimationFrame ??= noop;
+  const renderer = new Proxy({}, { get: () => noop });
+  let clock = 0;
+  const audio = new Proxy({ ctx: { suspend: async () => {}, resume: async () => {} }, heardTime: () => clock }, { get: (o, k) => (k in o ? o[k] : noop) });
+  const make = (bars, bpm = 100) => {
+    const lv = { ...LEVELS[0], id: 999, bpm, bars: ['................', ...bars], song: LEVELS[0].song };
+    const g = new Game({ audio, renderer, level: lv, settings: {}, onDeath: noop, onEnd: noop });
+    g.startTime = 0;
+    g.state = 'playing';
+    g.player = { stop: noop };
+    for (const n of g.notes) n.gold = false; // 황금 콩은 하트를 줘서 목숨 셈이 헷갈림
+    return g;
+  };
+  const tap = (g, lane, at) => {
+    clock = at;
+    g.input(lane, 0, [], lane === KICK ? 0.5 : 1.5);
+  };
+
+  // 1) 쿵 5개(0.3초 간격). 앞 둘은 제때, 그다음 0.9초 버벅임 → 화면 갱신(MISS 처리)이 두 번 먼저 돌고 나서 밀린 터치 셋이 도착
+  let g = make(['K.K.K.K.K.......']);
+  let ks = g.lanes[KICK];
+  tap(g, KICK, ks[0].time);
+  g._sweep(ks[0].time + 0.05, 0);
+  tap(g, KICK, ks[1].time + 0.01);
+  g._sweep(ks[1].time + 0.05, 0);
+  g._sweep(ks[4].time + 0.2, 0); // 버벅인 뒤 첫 화면: '바로 전 화면' 기준이라 아직 안 넘김
+  assert.equal(ks[2].judged, false, '버벅인 뒤 첫 화면 갱신은 버벅이는 동안 누른 터치를 기다림');
+  g._sweep(ks[4].time + 0.6, 0); // 그래도 터치가 안 오면 MISS 로 넘김 (한 프레임 늦게)
+  g._sweep(ks[4].time + 0.62, 0);
+  assert.equal(ks[2].result, 'miss');
+  assert.equal(ks[4].result, 'miss');
+  assert.ok(g.lives < MAX_LIVES);
+  tap(g, KICK, ks[2].time);
+  tap(g, KICK, ks[3].time + 0.02);
+  tap(g, KICK, ks[4].time - 0.01);
+  for (const k of ks) assert.equal(k.result, 'perfect', '제때 친 콩은 늦게 도착해도 PERFECT');
+  assert.equal(g.counts.miss, 0);
+  assert.equal(g.lives, MAX_LIVES, '목숨 돌려받음');
+  assert.equal(g.combo, 5, '콤보도 이어짐');
+  assert.equal(g._check().rv, 3);
+
+  // 2) 늦게 도착한 '너무 일찍 누름'은 그 콩을 진짜 MISS 로 (뒤 터치로 못 되살림 — 마구 연타 방지는 늦게 와도 그대로)
+  g = make(['K...............']);
+  const k = g.lanes[KICK][0];
+  g._sweep(k.time + 0.5, 0);
+  g._sweep(k.time + 0.6, 0);
+  tap(g, KICK, k.time - 0.2);
+  tap(g, KICK, k.time);
+  assert.equal(k.result, 'miss');
+  assert.equal(g.counts.miss, 1);
+
+  // 3) 늦게 도착한 'GOOD 보다 조금 늦은' 터치도 그 콩은 MISS 그대로, 다음 콩은 제 터치로
+  g = make(['K.K.............']);
+  ks = g.lanes[KICK];
+  g._sweep(ks[1].time + 0.5, 0);
+  g._sweep(ks[1].time + 0.6, 0);
+  tap(g, KICK, ks[0].time + 0.2);
+  tap(g, KICK, ks[1].time);
+  assert.equal(ks[0].result, 'miss');
+  assert.equal(ks[1].result, 'perfect');
+  assert.equal(g.counts.miss, 1);
+  assert.equal(g.counts.wrong, 0);
+
+  // 4) 동시치기 둘 다 MISS 로 넘어간 뒤 하나만 되살리면 목숨은 여전히 하나 깎인 채
+  g = (() => {
+    const gg = make(['K...............']);
+    // 짝 줄에 같은 시각 콩을 직접 넣음 (동시치기)
+    const kk = gg.lanes[KICK][0];
+    const sn = { ...kk, lane: SNARE, judged: false, result: undefined };
+    gg.lanes[SNARE].push(sn);
+    gg.notes.push(sn);
+    return gg;
+  })();
+  const kk = g.lanes[KICK][0];
+  const sn = g.lanes[SNARE][0];
+  g._sweep(kk.time + 0.5, 0);
+  g._sweep(kk.time + 0.6, 0);
+  assert.equal(g.lives, MAX_LIVES - 1, '동시치기 둘 다 놓쳐도 하나만');
+  tap(g, KICK, kk.time);
+  assert.equal(g.lives, MAX_LIVES - 1, '짝은 아직 MISS → 목숨은 짝 몫');
+  tap(g, SNARE, sn.time);
+  assert.equal(g.lives, MAX_LIVES);
+  assert.equal(g.counts.miss, 0);
+});
+
 test('📦 랭킹 기록 → 깬 단계(별) 어림: 무제한은 다이아·깬 단계', async () => {
   const { bestsFromScores, endlessKey } = await import('../server/handler.js');
   const { isUnlocked, noteCount: nc, getLevel } = await import('../public/js/charts.js');

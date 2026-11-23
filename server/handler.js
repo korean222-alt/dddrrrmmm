@@ -1813,6 +1813,10 @@ export function runCheck(c, elapsedMs) {
     if (mean != null) out.mean = mean;
     if (n != null) out.n = n;
     if (fake != null) out.fake = fake;
+    // 폰 버벅임 (2026-11-23): 늦게 도착한 터치로 되살린 MISS 수 · 터치가 가장 늦게 처리된 시간(ms). 0 이면 안 적음
+    const rv = int(c.rv, 0, 100000), lag = int(c.lag, 0, 10000);
+    if (rv) out.rv = rv;
+    if (lag) out.lag = lag;
   }
   return JSON.stringify(out);
 }

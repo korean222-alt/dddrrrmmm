@@ -92,6 +92,11 @@ export class Game {
     this.offsets = [];
     /** 프로그램이 만든 가짜 입력 수 (브라우저가 isTrusted=false 로 표시) — 핵 의심 확인용으로 점수와 같이 보냄 */
     this.fakeTaps = 0;
+    /** 늦게 도착한 터치로 되살린 MISS 수 · 터치가 가장 늦게 도착한 시간(초) — 폰 버벅임 확인용으로 점수와 같이 보냄 */
+    this.revived = 0;
+    this.maxLag = 0;
+    /** 진짜 실수(헛침·지나가지 않은 MISS) 수 — 되살릴 때 콤보를 이어 줄지 (_revive) */
+    this._hardBreaks = 0;
     /** 줄마다 마지막으로 누른 시각(곡 시간) — 엄지가 옆 줄로 넘어왔는지 볼 때 */
     this._tapAt = {};
     /** 줄마다 마지막으로 누른 자리 (render.laneHit 의 u, 줄 너비 단위) */
@@ -369,6 +374,9 @@ export class Game {
     if (!this.laneOrder.includes(lane)) return;
     const playing = this.state === 'playing' && !this.auto;
     const t = playing ? this.songTime(perfMs) : 0;
+    // 터치가 처리되기까지 걸린 시간 (폰 버벅임 확인용. 이상한 시각은 안 셈)
+    const lag = perfMs != null ? rt - perfMs / 1000 : 0;
+    if (playing && lag > this.maxLag && lag < 5) this.maxLag = lag;
     const touched = lane;
     this._altNote = null;
     if (playing && near && near.length) lane = this._pickLane(lane, t, near, pos);
@@ -395,9 +403,10 @@ export class Game {
     let late = null; // GOOD 보다 조금 늦게 친 노트 (아직 MISS 로 안 넘어감)
     // 이 줄에서 옆 줄 터치가 먼저 가져간 콩 → 이 터치가 진짜 주인일 수 있음
     const redo = this._redoNear(lane, t);
-    for (let i = this.ptr[lane]; i < list.length; i++) {
+    // 안 쳐진 콩 + 폰이 버벅여 이 터치가 늦게 도착하는 사이 MISS 로 넘어간 콩(누른 때 기준으론 아직 안 넘어감, _open)
+    for (let i = this._from(lane, t); i < list.length; i++) {
       const n = list[i];
-      if (n.judged) continue;
+      if (!this._open(n, t)) continue;
       const dt = t - n.time;
       if (dt > JUDGE.good) {
         if (dt <= JUDGE.good + MISS_SLACK) late = n;
@@ -413,7 +422,7 @@ export class Game {
         this._reclaim(redo, t, rt);
         return;
       }
-      this._judge(n, dt, rt);
+      this._hit(n, dt, rt);
       // 이 터치가 '사실은' 치려던 게 다른 콩일 수도 있으면 기억 → 그 콩(n)의 진짜 터치가 오면 서로 바꿈 (_reclaim):
       //   - 옆 줄에서 넘어온 터치(lane≠touched): 원래 눌렀던 줄 콩
       //   - 경계 근처 터치가 제 줄 콩을 침: 선을 살짝 넘은 옆 줄 엄지였을 수도 → 옆 줄 콩
@@ -433,7 +442,7 @@ export class Game {
     //   다음 콩이 조금 더 가까워도 지나간 콩 것으로 봄: 지나간 콩은 어차피 MISS 라 손해가 없고, 다음 콩은 진짜 터치를 기다림
     const early = ahead && t - ahead.time >= -JUDGE.early;
     if (late) {
-      this._miss(late, rt);
+      this._missNow(late, rt);
       return;
     }
     // 지나가서 이미 MISS 가 된 콩을 늦게 친 것 (폰이 버벅여 터치가 MISS 처리보다 늦게 도착) → 그 MISS 로 벌은 받았음.
@@ -443,7 +452,7 @@ export class Game {
     // 너무 일찍 누름 → 그 노트는 MISS (마구 연타해서 점수 받는 것 방지)
     //   ⚠ 이 MISS 를 나중 터치로 되돌려 주면 마구 연타가 거의 다 맞음(시뮬레이션 94%) → 되돌리지 말 것
     if (early) {
-      this._miss(ahead, rt);
+      this._missNow(ahead, rt);
       return;
     }
     // 노트 없는 곳을 누름 → 헛침: 점수 없음 + 콤보 끊김 (카운트인/끝난 뒤는 봐줌)
@@ -462,7 +471,7 @@ export class Game {
       //   (산왕의 궁전 킥 연타의 남는 터치가 바로 뒤 스네어를 가져감 → 진짜 스네어 터치가 되찾음.
       //    반대로 정확히 친 콩을 같은 줄 다음 콩을 일찍 친 터치가 뺏어 가면 안 됨)
       const b = n.borrowed;
-      const ok = b && !n.reclaimed && (b.note ? !b.note.judged : Math.abs(t - n.time) < Math.abs(b.t - n.time));
+      const ok = b && !n.reclaimed && (b.note ? this._open(b.note, b.t) : Math.abs(t - n.time) < Math.abs(b.t - n.time));
       if (ok && (!best || Math.abs(t - n.time) < Math.abs(t - best.time))) best = n;
     }
     return best;
@@ -480,6 +489,76 @@ export class Game {
   }
 
   /**
+   * 터치(누른 시각 t) 기준으로 아직 칠 수 있는 콩: 안 쳐진 콩, 또는 지나가서 MISS 로 넘겼지만 t 때는 아직 넘기기 전이었던 콩.
+   *   폰이 버벅여 터치가 늦게 도착하면 그사이 화면 갱신이 콩을 MISS 로 넘겨 버림 → 그 터치는 '누른 그 순간' 상황 그대로 판정:
+   *   GOOD 안이면 되살리고(_revive), 일찍·늦게 누른 거면 그 MISS 가 진짜 MISS 가 됨(_missNow, 마구 연타 벌도 그대로).
+   *   (2026-11-23 '빽빽한 곳이나 그 부분을 지나고 나면 터치가 잘 안 돼요': 버벅인 뒤 화면 갱신이 밀려 있던 터치보다 먼저 돌면
+   *    제때 친 콩까지 MISS → 늦게 온 터치는 버려지거나 다른 콩을 건드려 헛침. scripts/touch-sim.mjs HITCH)
+   *   제때 도착한 터치는 MISS 처리(콩 시각 + GOOD + MISS_SLACK) 전에 판정되므로 늘 '안 쳐진 콩'만 봄 → 예전과 같음
+   */
+  _open(n, t) {
+    return !n.judged || (n.swept && t - Math.max(n.time, n.hold || 0) <= JUDGE.good + MISS_SLACK);
+  }
+
+  /** 이 줄에서 t 기준으로 볼 첫 콩 자리: 판정 자리(ptr)에서 MISS 로 넘긴 콩까지 조금 거슬러 올라감 (_open) */
+  _from(lane, t) {
+    const list = this.lanes[lane];
+    const p = Math.min(this.ptr[lane], list.length);
+    let i = p;
+    while (i > 0 && p - i < 24 && list[i - 1].time > t - 1) i--;
+    return i;
+  }
+
+  /** 콩을 침 (MISS 로 넘겼던 콩이면 되살림) */
+  _hit(n, dt, rt) {
+    if (n.swept) this._revive(n, dt, rt);
+    else this._judge(n, dt, rt);
+  }
+
+  /** 일찍·늦게 눌러 그 콩은 MISS. MISS 로 넘겼던 콩이면 벌은 이미 받았음 → 되살릴 수 없게만 (콤보는 지금 끊김) */
+  _missNow(n, rt) {
+    if (!n.swept) {
+      this._miss(n, rt);
+      return;
+    }
+    n.swept = false;
+    n.undo = null;
+    this._hardBreaks++;
+    this.combo = 0;
+    this.r.onJudge(n.lane, 'miss', rt);
+  }
+
+  /**
+   * 늦게 도착한 터치로 MISS 를 되살림: MISS 로 받은 벌(판정 수·목숨)을 돌려주고 그 터치 시각으로 판정.
+   *   콤보는 그 MISS 뒤에 다른 실수(헛침·진짜 MISS)가 없었을 때만 이어 줌
+   */
+  _revive(n, dt, rt) {
+    n.swept = false;
+    n.revived = true;
+    this.revived++;
+    this.counts.miss--;
+    if (n.hurt) {
+      n.hurt = false;
+      // 같이 놓친 동시치기 콩이 아직 MISS 면 목숨 하나는 그 콩 몫 (동시치기 둘 다 놓쳐도 하나만 깎는 규칙)
+      let twin = null;
+      for (const l of this.laneOrder) {
+        if (l === n.lane) continue;
+        const list = this.lanes[l];
+        for (let i = this._from(l, n.time); i < list.length && list[i].time <= n.time; i++) if (list[i].swept && list[i].time === n.time) twin = list[i];
+      }
+      if (twin) twin.hurt = true;
+      else if (this.livesOn && this.state === 'playing') {
+        this.lives = Math.min(MAX_LIVES, this.lives + 1);
+        if (this._lostAt === n.time) this._lostAt = null;
+      }
+    }
+    const u = n.undo;
+    n.undo = null;
+    if (u && u.hard === this._hardBreaks) this.combo = Math.max(this.combo, u.combo);
+    this._judge(n, dt, rt);
+  }
+
+  /**
    * 옆 줄 터치가 가져간 노트를 그 줄 진짜 터치가 되찾음 (헛침·MISS 아님).
    *   가져갔던 터치는 원래 눌렀던 줄의 콩으로 돌려줌 — 그 콩이 아직 안 쳐졌고 그 터치 시각에 GOOD 안이면, 그 터치 시각으로 판정.
    *   (2026-11-23 '엇박 칠 때 터씹': 쿵을 조금 늦게 쳤는데 가운데 선 근처라 바로 뒤 짝 콩으로 옮겨지고 → 쿵 콩은 MISS 가 되던 것)
@@ -492,14 +571,14 @@ export class Game {
     this.r.onJudge(b.lane, b.result, rt);
     const o = b.borrowed;
     const n = o && o.note;
-    if (!n || n.judged) return;
+    if (!n || !this._open(n, o.t)) return;
     const dt = o.t - n.time;
     // 지나간 콩을 늦게 친 것이었음 → 그 콩은 MISS (벌은 원래 받을 만큼만)
     if (Math.abs(dt) > JUDGE.good) {
-      this._miss(n, rt);
+      this._missNow(n, rt);
       return;
     }
-    this._judge(n, dt, rt);
+    this._hit(n, dt, rt);
     n.borrowed = { note: null, t: o.t };
   }
 
@@ -528,9 +607,9 @@ export class Game {
   _weakFor(lane, t) {
     const list = this.lanes[lane];
     let late = null;
-    for (let i = this.ptr[lane]; i < list.length; i++) {
+    for (let i = this._from(lane, t); i < list.length; i++) {
       const n = list[i];
-      if (n.judged) continue;
+      if (!this._open(n, t)) continue;
       const dt = t - n.time;
       if (dt > JUDGE.good) {
         if (dt <= JUDGE.good + MISS_SLACK) late = n;
@@ -545,9 +624,9 @@ export class Game {
   /** 지금(t) 이 줄에서 누르면 판정될 노트 (없으면 null) */
   _noteFor(lane, t) {
     const list = this.lanes[lane];
-    for (let i = this.ptr[lane]; i < list.length; i++) {
+    for (let i = this._from(lane, t); i < list.length; i++) {
       const n = list[i];
-      if (n.judged) continue;
+      if (!this._open(n, t)) continue;
       const dt = t - n.time;
       if (dt > JUDGE.good) continue;
       return dt < -JUDGE.good ? null : n;
@@ -614,6 +693,7 @@ export class Game {
   _wrong(lane, rt, t) {
     this.counts.wrong++;
     this.combo = 0;
+    this._hardBreaks++;
     this.r.onJudge(lane, 'wrong', rt);
     if (t === undefined || t - (this._wrongLostAt ?? -9) < WRONG_GAP) return;
     if (t < this.graceUntil || !this.livesOn || this.state !== 'playing') return;
@@ -664,13 +744,43 @@ export class Game {
     }
   }
 
-  _miss(n, rt) {
+  /** MISS. swept = 지나가서 MISS 로 넘김 (늦게 도착한 터치가 되살릴 수 있게 그 전 콤보를 기억, _revive) */
+  _miss(n, rt, swept = false) {
     n.judged = true;
     n.result = 'miss';
+    if (swept) {
+      n.swept = true;
+      n.undo = { combo: this.combo, hard: this._hardBreaks };
+    } else this._hardBreaks++;
     this.counts.miss++;
     this.combo = 0;
     this.r.onJudge(n.lane, 'miss', rt);
     this._loseLife(n, rt);
+  }
+
+  /**
+   * 지나간 노트 → MISS. 기준은 '바로 전 화면' 때 곡 시각 (한 프레임 늦게):
+   *   폰이 버벅인 뒤 화면 갱신이 밀려 있던 터치보다 먼저 돌아도, 버벅이는 동안 누른 터치가 먼저 판정됨 (그 뒤에 온 건 _revive)
+   */
+  _sweep(now, rt) {
+    const h = Math.min(now, this._sweepPrev ?? now);
+    this._sweepPrev = now;
+    for (const lane of this.laneOrder) {
+      const list = this.lanes[lane];
+      while (this.ptr[lane] < list.length) {
+        const n = list[this.ptr[lane]];
+        if (n.judged) {
+          this.ptr[lane]++;
+          continue;
+        }
+        if (h - Math.max(n.time, n.hold || 0) > JUDGE.good + MISS_SLACK) {
+          this._miss(n, rt, true);
+          this.ptr[lane]++;
+          continue;
+        }
+        break;
+      }
+    }
   }
 
   /** MISS → 목숨 하나. 동시치기(두 레인 같은 시각)를 둘 다 놓쳐도 하나만 깎음 */
@@ -679,6 +789,7 @@ export class Game {
     if (n.time < this.graceUntil) return;
     if (this._lostAt === n.time) return;
     this._lostAt = n.time;
+    n.hurt = true; // 되살리면 돌려줌 (_revive)
     this._hurt(rt);
   }
 
@@ -811,23 +922,7 @@ export class Game {
     }
 
     // 지나간 노트 → MISS
-    for (const lane of this.laneOrder) {
-      const list = this.lanes[lane];
-      while (this.ptr[lane] < list.length) {
-        const n = list[this.ptr[lane]];
-        if (n.judged) {
-          this.ptr[lane]++;
-          continue;
-        }
-        if (now - Math.max(n.time, n.hold || 0) > JUDGE.good + MISS_SLACK) {
-          this._miss(n, rt);
-          n.swept = true;
-          this.ptr[lane]++;
-          continue;
-        }
-        break;
-      }
-    }
+    this._sweep(now, rt);
     if (this.state !== 'playing') return; // 방금 목숨이 다 떨어짐 (_die 가 화면 그림)
 
     this._drawFrame(now, rt);
@@ -1007,13 +1102,16 @@ export class Game {
     });
   }
 
-  /** 핵 의심 확인용: 박자 오차 퍼짐(표준편차)·평균(ms), 친 수, 가짜 입력 수. 사람은 손가락이라 오차가 들쭉날쭉, 자동 입력은 너무 일정 */
+  /**
+   * 핵 의심 확인용: 박자 오차 퍼짐(표준편차)·평균(ms), 친 수, 가짜 입력 수. 사람은 손가락이라 오차가 들쭉날쭉, 자동 입력은 너무 일정
+   *   + 폰 버벅임: 늦게 도착한 터치로 되살린 MISS 수(rv)·터치가 가장 늦게 처리된 시간(lag, ms)
+   */
   _check() {
     const o = this.offsets;
     const n = o.length;
     const mean = n ? o.reduce((a, b) => a + b, 0) / n : 0;
     const sd = n > 1 ? Math.sqrt(o.reduce((a, b) => a + (b - mean) * (b - mean), 0) / (n - 1)) : 0;
-    return { sd: Math.round(sd * 1000), mean: Math.round(mean * 1000), n, fake: this.fakeTaps };
+    return { sd: Math.round(sd * 1000), mean: Math.round(mean * 1000), n, fake: this.fakeTaps, rv: this.revived, lag: Math.round(this.maxLag * 1000) };
   }
 
   /** 무제한 모드 / 레벨업 챌린지 결과: 몇 단계까지 깼나 + 다이아몬드 */

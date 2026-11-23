@@ -6,6 +6,8 @@
 //   - 마구 연타: 두 엄지가 아무 때나 두드릴 때 맞히는 비율 (올라가면 랭킹 공정이 깨짐 → 판정 바꿀 때 꼭 확인)
 // 쓰기: node scripts/touch-sim.mjs                 지금 코드
 //       node scripts/touch-sim.mjs <예전 폴더>     예전 코드(public/js 가 있는 폴더, 예: git worktree)와 나란히 비교
+//       HITCH=0.3 node scripts/touch-sim.mjs       폰이 버벅임: 3초에 한 번쯤 0.3초 동안 화면·터치 처리가 멈춤 (HITCH_EVERY=초)
+//         FRAME_FIRST=1 이면 멈춘 뒤 화면 갱신(MISS 처리)이 밀린 터치보다 먼저 돎 (2026-11-23 '빽빽한 곳 뒤에서 터치가 안 돼요')
 import path from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
 
@@ -31,7 +33,7 @@ function rng(seed) {
 }
 
 // 사람 유형 (sigma=타이밍 흔들림 초, bias=평균 늦음, posSigma=엄지 자리 흔들림(줄 너비), skip=안 침, offbeatMul=엇박에서 흔들림 배,
-//   frame=화면 한 프레임, lag=터치가 늦게 도착, toCenter=두 엄지가 가운데 선 쪽으로 쏠림)
+//   frame=화면 한 프레임, lag=터치가 늦게 도착, toCenter=두 엄지가 가운데 선 쪽으로 쏠림, alt=같은 줄 빠른 연타는 두 엄지로 번갈아(줄 안 자리 ±alt))
 const PROFILES = {
   잘침: { sigma: 0.03, bias: 0, posSigma: 0.18, skip: 0, offbeatMul: 1.2, frame: 1 / 60, lag: 0.02 },
   보통: { sigma: 0.045, bias: 0.01, posSigma: 0.22, skip: 0.01, offbeatMul: 1.35, frame: 1 / 60, lag: 0.03 },
@@ -39,6 +41,7 @@ const PROFILES = {
   가운데: { sigma: 0.045, bias: 0.01, posSigma: 0.22, skip: 0.01, offbeatMul: 1.35, frame: 1 / 60, lag: 0.03, toCenter: 0.25 },
   늦게침: { sigma: 0.04, bias: 0.05, posSigma: 0.22, skip: 0.01, offbeatMul: 1.35, frame: 1 / 60, lag: 0.03 },
   일찍침: { sigma: 0.04, bias: -0.04, posSigma: 0.22, skip: 0.01, offbeatMul: 1.35, frame: 1 / 60, lag: 0.03 },
+  번갈아: { sigma: 0.045, bias: 0.01, posSigma: 0.15, skip: 0.01, offbeatMul: 1.35, frame: 1 / 60, lag: 0.03, alt: 0.3 },
   넘어감: { sigma: 0.045, bias: 0.01, posSigma: 0.3, skip: 0.01, offbeatMul: 1.35, frame: 1 / 60, lag: 0.03, toCenter: 0.35 },
 };
 
@@ -56,8 +59,9 @@ async function engine(dir) {
     g.livesOn = false; // 끝까지
     return g;
   };
-  // game._loop 의 '지나간 노트 → MISS' 와 같게
+  // game._loop 의 '지나간 노트 → MISS' (있으면 게임 것 그대로, 예전 코드는 같은 모양으로)
   const sweep = (g, now) => {
+    if (g._sweep) return g._sweep(now, 0);
     for (const lane of g.laneOrder) {
       const list = g.lanes[lane];
       while (g.ptr[lane] < list.length) {
@@ -79,9 +83,20 @@ async function engine(dir) {
     near.sort((a, b) => a.d - b.d);
     g.input(order[i], 0, near, u);
   };
+  const H = +(process.env.HITCH || 0), EVERY = +(process.env.HITCH_EVERY || 3), FF = process.env.FRAME_FIRST === '1';
   const play = (g, taps, P, end) => {
     let ti = 0;
+    const R = rng(12345);
+    let nextHitch = H ? EVERY * (0.5 + R()) : Infinity;
     for (let now = 0; now < end; now += P.frame || 1 / 60) {
+      if (now >= nextHitch) {
+        now += H; // 버벅임: 이 동안 화면도 터치도 처리 못 함 (터치 시각은 실제로 누른 때)
+        nextHitch = now + EVERY * (0.5 + R());
+        if (FF) {
+          clock = now;
+          sweep(g, now);
+        }
+      }
       while (ti < taps.length && taps[ti].at + (P.lag || 0) <= now) {
         const tp = taps[ti++];
         clock = tp.at;
@@ -102,6 +117,8 @@ function human(E, lv, P, seed) {
   const notes = order.flatMap((l) => g.lanes[l]);
   const step = 60 / (lv.bpm || 100) / 4;
   const taps = [];
+  const lastAt = {}, lastLeft = {};
+  notes.sort((a, b) => a.time - b.time);
   for (const n of notes) {
     if (R() < P.skip) { n._exp = 'skip'; continue; }
     const off = Math.round(n.time / step) % 2 === 1;
@@ -109,8 +126,15 @@ function human(E, lv, P, seed) {
     const ad = Math.abs(err);
     const J = E.C.JUDGE;
     n._exp = ad <= J.perfect ? 'perfect' : ad <= J.great ? 'great' : ad <= J.good ? 'good' : 'miss';
-    const left = E.C.INSTRUMENTS[n.lane].hand === 'left';
-    const u = order.indexOf(n.lane) + 0.5 + gauss() * P.posSigma + (P.toCenter ? (left ? P.toCenter : -P.toCenter) : 0);
+    let left = E.C.INSTRUMENTS[n.lane].hand === 'left';
+    let shift = 0;
+    if (P.alt) {
+      if (n.time - (lastAt[n.lane] ?? -9) < 0.2) left = !lastLeft[n.lane];
+      lastAt[n.lane] = n.time;
+      lastLeft[n.lane] = left;
+      shift = left ? -P.alt : P.alt;
+    }
+    const u = order.indexOf(n.lane) + 0.5 + shift + gauss() * P.posSigma + (P.toCenter ? (left ? P.toCenter : -P.toCenter) : 0);
     taps.push({ at: n.time + err, u });
   }
   taps.sort((a, b) => a.at - b.at);
