@@ -7824,12 +7824,12 @@ class Renderer {
 
   /** 이 판의 맵 정하기 (단계 묶음별). 화면 크기가 정해진 뒤 resize() 가 그림을 만듦 */
   setTheme(lv) {
-    // 🎨 설정에서 고른 배경 (영상 찍기는 원래 맵 그대로)
-    let pick = !this.studio && this.bgPick && THEMES[this.bgPick] ? this.bgPick : null;
+    // 🎨 설정에서 고른 배경 (영상 찍기는 「내 꾸미기 적용」 켰을 때만)
+    let pick = !this.plainStudio && this.bgPick && THEMES[this.bgPick] ? this.bgPick : null;
     if (pick === 'photo' && !this.bgPhoto) pick = null; // 사진이 없으면(지웠거나 못 읽음) 원래 맵
     // 🎤 라이브 스테이지 세트: 배경을 '단계별'로 둔 사람은 세트 무대가 깔림
-    if (!pick && !this.studio && this.uiStyle === 'live') pick = 'livestage';
-    if (!this.studio && this.uiStyle === 's1') pick = 's1stage'; // 🥇 시즌 1 세트 무대
+    if (!pick && !this.plainStudio && this.uiStyle === 'live') pick = 'livestage';
+    if (!this.plainStudio && this.uiStyle === 's1') pick = 's1stage'; // 🥇 시즌 1 세트 무대
     // 같은 맵 키여도 사진·밝기가 바뀌었으면 배경을 다시 그림
     const pk = pick === 'photo' ? `${this.bgPhoto && this.bgPhoto.src}|${this.photoDim}` : '';
     if (pk !== this._photoKey) {
@@ -7846,9 +7846,14 @@ class Renderer {
     this.themeFx = null;
   }
 
+  /** 영상 찍기인데 「내 꾸미기 적용」을 끈 판 = 원래 맵·드럼·기본 콩 (2026-11-23 사용자: 영상 찍기에도 스킨) */
+  get plainStudio() {
+    return !!this.studio && !this.studioSkin;
+  }
+
   /** 🎤 라이브 스테이지 세트로 그리는 중 (영상 찍기·장거리 피아노 곡은 원래 화면) */
   get live() {
-    return this.uiStyle === 'live' && !this.studio && !this.melodyMode;
+    return this.uiStyle === 'live' && !this.plainStudio && !this.melodyMode;
   }
 
   get theme() {
@@ -7870,14 +7875,14 @@ class Renderer {
   _buildKit() {
     const L = this.L;
     // 🎨 설정에서 고른 드럼 세트 (영상 찍기는 맵 드럼 그대로)
-    const kp = !this.studio && this.kitPick && (THEMES[this.kitPick] || SHOP_KITS[this.kitPick]);
+    const kp = !this.plainStudio && this.kitPick && (THEMES[this.kitPick] || SHOP_KITS[this.kitPick]);
     this.kit = buildKit(
       kp ? { ...this.theme, kit: kp.kit } : this.theme,
       { instR: L.instR, padR: L.padR, barW: L.barW, barH: L.barH, cymR: L.cymR, dpr: L.dpr, standTo: L.H - L.strikeY },
       LANE
     );
     // ✨ 콩 스킨 질감 (영상 찍기는 기본 콩)
-    const fx = !this.studio && skinFx();
+    const fx = !this.plainStudio && skinFx();
     this._skinFx = fx;
     if (fx && fx.tex) for (const [lane, sp] of Object.entries(this.kit.notes.live)) this.kit.notes.live[lane] = { ...sp, img: skinTexture(sp.img, fx.tex, Number(lane)) };
   }
@@ -17488,6 +17493,7 @@ async function startLevel(id, opts = {}) {
   }
   $('#screen-game').classList.toggle('studio-mode', st.active);
   renderer.studio = st.active ? studioOverlay(lv) : null;
+  renderer.studioSkin = st.active && st.skin !== false;
   setKit(lv);
   await fontsReady(renderer.studio ? `${renderer.studio.top || ''}${renderer.studio.bottom || ''}${renderer.studio.label || ''}` : '');
   await new Promise((r) => requestAnimationFrame(r));
@@ -18915,7 +18921,7 @@ function applyDeco() {
   renderer.uiStyle = live ? 'live' : s1 ? 's1' : null;
   document.documentElement.classList.toggle('ui-live', live); // 게임 위 정보 칸·결과 화면도 세트 모양
   audio.uiSet = live ? 'live' : null; // 세트 버튼 소리
-  applyNoteColors(renderer.studio || live ? 'basic' : s1 ? 's1' : decoPick('notes'));
+  applyNoteColors(renderer.plainStudio || live ? 'basic' : s1 ? 's1' : decoPick('notes'));
 }
 // 2026-11-22 사용자: 설정의 꾸미기 칸은 없애고 상점 한 곳에서 (장착 중 표시 + 「보유」 탭)
 function renderDeco() {
@@ -21033,6 +21039,7 @@ function openStudio() {
   const ok = canRecordFile();
   $('#studio-file').disabled = !ok;
   $('#studio-file').checked = ok && st.file;
+  $('#studio-skin').checked = st.skin !== false;
   $('#studio-file-hint').textContent = ok
     ? '켜면 이 화면이 그대로 소리까지 영상 파일로 저장돼요. 끄면 폰 화면 녹화로 찍으면 돼요.'
     : '이 브라우저는 바로 저장이 안 돼요. 폰 화면 녹화(제어센터)로 찍어주세요.';
@@ -21540,9 +21547,10 @@ async function studioStart() {
   st.top = $('#studio-top').value.trim();
   st.bottom = $('#studio-bottom').value.trim();
   st.file = $('#studio-file').checked;
+  st.skin = $('#studio-skin').checked;
   st.quizBars = Number($('#quiz-bars').value || st.quizBars || 8);
   st.failSec = Number($('#fail-secs').value || st.failSec || 12);
-  save('studio', { level: st.level, mode: st.mode, top: st.top, bottom: st.bottom, file: st.file, format: st.format || 'play', quizBars: st.quizBars, failSec: st.failSec });
+  save('studio', { level: st.level, mode: st.mode, top: st.top, bottom: st.bottom, file: st.file, skin: st.skin, format: st.format || 'play', quizBars: st.quizBars, failSec: st.failSec });
   const playId = studioPlayId();
   closeModal('modal-studio-done');
   await audio.unlock();
@@ -21553,6 +21561,7 @@ async function studioStart() {
   $('#screen-game').classList.add('studio-mode');
   const lv = playable(playId) || getLevel(1);
   renderer.studio = studioOverlay(lv);
+  renderer.studioSkin = st.skin !== false; // 🎨 상점에서 장착한 스킨·무대·드럼도 영상에 (2026-11-23 사용자)
   setKit(lv);
   await fontsReady(`${renderer.studio.top || ''}${renderer.studio.bottom || ''}${renderer.studio.label || ''}`);
   await new Promise((r) => requestAnimationFrame(r));

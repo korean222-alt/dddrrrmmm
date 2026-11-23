@@ -761,6 +761,7 @@ async function startLevel(id, opts = {}) {
   }
   $('#screen-game').classList.toggle('studio-mode', st.active);
   renderer.studio = st.active ? studioOverlay(lv) : null;
+  renderer.studioSkin = st.active && st.skin !== false;
   setKit(lv);
   await fontsReady(renderer.studio ? `${renderer.studio.top || ''}${renderer.studio.bottom || ''}${renderer.studio.label || ''}` : '');
   await new Promise((r) => requestAnimationFrame(r));
@@ -2188,7 +2189,7 @@ function applyDeco() {
   renderer.uiStyle = live ? 'live' : s1 ? 's1' : null;
   document.documentElement.classList.toggle('ui-live', live); // 게임 위 정보 칸·결과 화면도 세트 모양
   audio.uiSet = live ? 'live' : null; // 세트 버튼 소리
-  applyNoteColors(renderer.studio || live ? 'basic' : s1 ? 's1' : decoPick('notes'));
+  applyNoteColors(renderer.plainStudio || live ? 'basic' : s1 ? 's1' : decoPick('notes'));
 }
 // 2026-11-22 사용자: 설정의 꾸미기 칸은 없애고 상점 한 곳에서 (장착 중 표시 + 「보유」 탭)
 function renderDeco() {
@@ -4306,6 +4307,7 @@ function openStudio() {
   const ok = canRecordFile();
   $('#studio-file').disabled = !ok;
   $('#studio-file').checked = ok && st.file;
+  $('#studio-skin').checked = st.skin !== false;
   $('#studio-file-hint').textContent = ok
     ? '켜면 이 화면이 그대로 소리까지 영상 파일로 저장돼요. 끄면 폰 화면 녹화로 찍으면 돼요.'
     : '이 브라우저는 바로 저장이 안 돼요. 폰 화면 녹화(제어센터)로 찍어주세요.';
@@ -4813,9 +4815,10 @@ async function studioStart() {
   st.top = $('#studio-top').value.trim();
   st.bottom = $('#studio-bottom').value.trim();
   st.file = $('#studio-file').checked;
+  st.skin = $('#studio-skin').checked;
   st.quizBars = Number($('#quiz-bars').value || st.quizBars || 8);
   st.failSec = Number($('#fail-secs').value || st.failSec || 12);
-  save('studio', { level: st.level, mode: st.mode, top: st.top, bottom: st.bottom, file: st.file, format: st.format || 'play', quizBars: st.quizBars, failSec: st.failSec });
+  save('studio', { level: st.level, mode: st.mode, top: st.top, bottom: st.bottom, file: st.file, skin: st.skin, format: st.format || 'play', quizBars: st.quizBars, failSec: st.failSec });
   const playId = studioPlayId();
   closeModal('modal-studio-done');
   await audio.unlock();
@@ -4826,6 +4829,7 @@ async function studioStart() {
   $('#screen-game').classList.add('studio-mode');
   const lv = playable(playId) || getLevel(1);
   renderer.studio = studioOverlay(lv);
+  renderer.studioSkin = st.skin !== false; // 🎨 상점에서 장착한 스킨·무대·드럼도 영상에 (2026-11-23 사용자)
   setKit(lv);
   await fontsReady(`${renderer.studio.top || ''}${renderer.studio.bottom || ''}${renderer.studio.label || ''}`);
   await new Promise((r) => requestAnimationFrame(r));
