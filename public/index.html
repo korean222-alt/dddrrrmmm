@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=b50ca27faa" />
+  <link rel="stylesheet" href="css/style.css?v=4241a9ea42" />
 </head>
 <body>
   <div id="app">
@@ -81,6 +81,14 @@
       <div class="shop-tabs" id="shop-tabs">
         <button data-shop-tab="all" aria-pressed="true">전체</button>
         <button data-shop-tab="mine" aria-pressed="false">보유</button>
+      </div>
+      <div class="shop-rare" id="shop-rare">
+        <button data-shop-rare="all" aria-pressed="true">전체</button>
+        <button data-shop-rare="free" aria-pressed="false">무료</button>
+        <button data-shop-rare="rare" aria-pressed="false">레어</button>
+        <button data-shop-rare="epic" aria-pressed="false">에픽</button>
+        <button data-shop-rare="legend" aria-pressed="false">전설</button>
+        <button data-shop-rare="limited" aria-pressed="false">한정</button>
       </div>
       <div class="photo-opts" id="set-photo-opts" hidden>
         <label class="field"><span>사진 어둡게</span><input type="range" min="0" max="0.85" step="0.05" id="set-photo-dim" /></label>
@@ -1098,6 +1106,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=1ce3661c08" defer></script>
+  <script src="js/app.js?v=e8e5d4a38d" defer></script>
 </body>
 </html>

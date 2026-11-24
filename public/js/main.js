@@ -2270,8 +2270,8 @@ function shopSwatch(type, key) {
   return `linear-gradient(${t.sky.join(',')})`;
 }
 function shopName(type, key) {
-  if (key === DECO_FREE[type]) return { ui: '기본 화면', notes: '기본 콩', bg: '기본 무대 (단계별)', kit: '기본 드럼 (맵 따라)' }[type];
-  if (type === 'ui') return key === 's1' ? '🥇 시즌 1 세트' : '🎤 라이브 스테이지 세트';
+  if (key === DECO_FREE[type]) return { ui: '기본 화면', notes: '기본 콩', bg: '기본 무대', kit: '기본 드럼' }[type];
+  if (type === 'ui') return key === 's1' ? '🥇 시즌 1 세트' : '🎤 라이브 세트';
   if (type === 'notes') return (NOTE_PALETTES[key] || {}).name || key;
   if (key === 'photo') return '📷 내 사진 배경';
   if (type === 'kit' && SHOP_KITS[key]) return SHOP_KITS[key].name;
@@ -2307,6 +2307,7 @@ function shopRow(type) {
   ];
 }
 var shopTab = 'all';
+var shopRare = 'all'; // 등급 필터 (2026-11-24): all free rare epic legend limited
 function renderShop() {
   $('#shop-coins').textContent = fmt(getCoins());
   $('#shop-closed').hidden = shopIsOpen();
@@ -2322,6 +2323,7 @@ function renderShop() {
     `</div>` +
     (live ? '<p class="muted small">세트를 끼면 배경·드럼·콩은 세트 것</p>' : '');
   $$('#shop-tabs [data-shop-tab]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.shopTab === shopTab)));
+  $$('#shop-rare [data-shop-rare]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.shopRare === shopRare)));
   const item = ([id, price, rare]) => {
     const [type, key] = id.split(':');
     const own = decoOpen(type, key);
@@ -2335,7 +2337,7 @@ function renderShop() {
   };
   const mine = shopTab === 'mine';
   const sec = ([type, title]) => {
-    const rows = shopRow(type).filter(([id]) => !mine || decoOpen(...id.split(':')));
+    const rows = shopRow(type).filter(([id, , r]) => (!mine || decoOpen(...id.split(':'))) && (shopRare === 'all' || (r || 'free') === shopRare));
     return rows.length ? `<h4>${title}</h4><div class="shop-grid">${rows.map(item).join('')}</div>` : '';
   };
   $('#shop-list').innerHTML = SHOP_TYPES.map(sec).join('');
@@ -2509,6 +2511,12 @@ function bindDeco() {
     const b = e.target.closest('[data-shop-tab]');
     if (!b) return;
     shopTab = b.dataset.shopTab;
+    renderShop();
+  });
+  $('#shop-rare').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-shop-rare]');
+    if (!b) return;
+    shopRare = b.dataset.shopRare;
     renderShop();
   });
   $('#shop-now').addEventListener('click', (e) => {

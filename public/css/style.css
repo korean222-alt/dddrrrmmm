@@ -1206,3 +1206,16 @@ html.ui-live #screen-result .res-stats b { font-family: "Arial Black", "Segoe UI
 #modal-settings .field.check > span { display: flex; flex-direction: column; gap: 2px; line-height: 1.25; }
 #modal-settings .field.check small { display: block; font-size: 12px; line-height: 1.35; }
 #modal-settings .field.check input { width: 24px; height: 24px; }
+
+/* 🛒 상점: 이름 한 줄(넘치면 …) · 등급 필터 (2026-11-24 사용자 '두 줄 보기 싫다') */
+.now-item span, .now-item small, .shop-item b { display: block; max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; -webkit-line-clamp: unset; }
+.shop-item { min-width: 0; padding: 10px 6px 8px; }
+.shop-item b { font-size: 13px; }
+.shop-rare { display: flex; gap: 6px; margin: 8px 0 0; overflow-x: auto; scrollbar-width: none; }
+.shop-rare::-webkit-scrollbar { display: none; }
+.shop-rare button { flex: 1 0 auto; padding: 5px 10px; border: 2px solid #d9d2e3; border-radius: 99px; background: #fff; color: var(--muted); font: inherit; font-size: 13px; }
+.shop-rare button[aria-pressed="true"] { border-color: var(--ink); background: #fff6d6; color: var(--ink); }
+.shop-rare [data-shop-rare="rare"][aria-pressed="true"] { background: #4f8cff; border-color: #4f8cff; color: #fff; }
+.shop-rare [data-shop-rare="epic"][aria-pressed="true"] { background: #a24bff; border-color: #a24bff; color: #fff; }
+.shop-rare [data-shop-rare="legend"][aria-pressed="true"] { background: linear-gradient(90deg, #ff9a1f, #ff3d8b); border-color: #ff6a50; color: #fff; }
+.shop-rare [data-shop-rare="limited"][aria-pressed="true"] { background: linear-gradient(90deg, #1f2a7a, #c99a00); border-color: #1f2a7a; color: #fff; }
