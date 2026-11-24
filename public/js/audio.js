@@ -378,8 +378,9 @@ export class AudioEngine {
       }
     }
     if (ctx.state !== 'running') {
+      // 아이폰: 다른 앱·탭이 소리를 잡고 있으면 resume() 이 끝나지 않을 수 있음 → 1초만 기다리고 넘어감 (화면이 멈추지 않게)
       try {
-        await ctx.resume();
+        await Promise.race([ctx.resume(), new Promise((r) => setTimeout(r, 1000))]);
       } catch {}
     }
     return ctx.state === 'running';
