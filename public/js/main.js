@@ -22,7 +22,7 @@ import { AudioEngine, playMetronome } from './audio.js';
 import { Renderer, NOTE_PALETTES, LANE, applyNoteColors } from './render.js';
 import { coinsInit, setCoinAccount, coinTotal, addRunCoins, addServerCoins } from './coins.js';
 import { queueOffline, backupOffline } from './offrec.js';
-import { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES, moveIsTap, MOVE_WINDOW } from './game.js';
+import { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } from './game.js';
 import { initAds, showRewarded } from './ads.js';
 import { createApi, serverResting } from './api.js';
 import { initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay } from './track.js';
@@ -973,6 +973,9 @@ function setKit(lv) {
     if (md.notes && decoPick('notes') === DECO_FREE.notes) applyNoteColors(md.notes);
   }
   renderer.setTheme(lv); // 단계 묶음마다 맵 분위기가 다름 (themes.js)
+  renderer.touchShow = !!load('touchShow', false);
+  renderer.touchMarks = [];
+  renderer.touchCount = 0;
   // 마우스·키보드 쓰는 컴퓨터면 줄마다 키 글자를 보여줌 (폰·태블릿은 안 보임)
   renderer.keyLabels = null;
   if (window.matchMedia && matchMedia('(hover: hover) and (pointer: fine)').matches) {
@@ -996,8 +999,10 @@ function laneFromPoint(x, y) {
 
 /** 화면 터치 → 게임 입력 (옆 줄 정보까지 넘겨서 경계 근처 터치를 봐줌) */
 function tapAt(x, y, perfMs) {
-  const { lane, near, u } = laneFromPoint(x, y);
-  state.game.input(lane, perfMs, near, u);
+  const { lane, near } = laneFromPoint(x, y);
+  const r = state.game.input(lane, perfMs, near);
+  // 🖐 터치 표시 (/?touch=show 기기만): 닿은 자리에 어느 줄·어떤 판정이었는지
+  if (renderer.touchShow && canvasRect) renderer.markTouch(x - canvasRect.left, y - canvasRect.top, r, performance.now() / 1000);
 }
 
 // 키보드: 레인 수에 따라 왼쪽부터 키 배정
@@ -1026,17 +1031,10 @@ function bindGameInput() {
     },
     { passive: false }
   );
-  // 눌려 있는 손가락 (identifier → 마지막으로 본 시각·자리). 아래 touchmove '되살리기'용
-  const held = new Map();
   canvas.addEventListener(
     'touchstart',
     (e) => {
       e.preventDefault();
-      // 게임 시작 전부터 대고 있던 손가락도 기억 (안 그러면 시작 뒤 첫 움직임이 '새 터치'로 잡힘)
-      for (const t of e.changedTouches) {
-        const u = state.game ? laneFromPoint(t.clientX, t.clientY).u : null;
-        held.set(t.identifier, { at: e.timeStamp, x: t.clientX, y: t.clientY, u, trail: u == null ? [] : [{ at: e.timeStamp, u }] });
-      }
       if (!state.game) return;
       if (!e.isTrusted) state.game.fakeTaps += e.changedTouches.length;
       // 한 터치에서 오류가 나도 같이 온 다른 엄지 터치는 꼭 침 (두 엄지가 동시에 닿으면 한 이벤트에 같이 옴)
@@ -1048,46 +1046,10 @@ function bindGameInput() {
     },
     { passive: false }
   );
-  // 손가락 움직임(touchmove)이 사실은 '새로 누른 것'인 경우 → 보통 터치와 똑같이 판정 (헛침·MISS 벌도 똑같이, 랭킹 공정):
-  //   두 엄지가 가까이(4줄 곡의 쿵·짝은 화면 가운데에 붙어 있음) 거의 동시에 닿거나, 한 엄지가 떼는 순간 다른 엄지가 닿으면
-  //   폰이 둘을 '손가락 하나가 움직인 것'으로 합쳐 보냄 → 다른 줄 안으로 깊이 들어가거나, 한 번에 훌쩍 옮겨 가면 새 터치 (game.js moveIsTap)
-  //   (2026-11-22 '윌리엄 텔 쿵짝쿵에서 분명히 눌렀는데 쿵이나 짝 하나가 안 눌림', 11-23 DM 영상 '쿵 다음 짝이 자주 안 눌림')
-  //   ⚠ 같은 줄 안에서 '조용하다 움직이면 새 터치' 규칙(예전 0.25초·10px, 11-22 21시 70ms·4px)은 없앰: 누른 채 굴리며 떼는
-  //   손가락이 터치 한 번 더로 잡혀 헛침이 쏟아짐('터치가 자꾸 씹혀요' 댓글 폭주, 헤드리스 재현). 다시 넣지 말 것.
-  //   벌을 없애는 것도 안 됨 (손가락 문지르기로 공짜 시도 → 랭킹 의미 없어짐)
-  canvas.addEventListener(
-    'touchmove',
-    (e) => {
-      e.preventDefault();
-      if (!state.game) return;
-      for (const t of e.changedTouches) {
-        const h = held.get(t.identifier);
-        const { u } = laneFromPoint(t.clientX, t.clientY);
-        const at = e.timeStamp;
-        let revived = !h;
-        let hu = h && h.u != null ? h.u : u;
-        let trail = (h && h.trail) || [];
-        if (!revived && u != null && hu != null) revived = moveIsTap(hu, trail.length ? trail : [{ at, u: hu }], u, at, renderer.laneOrder.length);
-        if (revived) {
-          hu = u;
-          trail = [];
-        }
-        // 지나온 자리는 MOVE_WINDOW 전 것 하나까지만 (그 전 자리에서 안 움직였으면 그게 '조금 전 자리')
-        if (u != null) {
-          trail.push({ at, u });
-          while (trail.length > 1 && trail[1].at <= at - MOVE_WINDOW) trail.shift();
-          if (trail.length > 12) trail.splice(0, trail.length - 12);
-        }
-        held.set(t.identifier, { at, x: t.clientX, y: t.clientY, u: hu, trail });
-        if (revived) tapAt(t.clientX, t.clientY, at);
-      }
-    },
-    { passive: false }
-  );
-  for (const ev of ['touchend', 'touchcancel'])
-    canvas.addEventListener(ev, (e) => {
-      for (const t of e.changedTouches) held.delete(t.identifier);
-    });
+  // 손가락 움직임(touchmove)은 터치로 안 셈 — 손가락을 새로 댄 것(touchstart)만 침 (2026-11-24).
+  //   예전엔 '두 엄지를 폰이 한 손가락으로 합쳐 보낸다'고 보고 다른 줄로 넘어간 움직임을 새 터치로 셌는데(11-22·11-23),
+  //   엄지를 떼며 굴리기만 해도 가짜 터치가 생겨 헛침·다음 콩 MISS 가 났음. 폰 자판도 두 엄지 빠른 입력을 따로 받으므로 합쳐짐은 드묾
+  canvas.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
   ['gesturestart', 'dblclick', 'contextmenu'].forEach((ev) =>
     canvas.addEventListener(ev, (e) => e.preventDefault(), { passive: false })
   );
@@ -6760,6 +6722,17 @@ async function boot() {
       openStudio();
       toast('🖼 릴스 썸네일 칸이 켜졌어요 (영상 찍기 화면 맨 아래)', 3000);
     }, 300);
+  }
+  // 🖐 터치 표시: /?touch=show 면 이 기기에서 게임 중 손가락이 닿은 자리·판정을 그림 (터치 씹힘 신고 때 화면 녹화로 보려고), ?touch=off 면 끔
+  const touchShow = params.get('touch');
+  if (touchShow === 'show' || touchShow === 'off') {
+    save('touchShow', touchShow === 'show');
+    try {
+      const u = new URL(location.href);
+      u.searchParams.delete('touch');
+      history.replaceState(null, '', u.pathname + u.search + u.hash);
+    } catch {}
+    setTimeout(() => toast(touchShow === 'show' ? '🖐 터치 표시를 켰어요 · 치면서 화면 녹화해 주세요' : '🖐 터치 표시를 껐어요', 3000), 300);
   }
   // 🛒 운영자 시험: /?shoptest=okay 면 이 기기에서만 상점 물건을 전부 써 봄 (산 것으로 안 침, 서버 안 감), ?shoptest=off 면 끔
   const shopTest = params.get('shoptest');

@@ -707,6 +707,60 @@ export class Renderer {
     this._drawThemeChip(st, rt);
     this._drawLifeFx(st, rt);
     if (this.studio) this._drawStudio(st, rt);
+    if (this.touchShow && !this.studio) this._drawTouches(rt);
+  }
+
+  /**
+   * 🖐 터치 표시 (/?touch=show 로 켠 기기만, 2026-11-24): 손가락이 닿은 자리에 동그라미 + 어느 줄로 · 어떤 판정이었는지.
+   *   '분명히 눌렀는데 안 눌려요' 신고 때 화면 녹화로 폰이 터치를 보냈는지·어디로 갔는지 보려고. 화면 어디에도 링크 없음
+   */
+  markTouch(x, y, r, rt) {
+    const list = (this.touchMarks ||= []);
+    list.push({ x, y, lane: r ? r.lane : null, res: r ? r.res : 'none', t0: rt });
+    if (list.length > 30) list.splice(0, list.length - 30);
+    this.touchCount = (this.touchCount || 0) + 1;
+  }
+
+  _drawTouches(rt) {
+    const ctx = this.ctx;
+    const L = this.L;
+    const COL = { perfect: '#ffd84a', great: '#5ee08a', good: '#59b7ff', miss: '#ff4d5e', wrong: '#ff4d5e', roll: '#ffffff', none: '#bbbbbb' };
+    const TXT = { perfect: 'P', great: 'GR', good: 'GD', miss: 'MISS', wrong: '헛침', roll: '연타', none: '·' };
+    const NAME = { [KICK]: '쿵', [SNARE]: '짝', [HAT]: '츠', [CRASH]: '챙' };
+    const marks = (this.touchMarks || []).filter((m) => rt - m.t0 < 1.4 && rt >= m.t0 - 0.05);
+    this.touchMarks = marks;
+    ctx.save();
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    for (const m of marks) {
+      const a = 1 - (rt - m.t0) / 1.4;
+      const c = COL[m.res] || '#fff';
+      ctx.globalAlpha = Math.max(0, a);
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = c;
+      ctx.beginPath();
+      ctx.arc(m.x, m.y, 18, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = c;
+      ctx.beginPath();
+      ctx.arc(m.x, m.y, 4, 0, Math.PI * 2);
+      ctx.fill();
+      const label = `${m.lane != null && NAME[m.lane] ? NAME[m.lane] : ''} ${TXT[m.res] || ''}`.trim();
+      ctx.font = '700 13px sans-serif';
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+      ctx.strokeText(label, m.x, m.y - 30);
+      ctx.fillText(label, m.x, m.y - 30);
+    }
+    ctx.globalAlpha = 0.85;
+    ctx.font = '700 12px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.fillStyle = '#fff';
+    ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+    const txt = `터치 ${this.touchCount || 0}`;
+    ctx.strokeText(txt, 10, L.H - 14);
+    ctx.fillText(txt, 10, L.H - 14);
+    ctx.restore();
   }
 
   /** 목숨 깎이면 화면 가장자리가 빨갛게, 다 떨어지면 화면이 어두워짐 */

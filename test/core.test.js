@@ -274,7 +274,7 @@ test('👍 경계 근처 터치·엄지가 넘어온 터치는 노트 있는 옆
   globalThis.cancelAnimationFrame ??= noop;
   const renderer = { onJudge: noop, onLife: noop, onCombo: noop, onTap: noop, draw: noop, reset: noop };
   let clock = 0;
-  const audio = { ctx: { suspend: async () => {}, resume: async () => {} }, heardTime: () => clock, crash: noop, playLane: noop };
+  const audio = { ctx: { suspend: async () => {}, resume: async () => {} }, heardTime: () => clock, crash: noop, playLane: noop, sfxFile: noop };
   const make = () => {
     const g = new Game({ audio, renderer, level: LEVELS[0], settings: {}, onDeath: noop, onEnd: noop });
     g.startTime = 0;
@@ -322,13 +322,18 @@ test('👍 경계 근처 터치·엄지가 넘어온 터치는 노트 있는 옆
   assert.equal(kk.judged, true);
   assert.equal(g.counts.wrong, 0);
 
-  // 🥁 산왕의 궁전: 킥 연타(같은 자리) 남는 터치가 바로 뒤 스네어를 가져가도, 진짜 스네어 터치는 헛침이 아님
+  // 🥁 산왕의 궁전: 킥 연타 남는 터치가 바로 뒤 스네어를 가져가도, 진짜 스네어 터치는 헛침이 아님 → 스네어는 제 터치 시간으로,
+  //   헛침은 남는 킥 터치 몫 (벌은 그대로 한 번, 2026-11-24 '벌점 없으면 랭킹 의미 없다')
   const lv9 = getLevel(9);
   g = new Game({ audio, renderer, level: lv9, settings: {}, onDeath: noop, onEnd: noop });
   g.startTime = 0;
   g.state = 'playing';
   const s9 = g.lanes[SNARE].find((n) => g.lanes[KICK].some((m) => Math.abs(n.time - 0.15 - m.time) < 0.001));
   const k9 = g.lanes[KICK].find((m) => Math.abs(s9.time - 0.15 - m.time) < 0.001);
+  for (const n of g.notes) if (n.time < k9.time - 0.01) {
+    clock = n.time;
+    g.input(n.lane, 0); // 앞 콩들은 제때 침
+  }
   clock = k9.time;
   g.input(KICK, 0, [{ lane: SNARE, d: 0.2 }], 0.8); // 킥 제때
   clock = k9.time + 0.07;
@@ -336,8 +341,8 @@ test('👍 경계 근처 터치·엄지가 넘어온 터치는 노트 있는 옆
   clock = s9.time;
   const wrong0 = g.counts.wrong;
   g.input(SNARE, 0, [{ lane: KICK, d: 0.7 }], 1.7); // 진짜 스네어
-  assert.equal(s9.judged, true);
-  assert.equal(g.counts.wrong, wrong0, '진짜 스네어 터치가 헛침이 되면 안 됨');
+  assert.equal(s9.result, 'perfect', '스네어는 진짜 스네어 터치 시간으로');
+  assert.equal(g.counts.wrong, wrong0 + 1, '헛침은 남는 킥 터치 하나');
   assert.equal(g.counts.miss, 0);
 });
 
@@ -479,14 +484,26 @@ test('🖐 터치 씹힘(2026-11-23): 엇박 늦은 쿵·선을 넘은 엄지·�
   assert.equal(g.counts.miss, 1);
   assert.equal(g.counts.wrong, 0);
 
-  // 5) 너무 일찍 누름 MISS 는 뒤 터치로 되돌리지 않음 (되돌리면 마구 연타가 거의 다 맞음)
+  // 5) 너무 일찍 누름(2026-11-24 바뀜): 그 터치는 헛침, 콩은 그대로 → 제때 친 진짜 터치로 맞음 (한 터치가 다음 콩을 MISS 로 만들지 않음).
+  //   그 콩을 끝내 못 치면 그 헛침이 그 콩 MISS 로 바뀜 → 벌은 한 번
   g = make(['K...............']);
   k = g.lanes[KICK][0];
   tap(g, 0.5, k.time - 0.2);
+  assert.equal(g.counts.wrong, 1);
   tap(g, 0.5, k.time);
+  assert.equal(k.result, 'perfect');
+  assert.equal(g.counts.wrong, 1);
+  g = make(['K...............']);
+  k = g.lanes[KICK][0];
+  tap(g, 0.5, k.time - 0.2);
+  sweep(g, k.time + 0.5);
+  g._sweep(k.time + 0.5, 0);
+  g._sweep(k.time + 0.6, 0);
   assert.equal(k.result, 'miss');
+  assert.equal(g.counts.miss + g.counts.wrong, 1, '일찍 누른 한 번 = 벌 한 번');
 
-  // 6) 경계 근처 남는 터치(같은 엄지 한 번 더)가 옆 줄 콩을 가져가도 진짜 그 줄 터치가 더 잘 맞으면 되찾음 (헛침 아님)
+  // 6) 경계 근처 남는 터치(같은 엄지 한 번 더)가 옆 줄 콩을 가져가도 진짜 그 줄 터치가 더 잘 맞으면 되찾음 (진짜 터치는 헛침 아님).
+  //   헛침은 남는 터치 몫으로 하나 (2026-11-24: 벌 없는 터치 없음)
   g = make(['KS..............']);
   k = g.lanes[KICK][0];
   s = g.lanes[SNARE][0];
@@ -494,8 +511,9 @@ test('🖐 터치 씹힘(2026-11-23): 엇박 늦은 쿵·선을 넘은 엄지·�
   tap(g, 0.8, k.time + 0.08); // 남는 쿵 터치 → 짝 콩으로
   tap(g, 1.5, s.time); // 진짜 짝
   assert.equal(k.result, 'perfect');
-  assert.ok(s.judged);
-  assert.equal(g.counts.wrong + g.counts.miss, 0);
+  assert.equal(s.result, 'perfect', '짝은 진짜 짝 터치 시간으로');
+  assert.equal(g.counts.miss, 0);
+  assert.equal(g.counts.wrong, 1);
   // 반대로 정확히 친 콩을 같은 줄 다음 콩을 일찍 친 터치가 뺏어 가면 안 됨
   g = make(['KK..............']);
   const [a1, a2] = g.lanes[KICK];
@@ -551,15 +569,16 @@ test('🖐 폰 버벅임(2026-11-23): 화면 갱신이 밀린 터치보다 먼�
   assert.equal(g.combo, 5, '콤보도 이어짐');
   assert.equal(g._check().rv, 3);
 
-  // 2) 늦게 도착한 '너무 일찍 누름'은 그 콩을 진짜 MISS 로 (뒤 터치로 못 되살림 — 마구 연타 방지는 늦게 와도 그대로)
+  // 2) 늦게 도착한 '너무 일찍 누름'은 헛침, 같이 늦게 도착한 제때 터치는 그 콩을 되살림 (누른 순간 기준 — 늦게 와도 똑같이)
   g = make(['K...............']);
   const k = g.lanes[KICK][0];
   g._sweep(k.time + 0.5, 0);
   g._sweep(k.time + 0.6, 0);
   tap(g, KICK, k.time - 0.2);
   tap(g, KICK, k.time);
-  assert.equal(k.result, 'miss');
-  assert.equal(g.counts.miss, 1);
+  assert.equal(k.result, 'perfect');
+  assert.equal(g.counts.miss, 0);
+  assert.equal(g.counts.wrong, 1);
 
   // 3) 늦게 도착한 'GOOD 보다 조금 늦은' 터치도 그 콩은 MISS 그대로, 다음 콩은 제 터치로
   g = make(['K.K.............']);
@@ -739,7 +758,8 @@ test('👍 같은 엄지 줄: 4줄 맵에서 챙 줄을 눌러도 그때 쿵 노
   assert.equal(kick.judged, true);
   assert.equal(g.counts.wrong, 0);
   // 오른손: 츠 줄을 눌렀는데 짝 노트만 있으면 짝 (츠 줄은 짝 바로 옆이 아니어도)
-  const sn = g.lanes[SNARE].find((n) => !g.lanes[HAT].some((m) => Math.abs(m.time - n.time) < 0.16) && n.time > kick.time + 0.3);
+  // (츠 줄에 조금 전 지나간 콩이 있으면 그 콩에 늦은 터치로 봄 → 츠 콩이 0.3초 안에 없는 짝)
+  const sn = g.lanes[SNARE].find((n) => !g.lanes[HAT].some((m) => Math.abs(m.time - n.time) < 0.3) && n.time > kick.time + 0.3);
   clock = sn.time;
   g.input(HAT, 0, [{ lane: SNARE, d: 0.9 }], 3.8);
   assert.equal(sn.judged, true);
@@ -764,37 +784,88 @@ test('방 대기실: 변화 없으면 천천히 주고받기 (자리 비움 1분
   assert.notEqual(roomSig(a), roomSig({ ...a, players: { a: { ...a.players.a, ready: true } } }));
 });
 
-test('🖐 두 엄지가 하나로 합쳐 온 터치(2026-11-23 DM 영상): 한 번에 훌쩍 다른 줄로 = 새 터치, 굴리거나 미끄러지는 손가락은 아님', async () => {
-  const { moveIsTap, MOVE_WINDOW } = await import('../public/js/game.js');
-  // main.js 의 touchmove 처리와 같은 모양: 누른 자리 → 움직임들 → 새 터치로 본 움직임 수
-  const run = (start, moves, n = 4) => {
-    let anchor = start.u;
-    let trail = [{ at: start.at, u: start.u }];
-    let taps = 0;
-    for (const [at, u] of moves) {
-      const tap = moveIsTap(anchor, trail, u, at, n);
-      if (tap) {
-        taps++;
-        anchor = u;
-        trail = [];
-      }
-      trail.push({ at, u });
-      while (trail.length > 1 && trail[1].at <= at - MOVE_WINDOW) trail.shift();
-    }
-    return taps;
+test('🖐 터치 판정 단순하게(2026-11-24 \'아직 인식이 제대로 안 돼요\'): 한 터치는 콩 하나만, 남는 터치가 제대로 친 콩을 MISS 로 만들지 않음', async () => {
+  const { Game } = await import('../public/js/game.js');
+  const { KICK, SNARE } = await import('../public/js/charts.js');
+  const noop = () => {};
+  globalThis.cancelAnimationFrame ??= noop;
+  const renderer = new Proxy({}, { get: () => noop });
+  let clock = 0;
+  const audio = new Proxy({ ctx: { suspend: async () => {}, resume: async () => {} }, heardTime: () => clock }, { get: (o, k) => (k in o ? o[k] : noop) });
+  const make = (bars, bpm = 144) => {
+    const lv = { ...LEVELS[0], id: 999, bpm, bars: ['................', ...bars], song: LEVELS[0].song };
+    const g = new Game({ audio, renderer, level: lv, settings: {}, onDeath: noop, onEnd: noop });
+    g.startTime = 0;
+    g.state = 'playing';
+    g.player = { stop: noop };
+    for (const n of g.notes) n.gold = false;
+    return g;
   };
-  // 왼엄지가 쿵(1.7)을 누르고 가만히 → 떼는 순간 오른엄지가 짝(2.2)에 닿음 → 폰은 '같은 손가락이 옮겨 감'으로 보냄 (예전 규칙은 2.3 미만이라 놓침)
-  assert.equal(run({ at: 0, u: 1.7 }, [[90, 2.2]]), 1);
-  // 쿵짝쿵짝 연타가 전부 하나로 합쳐 와도 하나하나 새 터치
-  assert.equal(run({ at: 0, u: 1.75 }, [[114, 2.25], [228, 1.75], [342, 2.25], [456, 1.75]]), 4);
-  // 옮겨 간 게 두 번에 나눠 와도 (8ms 간격)
-  assert.equal(run({ at: 0, u: 1.7 }, [[100, 1.95], [108, 2.2]]), 1);
-  // 경계 근처에서 굴리며 떼는 손가락: 조금씩 선을 넘어가도 새 터치 아님 (11-22 '굴리며 떼면 헛침')
-  assert.equal(run({ at: 0, u: 1.9 }, [[100, 1.95], [108, 2.0], [116, 2.05], [124, 2.1], [132, 2.15]]), 0);
-  // 폰이 버벅여 움직임이 한 번에 몰려 와도 조금이면 아님
-  assert.equal(run({ at: 0, u: 1.85 }, [[150, 2.15]]), 0);
-  // 같은 줄 안에서는 아무리 움직여도 아님
-  assert.equal(run({ at: 0, u: 1.05 }, [[40, 1.95], [80, 1.1]]), 0);
-  // 다른 줄 안으로 깊이(0.3 넘게) 들어가면 천천히 가도 새 터치 (11-22 규칙 그대로)
-  assert.equal(run({ at: 0, u: 1.5 }, [[100, 1.8], [200, 2.1], [300, 2.35]]), 1);
+  // 2줄: 쿵 = 0~1, 짝 = 1~2 (render.laneHit 와 같은 모양)
+  const tap = (g, u, at) => {
+    clock = at;
+    const i = u < 1 ? 0 : 1;
+    const f = u - i;
+    return g.input(i === 0 ? KICK : SNARE, 0, [{ lane: i === 0 ? SNARE : KICK, d: i === 0 ? 1 - f : f }]);
+  };
+  const end = (g, at) => {
+    g._sweep(at, 0);
+    g._sweep(at + 0.02, 0);
+  };
+  // 1) 기본: 누른 줄에 콩 있으면 맞음, 없으면 헛침
+  let g = make(['K...S...........']);
+  let [k] = g.lanes[KICK];
+  let [s] = g.lanes[SNARE];
+  assert.equal(tap(g, 0.5, k.time).res, 'perfect');
+  assert.equal(tap(g, 0.3, k.time + 0.3).res, 'wrong', '쿵 줄에 콩 없음 → 헛침 (짝 콩이 0.1초 뒤에 있어도 선에서 멀면 안 가져감)');
+  assert.equal(s.judged, false);
+  assert.equal(tap(g, 1.5, s.time).res, 'perfect');
+
+  // 2) 윌리엄 텔 쿵짝쿵짝(0.104초): 쿵 엄지가 떼며 굴려 생긴 남는 터치가 짝 줄에 들어와도 → 짝은 진짜 짝 터치 시간으로, 헛침은 남는 터치 하나.
+  //    예전엔 남는 터치가 짝을 가져간 뒤 진짜 짝 터치가 다음 쿵·다음 짝을 '일찍 누름' MISS 로 만드는 연쇄가 났음
+  g = make(['KSKSKSKS........']);
+  const K = g.lanes[KICK];
+  const S = g.lanes[SNARE];
+  tap(g, 0.8, K[0].time);
+  tap(g, 1.25, K[0].time + 0.05); // 남는 터치 (쿵 엄지가 선을 넘어 짝 줄)
+  tap(g, 1.6, S[0].time);
+  for (let i = 1; i < 4; i++) {
+    tap(g, 0.8, K[i].time + 0.01);
+    tap(g, 1.6, S[i].time - 0.01);
+  }
+  end(g, S[3].time + 0.5);
+  for (const n of [...K, ...S]) assert.notEqual(n.result, 'miss', '제대로 친 콩은 MISS 가 되면 안 됨');
+  assert.equal(S[0].result, 'perfect', '짝은 진짜 짝 터치 시간으로');
+  assert.equal(g.counts.wrong, 1, '벌은 남는 터치 하나');
+
+  // 3) 쿵짝쿵에서 짝 엄지가 가운데 선을 살짝 넘어 쿵 줄을 눌러도 (다음 쿵이 0.104초 뒤) → 짝
+  g = make(['KSK.............']);
+  [k] = g.lanes[KICK];
+  [s] = g.lanes[SNARE];
+  const k2 = g.lanes[KICK][1];
+  tap(g, 0.5, k.time);
+  tap(g, 0.85, s.time); // 짝 엄지가 쿵 줄 선 옆
+  tap(g, 0.5, k2.time);
+  assert.equal(s.result, 'perfect');
+  assert.equal(k2.result, 'perfect');
+  assert.equal(g.counts.wrong + g.counts.miss, 0);
+
+  // 4) 쿵을 조금 늦게(0.07초) 선 근처에서 쳐도 쿵 (예전엔 0.03초 뒤 짝이 더 가깝다고 짝으로 옮김)
+  g = make(['KS..............']);
+  [k] = g.lanes[KICK];
+  [s] = g.lanes[SNARE];
+  assert.equal(tap(g, 0.9, k.time + 0.07).lane, KICK);
+  tap(g, 1.5, s.time);
+  assert.equal(k.result, 'great');
+  assert.equal(s.result, 'perfect');
+
+  // 5) 동시치기(쿵+짝 같이): 두 엄지가 둘 다 짝 줄을 눌러도 둘 다 맞음
+  g = make(['B...............']);
+  [k] = g.lanes[KICK];
+  [s] = g.lanes[SNARE];
+  assert.ok(k && s && k.time === s.time, '동시치기');
+  tap(g, 1.1, k.time);
+  tap(g, 1.6, k.time + 0.01);
+  assert.ok(k.judged && s.judged);
+  assert.equal(g.counts.wrong, 0);
 });

@@ -43,6 +43,10 @@ const PROFILES = {
   일찍침: { sigma: 0.04, bias: -0.04, posSigma: 0.22, skip: 0.01, offbeatMul: 1.35, frame: 1 / 60, lag: 0.03 },
   번갈아: { sigma: 0.045, bias: 0.01, posSigma: 0.15, skip: 0.01, offbeatMul: 1.35, frame: 1 / 60, lag: 0.03, alt: 0.3 },
   넘어감: { sigma: 0.045, bias: 0.01, posSigma: 0.3, skip: 0.01, offbeatMul: 1.35, frame: 1 / 60, lag: 0.03, toCenter: 0.35 },
+  // 가짜 터치: 진짜로 친 뒤 0.03~0.08초에 가운데 쪽 0.3~0.6줄 옆에서 터치가 하나 더 들어옴 (엄지를 떼며 굴림 → 움직임을 새 터치로 본 것,
+  //   다른 엄지가 스침 등). stray = 진짜 터치 중 그런 게 생기는 비율. 2026-11-24 '아직 인식이 제대로 안 돼요' 때 추가
+  가짜조금: { sigma: 0.04, bias: 0.01, posSigma: 0.2, skip: 0, offbeatMul: 1.3, frame: 1 / 60, lag: 0.03, toCenter: 0.15, stray: 0.03 },
+  가짜많이: { sigma: 0.04, bias: 0.01, posSigma: 0.2, skip: 0, offbeatMul: 1.3, frame: 1 / 60, lag: 0.03, toCenter: 0.15, stray: 0.1 },
 };
 
 async function engine(dir) {
@@ -136,22 +140,33 @@ function human(E, lv, P, seed) {
     }
     const u = order.indexOf(n.lane) + 0.5 + shift + gauss() * P.posSigma + (P.toCenter ? (left ? P.toCenter : -P.toCenter) : 0);
     taps.push({ at: n.time + err, u });
+    if (P.stray && R() < P.stray) {
+      const dir = u < order.length / 2 ? 1 : -1; // 가운데 쪽으로
+      taps.push({ at: n.time + err + 0.03 + 0.05 * R(), u: u + dir * (0.3 + 0.3 * R()), stray: true });
+      n._stray = true;
+    }
   }
   taps.sort((a, b) => a.at - b.at);
   E.play(g, taps, P, Math.max(...notes.map((n) => n.time)) + 1);
   const rank = { perfect: 3, great: 2, good: 1, miss: 0 };
-  let eaten = 0, down = 0;
+  let eaten = 0, down = 0, strays = 0;
   for (const n of notes) {
+    if (n._stray) strays++;
     if (n._exp === 'skip' || n._exp === 'miss') continue;
     if (!n.judged || n.result === 'miss') eaten++;
     else if (rank[n.result] < rank[n._exp]) down++;
   }
-  return { eaten, wrong: g.counts.wrong, down };
+  // 가짜 터치는 헛침 하나까지는 어쩔 수 없음 → 그걸 뺀 헛침
+  return { eaten, wrong: Math.max(0, g.counts.wrong - strays), down, pen: g.counts.miss + g.counts.wrong };
 }
 
-function masher(E, lv, rate, seed) {
+function masher(E, lv, rate, seed, lives = false) {
   const R = rng(seed);
   const g = E.make(lv);
+  if (lives) {
+    g.livesOn = true;
+    g.onDeath = () => {};
+  }
   const n = g.laneOrder.length;
   const end = g.lastNoteTime + 0.5;
   const taps = [];
@@ -159,16 +174,17 @@ function masher(E, lv, rate, seed) {
   taps.sort((a, b) => a.at - b.at);
   E.play(g, taps, { frame: 1 / 60 }, end + 0.5);
   const c = g.counts;
-  return { hit: c.perfect + c.great + c.good, notes: g.notes.length };
+  return { hit: c.perfect + c.great + c.good, notes: g.notes.length, alive: g.state !== 'dead', score: g.score / (g.maxScore || 1) };
 }
 
 const engines = [];
 for (const d of dirs) engines.push({ name: path.basename(d), E: await engine(d) });
 console.log(`단계 ${IDS.join(',')} · 유형마다 ${RUNS}판 · 숫자는 판 하나(단계 전부 합) 평균\n`);
-console.log('유형'.padEnd(5), engines.map((e) => `[${e.name}] 씹힘 / 헛침 / 낮아짐`).join('   '));
+console.log('유형'.padEnd(5), engines.map((e) => `[${e.name}] 씹힘 / 헛침 / 낮아짐 / 벌 전부`).join('   '));
+console.log('     (벌 전부 = MISS + 헛침, 사람이 진짜로 틀린 것까지. 하트가 깎이는 횟수에 가까움)');
 for (const [name, P] of Object.entries(PROFILES)) {
   const cols = engines.map(({ E }) => {
-    const t = { eaten: 0, wrong: 0, down: 0 };
+    const t = { eaten: 0, wrong: 0, down: 0, pen: 0 };
     for (const id of IDS) {
       const lv = E.C.LEVELS.find((l) => l.id === id);
       if (!lv) continue;
@@ -177,7 +193,7 @@ for (const [name, P] of Object.entries(PROFILES)) {
         for (const key in t) t[key] += r[key];
       }
     }
-    return `${(t.eaten / RUNS).toFixed(2).padStart(7)} / ${(t.wrong / RUNS).toFixed(2).padStart(6)} / ${(t.down / RUNS).toFixed(2).padStart(6)}`;
+    return `${(t.eaten / RUNS).toFixed(2).padStart(7)} / ${(t.wrong / RUNS).toFixed(2).padStart(6)} / ${(t.down / RUNS).toFixed(2).padStart(6)} / ${(t.pen / RUNS).toFixed(1).padStart(6)}`;
   });
   console.log(name.padEnd(5), cols.join('   '));
 }
@@ -195,6 +211,40 @@ for (const rate of [4, 8, 12]) {
       }
     }
     return `${((100 * hit) / notes).toFixed(1)}%`;
+  });
+  console.log(`  초당 ${rate}x2:`, engines.map((e, i) => `[${e.name}] ${cols[i]}`).join('   '));
+}
+console.log('\n마구 연타 — 하트 없이(🛡 무적): 점수(만점 대비) — 제대로 친 사람(보통 85%↑)보다 한참 낮아야 함');
+for (const rate of [4, 8, 12]) {
+  const cols = engines.map(({ E }) => {
+    let runs = 0, score = 0;
+    for (const id of [5, 7, 9, 12, 15, 19]) {
+      const lv = E.C.LEVELS.find((l) => l.id === id);
+      if (!lv) continue;
+      for (let k = 0; k < 10; k++) {
+        runs++;
+        score += masher(E, lv, rate, 77 * id + k).score;
+      }
+    }
+    return `${((100 * score) / runs).toFixed(1)}%`;
+  });
+  console.log(`  초당 ${rate}x2:`, engines.map((e, i) => `[${e.name}] ${cols[i]}`).join('   '));
+}
+console.log('\n마구 연타 — 하트 켜고: 끝까지 살아남은 판 · 점수(만점 대비) — 0 이어야 함');
+for (const rate of [4, 8, 12]) {
+  const cols = engines.map(({ E }) => {
+    let alive = 0, runs = 0, score = 0;
+    for (const id of [5, 7, 9, 12, 15, 19]) {
+      const lv = E.C.LEVELS.find((l) => l.id === id);
+      if (!lv) continue;
+      for (let k = 0; k < 10; k++) {
+        const r = masher(E, lv, rate, 77 * id + k, true);
+        runs++;
+        if (r.alive) alive++;
+        score += r.score;
+      }
+    }
+    return `${alive}/${runs}판 · 점수 ${((100 * score) / runs).toFixed(1)}%`;
   });
   console.log(`  초당 ${rate}x2:`, engines.map((e, i) => `[${e.name}] ${cols[i]}`).join('   '));
 }
