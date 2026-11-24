@@ -635,6 +635,30 @@ async function main() {
     console.log(`D1 오늘(UTC) 쓴 줄 ${when}: ${w == null ? '못 읽음' : w.toLocaleString()} / 100,000`);
     return w;
   };
+  if (cmd === 'shop') {
+    // 🛒 상점 이용 보고 (2026-11-24, 읽기만): 지갑 owned 를 물건별로 셈 · 코인 분포
+    const rows = await d1.q(`SELECT owned, coins FROM wallet`);
+    const by = {};
+    let buyers = 0;
+    const coins = rows.map((r) => Number(r.coins) || 0).sort((a, b) => a - b);
+    for (const r of rows) {
+      let o = [];
+      try { o = JSON.parse(r.owned || '[]'); } catch {}
+      if (o.length) buyers++;
+      for (const x of o) by[x] = (by[x] || 0) + 1;
+    }
+    const { priceOf } = await import('../public/js/shop.js');
+    console.log(`지갑 ${rows.length}개 · 하나라도 산 계정 ${buyers}`);
+    let spent = 0;
+    for (const [id, n] of Object.entries(by).sort((a, b) => b[1] - a[1])) {
+      spent += (priceOf(id) || 0) * n;
+      console.log(`  ${String(n).padStart(4)}개  ${id} (${priceOf(id)})`);
+    }
+    const q = (f) => coins[Math.min(coins.length - 1, Math.floor(coins.length * f))] || 0;
+    console.log(`쓴 코인 어림(지금 값) ${spent.toLocaleString()}`);
+    console.log(`코인 잔액: 가운데 ${q(0.5)} · 위 10% ${q(0.9)} · 최고 ${coins[coins.length - 1] || 0} · 5천↑ ${coins.filter((c) => c >= 5000).length}명 · 1만↑ ${coins.filter((c) => c >= 10000).length}명 · 2.5만↑ ${coins.filter((c) => c >= 25000).length}명`);
+    return;
+  }
   if (cmd === 'reads') {
     // 오늘(UTC) D1 읽은 줄 합계 + 많이 읽은 쿼리 (Cloudflare GraphQL d1QueriesAdaptiveGroups)
     const token = env.CLOUDFLARE_API_TOKEN;

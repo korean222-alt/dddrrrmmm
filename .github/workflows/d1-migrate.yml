@@ -6,6 +6,7 @@
 #   precopy  : 사이트는 Neon 그대로 두고 D1 에 미리 복사 + 맞춰 보기만 (다음 migrate 는 그 뒤 바뀐 것만 옮겨서 빠름)
 #   verify   : Neon 과 D1 비교 보고만
 #   usage    : D1 오늘(UTC) 쓴 줄 · 하루 어림 (아무것도 안 바꿈)
+#   shop     : 🛒 상점 이용 — 물건별 산 수 · 코인 잔액 분포 (읽기만, 지갑 표 한 번)
 #   reads    : D1 오늘(UTC) 읽은 줄 · 많이 읽은 쿼리 순서 (아무것도 안 바꿈)
 #   backfill : 예전 통계(plays·sessions)를 오늘 남은 D1 쓰기 한도 안에서 조금씩 (매일 한국 07:40 에 자동, 다 끝나면 아무것도 안 함)
 #   stats-neon / stats-d1 : 판·접속 통계만 Neon / D1 에 쓰기 (비밀값 STATS_DB). 예전 통계 옮기기가 다 끝나면 자동으로 d1
@@ -20,7 +21,7 @@ on:
         description: 'prepare / migrate / verify / rollback'
         required: true
         type: choice
-        options: [prepare, precopy, migrate, verify, usage, reads, backfill, rollback, stats-neon, stats-d1]
+        options: [prepare, precopy, migrate, verify, usage, reads, shop, backfill, rollback, stats-neon, stats-d1]
   # 예전 통계 나눠 옮기기: D1 쓰기 한도가 UTC 0시(한국 9시)에 초기화 → 그 직전에 남은 몫으로
   schedule:
     - cron: '40 22 * * *'
@@ -56,6 +57,10 @@ jobs:
       - name: D1 오늘 쓴 줄
         if: inputs.step == 'usage'
         run: node scripts/d1-sync.mjs usage
+
+      - name: 🛒 상점 이용 (읽기만)
+        if: inputs.step == 'shop'
+        run: node scripts/d1-sync.mjs shop
 
       - name: D1 오늘 읽은 줄 · 많이 읽은 쿼리
         if: inputs.step == 'reads'
