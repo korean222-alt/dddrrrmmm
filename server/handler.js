@@ -586,14 +586,14 @@ export function createHandler(cfg, { store, meter = null }) {
     }
     return { coins: w.coins, owned: cleanOwned(w.owned), ...(w.gift ? { gift: giftOut(w.gift) } : {}) };
   };
-  /** 🛒 상점 열림 (운영자가 admin 에서 켬). 인스턴스마다 1분 기억 */
-  let shopCache = { at: 0, open: false, only: [] };
+  /** 🛒 상점 열림 (2026-11-24 사용자 '상점 오픈' → 기본 열림, admin 에서 닫으면 'closed'). 인스턴스마다 1분 기억 */
+  let shopCache = { at: 0, open: true, only: [] };
   async function shopLoad(fresh) {
     const now = Date.now();
     if (fresh || now - shopCache.at > 60 * 1000) {
       // shopOpenFor = 쉼표로 나눈 igsid — 상점이 닫혀 있어도 그 계정만 삼 (운영자 시험용, 2026-11-23)
       const only = String((await store.getSetting('shopOpenFor')) || '').split(',').map((x) => x.trim()).filter(Boolean);
-      shopCache = { at: now, open: (await store.getSetting('shopOpen')) === '1', only };
+      shopCache = { at: now, open: (await store.getSetting('shopOpen')) !== 'closed', only };
     }
     return shopCache;
   }
@@ -1378,7 +1378,7 @@ export function createHandler(cfg, { store, meter = null }) {
       if (p === '/api/admin/shop' && m === 'GET') return json(200, { open: await shopOpen(true) });
       if (p === '/api/admin/shop' && m === 'POST') {
         const b = await readJson(request);
-        await store.setSetting('shopOpen', b.open ? '1' : '0');
+        await store.setSetting('shopOpen', b.open ? '1' : 'closed');
         return json(200, { open: await shopOpen(true) });
       }
       // 🧯 오늘 쓴 양·브레이크 단계

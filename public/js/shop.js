@@ -13,25 +13,26 @@ export const NOTE_FREE = ['candy', 'neon', 'ocean', 'fire', 'mono'];
 
 /** 상점 물건: [id, 값, 등급] — 등급 rare 레어 · epic 에픽 · legend 전설 */
 export const SHOP_ITEMS = [
-  // 🎤 세트 (2026-11-22, 사용자 요청: 리듬게임 라이브 화면 스타일 세트) = 화면 스타일(render.js live) + 세트 무대 · 11-23 사용자 1만 → 2만
-  ['ui:live', 20000, 'epic'],
+  // 🎤 세트 (2026-11-22, 사용자 요청: 리듬게임 라이브 화면 스타일 세트) = 화면 스타일(render.js live) + 세트 무대 · 11-23 1만 → 2만 · 11-24 2만5천
+  ['ui:live', 25000, 'epic'],
   // 🥇 시즌 1 한정 세트 (2026-11-23 사용자 '시즌1 때만, 1 을 강조, 세트로, 1111') = 금빛 「1」 콩 + 시즌 1 무대 + 황금 드럼. 시즌 1 끝나면 못 삼(LIMITED)
   ['ui:s1', 1111, 'legend'],
-  ['notes:galaxy', 50000, 'legend'],
-  ['notes:gold', 30000, 'legend'],
-  ['notes:cyber', 9000, 'epic'],
-  ['notes:flame', 6000, 'rare'],
-  ['notes:ice', 6000, 'rare'],
-  ['notes:heart', 6000, 'rare'],
-  ['bg:palace', 15000, 'epic'],
+  // 2026-11-24 사용자: 레어 5천 · 에픽 1만 · 전설 4만 (시즌 1 세트·라이브 세트만 따로)
+  ['notes:galaxy', 40000, 'legend'],
+  ['notes:gold', 40000, 'legend'],
+  ['notes:cyber', 10000, 'epic'],
+  ['notes:flame', 5000, 'rare'],
+  ['notes:ice', 5000, 'rare'],
+  ['notes:heart', 5000, 'rare'],
+  ['bg:palace', 10000, 'epic'],
   ['bg:cybercity', 10000, 'epic'],
-  ['bg:sakura', 8000, 'rare'],
-  ['bg:abyss', 8000, 'rare'],
+  ['bg:sakura', 5000, 'rare'],
+  ['bg:abyss', 5000, 'rare'],
   ['bg:photo', 5000, 'rare'],
-  ['kit:goldkit', 12000, 'epic'],
-  ['kit:neonkit', 7000, 'rare'],
-  ['kit:crystal', 7000, 'rare'],
-  ['kit:rainbow', 7000, 'rare'],
+  ['kit:goldkit', 10000, 'epic'],
+  ['kit:neonkit', 5000, 'rare'],
+  ['kit:crystal', 5000, 'rare'],
+  ['kit:rainbow', 5000, 'rare'],
 ];
 /** 기간 한정: 이 시각(ms)이 지나면 못 삼 (산 사람은 계속 씀) */
 export const LIMITED = { 'ui:s1': SEASONS[0].end };

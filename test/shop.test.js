@@ -5,8 +5,8 @@ import { NOTE_PALETTES } from '../public/js/render.js';
 import { THEMES, SHOP_KITS } from '../public/js/themes.js';
 
 test('가격표: 상점 전용만 팜 · 예전 맵 배경·드럼·색 콩은 안 팜(무료)', () => {
-  assert.equal(priceOf('notes:galaxy'), 50000);
-  assert.equal(priceOf('notes:gold'), 30000);
+  assert.equal(priceOf('notes:galaxy'), 40000);
+  assert.equal(priceOf('notes:gold'), 40000);
   assert.equal(priceOf('bg:photo'), 5000);
   for (const old of ['notes:neon', 'bg:city', 'kit:lava', 'notes:basic', 'bg:auto', 'kit:nope']) assert.equal(priceOf(old), null, old);
   assert.deepEqual(cleanOwned(['bg:sakura', 'bg:sakura', 'bg:city', 7]), ['bg:sakura']);
@@ -25,7 +25,7 @@ test('예전에 산 것 돌려주기', () => {
 });
 
 test('사기', () => {
-  let r = buyItem({ coins: 7000, owned: [] }, 'notes:flame');
+  let r = buyItem({ coins: 6000, owned: [] }, 'notes:flame');
   assert.equal(r.ok, true);
   assert.equal(r.wallet.coins, 1000);
   r = buyItem(r.wallet, 'notes:flame');
@@ -48,10 +48,10 @@ test('🏆 시즌 보상: 등수별 · 두 판에 다 들면 큰 것 하나만',
   assert.deepEqual([by.c.coins, by.c.board, by.c.rank], [50000, 'endless', 3]);
 });
 
-test('🥇 시즌 1 한정 세트: 시즌 1 동안만 팖, 산 사람은 계속 가짐 · 라이브 세트 2만', async () => {
+test('🥇 시즌 1 한정 세트: 시즌 1 동안만 팖, 산 사람은 계속 가짐 · 라이브 세트 2만5천', async () => {
   const { SEASONS } = await import('../public/js/season.js');
   const end = SEASONS[0].end;
-  assert.equal(priceOf('ui:live'), 20000);
+  assert.equal(priceOf('ui:live'), 25000);
   assert.equal(priceOf('ui:s1'), 1111);
   assert.equal(priceOf('notes:s1'), null);
   assert.ok(NOTE_PALETTES.s1 && NOTE_PALETTES.s1.fx.tex === 's1');

@@ -4809,25 +4809,26 @@ const NOTE_FREE = ['candy', 'neon', 'ocean', 'fire', 'mono'];
 
 /** 상점 물건: [id, 값, 등급] — 등급 rare 레어 · epic 에픽 · legend 전설 */
 const SHOP_ITEMS = [
-  // 🎤 세트 (2026-11-22, 사용자 요청: 리듬게임 라이브 화면 스타일 세트) = 화면 스타일(render.js live) + 세트 무대 · 11-23 사용자 1만 → 2만
-  ['ui:live', 20000, 'epic'],
+  // 🎤 세트 (2026-11-22, 사용자 요청: 리듬게임 라이브 화면 스타일 세트) = 화면 스타일(render.js live) + 세트 무대 · 11-23 1만 → 2만 · 11-24 2만5천
+  ['ui:live', 25000, 'epic'],
   // 🥇 시즌 1 한정 세트 (2026-11-23 사용자 '시즌1 때만, 1 을 강조, 세트로, 1111') = 금빛 「1」 콩 + 시즌 1 무대 + 황금 드럼. 시즌 1 끝나면 못 삼(LIMITED)
   ['ui:s1', 1111, 'legend'],
-  ['notes:galaxy', 50000, 'legend'],
-  ['notes:gold', 30000, 'legend'],
-  ['notes:cyber', 9000, 'epic'],
-  ['notes:flame', 6000, 'rare'],
-  ['notes:ice', 6000, 'rare'],
-  ['notes:heart', 6000, 'rare'],
-  ['bg:palace', 15000, 'epic'],
+  // 2026-11-24 사용자: 레어 5천 · 에픽 1만 · 전설 4만 (시즌 1 세트·라이브 세트만 따로)
+  ['notes:galaxy', 40000, 'legend'],
+  ['notes:gold', 40000, 'legend'],
+  ['notes:cyber', 10000, 'epic'],
+  ['notes:flame', 5000, 'rare'],
+  ['notes:ice', 5000, 'rare'],
+  ['notes:heart', 5000, 'rare'],
+  ['bg:palace', 10000, 'epic'],
   ['bg:cybercity', 10000, 'epic'],
-  ['bg:sakura', 8000, 'rare'],
-  ['bg:abyss', 8000, 'rare'],
+  ['bg:sakura', 5000, 'rare'],
+  ['bg:abyss', 5000, 'rare'],
   ['bg:photo', 5000, 'rare'],
-  ['kit:goldkit', 12000, 'epic'],
-  ['kit:neonkit', 7000, 'rare'],
-  ['kit:crystal', 7000, 'rare'],
-  ['kit:rainbow', 7000, 'rare'],
+  ['kit:goldkit', 10000, 'epic'],
+  ['kit:neonkit', 5000, 'rare'],
+  ['kit:crystal', 5000, 'rare'],
+  ['kit:rainbow', 5000, 'rare'],
 ];
 /** 기간 한정: 이 시각(ms)이 지나면 못 삼 (산 사람은 계속 씀) */
 const LIMITED = { 'ui:s1': SEASONS[0].end };
@@ -15852,10 +15853,12 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-24b',
+    id: '2026-11-24c',
     date: '11월 24일',
-    title: '🖐 터치 판정을 단순하게 바꿨어요',
+    title: '🛒 상점 오픈! · 🖐 터치 판정을 단순하게',
     items: [
+      '<b>🛒 상점이 열렸어요!</b> 첫 화면 <b>상점</b> 버튼 · 모은 코인으로 콩 스킨·무대·드럼·세트를 살 수 있어요 (레어 5천 · 에픽 1만 · 전설 4만 · 🎤 라이브 스테이지 세트 2만5천)',
+      '업데이트·건의하기·홈 화면으로 보기는 <b>⚙ 설정</b> 안으로 옮겼어요',
       '⚙ 설정 → <b>터치 표시</b>를 켜면 누른 자리에 동그라미와 판정이 보여요 (어디를 눌렀는지 확인용)',
       '<b>누른 줄에 콩이 있으면 맞음, 없으면 헛침</b> — 이제 이 규칙 그대로예요',
       '엄지를 <b>떼면서 옆 줄로 미끄러져도</b> 터치 한 번 더로 안 잡혀요 (빠른 쿵짝쿵에서 제대로 친 콩이 MISS 되던 것)',
@@ -19055,7 +19058,7 @@ function applyDeco() {
 // 2026-11-22 사용자: 설정의 꾸미기 칸은 없애고 상점 한 곳에서 (장착 중 표시 + 「보유」 탭)
 function renderDeco() {
   renderPhotoOpts();
-  if (!$('#modal-shop').hidden) renderShop();
+  if ($('#screen-shop').classList.contains('active')) renderShop();
 }
 
 // 📷 내 사진 배경: 고른 사진을 긴 쪽 1600px JPEG 로 줄여 이 폰(IndexedDB)에만 저장. 서버로 안 보냄
@@ -19127,7 +19130,8 @@ const LANE_DEFAULT = LANE.slice(0, 4).map((l) => l.main);
 //   물건을 누르면 팝업(실제 게임 화면 미리보기 + 사기). 운영자가 admin 에서 열기 전엔 구경만(state.cfg.shopOpen)
 //   인증한 계정 = 서버 지갑에서 차감(/api/shop/buy, 모아 둔 코인을 같이 보냄), 인증 전 = 이 폰 코인에서 차감
 const SHOP_BGS = SHOP_ITEMS.map(([id]) => id.split(':')).filter(([t, k]) => t === 'bg' && THEMES[k] && THEMES[k].img).map(([, k]) => k);
-const shopIsOpen = () => !!state.cfg.shopOpen;
+// 2026-11-24 상점 오픈: 서버가 닫았다고 할 때만 닫힘 (서버 없는 모드에서도 이 폰 코인으로 삼)
+const shopIsOpen = () => state.cfg.shopOpen !== false;
 function shopSwatch(type, key) {
   if (key === DECO_FREE[type]) {
     if (type === 'notes') return `conic-gradient(${LANE_DEFAULT.join(',')})`;
@@ -19235,7 +19239,8 @@ function renderPhotoOpts() {
 }
 function openShop(focus) {
   renderShop();
-  openModal('modal-shop');
+  closeModal('modal-settings');
+  show('screen-shop');
   if (typeof focus === 'string' && (priceOf(focus) != null || isFreeId(focus))) previewShop(focus);
 }
 // 👀 미리보기 팝업: 실제 게임 화면. 고른 것만 바꾸고 나머지는 지금 꾸미기 그대로
@@ -19291,7 +19296,8 @@ function closeShopPreview() {
 }
 function closeShop() {
   closeShopPreview();
-  closeModal('modal-shop');
+  refreshTitle();
+  show('screen-title');
 }
 /** 산 것을 바로 씀 (사진 배경이면 사진 고르기) */
 function equipDeco(id) {
@@ -22537,7 +22543,9 @@ async function a2hsInstall() {
 
 // ---------------- 업데이트 소식 · 건의하기 ----------------
 function refreshNewsDot() {
-  $('#news-dot').hidden = load('newsSeen', '') === LATEST_NEWS;
+  const seen = load('newsSeen', '') === LATEST_NEWS;
+  $('#news-dot').hidden = seen;
+  $('#gear-dot').hidden = seen; // 업데이트 버튼이 설정 안으로 가서 톱니에도 빨간 점 (2026-11-24)
 }
 function openNews() {
   const seen = load('newsSeen', '');

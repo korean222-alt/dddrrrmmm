@@ -756,6 +756,8 @@ test('🏆 랭킹전: 실시간으로 붙으면 바로 시작 · 결과로 엘�
 
 test('🛒 상점: 닫혀 있으면 못 삼(코인은 받음) · 열면 얹어 온 코인 먼저 더하고 차감 · 모자라면 402 · 이미 있으면 돈 안 냄', async () => {
   const C = await verifiedClient('상점손님', 'shop.guest');
+  assert.equal((await C('GET', '/api/config')).json.shopOpen, true, '기본 열림 (2026-11-24)');
+  await C('POST', '/api/admin/shop', { open: false }, adm);
   assert.equal((await C('GET', '/api/config')).json.shopOpen, false);
   const closed = await C('POST', '/api/shop/buy', { item: 'bg:photo', coins: { free: 3000 } });
   assert.equal(closed.status, 403);
@@ -777,7 +779,6 @@ test('🛒 상점: 닫혀 있으면 못 삼(코인은 받음) · 열면 얹어 �
   assert.equal(me.coins, 0);
   assert.deepEqual(me.owned, ['bg:photo']);
   assert.equal((await client()('POST', '/api/shop/buy', { item: 'bg:photo' })).status, 403);
-  await C('POST', '/api/admin/shop', { open: false }, adm);
 });
 
 test('🎁 운영자 코인 주기: 지갑에 바로 · 다음 접속에 알림 · 받기 하면 지움 · 전당에 없으면 한마디 요청 안 됨', async () => {

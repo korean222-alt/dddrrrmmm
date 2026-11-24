@@ -1187,3 +1187,14 @@ html.ui-live #screen-result .res-stats b { font-family: "Arial Black", "Segoe UI
 .mk-deco .chips { gap: 6px; }
 .mk-deco .chips button { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; font-size: 14px; }
 .mk-deco .chips button i { width: 18px; height: 18px; border-radius: 50%; border: 1px solid rgba(0,0,0,.25); flex: none; }
+
+/* 🛒 상점 화면 · 첫 화면 상점 버튼 · 설정 안 작은 버튼 (2026-11-24) */
+.shop-btn { width: 100%; background: linear-gradient(90deg, #ffb020, #ff6a3d); color: #fff; box-shadow: 0 5px 0 var(--ink); text-shadow: 0 2px 0 rgba(0, 0, 0, 0.3); }
+.shop-btn:active { box-shadow: 0 2px 0 var(--ink); }
+.shop-btn small { background: #fff; color: #e2562e; text-shadow: none; padding: 1px 8px; border-radius: 99px; opacity: 1; }
+#screen-shop .bar h2 { flex: 1; }
+.sheet.shop-page { max-width: 560px; max-height: none; margin: 0 auto; border-bottom: 3px solid var(--ink); border-radius: 24px; overflow: visible; }
+.set-mini { margin: 4px 0 14px; }
+.set-mini .mini-btn { background: #fff6d6; border-color: var(--ink); color: var(--ink); }
+.gear-btn { position: relative; }
+.gear-btn .dot { position: absolute; top: -2px; right: -2px; width: 12px; height: 12px; border-radius: 50%; background: #ff3d6e; border: 2px solid #fff; animation: pulse 1.4s ease-in-out infinite; }

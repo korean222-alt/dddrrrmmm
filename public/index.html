@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=704be0dc36" />
+  <link rel="stylesheet" href="css/style.css?v=f2ba0d3878" />
 </head>
 <body>
   <div id="app">
@@ -25,7 +25,7 @@
     <section id="screen-title" class="screen active" aria-label="시작 화면">
       <div class="title-top">
         <div class="title-left">
-          <button class="icon-btn gear-btn" data-action="settings" aria-label="설정"><img src="assets/gear.png" alt="" width="40" height="40" /></button>
+          <button class="icon-btn gear-btn" data-action="settings" aria-label="설정"><img src="assets/gear.png" alt="" width="40" height="40" /><i class="dot" id="gear-dot" hidden></i></button>
           <button class="coin-chip" id="coin-chip" data-action="shop-open" aria-label="상점"><i class="coin-ico"></i><b id="coin-num">0</b><span class="coin-shop">🛒</span></button>
         </div>
         <button class="follow-chip" data-action="rank-join" hidden></button>
@@ -57,11 +57,7 @@
           <button class="btn btn-hot mysong-btn" data-action="mysong-open"><span data-icon="note" data-e></span> 최신곡으로 치기</button>
           <button class="btn btn-hot mysong-btn maps-btn" data-action="maps-open"><span data-icon="piano" data-e></span> 유저 맵 <small>NEW</small></button>
         </div>
-        <div class="title-mini">
-          <button class="mini-btn" data-action="news-open" id="btn-news"><span data-icon="megaphone" data-e></span><span>업데이트</span><i class="dot" id="news-dot" hidden></i></button>
-          <button class="mini-btn" data-action="suggest-open"><span data-icon="chat" data-e></span><span>건의하기</span></button>
-          <button class="mini-btn" data-action="a2hs-open" id="btn-a2hs"><span data-icon="phone" data-e></span><span>앱처럼 하기</span></button>
-        </div>
+        <button class="btn shop-btn" data-action="shop-open">🛒 상점 <small>OPEN</small></button>
         <button class="btn p2-btn" data-action="p2-open"><span data-icon="piano" data-e></span> 시즌 2 미리보기 <small>투표</small></button>
         <button class="link studio-link" data-action="studio"><span data-icon="video"></span> 영상 찍기</button>
       </div>
@@ -70,6 +66,29 @@
         <button class="link" data-action="dismiss-inapp">닫기</button>
       </div>
       <footer class="title-foot" id="title-foot"></footer>
+    </section>
+
+    <!-- 🛒 상점 (2026-11-24 사용자: 따로 된 화면으로) -->
+    <section id="screen-shop" class="screen" aria-label="상점">
+      <header class="bar">
+        <button class="icon-btn" data-action="close-shop" aria-label="뒤로"><span data-icon="back"></span></button>
+        <h2>🛒 상점</h2>
+        <span class="shop-coins"><i class="coin-ico"></i><b id="shop-coins">0</b></span>
+      </header>
+      <div class="sheet shop-sheet shop-page">
+      <p class="shop-closed" id="shop-closed" hidden>🔒 판매 준비 중이에요 · 눌러서 미리보기는 돼요</p>
+      <div class="shop-now" id="shop-now"></div>
+      <div class="shop-tabs" id="shop-tabs">
+        <button data-shop-tab="all" aria-pressed="true">전체</button>
+        <button data-shop-tab="mine" aria-pressed="false">보유</button>
+      </div>
+      <div class="photo-opts" id="set-photo-opts" hidden>
+        <label class="field"><span>사진 어둡게</span><input type="range" min="0" max="0.85" step="0.05" id="set-photo-dim" /></label>
+        <p class="muted small">사진은 이 폰에만 저장돼요 · <button class="link" data-photo-act="change">사진 바꾸기</button> · <button class="link" data-photo-act="del">지우기</button></p>
+      </div>
+      <input type="file" accept="image/*" id="set-photo-file" hidden />
+      <div class="shop-list" id="shop-list"></div>
+      </div>
     </section>
 
     <!-- 단계 선택 -->
@@ -776,6 +795,12 @@
     <div class="sheet">
       <button class="icon-btn close" data-action="close-settings" aria-label="닫기"><span data-icon="close"></span></button>
       <h3>설정</h3>
+      <!-- 2026-11-24 사용자: 첫 화면의 업데이트·건의하기·홈 화면으로 보기는 설정으로 -->
+      <div class="title-mini set-mini">
+        <button class="mini-btn" data-action="news-open" id="btn-news"><span data-icon="megaphone" data-e></span><span>업데이트</span><i class="dot" id="news-dot" hidden></i></button>
+        <button class="mini-btn" data-action="suggest-open"><span data-icon="chat" data-e></span><span>건의하기</span></button>
+        <button class="mini-btn" data-action="a2hs-open" id="btn-a2hs"><span data-icon="phone" data-e></span><span>홈 화면으로 보기</span></button>
+      </div>
       <label class="field"><span>배경 음악</span><input type="range" min="0" max="1" step="0.05" id="set-music" /></label>
       <label class="field"><span>드럼 소리</span><input type="range" min="0" max="1" step="0.05" id="set-sfx" /></label>
       <label class="field"><span>싱크 보정 <b id="set-offset-val"></b></span><input type="range" min="-200" max="200" step="5" id="set-offset" /></label>
@@ -995,24 +1020,6 @@
     </div>
   </div>
 
-  <div class="modal" id="modal-shop" hidden>
-    <div class="sheet shop-sheet">
-      <button class="icon-btn close" data-action="close-shop" aria-label="닫기"><span data-icon="close"></span></button>
-      <h3>🛒 상점 <span class="shop-coins"><i class="coin-ico"></i><b id="shop-coins">0</b></span></h3>
-      <p class="shop-closed" id="shop-closed" hidden>🔒 판매 준비 중이에요 · 눌러서 미리보기는 돼요</p>
-      <div class="shop-now" id="shop-now"></div>
-      <div class="shop-tabs" id="shop-tabs">
-        <button data-shop-tab="all" aria-pressed="true">전체</button>
-        <button data-shop-tab="mine" aria-pressed="false">보유</button>
-      </div>
-      <div class="photo-opts" id="set-photo-opts" hidden>
-        <label class="field"><span>사진 어둡게</span><input type="range" min="0" max="0.85" step="0.05" id="set-photo-dim" /></label>
-        <p class="muted small">사진은 이 폰에만 저장돼요 · <button class="link" data-photo-act="change">사진 바꾸기</button> · <button class="link" data-photo-act="del">지우기</button></p>
-      </div>
-      <input type="file" accept="image/*" id="set-photo-file" hidden />
-      <div class="shop-list" id="shop-list"></div>
-    </div>
-  </div>
 
   <div class="modal" id="modal-shopitem" hidden>
     <div class="sheet shopitem-sheet">
@@ -1091,6 +1098,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=2f9fe24a67" defer></script>
+  <script src="js/app.js?v=088a166b9b" defer></script>
 </body>
 </html>
