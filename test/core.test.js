@@ -859,6 +859,30 @@ test('🖐 터치 판정 단순하게(2026-11-24 \'아직 인식이 제대로 �
   assert.equal(k.result, 'great');
   assert.equal(s.result, 'perfect');
 
+  // 4-2) DM 영상(11-24): 쿵 → 0.1초 뒤 짝. 짝 엄지가 쿵 줄 안쪽(선에서 0.4)을 조금 일찍 눌러도 → 쿵 줄이 방금 눌렸으니 다른 엄지 → 짝.
+  //   쿵 엄지가 늦게 와 쿵 줄 가운데를 눌러도 → 쿵
+  g = make(['KSK.............']);
+  [k] = g.lanes[KICK];
+  [s] = g.lanes[SNARE];
+  const kk2 = g.lanes[KICK][1];
+  tap(g, 0.7, k.time + 0.03);
+  assert.equal(tap(g, 0.6, s.time + 0.01).lane, SNARE, '짝 엄지가 쿵 줄 안쪽 (다음 쿵이 0.1초 뒤라 판정 시간 안이어도)');
+  tap(g, 0.5, kk2.time + 0.06);
+  end(g, kk2.time + 0.5);
+  assert.notEqual(s.result, 'miss');
+  assert.notEqual(kk2.result, 'miss');
+  assert.equal(g.counts.wrong + g.counts.miss, 0);
+  // 선 건너편 늦은 쿵을 짝 줄 콩이 가져가도, 진짜 짝 터치가 오면 서로 바꿔 둘 다 맞음 (지나간 쿵 MISS 로 끝내지 않음)
+  g = make(['K.S.............']);
+  [k] = g.lanes[KICK];
+  [s] = g.lanes[SNARE];
+  tap(g, 1.13, k.time + 0.09); // 쿵 엄지가 늦게, 짝 줄 선 옆
+  tap(g, 1.18, s.time + 0.05); // 진짜 짝
+  end(g, s.time + 0.5);
+  assert.notEqual(k.result, 'miss');
+  assert.notEqual(s.result, 'miss');
+  assert.equal(g.counts.wrong + g.counts.miss, 0);
+
   // 5) 동시치기(쿵+짝 같이): 두 엄지가 둘 다 짝 줄을 눌러도 둘 다 맞음
   g = make(['B...............']);
   [k] = g.lanes[KICK];

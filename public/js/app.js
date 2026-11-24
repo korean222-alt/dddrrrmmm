@@ -14065,6 +14065,8 @@ const MISS_SLACK = 0.12;
  */
 const NEAR_LINE = 0.3;
 const NEAR_HALF = 0.5;
+/** 같은 줄을 이 시간(초) 안에 또 누르면 다른 엄지로 봄 (② 의 '선 바로 옆'을 옆 줄 쪽 절반까지 넓힘) */
+const TWIN_GAP = 0.15;
 
 class Game {
   /**
@@ -14106,6 +14108,8 @@ class Game {
     this.maxLag = 0;
     /** 진짜 실수(헛침·지나가지 않은 MISS) 수 — 되살릴 때 콤보를 이어 줄지 (_revive) */
     this._hardBreaks = 0;
+    /** 줄마다 마지막으로 눌린 곡 시각 (TWIN_GAP) */
+    this._touchAt = {};
     // 자동 연주(영상 찍기)나 죽었을 때 처리할 곳이 없으면 목숨 없음
     //   💀 실패 영상(level.failReel): 자동 연주라도 목숨이 있음 → failAt 부터 일부러 놓쳐서 하트가 다 떨어짐
     this.livesOn = (!auto || !!level.failReel) && !!this.onDeath;
@@ -14390,7 +14394,11 @@ class Game {
     if (roll) {
       if (roll.lane !== lane && side.some((c) => c.lane === roll.lane)) lane = roll.lane;
     } else if (playing) {
-      note = this._pick(lane, t, side);
+      // 이 줄을 방금(TWIN_GAP 안) 다른 터치가 눌렀음 → 이 터치는 다른 엄지일 가능성이 큼 → 선 건너편 콩을 옆 줄 쪽 절반까지 봄
+      //   (2026-11-24 DM 영상: 쿵 → 0.1초 뒤 짝에서 짝만 빠짐 = 두 엄지가 가운데에 붙어 짝 엄지가 쿵 줄 안쪽을 누름)
+      const twin = t - (this._touchAt[lane] ?? -9) < TWIN_GAP;
+      this._touchAt[lane] = t;
+      note = this._pick(lane, t, side, twin ? NEAR_HALF : NEAR_LINE);
       // 이 콩은 방금 일찍 누른 터치(헛침)가 이미 쓴 것이고, 같은 줄 다음 콩도 판정 시간 안이면 → 이 터치는 다음 콩 것.
       //   일찍 누른 콩은 지금 MISS (그 헛침이 MISS 로 바뀜, 벌은 한 번만)
       if (note && note.early && !note.judged) {
@@ -14424,7 +14432,7 @@ class Game {
       //   - 그 밖(같은 엄지가 한 번 더 튕김 등): 이 터치가 헛침 (벌은 그대로, 진짜 터치가 아니라 남는 터치에)
       const dt = t - note.time;
       let alt = null;
-      for (const l of [touched, ...side.filter((c) => c.d <= NEAR_LINE).map((c) => c.lane)]) {
+      for (const l of [touched, ...side.map((c) => c.lane)]) {
         if (l === note.lane) continue;
         const k = this._take(l, t);
         if (k && (!alt || k.time < alt.time)) alt = k;
@@ -14433,6 +14441,11 @@ class Game {
       note.swap = { alt, t, from: touched };
       this._hit(note, dt, rt);
       return { lane, res: note.result };
+    }
+    // 이 줄 콩을 다른 터치가 먼저 쳐 갔고, 그 터치에 돌려줄 콩이 있음 → 서로 바꾸면 둘 다 맞음 (지나간 콩 MISS 보다 먼저)
+    for (const l of [lane, ...side.map((c) => c.lane)]) {
+      const n = this._retake(l, t, rt, false);
+      if (n) return { lane: l, res: n.result };
     }
     // 지나간 콩을 GOOD 보다 조금 늦게 친 것: 그 콩을 지금 MISS 로 (어차피 MISS) — 헛침까지 더 받지 않게.
     //   이미 MISS 로 넘어간 콩이면(폰이 버벅여 터치가 늦게 도착) 벌은 받았으니 아무것도 안 함
@@ -14444,7 +14457,7 @@ class Game {
     }
     // 위 경우: 이 줄 콩을 다른 터치가 먼저 쳐 갔고 이 터치는 칠 게 없음 → 이 터치가 그 콩을 치고, 먼저 친 터치는 원래 콩으로 (한 번만)
     for (const l of [lane, ...side.map((c) => c.lane)]) {
-      const n = this._retake(l, t, rt);
+      const n = this._retake(l, t, rt, true);
       if (!n) continue;
       return { lane: l, res: n.result };
     }
@@ -14460,7 +14473,7 @@ class Game {
   }
 
   /** 이 터치(시각 t, 누른 줄 lane, 선 근처 옆 줄 side)가 칠 콩 (맨 위 '터치 판정은 단순하게' 규칙, 없으면 null) */
-  _pick(lane, t, side) {
+  _pick(lane, t, side, zone = NEAR_LINE) {
     const own = this._take(lane, t);
     // 내 줄 콩이 왔음(PERFECT 안이거나 지났음) → 그 콩
     if (own && t - own.time >= -JUDGE.perfect) return own;
@@ -14468,7 +14481,7 @@ class Game {
     if (!own && this._late(lane, t)) return null;
     let alt = null;
     for (const c of side) {
-      if (own && c.d > NEAR_LINE) continue;
+      if (own && c.d > zone) continue;
       const k = this._take(c.lane, t);
       if (k && (!alt || k.time < alt.time)) alt = k;
     }
@@ -14511,9 +14524,9 @@ class Game {
    * 이 줄에서 다른 터치가 '어쩌면 남의 콩을' 쳐 간 콩(swap)을 이 터치(t)가 되찾음: 판정은 이 터치 시간으로 다시 매기고,
    *   먼저 친 터치는 그때 칠 수 있던 원래 콩(swap.alt)으로 — 그 콩이 그 터치 시각에 판정 시간 안일 때만.
    *   돌려줄 콩이 없으면(남는 터치) 먼저 친 터치가 헛침, 지나간 콩이었으면 그 콩이 MISS (벌은 늘 한 번).
-   *   바꾸기는 한 번만, 줄줄이 이어지지 않음. 이 터치가 어차피 헛침이 될 때만 부름
+   *   바꾸기는 한 번만, 줄줄이 이어지지 않음. 이 터치가 어차피 헛침이 될 때만 부름. stray=false 면 둘 다 맞는 바꾸기만
    */
-  _retake(lane, t, rt) {
+  _retake(lane, t, rt, stray) {
     const list = this.lanes[lane];
     for (let i = Math.max(0, this.ptr[lane] - 4); i < list.length && list[i].time - t <= JUDGE.good; i++) {
       const n = list[i];
@@ -14522,6 +14535,7 @@ class Game {
       const a = s.alt;
       const adt = a ? s.t - a.time : 0;
       const altOk = a && Math.abs(adt) <= JUDGE.good && this._open(a, s.t);
+      if (!altOk && !stray) continue;
       // 먼저 친 터치에 돌려줄 콩이 없으면 이 터치가 시간이 더 잘 맞을 때만 (정확히 친 콩을 뒤 터치가 뺏으면 안 됨).
       //   남는 터치는 가끔 하나 → 0.5초 안에 헛침이 있었으면(마구 두드림) 안 바꿈 (여러 번 두드려 시간 맞는 걸 골라 갖지 못하게)
       if (!altOk && Math.abs(t - n.time) >= Math.abs(s.t - n.time)) continue;
