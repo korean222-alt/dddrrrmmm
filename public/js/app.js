@@ -15852,10 +15852,11 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-24a',
+    id: '2026-11-24b',
     date: '11월 24일',
     title: '🖐 터치 판정을 단순하게 바꿨어요',
     items: [
+      '⚙ 설정 → <b>터치 표시</b>를 켜면 누른 자리에 동그라미와 판정이 보여요 (어디를 눌렀는지 확인용)',
       '<b>누른 줄에 콩이 있으면 맞음, 없으면 헛침</b> — 이제 이 규칙 그대로예요',
       '엄지를 <b>떼면서 옆 줄로 미끄러져도</b> 터치 한 번 더로 안 잡혀요 (빠른 쿵짝쿵에서 제대로 친 콩이 MISS 되던 것)',
       '조금 일찍 누른 터치가 <b>다음 콩을 MISS 로 만들지 않아요</b> — 한 번 실수하면 벌도 한 번',
@@ -18712,6 +18713,7 @@ function openSettings() {
   $('#set-offset').value = s.offsetMs;
   $('#set-vibrate').checked = !!s.vibrate;
   $('#set-lite').checked = !!s.lite;
+  $('#set-touchshow').checked = !!load('touchShow', false);
   $$('#set-band button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.band === (s.band || 'orch')));
   updateSettingLabels();
   renderDeco();
@@ -19429,6 +19431,11 @@ function bindSettings() {
     updateSettingLabels();
   };
   ['#set-music', '#set-sfx', '#set-offset', '#set-vibrate', '#set-lite'].forEach((id) => $(id).addEventListener('input', upd));
+  // 🖐 터치 표시 (2026-11-24 사용자): 누른 자리에 동그라미 + 줄·판정. /?touch=show 와 같은 값
+  $('#set-touchshow').addEventListener('input', (e) => {
+    save('touchShow', e.target.checked);
+    renderer.touchShow = e.target.checked;
+  });
   $('#set-band').addEventListener('click', async (e) => {
     const b = e.target.closest('[data-band]');
     if (!b) return;

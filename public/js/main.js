@@ -1827,6 +1827,7 @@ function openSettings() {
   $('#set-offset').value = s.offsetMs;
   $('#set-vibrate').checked = !!s.vibrate;
   $('#set-lite').checked = !!s.lite;
+  $('#set-touchshow').checked = !!load('touchShow', false);
   $$('#set-band button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.band === (s.band || 'orch')));
   updateSettingLabels();
   renderDeco();
@@ -2544,6 +2545,11 @@ function bindSettings() {
     updateSettingLabels();
   };
   ['#set-music', '#set-sfx', '#set-offset', '#set-vibrate', '#set-lite'].forEach((id) => $(id).addEventListener('input', upd));
+  // 🖐 터치 표시 (2026-11-24 사용자): 누른 자리에 동그라미 + 줄·판정. /?touch=show 와 같은 값
+  $('#set-touchshow').addEventListener('input', (e) => {
+    save('touchShow', e.target.checked);
+    renderer.touchShow = e.target.checked;
+  });
   $('#set-band').addEventListener('click', async (e) => {
     const b = e.target.closest('[data-band]');
     if (!b) return;
