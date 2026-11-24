@@ -2561,7 +2561,7 @@ function bindSettings() {
   });
 }
 
-const calib = { taps: [], clicks: [], active: false, required: false, after: null, fails: 0 };
+const calib = { taps: [], pTaps: [], clicks: [], active: false, required: false, after: null, fails: 0, ctx0: 0, perf0: 0 };
 
 /** 박자 보정을 한 번도 안 했고 직접 맞춘 값도 없으면 필수 (이번 접속에서 '나중에'를 눌렀으면 넘어감) */
 function needsCalibration() {
@@ -2592,9 +2592,13 @@ async function startCalibration() {
   $('#calib-done').hidden = true;
   $('#calib-skip').hidden = true;
   calib.taps = [];
+  calib.pTaps = [];
   calib.active = true;
   const clicks = playMetronome(audio, 100, 12);
   calib.clicks = clicks;
+  // 소리 시계가 멈춘 폰(아이폰에서 다른 앱·탭이 소리를 잡고 있을 때)을 위해 화면 시계 기준도 같이 잼
+  calib.ctx0 = audio.ctx.currentTime;
+  calib.perf0 = performance.now() / 1000;
   $('#calib-result').textContent = '';
   const pad = $('#calib-pad');
   clicks.forEach((t, i) => {
@@ -2610,10 +2614,16 @@ async function startCalibration() {
 }
 function finishCalibration() {
   calib.active = false;
+  // 소리 시계가 거의 안 흘렀으면(멈춤) 소리 대신 반짝임(화면 시계) 기준으로 잼 — 탭이 전부 같은 시각으로 찍혀 '너무 적어요'만 뜨던 것
+  const flowed = audio.ctx.currentTime - calib.ctx0;
+  const elapsed = performance.now() / 1000 - calib.perf0;
+  const stalled = audio.ctx.state !== 'running' || flowed < elapsed * 0.5;
+  const taps = stalled ? calib.pTaps : calib.taps;
+  const clicks = stalled ? calib.clicks.map((c) => calib.perf0 + (c - calib.ctx0)) : calib.clicks;
   const diffs = [];
-  for (const t of calib.taps) {
+  for (const t of taps) {
     let best = null;
-    for (const c of calib.clicks.slice(4)) if (best === null || Math.abs(t - c) < Math.abs(t - best)) best = c;
+    for (const c of clicks.slice(4)) if (best === null || Math.abs(t - c) < Math.abs(t - best)) best = c;
     if (best !== null && Math.abs(t - best) < 0.3) diffs.push(t - best);
   }
   $('#calib-count').textContent = '끝!';
@@ -2634,7 +2644,9 @@ function finishCalibration() {
   save('calibrated', true);
   $('#set-offset').value = ms;
   updateSettingLabels();
-  $('#calib-result').textContent = `보정값 ${ms > 0 ? '+' : ''}${ms}ms 저장했어요. 잘못 쳤다면 다시 할 수 있어요!`;
+  $('#calib-result').textContent = stalled
+    ? `소리가 안 나서 반짝임으로 맞췄어요 (${ms > 0 ? '+' : ''}${ms}ms). 다른 앱·탭 소리를 끄고 새로고침하면 소리도 나요!`
+    : `보정값 ${ms > 0 ? '+' : ''}${ms}ms 저장했어요. 잘못 쳤다면 다시 할 수 있어요!`;
   // 결과를 보고 다시 할 수 있게: '다시 하기'는 보조 버튼으로, 필수 보정이면 '이 값으로 시작하기'로 이어감
   $('#calib-start').textContent = '다시 하기';
   $('#calib-start').classList.remove('btn-primary');
@@ -6564,7 +6576,10 @@ function bindActions() {
     e.preventDefault();
     if (!audio.ctx) return;
     audio.kick(undefined, 0.6);
-    if (calib.active) calib.taps.push(audio.heardTime(e.timeStamp));
+    if (calib.active) {
+      calib.taps.push(audio.heardTime(e.timeStamp));
+      calib.pTaps.push(e.timeStamp / 1000);
+    }
   });
   // 오디오는 첫 터치에서 깨움 (iOS / 인앱 브라우저)
   const wake = () => audio.unlock().then(() => audio.loadPiano()).then(() => audio.orchOn && audio.loadOrch());
