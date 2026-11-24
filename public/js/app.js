@@ -8330,10 +8330,9 @@ class Renderer {
    */
   markTouch(x, y, r, rt) {
     const list = (this.touchMarks ||= []);
-    // 같은 자리를 또 누르면 동그라미가 겹쳐 안 보임 → 옆으로 조금씩 옮겨 그림
-    const k = list.filter((m) => rt - m.t0 < 1.4 && Math.abs(m.x0 - x) < 14 && Math.abs(m.y0 - y) < 14).length;
-    const dx = k ? (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 22 : 0;
-    list.push({ x0: x, y0: y, x: x + dx, y, lane: r ? r.lane : null, res: r ? r.res : 'none', t0: rt });
+    // 같은 자리를 또 누르면 동그라미가 겹쳐 안 보임 → 자리는 그대로 두고 고리만 조금씩 크게 (자리를 옮겨 그리면 '다른 데 눌린' 것처럼 보임)
+    const k = list.filter((m) => rt - m.t0 < 1.4 && Math.abs(m.x - x) < 14 && Math.abs(m.y - y) < 14).length;
+    list.push({ x, y, k: Math.min(k, 4), lane: r ? r.lane : null, res: r ? r.res : 'none', t0: rt });
     if (list.length > 30) list.splice(0, list.length - 30);
     this.touchCount = (this.touchCount || 0) + 1;
   }
@@ -8356,7 +8355,7 @@ class Renderer {
       ctx.lineWidth = 3;
       ctx.strokeStyle = c;
       ctx.beginPath();
-      ctx.arc(m.x, m.y, 18, 0, Math.PI * 2);
+      ctx.arc(m.x, m.y, 18 + (m.k || 0) * 5, 0, Math.PI * 2);
       ctx.stroke();
       ctx.fillStyle = c;
       ctx.beginPath();
@@ -8386,7 +8385,7 @@ class Renderer {
     const d = this.touchDiag || {};
     ctx.strokeStyle = 'rgba(0,0,0,0.75)';
     ctx.lineWidth = 3;
-    const lines = [`터치 ${this.touchCount || 0} · 창 ${d.win || 0} 캔 ${d.can || 0} 포 ${d.ptr || 0} 뗌 ${d.end || 0}`, `누르는 중 ${(this.touchHeld || []).length} · 한쪽만 ${d.only || 0} · 살림 ${d.saved || 0}`];
+    const lines = [`터치 ${this.touchCount || 0} · 창 ${d.win || 0} 캔 ${d.can || 0} 포 ${d.ptr || 0} 뗌 ${d.end || 0}`, `누르는 중 ${(this.touchHeld || []).length} · 한쪽만 ${d.only || 0}`];
     lines.forEach((txt, i) => {
       const y = Math.max(150, L.H * 0.24) + i * 16;
       ctx.strokeText(txt, 8, y);
@@ -17892,7 +17891,7 @@ function setKit(lv) {
   renderer.touchMarks = [];
   renderer.touchCount = 0;
   renderer.touchHeld = [];
-  if (renderer.touchDiag) Object.assign(renderer.touchDiag, { win: 0, can: 0, ptr: 0, end: 0, only: 0, saved: 0 });
+  if (renderer.touchDiag) Object.assign(renderer.touchDiag, { win: 0, can: 0, ptr: 0, end: 0, only: 0 });
   // 마우스·키보드 쓰는 컴퓨터면 줄마다 키 글자를 보여줌 (폰·태블릿은 안 보임)
   renderer.keyLabels = null;
   if (window.matchMedia && matchMedia('(hover: hover) and (pointer: fine)').matches) {
@@ -17938,7 +17937,7 @@ function bindGameInput() {
   // 폰·태블릿: 손가락마다 touchstart 의 changedTouches 로 바로 받음 (두 엄지가 거의 동시에 닿아도 하나씩 다 들어옴).
   //   2026-11-24: 터치의 pointerdown 도 같이 받음 — 일부 아이폰에서 같은 자리를 빨리 다시 누르면 터치가 안 들어온다는 신고.
   //   폰이 둘 중 하나만 보내도 치게 하고, 둘 다 오면(보통) 같은 자리·같은 시각 것은 한 번만 침 (seen)
-  const diag = (renderer.touchDiag = { win: 0, can: 0, ptr: 0, end: 0, only: 0, saved: 0 });
+  const diag = (renderer.touchDiag = { win: 0, can: 0, ptr: 0, end: 0, only: 0 });
   const seen = [];
   /** 이 터치를 쳐도 되나 (다른 쪽 이벤트로 이미 쳤으면 false). 짝이 안 온 채 지난 것 = 한쪽 이벤트로만 온 터치 → 세어 둠 */
   const fresh = (src, x, y, ts) => {
@@ -17951,28 +17950,9 @@ function bindGameInput() {
     seen.push({ src, x, y, ts, both: false });
     return true;
   };
-  // 폰이 touchstart 를 빠뜨린 손가락 살리기 (2026-11-24): 캔버스에서 시작한 적 없는 손가락 번호가 touchmove·touchend 에 나타나면
-  //   그 손가락의 touchstart 를 폰이 안 보낸 것 → 그때 한 번 침 (뗄 때 처음 보였으면 누른 건 조금 전이라 시각을 당김).
-  //   움직임을 터치로 세는 게 아님 — 시작을 본 손가락은 아무리 움직여도 다시 안 침
-  const live = new Set();
-  const orphans = (e, list, back) => {
-    for (const t of list) {
-      if (live.has(t.identifier)) continue;
-      live.add(t.identifier);
-      if (!state.game) continue;
-      const ts = e.timeStamp - back;
-      const p = seen.find((k) => k.src === 'p' && !k.both && Math.abs(k.x - t.clientX) < 12 && Math.abs(k.y - t.clientY) < 12 && Math.abs(k.ts - ts) < 300);
-      if (p) {
-        p.both = true; // pointerdown 으로 이미 침
-        continue;
-      }
-      diag.saved++;
-      if (!e.isTrusted) state.game.fakeTaps++;
-      try {
-        tapAt(t.clientX, t.clientY, ts);
-      } catch {}
-    }
-  };
+  // ⚠ '시작을 본 적 없는 손가락이 touchmove·touchend 에 보이면 한 번 침'(orphans)은 넣었다가 뺌 (2026-11-24 밤):
+  //   아이폰은 새 손가락의 touchstart 를 보내기 전에, 다른 손가락의 touchend·touchmove 의 touches 목록에 그 손가락을 먼저 넣어 보냄
+  //   → 같은 터치를 두 번 쳐서 헛침 (운영자 폰 영상에서 20초에 3번). 다시 넣지 말 것
   /** 🖐 터치 표시: 지금 폰이 '누르고 있다'고 보는 손가락들 (뗐는데도 남아 있으면 폰이 뗀 걸 못 본 것) */
   const held = (e) => {
     if (!renderer.touchShow || !canvasRect) return;
@@ -17999,7 +17979,6 @@ function bindGameInput() {
     'touchstart',
     (e) => {
       e.preventDefault();
-      for (const t of e.changedTouches) live.add(t.identifier);
       if (!state.game) return;
       diag.can += e.changedTouches.length;
       // 한 터치에서 오류가 나도 같이 온 다른 엄지 터치는 꼭 침 (두 엄지가 동시에 닿으면 한 이벤트에 같이 옴)
@@ -18010,7 +17989,6 @@ function bindGameInput() {
           tapAt(t.clientX, t.clientY, e.timeStamp);
         } catch {}
       }
-      orphans(e, e.targetTouches, 0);
       held(e);
     },
     { passive: false }
@@ -18022,7 +18000,6 @@ function bindGameInput() {
     'touchmove',
     (e) => {
       e.preventDefault();
-      orphans(e, e.targetTouches, 0);
       held(e);
     },
     { passive: false }
@@ -18033,9 +18010,6 @@ function bindGameInput() {
       ev,
       (e) => {
         if (e.cancelable) e.preventDefault();
-        if (ev === 'touchend') orphans(e, e.changedTouches, 80);
-        for (const t of e.changedTouches) live.delete(t.identifier);
-        orphans(e, e.targetTouches, 0);
         diag.end += e.changedTouches.length;
         held(e);
       },

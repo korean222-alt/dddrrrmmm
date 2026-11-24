@@ -716,10 +716,9 @@ export class Renderer {
    */
   markTouch(x, y, r, rt) {
     const list = (this.touchMarks ||= []);
-    // 같은 자리를 또 누르면 동그라미가 겹쳐 안 보임 → 옆으로 조금씩 옮겨 그림
-    const k = list.filter((m) => rt - m.t0 < 1.4 && Math.abs(m.x0 - x) < 14 && Math.abs(m.y0 - y) < 14).length;
-    const dx = k ? (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 22 : 0;
-    list.push({ x0: x, y0: y, x: x + dx, y, lane: r ? r.lane : null, res: r ? r.res : 'none', t0: rt });
+    // 같은 자리를 또 누르면 동그라미가 겹쳐 안 보임 → 자리는 그대로 두고 고리만 조금씩 크게 (자리를 옮겨 그리면 '다른 데 눌린' 것처럼 보임)
+    const k = list.filter((m) => rt - m.t0 < 1.4 && Math.abs(m.x - x) < 14 && Math.abs(m.y - y) < 14).length;
+    list.push({ x, y, k: Math.min(k, 4), lane: r ? r.lane : null, res: r ? r.res : 'none', t0: rt });
     if (list.length > 30) list.splice(0, list.length - 30);
     this.touchCount = (this.touchCount || 0) + 1;
   }
@@ -742,7 +741,7 @@ export class Renderer {
       ctx.lineWidth = 3;
       ctx.strokeStyle = c;
       ctx.beginPath();
-      ctx.arc(m.x, m.y, 18, 0, Math.PI * 2);
+      ctx.arc(m.x, m.y, 18 + (m.k || 0) * 5, 0, Math.PI * 2);
       ctx.stroke();
       ctx.fillStyle = c;
       ctx.beginPath();
@@ -772,7 +771,7 @@ export class Renderer {
     const d = this.touchDiag || {};
     ctx.strokeStyle = 'rgba(0,0,0,0.75)';
     ctx.lineWidth = 3;
-    const lines = [`터치 ${this.touchCount || 0} · 창 ${d.win || 0} 캔 ${d.can || 0} 포 ${d.ptr || 0} 뗌 ${d.end || 0}`, `누르는 중 ${(this.touchHeld || []).length} · 한쪽만 ${d.only || 0} · 살림 ${d.saved || 0}`];
+    const lines = [`터치 ${this.touchCount || 0} · 창 ${d.win || 0} 캔 ${d.can || 0} 포 ${d.ptr || 0} 뗌 ${d.end || 0}`, `누르는 중 ${(this.touchHeld || []).length} · 한쪽만 ${d.only || 0}`];
     lines.forEach((txt, i) => {
       const y = Math.max(150, L.H * 0.24) + i * 16;
       ctx.strokeText(txt, 8, y);
