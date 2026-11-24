@@ -48,9 +48,13 @@ test('🏆 시즌 보상: 등수별 · 두 판에 다 들면 큰 것 하나만',
   assert.deepEqual([by.c.coins, by.c.board, by.c.rank], [50000, 'endless', 3]);
 });
 
-test('🥇 시즌 1 한정 세트: 시즌 1 동안만 팖, 산 사람은 계속 가짐 · 라이브 세트 2만5천', async () => {
+test('🥇 시즌 1 한정 세트: 11/27 까지 팖(등급 한정), 산 사람은 계속 가짐 · 라이브 세트 2만5천', async () => {
   const { SEASONS } = await import('../public/js/season.js');
-  const end = SEASONS[0].end;
+  const { S1_SALE_END, RARITY } = await import('../public/js/shop.js');
+  const end = S1_SALE_END;
+  assert.equal(RARITY['ui:s1'], 'limited');
+  assert.ok(end > SEASONS[0].end, '시즌 1 끝난 다음 날까지');
+  assert.equal(new Date(end + 9 * 3600e3).toISOString().slice(0, 10), '2026-11-27');
   assert.equal(priceOf('ui:live'), 25000);
   assert.equal(priceOf('ui:s1'), 1111);
   assert.equal(priceOf('notes:s1'), null);

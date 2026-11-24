@@ -990,6 +990,8 @@ button.coin-chip { font: inherit; cursor: pointer; }
 .rar.r-legend, .shop-item.r-legend .rar { background: linear-gradient(90deg, #ff9a1f, #ff3d8b); }
 .shop-item.r-epic { background: linear-gradient(160deg, #fff, #f2e6ff); }
 .shop-item.r-legend { background: linear-gradient(160deg, #fff8dc, #ffe0ef); box-shadow: 0 0 0 2px #ffb020 inset; }
+.rar.r-limited, .shop-item.r-limited .rar { background: linear-gradient(90deg, #1f2a7a, #c99a00); }
+.shop-item.r-limited { background: linear-gradient(160deg, #fffbe6, #e6e9ff); box-shadow: 0 0 0 2px #c99a00 inset; }
 .shop-item > i { background-size: cover !important; }
 .shopitem-sheet { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; }
 .shopitem-head { display: flex; flex-direction: column; align-items: center; gap: 6px; }

@@ -2285,7 +2285,7 @@ const SHOP_DESC = {
   ui: '판정선·콩·판정 글자·콤보·무대·버튼 소리가 리듬게임 라이브 화면처럼 한 번에 바뀌어요',
   basic: '처음 화면 그대로예요 · 누르면 이 분야만 기본으로 돌아가요',
   free: '무료예요',
-  s1: '시즌 1 동안만 살 수 있어요 · 금빛 「1」 콩 + 시즌 1 무대 + 황금 드럼이 한 번에 · 시즌이 끝나면 다시는 안 팔아요',
+  s1: '11월 27일까지만 살 수 있어요 · 금빛 「1」 콩 + 시즌 1 무대 + 황금 드럼이 한 번에 · 그 뒤엔 다시는 안 팔아요',
 };
 const isBasicId = (id) => {
   const [type, key] = String(id || '').split(':');
@@ -2326,7 +2326,7 @@ function renderShop() {
     const [type, key] = id.split(':');
     const own = decoOpen(type, key);
     const using = own && decoPick(type) === key;
-    const tag = LIMITED[id] ? '시즌 1 한정' : rare ? RARITY_NAME[rare] : '무료';
+    const tag = rare ? RARITY_NAME[rare] : '무료';
     const label = using ? '✓ 장착 중' : !rare ? '' : own ? '보유' : `<i class="coin-ico"></i>${fmt(price)}`;
     return `<button class="shop-item ${rare ? 'r-' + rare : 'r-free'} ${own ? 'owned' : ''} ${using ? 'using' : ''}" data-shop="${id}">
       <em class="rar">${tag}</em>
@@ -2361,7 +2361,7 @@ function previewShop(id) {
   shopPrevId = id;
   const own = decoOpen(type, key);
   const rare = basic || free ? '' : RARITY[id];
-  $('#shopitem-rar').textContent = basic || free ? '무료' : LIMITED[id] ? '시즌 1 한정' : RARITY_NAME[rare] || '';
+  $('#shopitem-rar').textContent = basic || free ? '무료' : RARITY_NAME[rare] || '';
   $('#shopitem-rar').className = 'rar r-' + (rare || 'free');
   $('#shopitem-name').textContent = shopName(type, key);
   $('#shopitem-desc').textContent = LIMITED[id] ? SHOP_DESC.s1 : basic ? SHOP_DESC.basic : free ? SHOP_DESC.free : key === 'photo' ? SHOP_DESC.photo : SHOP_DESC[type];
@@ -2372,7 +2372,7 @@ function previewShop(id) {
     b.innerHTML = using ? '✓ 장착 중' : '장착하기';
     b.disabled = using;
   } else if (!onSale(id)) {
-    b.innerHTML = '시즌 1 이 끝나서 이제 못 사요';
+    b.innerHTML = '판매가 끝나서 이제 못 사요';
     b.disabled = true;
   } else if (!shopIsOpen()) {
     b.innerHTML = `🔒 판매 준비 중 · <i class="coin-ico"></i> ${fmt(priceOf(id))}`;
@@ -2423,7 +2423,7 @@ async function buyShop(id) {
   const [type, key] = id.split(':');
   if (price == null || decoOpen(type, key)) return;
   if (!shopIsOpen()) return toast('🔒 상점은 곧 열려요 · 지금은 구경만 돼요', 2400);
-  if (!onSale(id)) return toast('시즌 1 이 끝나서 이제 못 사요', 2400);
+  if (!onSale(id)) return toast('판매가 끝나서 이제 못 사요', 2400);
   if (getCoins() < price) return toast(`🪙 코인이 ${fmt(price - getCoins())}개 모자라요 · 콩을 맞히면 쌓여요`, 2600);
   const name = shopName(type, key);
   const account = isConfirmed() && state.api && state.api.mode === 'server';
@@ -2434,7 +2434,7 @@ async function buyShop(id) {
       save('decoOwned', [...new Set([...(load('decoOwned', []) || []), ...(r.owned || []), id])]);
     } catch (e) {
       if (e && e.status === 402) return renderShop(), toast('🪙 코인이 모자라요', 2200);
-      if (e && e.data && e.data.error === 'season_over') return renderShop(), toast('시즌 1 이 끝나서 이제 못 사요', 2400);
+      if (e && e.data && e.data.error === 'season_over') return renderShop(), toast('판매가 끝나서 이제 못 사요', 2400);
       if (e && e.data && e.data.error === 'shop_closed') {
         state.cfg.shopOpen = false;
         renderShop();

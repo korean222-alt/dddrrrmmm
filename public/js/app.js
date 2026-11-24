@@ -4744,61 +4744,12 @@ function mix(a, b, k) {
 return { P2_SONGS, P2_SOLFA, P2_HIT_WIN, P2_PERFECT, P2_BIAS_MAX, p2LearnBias, P2_FAST_MAX, p2Level, p2FastMult, p2Notes, p2Judge, p2TileLanes, p2TileBeats, p2Keys, p2Solfa, p2Stars, p2Grade, PianoPreview };
 })();
 
-// ---- season.js ----
-const __m_season = (() => {
-// 🏛 시즌 · 명예의 전당 (브라우저와 서버가 같이 씀)
-//   시즌마다 '단계 총합'(1~LAST_LEVEL_ID 단계 최고점 합)과 '무제한 총합'(무제한 판들의 점수 합) 두 랭킹.
-//   시즌이 끝나면 두 랭킹의 1·2·3등이 명예의 전당(hall)에 영원히 남고, 그 사람은 프로필 사진을 올릴 수 있음.
-//   시즌 1 = 처음 ~ 2026-11-26 23:59:59 (한국 시간, 인스타 DM 금지 마지막 날) / 시즌 2 = 11-27 부터 (끝나는 날은 아직 안 정함)
-//   시즌 1 점수 = 지금까지의 최고 기록(scores), 시즌 2 부터는 그 시즌에 친 기록만(season_scores)
-
-const SEASONS = [
-  { n: 1, end: Date.UTC(2026, 10, 26, 14, 59, 59, 999) },
-  { n: 2, end: null },
-];
-const HALL_BOARDS = ['stage', 'endless'];
-const BOARD_LABEL = { stage: '🎵 단계 총합', endless: '💎 무제한 총합' };
-/** 프로필 사진 (data URL) 최대 길이 — 160px 정사각 JPEG 면 보통 10~20KB */
-const HALL_IMAGE_MAX = 60000;
-
-/** 그 시각의 시즌 { n, start, end } */
-function seasonAt(t = Date.now()) {
-  let start = 0;
-  for (const s of SEASONS) {
-    if (s.end == null || t <= s.end) return { n: s.n, start, end: s.end };
-    start = s.end + 1;
-  }
-  const last = SEASONS[SEASONS.length - 1];
-  return { n: last.n, start, end: last.end };
-}
-/** 이미 끝난 시즌 번호들 */
-const endedSeasons = (t = Date.now()) => SEASONS.filter((s) => s.end != null && t > s.end).map((s) => s.n);
-
-/** '3일 뒤 시즌 1이 끝나요' 같은 안내 (한국 날짜 기준) */
-function seasonLeftText(t = Date.now()) {
-  const s = seasonAt(t);
-  if (s.end == null) return `🏆 시즌 ${s.n} 진행 중`;
-  const day = (ms) => Math.floor((ms + 9 * 3600e3) / 86400e3); // 한국 날짜 번호
-  const d = day(s.end) - day(t);
-  if (d <= 0) return `⏰ 오늘 밤 11시 59분에 시즌 ${s.n}이 끝나요!`;
-  if (d === 1) return `⏰ 내일 밤 11시 59분에 시즌 ${s.n}이 끝나요!`;
-  return `🏆 ${d}일 뒤 시즌 ${s.n}이 종료돼요`;
-}
-
-/** 사진 data URL 검사 */
-const cleanHallImage = (v) =>
-  typeof v === 'string' && v.length <= HALL_IMAGE_MAX && /^data:image\/(jpeg|webp|png);base64,[A-Za-z0-9+/=]+$/.test(v) ? v : null;
-
-return { SEASONS, HALL_BOARDS, BOARD_LABEL, HALL_IMAGE_MAX, seasonAt, endedSeasons, seasonLeftText, cleanHallImage };
-})();
-
 // ---- shop.js ----
 const __m_shop = (() => {
 // 🛒 상점 (2026-11-22): 코인으로 꾸미기를 삼. 서버(handler)와 폰(main)이 같은 가격표를 씀
 //   11-22 밤 개편(사용자 '이미 있는 배경·드럼 말고 새로 만들어야 희귀성 · 색만 바뀌어서 안 사고 싶음'):
 //   맵 배경·맵 드럼·색만 바꾸는 콩 색은 무료로 돌리고, 상점엔 상점에서만 파는 새 것만.
 //   콩 스킨 = 색 + 질감 + 꼬리·반짝이 효과(render.js NOTE_PALETTES fx), 배경 = 새 그림(themes.js img), 드럼 = 새 마감(themes.js SHOP_KITS)
-const { SEASONS } = __m_season;
 
 //   id = 'bg:sakura' · 'kit:goldkit' · 'notes:flame' · 'bg:photo' · 'ui:live'(화면 스타일 세트) (설정 → 꾸미기의 decoOwned 와 같은 모양)
 
@@ -4812,7 +4763,7 @@ const SHOP_ITEMS = [
   // 🎤 세트 (2026-11-22, 사용자 요청: 리듬게임 라이브 화면 스타일 세트) = 화면 스타일(render.js live) + 세트 무대 · 11-23 1만 → 2만 · 11-24 2만5천
   ['ui:live', 25000, 'epic'],
   // 🥇 시즌 1 한정 세트 (2026-11-23 사용자 '시즌1 때만, 1 을 강조, 세트로, 1111') = 금빛 「1」 콩 + 시즌 1 무대 + 황금 드럼. 시즌 1 끝나면 못 삼(LIMITED)
-  ['ui:s1', 1111, 'legend'],
+  ['ui:s1', 1111, 'limited'], // 11-24 사용자: 등급 「한정」, 11/27 까지 팖
   // 2026-11-24 사용자: 레어 5천 · 에픽 1만 · 전설 4만 (시즌 1 세트·라이브 세트만 따로)
   ['notes:galaxy', 40000, 'legend'],
   ['notes:gold', 40000, 'legend'],
@@ -4831,12 +4782,14 @@ const SHOP_ITEMS = [
   ['kit:rainbow', 5000, 'rare'],
 ];
 /** 기간 한정: 이 시각(ms)이 지나면 못 삼 (산 사람은 계속 씀) */
-const LIMITED = { 'ui:s1': SEASONS[0].end };
+//   🥇 시즌 1 세트: 11-24 사용자 '27일까지' → 11/27 23:59:59 KST (시즌 1 은 11/26 끝)
+const S1_SALE_END = Date.UTC(2026, 10, 27, 14, 59, 59);
+const LIMITED = { 'ui:s1': S1_SALE_END };
 /** 지금 살 수 있나 (한정 물건 기간 확인) */
 const onSale = (id, now = Date.now()) => !(LIMITED[id] && now > LIMITED[id]);
 const PRICE = new Map(SHOP_ITEMS.map(([id, p]) => [id, p]));
 const RARITY = Object.fromEntries(SHOP_ITEMS.map(([id, , r]) => [id, r]));
-const RARITY_NAME = { rare: '레어', epic: '에픽', legend: '전설' };
+const RARITY_NAME = { rare: '레어', epic: '에픽', legend: '전설', limited: '한정' };
 
 /** 이 물건 값 (팔지 않는 것이면 null) */
 function priceOf(id) {
@@ -4908,7 +4861,7 @@ function seasonRewards(boards) {
   return [...best.values()];
 }
 
-return { DECO_THEMES, NOTE_FREE, SHOP_ITEMS, LIMITED, onSale, RARITY, RARITY_NAME, priceOf, legacyPrice, legacyRefund, cleanOwned, buyItem, seasonReward, seasonRewards };
+return { DECO_THEMES, NOTE_FREE, SHOP_ITEMS, S1_SALE_END, LIMITED, onSale, RARITY, RARITY_NAME, priceOf, legacyPrice, legacyRefund, cleanOwned, buyItem, seasonReward, seasonRewards };
 })();
 
 // ---- mascot.js ----
@@ -13890,6 +13843,54 @@ function coinsResult(data) {
 return { coinsInit, setCoinAccount, coinTotal, addRunCoins, takeCoins, addServerCoins, coinsResult };
 })();
 
+// ---- season.js ----
+const __m_season = (() => {
+// 🏛 시즌 · 명예의 전당 (브라우저와 서버가 같이 씀)
+//   시즌마다 '단계 총합'(1~LAST_LEVEL_ID 단계 최고점 합)과 '무제한 총합'(무제한 판들의 점수 합) 두 랭킹.
+//   시즌이 끝나면 두 랭킹의 1·2·3등이 명예의 전당(hall)에 영원히 남고, 그 사람은 프로필 사진을 올릴 수 있음.
+//   시즌 1 = 처음 ~ 2026-11-26 23:59:59 (한국 시간, 인스타 DM 금지 마지막 날) / 시즌 2 = 11-27 부터 (끝나는 날은 아직 안 정함)
+//   시즌 1 점수 = 지금까지의 최고 기록(scores), 시즌 2 부터는 그 시즌에 친 기록만(season_scores)
+
+const SEASONS = [
+  { n: 1, end: Date.UTC(2026, 10, 26, 14, 59, 59, 999) },
+  { n: 2, end: null },
+];
+const HALL_BOARDS = ['stage', 'endless'];
+const BOARD_LABEL = { stage: '🎵 단계 총합', endless: '💎 무제한 총합' };
+/** 프로필 사진 (data URL) 최대 길이 — 160px 정사각 JPEG 면 보통 10~20KB */
+const HALL_IMAGE_MAX = 60000;
+
+/** 그 시각의 시즌 { n, start, end } */
+function seasonAt(t = Date.now()) {
+  let start = 0;
+  for (const s of SEASONS) {
+    if (s.end == null || t <= s.end) return { n: s.n, start, end: s.end };
+    start = s.end + 1;
+  }
+  const last = SEASONS[SEASONS.length - 1];
+  return { n: last.n, start, end: last.end };
+}
+/** 이미 끝난 시즌 번호들 */
+const endedSeasons = (t = Date.now()) => SEASONS.filter((s) => s.end != null && t > s.end).map((s) => s.n);
+
+/** '3일 뒤 시즌 1이 끝나요' 같은 안내 (한국 날짜 기준) */
+function seasonLeftText(t = Date.now()) {
+  const s = seasonAt(t);
+  if (s.end == null) return `🏆 시즌 ${s.n} 진행 중`;
+  const day = (ms) => Math.floor((ms + 9 * 3600e3) / 86400e3); // 한국 날짜 번호
+  const d = day(s.end) - day(t);
+  if (d <= 0) return `⏰ 오늘 밤 11시 59분에 시즌 ${s.n}이 끝나요!`;
+  if (d === 1) return `⏰ 내일 밤 11시 59분에 시즌 ${s.n}이 끝나요!`;
+  return `🏆 ${d}일 뒤 시즌 ${s.n}이 종료돼요`;
+}
+
+/** 사진 data URL 검사 */
+const cleanHallImage = (v) =>
+  typeof v === 'string' && v.length <= HALL_IMAGE_MAX && /^data:image\/(jpeg|webp|png);base64,[A-Za-z0-9+/=]+$/.test(v) ? v : null;
+
+return { SEASONS, HALL_BOARDS, BOARD_LABEL, HALL_IMAGE_MAX, seasonAt, endedSeasons, seasonLeftText, cleanHallImage };
+})();
+
 // ---- offrec.js ----
 const __m_offrec = (() => {
 // 📴 서버 없을 때 친 판의 최고 기록 (2026-11-22, D1 하루 한도가 차서 랭킹이 안 올라가던 날)
@@ -19177,7 +19178,7 @@ const SHOP_DESC = {
   ui: '판정선·콩·판정 글자·콤보·무대·버튼 소리가 리듬게임 라이브 화면처럼 한 번에 바뀌어요',
   basic: '처음 화면 그대로예요 · 누르면 이 분야만 기본으로 돌아가요',
   free: '무료예요',
-  s1: '시즌 1 동안만 살 수 있어요 · 금빛 「1」 콩 + 시즌 1 무대 + 황금 드럼이 한 번에 · 시즌이 끝나면 다시는 안 팔아요',
+  s1: '11월 27일까지만 살 수 있어요 · 금빛 「1」 콩 + 시즌 1 무대 + 황금 드럼이 한 번에 · 그 뒤엔 다시는 안 팔아요',
 };
 const isBasicId = (id) => {
   const [type, key] = String(id || '').split(':');
@@ -19218,7 +19219,7 @@ function renderShop() {
     const [type, key] = id.split(':');
     const own = decoOpen(type, key);
     const using = own && decoPick(type) === key;
-    const tag = LIMITED[id] ? '시즌 1 한정' : rare ? RARITY_NAME[rare] : '무료';
+    const tag = rare ? RARITY_NAME[rare] : '무료';
     const label = using ? '✓ 장착 중' : !rare ? '' : own ? '보유' : `<i class="coin-ico"></i>${fmt(price)}`;
     return `<button class="shop-item ${rare ? 'r-' + rare : 'r-free'} ${own ? 'owned' : ''} ${using ? 'using' : ''}" data-shop="${id}">
       <em class="rar">${tag}</em>
@@ -19253,7 +19254,7 @@ function previewShop(id) {
   shopPrevId = id;
   const own = decoOpen(type, key);
   const rare = basic || free ? '' : RARITY[id];
-  $('#shopitem-rar').textContent = basic || free ? '무료' : LIMITED[id] ? '시즌 1 한정' : RARITY_NAME[rare] || '';
+  $('#shopitem-rar').textContent = basic || free ? '무료' : RARITY_NAME[rare] || '';
   $('#shopitem-rar').className = 'rar r-' + (rare || 'free');
   $('#shopitem-name').textContent = shopName(type, key);
   $('#shopitem-desc').textContent = LIMITED[id] ? SHOP_DESC.s1 : basic ? SHOP_DESC.basic : free ? SHOP_DESC.free : key === 'photo' ? SHOP_DESC.photo : SHOP_DESC[type];
@@ -19264,7 +19265,7 @@ function previewShop(id) {
     b.innerHTML = using ? '✓ 장착 중' : '장착하기';
     b.disabled = using;
   } else if (!onSale(id)) {
-    b.innerHTML = '시즌 1 이 끝나서 이제 못 사요';
+    b.innerHTML = '판매가 끝나서 이제 못 사요';
     b.disabled = true;
   } else if (!shopIsOpen()) {
     b.innerHTML = `🔒 판매 준비 중 · <i class="coin-ico"></i> ${fmt(priceOf(id))}`;
@@ -19315,7 +19316,7 @@ async function buyShop(id) {
   const [type, key] = id.split(':');
   if (price == null || decoOpen(type, key)) return;
   if (!shopIsOpen()) return toast('🔒 상점은 곧 열려요 · 지금은 구경만 돼요', 2400);
-  if (!onSale(id)) return toast('시즌 1 이 끝나서 이제 못 사요', 2400);
+  if (!onSale(id)) return toast('판매가 끝나서 이제 못 사요', 2400);
   if (getCoins() < price) return toast(`🪙 코인이 ${fmt(price - getCoins())}개 모자라요 · 콩을 맞히면 쌓여요`, 2600);
   const name = shopName(type, key);
   const account = isConfirmed() && state.api && state.api.mode === 'server';
@@ -19326,7 +19327,7 @@ async function buyShop(id) {
       save('decoOwned', [...new Set([...(load('decoOwned', []) || []), ...(r.owned || []), id])]);
     } catch (e) {
       if (e && e.status === 402) return renderShop(), toast('🪙 코인이 모자라요', 2200);
-      if (e && e.data && e.data.error === 'season_over') return renderShop(), toast('시즌 1 이 끝나서 이제 못 사요', 2400);
+      if (e && e.data && e.data.error === 'season_over') return renderShop(), toast('판매가 끝나서 이제 못 사요', 2400);
       if (e && e.data && e.data.error === 'shop_closed') {
         state.cfg.shopOpen = false;
         renderShop();
