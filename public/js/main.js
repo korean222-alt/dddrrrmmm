@@ -988,15 +988,34 @@ function setKit(lv) {
 }
 
 /** 누른 줄의 악기 (원근으로 비스듬한 줄 모양 그대로. 악기 그림을 정확히 안 눌러도 됨) */
-//   캔버스 자리는 기억해 둠 (손가락 움직임마다 getBoundingClientRect 로 화면 배치를 다시 계산하지 않게). 판 시작·화면 크기 바뀔 때 비움
+//   캔버스 자리는 손가락을 새로 댈 때마다 다시 잼 (2026-11-24: 판 시작 때 한 번 잰 값을 계속 쓰면
+//   아이폰에서 판 도중 화면이 밀릴 때(인스타 브라우저 툴바·스크롤) 줄 판정·터치 표시가 엉뚱한 데로 감)
 let canvasRect = null;
-function laneFromPoint(x, y) {
-  let r = canvasRect;
-  if (!r) {
-    r = $('#game-canvas').getBoundingClientRect();
-    if (r.width > 0) canvasRect = r;
+function measureCanvas() {
+  const r = $('#game-canvas').getBoundingClientRect();
+  if (r.width > 0) {
+    canvasRect = r;
+    // 캔버스 크기가 그려 둔 크기와 다르면(resize 이벤트를 놓침) 다시 맞춤
+    const L = renderer.L;
+    if (L && !renderer.studio && (Math.abs(r.width - L.W) > 2 || Math.abs(r.height - L.H) > 2) && !measureCanvas.busy) {
+      measureCanvas.busy = true;
+      Promise.resolve(renderer.resize()).finally(() => (measureCanvas.busy = false));
+    }
   }
-  return renderer.laneHit(x - r.left, y - r.top);
+  return canvasRect;
+}
+/** 화면 좌표 → 캔버스(그림) 좌표. 캔버스가 그린 크기와 잠깐 달라도 비율로 맞춤 */
+function toCanvas(x, y) {
+  const r = canvasRect || measureCanvas();
+  if (!r) return { x, y };
+  const L = renderer.L;
+  const kx = L && r.width > 0 ? L.W / r.width : 1;
+  const ky = L && r.height > 0 ? L.H / r.height : 1;
+  return { x: (x - r.left) * kx, y: (y - r.top) * ky };
+}
+function laneFromPoint(x, y) {
+  const p = toCanvas(x, y);
+  return renderer.laneHit(p.x, p.y);
 }
 
 /** 화면 터치 → 게임 입력 (옆 줄 정보까지 넘겨서 경계 근처 터치를 봐줌) */
@@ -1004,7 +1023,10 @@ function tapAt(x, y, perfMs) {
   const { lane, near } = laneFromPoint(x, y);
   const r = state.game.input(lane, perfMs, near);
   // 🖐 터치 표시 (/?touch=show 기기만): 닿은 자리에 어느 줄·어떤 판정이었는지
-  if (renderer.touchShow && canvasRect) renderer.markTouch(x - canvasRect.left, y - canvasRect.top, r, performance.now() / 1000);
+  if (renderer.touchShow) {
+    const p = toCanvas(x, y);
+    renderer.markTouch(p.x, p.y, r, performance.now() / 1000);
+  }
 }
 
 // 키보드: 레인 수에 따라 왼쪽부터 키 배정
@@ -1041,8 +1063,8 @@ function bindGameInput() {
   //   → 같은 터치를 두 번 쳐서 헛침 (운영자 폰 영상에서 20초에 3번). 다시 넣지 말 것
   /** 🖐 터치 표시: 지금 폰이 '누르고 있다'고 보는 손가락들 (뗐는데도 남아 있으면 폰이 뗀 걸 못 본 것) */
   const held = (e) => {
-    if (!renderer.touchShow || !canvasRect) return;
-    renderer.touchHeld = Array.from(e.touches, (t) => ({ x: t.clientX - canvasRect.left, y: t.clientY - canvasRect.top }));
+    if (!renderer.touchShow) return;
+    renderer.touchHeld = Array.from(e.touches, (t) => toCanvas(t.clientX, t.clientY));
   };
   window.addEventListener('touchstart', (e) => (diag.win += e.changedTouches.length), { capture: true, passive: true });
   canvas.addEventListener(
@@ -1050,6 +1072,7 @@ function bindGameInput() {
     (e) => {
       e.preventDefault();
       if (!state.game) return;
+      measureCanvas();
       if (e.pointerType === 'touch') {
         diag.ptr++;
         if (!fresh('p', e.clientX, e.clientY, e.timeStamp)) return;
@@ -1067,6 +1090,7 @@ function bindGameInput() {
       e.preventDefault();
       if (!state.game) return;
       diag.can += e.changedTouches.length;
+      measureCanvas();
       // 한 터치에서 오류가 나도 같이 온 다른 엄지 터치는 꼭 침 (두 엄지가 동시에 닿으면 한 이벤트에 같이 옴)
       for (const t of e.changedTouches) {
         if (!fresh('t', t.clientX, t.clientY, e.timeStamp)) continue;
