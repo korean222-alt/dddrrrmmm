@@ -14074,7 +14074,7 @@ return { queueOffline, offlineCount, takeOffline, offlineResult, backupOffline, 
 const __m_game = (() => {
 // 한 판의 게임 진행: 시간 관리, 입력 판정, 점수/콤보.
 
-const { STEPS_PER_BAR, tempoOf, ROUND_BARS, roundInfo, diamondsFor, buildNotes, JUDGE, pointsFor, accuracy, gradeFor, starsFor, COUNT_IN_BARS, OUTRO_BARS, maxScore, levelLanes, INSTRUMENTS, KICK, SNARE, HAT, CRASH, buildRolls, markGoldNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, parseMelody, pianoHarmony, ALT_GAP, ALT_SHARE, quickAltShare } = __m_charts;
+const { STEPS_PER_BAR, tempoOf, ROUND_BARS, roundInfo, diamondsFor, buildNotes, JUDGE, pointsFor, accuracy, gradeFor, starsFor, COUNT_IN_BARS, OUTRO_BARS, maxScore, levelLanes, INSTRUMENTS, KICK, SNARE, HAT, CRASH, buildRolls, markGoldNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, parseMelody, pianoHarmony, ALT_GAP } = __m_charts;
 const { SongPlayer } = __m_audio;
 
 const COUNT_LABELS = ['1', '2', '3', '4!'];
@@ -14157,15 +14157,15 @@ class Game {
     /** 줄마다 마지막으로 눌린 곡 시각 (TWIN_GAP) */
     this._touchAt = {};
     /**
-     * 쌍(동시치기)에서 다른 콩을 쳤으면 남은 콩 MISS 로 하트를 안 깎음 (_loseLife). 살아남는 게 곧 랭킹·승부인 곳
-     *   (무제한·레벨업 챌린지·서바이벌 = level.challenge, 멀티 = main 이 false 로 줌)은 빼고 예전 그대로
+     * 🖐 폰이 빠뜨린 터치 봐주기 (쌍·빠른 번갈아 → GOOD, _canPairSave). 모든 곡 + 무제한(2026-11-24 사용자 '무제한 모드도').
+     *   멀티(main 이 false 로 줌)·영상용 레벨업 챌린지는 예전 그대로
      */
-    this.pairHeart = pairHeart ?? !level.challenge;
+    this.pairHeart = pairHeart ?? (!level.challenge || !!level.endless);
     /** 쌍 봐주기로 GOOD 준 콩 수 · 엄지 쪽(left/right)마다 마지막으로 헛침·늦은 MISS 가 된 터치 시각 (_pairSave) */
     this.pairSaved = 0;
     this._wasteAt = {};
-    /** 위험 곡(빠른 번갈아 콩이 많음)이면 번갈아 콩도 봐줌 — 2026-11-24 사용자 '해당되는 곡만 GOOD' (_canPairSave) */
-    this.altSave = this.pairHeart && !level.endless && quickAltShare(this.notes) >= ALT_SHARE;
+    /** 빠른 번갈아 콩도 봐줌 — 처음엔 위험 곡만이었다가 같은 날 '그 곡들만 있는 거 맞아?' → 모든 곡(같은 버그가 어느 곡에서나 남) */
+    this.altSave = this.pairHeart;
     // 자동 연주(영상 찍기)나 죽었을 때 처리할 곳이 없으면 목숨 없음
     //   💀 실패 영상(level.failReel): 자동 연주라도 목숨이 있음 → failAt 부터 일부러 놓쳐서 하트가 다 떨어짐
     this.livesOn = (!auto || !!level.failReel) && !!this.onDeath;
@@ -14884,6 +14884,8 @@ class Game {
     if (!this.pairHeart || n.early) return false;
     // 쌍의 다른 콩을 쳤음 / (위험 곡) 바로 앞(0.04~0.16초)의 다른 엄지 콩을 쳤음 — 그 엄지가 떨어질 때 이 터치가 빠졌을 수 있음
     if (!this._mateHit(n) && !(this.altSave && this._prevOtherHit(n))) return false;
+    // 이 엄지가 바로 앞 자기 콩은 진짜로 쳤어야 함 — 폰이 빠뜨리는 건 가끔이라, 한 엄지만 일부러 안 치면(무제한에서 반만 치기) 안 봐줌
+    if (!this._handPrevReal(n)) return false;
     const hand = INSTRUMENTS[n.lane] && INSTRUMENTS[n.lane].hand;
     return (this._wasteAt[hand] ?? -9) < n.time - JUDGE.good;
   }
@@ -14907,6 +14909,21 @@ class Game {
       this.lives++;
       this.r.onLife(this.lives, +1, rt);
     }
+  }
+
+  /** 같은 엄지의 바로 앞 콩(가장 최근 것)을 진짜로 쳤나. 앞 콩이 없으면(곡 처음) 그렇다고 봄 */
+  _handPrevReal(n) {
+    const hand = INSTRUMENTS[n.lane] && INSTRUMENTS[n.lane].hand;
+    let last = null;
+    for (const l of this.laneOrder) {
+      if (!INSTRUMENTS[l] || INSTRUMENTS[l].hand !== hand) continue;
+      const list = this.lanes[l];
+      for (let i = this._from(l, n.time - 1); i < list.length && list[i].time < n.time; i++) {
+        const m = list[i];
+        if (m !== n && m.time < n.time && (!last || m.time > last.time)) last = m;
+      }
+    }
+    return !last || (last.judged && last.result !== 'miss' && !last.saved);
   }
 
   /** 바로 앞(ALT_GAP)의 다른 엄지 콩을 진짜로 쳤나 (봐준 GOOD 은 안 침 — 줄줄이 봐주지 않게) */
@@ -16021,14 +16038,14 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-24g',
+    id: '2026-11-24h',
     date: '11월 24일',
     title: '🛒 상점 오픈! · 🖐 터치 판정을 단순하게',
     items: [
       '<b>🛒 상점이 열렸어요!</b> 첫 화면 <b>상점</b> 버튼 · 모은 코인으로 콩 스킨·무대·드럼·세트를 살 수 있어요 (레어 5천 · 에픽 1만 · 전설 4만 · 🎤 라이브 스테이지 세트 2만5천)',
       '업데이트·건의하기·홈 화면으로 보기는 <b>⚙ 설정</b> 안으로 · 설정 → <b>터치 표시</b>를 켜면 누른 자리에 동그라미와 판정이 보여요',
       '<b>누른 줄에 콩이 있으면 맞음, 없으면 헛침</b> — 엄지를 떼며 미끄러지거나 조금 일찍 눌러도 다음 콩이 MISS 되지 않아요',
-      '<b>🖐 같이 치는 두 콩</b>은 하나만 쳐져도 남은 콩을 <b>GOOD</b> 으로 쳐 줘요 · 빠르게 번갈아 치는 곡(윌리엄 텔·엘리제·크리스마스 곡 등)은 <b>번갈아 치는 콩</b>도요 (무제한·멀티 빼고) — 아이폰이 두 엄지 터치를 하나만 보낼 때가 있어서예요',
+      '<b>🖐 같이 치는 두 콩·빠르게 번갈아 치는 콩</b>은 터치가 안 들어와도 남은 콩을 <b>GOOD</b> 으로 쳐 줘요 (무제한 포함, 멀티 빼고) — 아이폰이 한 엄지가 떨어지는 순간 다른 엄지 터치를 빠뜨릴 때가 있어서예요',
       '왼엄지·오른엄지 쪽 <b>아무 줄이나</b> 눌러도 그쪽에 먼저 온 콩이 쳐져요 — 엄지를 벌려 바깥쪽을 눌러도 돼요',
     ],
   },

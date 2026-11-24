@@ -1033,7 +1033,7 @@ test('🖐 쌍(점선 동시치기)은 하나만 쳐도 남은 콩 GOOD — 그�
   g._miss(single, 0);
   assert.equal(g.lives, b5 - 1);
   // 살아남기가 곧 랭킹·승부인 곳(무제한·챌린지 = level.challenge, 멀티 = pairHeart:false)은 예전 그대로 하트가 깎임
-  assert.equal(new Game({ audio, renderer, level: { ...lv, challenge: true }, settings: {}, onDeath: noop, onEnd: noop }).pairHeart, false);
+  assert.equal(new Game({ audio, renderer, level: { ...lv, challenge: true }, settings: {}, onDeath: noop, onEnd: noop }).pairHeart, false); // 영상용 레벨업 챌린지
   const h = new Game({ audio, renderer, level: lv, settings: {}, onDeath: noop, onEnd: noop, pairHeart: false });
   h.startTime = 0;
   h.state = 'playing';
@@ -1048,7 +1048,7 @@ test('🖐 쌍(점선 동시치기)은 하나만 쳐도 남은 콩 GOOD — 그�
   assert.equal(h.lives, MAX_LIVES - 1);
 });
 
-test('🖐 위험 곡(빠른 번갈아 콩이 많음)은 번갈아 콩도 터치 없이 놓치면 GOOD — 다른 곡·그쪽을 누르다 틀린 건 MISS (2026-11-24)', async () => {
+test('🖐 빠른 번갈아 콩도 터치 없이 놓치면 GOOD — 모든 곡·무제한, 멀티는 MISS (2026-11-24)', async () => {
   const { Game, MAX_LIVES } = await import('../public/js/game.js');
   const { JUDGE, isQuickAlt } = await import('../public/js/charts.js');
   const noop = () => {};
@@ -1083,8 +1083,14 @@ test('🖐 위험 곡(빠른 번갈아 콩이 많음)은 번갈아 콩도 터치
   assert.equal(n.result, 'good');
   assert.equal(g.lives, MAX_LIVES);
   assert.equal(g.counts.miss, 0);
-  // 빠른 번갈아 콩이 적은 곡(터키 행진곡)은 그대로 MISS
-  const h = make(13);
-  assert.equal(h.altSave, false);
-  assert.equal(run(h).result, 'miss');
+  // 빠른 번갈아 콩이 적은 곡(터키 행진곡)도 같은 버그라 GOOD
+  assert.equal(run(make(13)).result, 'good');
+  // 무제한도 봐줌, 멀티(pairHeart:false)는 MISS
+  const lv = LEVELS.find((l) => l.id === 21);
+  assert.equal(new Game({ audio, renderer, level: { ...lv, challenge: true, endless: true }, settings: {}, onDeath: noop }).altSave, true);
+  const m = new Game({ audio, renderer, level: lv, settings: {}, onDeath: noop, onEnd: noop, pairHeart: false });
+  m.startTime = 0;
+  m.state = 'playing';
+  m.player = { stop: noop };
+  assert.equal(run(m).result, 'miss');
 });

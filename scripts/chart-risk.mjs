@@ -9,7 +9,7 @@ import { LEVELS, buildNotes, levelLanes, INSTRUMENTS, KICK, SNARE, HAT, CRASH, T
 
 const NAME = { [KICK]: '쿵', [SNARE]: '짝', [HAT]: '츠', [CRASH]: '챙', [TOM]: '탐' };
 const ids = process.argv.slice(2).map(Number);
-console.log(`단계  곡                  줄     콩   쌍(콩)   번갈아   번갈아 많은 줄   (번갈아 ${ALT_SHARE * 100}% 넘으면 ⚠ 위험 곡 = 게임이 번갈아 콩도 GOOD 으로 봐줌)`);
+console.log(`단계  곡                  줄     콩   쌍(콩)   번갈아   번갈아 많은 줄   (⚠ = 번갈아 ${ALT_SHARE * 100}% 넘음 — 새 곡은 이렇게 만들지 말 것)`);
 for (const lv of LEVELS) {
   if (ids.length && !ids.includes(lv.id)) continue;
   if (!lv.bars || !lv.bars.length) continue;
