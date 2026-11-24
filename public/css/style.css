@@ -1200,3 +1200,9 @@ html.ui-live #screen-result .res-stats b { font-family: "Arial Black", "Segoe UI
 .set-mini .mini-btn { background: #fff6d6; border-color: var(--ink); color: var(--ink); }
 .gear-btn { position: relative; }
 .gear-btn .dot { position: absolute; top: -2px; right: -2px; width: 12px; height: 12px; border-radius: 50%; background: #ff3d6e; border: 2px solid #fff; animation: pulse 1.4s ease-in-out infinite; }
+
+/* ⚙ 설정 체크 칸: 한 줄 제목 + 아래 작은 설명, 카드 모양 (2026-11-24) */
+#modal-settings .field.check { align-items: center; gap: 12px; margin: 8px 0 0; padding: 12px 14px; border: 2px solid #ece6f2; border-radius: 16px; background: #faf8fc; }
+#modal-settings .field.check > span { display: flex; flex-direction: column; gap: 2px; line-height: 1.25; }
+#modal-settings .field.check small { display: block; font-size: 12px; line-height: 1.35; }
+#modal-settings .field.check input { width: 24px; height: 24px; }
