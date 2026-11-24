@@ -5,12 +5,11 @@
 //     번갈아 = 다른 엄지 콩이 0.04~0.16초 앞에 있는 콩 (앞 엄지가 떨어지는 때와 겹치기 쉬움, 쌍 봐주기 없음)
 // 쓰기: node scripts/chart-risk.mjs            모든 단계
 //       node scripts/chart-risk.mjs 21 15      그 단계만
-import { LEVELS, buildNotes, levelLanes, INSTRUMENTS, KICK, SNARE, HAT, CRASH, TOM } from '../public/js/charts.js';
+import { LEVELS, buildNotes, levelLanes, INSTRUMENTS, KICK, SNARE, HAT, CRASH, TOM, isQuickAlt, ALT_SHARE } from '../public/js/charts.js';
 
 const NAME = { [KICK]: '쿵', [SNARE]: '짝', [HAT]: '츠', [CRASH]: '챙', [TOM]: '탐' };
 const ids = process.argv.slice(2).map(Number);
-const hand = (l) => INSTRUMENTS[l].hand;
-console.log('단계  곡                  줄     콩   쌍(콩)   번갈아   번갈아 많은 줄');
+console.log(`단계  곡                  줄     콩   쌍(콩)   번갈아   번갈아 많은 줄   (번갈아 ${ALT_SHARE * 100}% 넘으면 ⚠ 위험 곡 = 게임이 번갈아 콩도 GOOD 으로 봐줌)`);
 for (const lv of LEVELS) {
   if (ids.length && !ids.includes(lv.id)) continue;
   if (!lv.bars || !lv.bars.length) continue;
@@ -20,17 +19,12 @@ for (const lv of LEVELS) {
   for (let i = 0; i < ns.length; i++) {
     const n = ns[i];
     if (n.pair >= 0) pairs++;
-    let quick = false;
-    for (let j = i - 1; j >= 0 && n.time - ns[j].time < 0.16; j--) {
-      const d = n.time - ns[j].time;
-      if (d > 0.04 && hand(ns[j].lane) !== hand(n.lane)) quick = true;
-    }
-    if (quick) {
+    if (isQuickAlt(ns, i)) {
       alt++;
       perLane[NAME[n.lane]] = (perLane[NAME[n.lane]] || 0) + 1;
     }
   }
   const lanes = levelLanes(lv).map((l) => NAME[l]).join('');
   const top = Object.entries(perLane).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} ${v}`).join(' · ');
-  console.log(`${String(lv.id).padStart(3)}   ${String(lv.name).slice(0, 16).padEnd(18)}${lanes.padEnd(6)}${String(ns.length).padStart(4)}   ${String(pairs).padStart(5)}   ${String(alt).padStart(6)}   ${top}`);
+  console.log(`${String(lv.id).padStart(3)}   ${String(lv.name).slice(0, 16).padEnd(18)}${lanes.padEnd(6)}${String(ns.length).padStart(4)}   ${String(pairs).padStart(5)}   ${String(alt).padStart(6)}${alt / ns.length >= ALT_SHARE ? ' ⚠' : '  '}  ${top}`);
 }

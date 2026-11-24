@@ -4,7 +4,7 @@ import {
   STEPS_PER_BAR, tempoOf, ROUND_BARS, roundInfo, diamondsFor,
   buildNotes, JUDGE, pointsFor, accuracy, gradeFor, starsFor,
   COUNT_IN_BARS, OUTRO_BARS, maxScore, levelLanes, INSTRUMENTS, KICK, SNARE, HAT, CRASH,
-  buildRolls, markGoldNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, parseMelody, pianoHarmony,
+  buildRolls, markGoldNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, parseMelody, pianoHarmony, ALT_GAP, ALT_SHARE, quickAltShare,
 } from './charts.js';
 import { SongPlayer } from './audio.js';
 
@@ -95,6 +95,8 @@ export class Game {
     /** 쌍 봐주기로 GOOD 준 콩 수 · 엄지 쪽(left/right)마다 마지막으로 헛침·늦은 MISS 가 된 터치 시각 (_pairSave) */
     this.pairSaved = 0;
     this._wasteAt = {};
+    /** 위험 곡(빠른 번갈아 콩이 많음)이면 번갈아 콩도 봐줌 — 2026-11-24 사용자 '해당되는 곡만 GOOD' (_canPairSave) */
+    this.altSave = this.pairHeart && !level.endless && quickAltShare(this.notes) >= ALT_SHARE;
     // 자동 연주(영상 찍기)나 죽었을 때 처리할 곳이 없으면 목숨 없음
     //   💀 실패 영상(level.failReel): 자동 연주라도 목숨이 있음 → failAt 부터 일부러 놓쳐서 하트가 다 떨어짐
     this.livesOn = (!auto || !!level.failReel) && !!this.onDeath;
@@ -810,7 +812,9 @@ export class Game {
    *   그 엄지 쪽에서 헛침·늦은 터치·일찍 누름이 있었으면(누르다 틀림) 그대로 MISS. 무제한·챌린지·멀티(pairHeart false)는 안 함
    */
   _canPairSave(n) {
-    if (!this.pairHeart || n.early || !this._mateHit(n)) return false;
+    if (!this.pairHeart || n.early) return false;
+    // 쌍의 다른 콩을 쳤음 / (위험 곡) 바로 앞(0.04~0.16초)의 다른 엄지 콩을 쳤음 — 그 엄지가 떨어질 때 이 터치가 빠졌을 수 있음
+    if (!this._mateHit(n) && !(this.altSave && this._prevOtherHit(n))) return false;
     const hand = INSTRUMENTS[n.lane] && INSTRUMENTS[n.lane].hand;
     return (this._wasteAt[hand] ?? -9) < n.time - JUDGE.good;
   }
@@ -834,6 +838,21 @@ export class Game {
       this.lives++;
       this.r.onLife(this.lives, +1, rt);
     }
+  }
+
+  /** 바로 앞(ALT_GAP)의 다른 엄지 콩을 진짜로 쳤나 (봐준 GOOD 은 안 침 — 줄줄이 봐주지 않게) */
+  _prevOtherHit(n) {
+    const hand = INSTRUMENTS[n.lane] && INSTRUMENTS[n.lane].hand;
+    for (const l of this.laneOrder) {
+      if (!INSTRUMENTS[l] || INSTRUMENTS[l].hand === hand) continue;
+      const list = this.lanes[l];
+      for (let i = this._from(l, n.time - 1); i < list.length && list[i].time < n.time; i++) {
+        const m = list[i];
+        const d = n.time - m.time;
+        if (d > ALT_GAP[0] && d < ALT_GAP[1] && m.judged && m.result !== 'miss' && !m.saved) return true;
+      }
+    }
+    return false;
   }
 
   /** 같은 시각 다른 줄 콩(쌍) 중 맞힌 게 있나 (MISS 말고) */

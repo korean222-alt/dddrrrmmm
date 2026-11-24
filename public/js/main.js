@@ -1001,7 +1001,14 @@ function deviceLabel() {
   const ios = ua.match(/(?:iPhone|CPU) OS (\d+)[_.](\d+)(?:[_.](\d+))?/);
   const ipad = /iPad/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const android = ua.match(/Android (\d+(?:\.\d+)?)/);
-  if (ios) out.push(`${ipad ? 'iPad' : 'iPhone'} iOS ${ios[1]}.${ios[2]}${ios[3] ? '.' + ios[3] : ''}`);
+  // 사파리 26 부터 주소창 정보(UA)의 iOS 숫자는 18.x 로 고정 → 진짜 버전은 사파리 버전(= iOS 버전). 인스타는 자기 칸에 진짜 iOS 를 적음
+  const safariV = ua.match(/Version\/(\d+)(?:\.(\d+))?/);
+  const igV = ua.match(/; iOS (\d+)[_.](\d+)(?:[_.](\d+))?;/);
+  let iosV = ios ? `${ios[1]}.${ios[2]}${ios[3] ? '.' + ios[3] : ''}` : '';
+  if (igV) iosV = `${igV[1]}.${igV[2]}${igV[3] ? '.' + igV[3] : ''}`;
+  else if (safariV && +safariV[1] >= 26) iosV = `${safariV[1]}.${safariV[2] || 0}`;
+  else if (ios && +ios[1] === 18 && +ios[2] >= 6 && !safariV) iosV += '↑'; // 크롬 등: 고정된 숫자라 '이 버전 이상'
+  if (ios) out.push(`${ipad ? 'iPad' : 'iPhone'} iOS ${iosV}`);
   else if (ipad) out.push('iPad');
   else if (android) out.push(`Android ${android[1]}`);
   const model = ua.match(/\((iPhone\d+,\d+|iPad\d+,\d+);/) || ua.match(/Android [\d.]+; ([^;)]+?)(?: Build|;|\))/);

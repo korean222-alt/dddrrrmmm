@@ -167,6 +167,15 @@ function human(E, lv, P, seed, lives = false) {
       taps.splice(i, 1);
     }
   }
+  // 빠른 번갈아 콩(다른 엄지 콩 0.04~0.16초 뒤)의 터치를 폰이 안 보냄 — altDrop = 그럴 확률 (2026-11-24)
+  if (P.altDrop && E.C.isQuickAlt) {
+    const ns = [...notes].sort((a, b) => a.time - b.time);
+    const quick = new Set(ns.filter((n, i) => n.pair < 0 && E.C.isQuickAlt(ns, i)));
+    for (let i = taps.length - 1; i >= 0; i--) if (taps[i].n && quick.has(taps[i].n) && !taps[i].stray && R() < P.altDrop) {
+      taps[i].n._exp = 'drop';
+      taps.splice(i, 1);
+    }
+  }
   taps.sort((a, b) => a.at - b.at);
   E.play(g, taps, P, Math.max(...notes.map((n) => n.time)) + 1);
   if (lives) return { alive: g.state !== 'dead', drops: notes.filter((n) => n._exp === 'drop').length };
@@ -221,7 +230,7 @@ for (const [name, P] of Object.entries(PROFILES)) {
 }
 console.log('\n폰이 쌍(동시치기) 중 하나의 터치를 안 보냄 — 하트 켜고 끝까지 살아남은 판 (2026-11-24 쌍 하트 규칙)');
 for (const [name, base] of [['잘침', PROFILES.잘침], ['보통', PROFILES.보통]]) {
-  for (const drop of [0, 0.3, 0.6]) {
+  for (const drop of [0, 0.3, 0.6, 'alt']) {
     const cols = engines.map(({ E }) => {
       let alive = 0, runs = 0;
       for (const id of IDS) {
@@ -229,12 +238,13 @@ for (const [name, base] of [['잘침', PROFILES.잘침], ['보통', PROFILES.보
         if (!lv) continue;
         for (let k = 0; k < RUNS; k++) {
           runs++;
-          if (human(E, lv, { ...base, pairDrop: drop }, 5000 * id + k, true).alive) alive++;
+          const P = drop === 'alt' ? { ...base, pairDrop: 0.3, altDrop: 0.3 } : { ...base, pairDrop: drop };
+          if (human(E, lv, P, 5000 * id + k, true).alive) alive++;
         }
       }
       return `${alive}/${runs}판`;
     });
-    console.log(`  ${name} · 쌍 ${Math.round(drop * 100)}% 빠짐:`.padEnd(20), engines.map((e, i) => `[${e.name}] ${cols[i]}`).join('   '));
+    console.log(`  ${name} · ${drop === 'alt' ? '쌍·번갈아 30% 빠짐' : `쌍 ${Math.round(drop * 100)}% 빠짐`}:`.padEnd(22), engines.map((e, i) => `[${e.name}] ${cols[i]}`).join('   '));
   }
 }
 

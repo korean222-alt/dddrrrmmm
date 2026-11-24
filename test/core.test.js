@@ -1047,3 +1047,44 @@ test('🖐 쌍(점선 동시치기)은 하나만 쳐도 남은 콩 GOOD — 그�
   assert.equal(q[1].result, 'miss');
   assert.equal(h.lives, MAX_LIVES - 1);
 });
+
+test('🖐 위험 곡(빠른 번갈아 콩이 많음)은 번갈아 콩도 터치 없이 놓치면 GOOD — 다른 곡·그쪽을 누르다 틀린 건 MISS (2026-11-24)', async () => {
+  const { Game, MAX_LIVES } = await import('../public/js/game.js');
+  const { JUDGE, isQuickAlt } = await import('../public/js/charts.js');
+  const noop = () => {};
+  globalThis.cancelAnimationFrame ??= noop;
+  const renderer = new Proxy({}, { get: () => noop });
+  let clock = 0;
+  const audio = new Proxy({ ctx: { suspend: async () => {}, resume: async () => {} }, heardTime: () => clock }, { get: (o, k) => (k in o ? o[k] : noop) });
+  const make = (id) => {
+    const g = new Game({ audio, renderer, level: LEVELS.find((l) => l.id === id), settings: {}, onDeath: noop, onEnd: noop });
+    g.startTime = 0;
+    g.state = 'playing';
+    g.player = { stop: noop };
+    return g;
+  };
+  // 번갈아 콩 하나: 앞 엄지 콩만 치고, 이 콩은 터치 없이 지나감
+  const run = (g) => {
+    const ns = [...g.notes].sort((a, b) => a.time - b.time);
+    const i = ns.findIndex((n, k) => k > 20 && n.pair < 0 && isQuickAlt(ns, k));
+    const n = ns[i];
+    const prev = ns.slice(0, i).reverse().find((m) => INSTRUMENTS[m.lane].hand !== INSTRUMENTS[n.lane].hand);
+    for (const m of ns) if (m.time < prev.time) g._judge(m, 0, 0);
+    clock = prev.time;
+    g.input(prev.lane, 0, []);
+    for (const m of ns) if (m !== n && !m.judged && m.time < n.time + 0.3) g._judge(m, 0, 0);
+    g._sweep(n.time + JUDGE.good + 0.13, 0);
+    g._sweep(n.time + JUDGE.good + 0.135, 0);
+    return n;
+  };
+  const g = make(21);
+  assert.equal(g.altSave, true, '크리스마스 곡은 위험 곡');
+  const n = run(g);
+  assert.equal(n.result, 'good');
+  assert.equal(g.lives, MAX_LIVES);
+  assert.equal(g.counts.miss, 0);
+  // 빠른 번갈아 콩이 적은 곡(터키 행진곡)은 그대로 MISS
+  const h = make(13);
+  assert.equal(h.altSave, false);
+  assert.equal(run(h).result, 'miss');
+});

@@ -1418,6 +1418,32 @@ function pointsFor(judge, comboAfter) {
   return Math.round(POINTS[judge] * comboMultiplier(comboAfter));
 }
 
+/**
+ * 🍎 아이폰 터치 빠짐이 잘 나는 '빠른 번갈아' 콩 (2026-11-24, tasks/채보-만들때-주의.md):
+ *   다른 엄지 콩이 ALT_GAP[0]~ALT_GAP[1]초 앞에 있는 콩 — 앞 엄지가 떨어지는 순간 이 엄지가 닿기 쉬움.
+ *   이런 콩이 전체의 ALT_SHARE 넘는 곡 = '위험 곡' → 게임이 번갈아 콩도 봐줌 (game _altSave)
+ */
+const ALT_GAP = [0.04, 0.16];
+const ALT_SHARE = 0.2;
+/** 콩 n 바로 앞(ALT_GAP)에 다른 엄지 콩이 있나. notes 는 시각 순 */
+function isQuickAlt(notes, i) {
+  const n = notes[i];
+  const hand = INSTRUMENTS[n.lane] && INSTRUMENTS[n.lane].hand;
+  for (let j = i - 1; j >= 0 && n.time - notes[j].time < ALT_GAP[1]; j--) {
+    const m = notes[j];
+    if (n.time - m.time > ALT_GAP[0] && INSTRUMENTS[m.lane] && INSTRUMENTS[m.lane].hand !== hand) return true;
+  }
+  return false;
+}
+/** 빠른 번갈아 콩 비율 (0~1) */
+function quickAltShare(notes) {
+  const ns = [...notes].sort((a, b) => a.time - b.time);
+  if (!ns.length) return 0;
+  let k = 0;
+  for (let i = 0; i < ns.length; i++) if (isQuickAlt(ns, i)) k++;
+  return k / ns.length;
+}
+
 /** 전부 PERFECT 일 때 점수 */
 function maxScore(level) {
   const n = noteCount(level);
@@ -1914,7 +1940,7 @@ function makeLevelEndless(base, { intro = false } = {}) {
   return run;
 }
 
-return { STEPS_PER_BAR, KICK, SNARE, HAT, CRASH, TOM, INSTRUMENTS, CHAR_LANES, isLeftThumb, COUNT_IN_BARS, OUTRO_BARS, JUDGE, POINTS, ACC_WEIGHT, STAR_RULES, DIFFICULTY_WORDS, LEVELS, tapBars, STUDIO_LEVELS, getStudioLevel, FREE_UPTO, VERIFY_LEVELS, needsVerify, CLOSED_LEVELS, SKIP_LEVELS, isClosed, prevOpenId, nextOpenId, noteToMidi, parseChord, chordAt, pianoHarmony, pianoLeftHand, parseMelody, getLevel, beatDur, stepDur, barDur, levelDuration, TempoMap, tempoOf, levelLanes, buildNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, GOLD_SPOTS, buildRolls, markGoldNotes, noteCount, comboMultiplier, pointsFor, maxScore, accuracy, gradeFor, starsFor, scoreBounds, isClearBest, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, shiftOldLevelKey, ENDLESS_FROM, FREE_LEVELS, isUnlocked, tierOf, unlockHint, nextChallenge, ENDLESS_ID, ROUND_BARS, ENDLESS_BASE_BPM, ENDLESS_BPM_STEP, DIAMOND_RULES, diamondsFor, roundBpm, roundInfo, roundBars, makeEndless, BEAT_ID, BEAT_MIN_BPM, BEAT_MAX_BPM, BEAT_MAX_ROUNDS, beatOpts, BEAT_STYLES, BEAT_DIFFS, beatStyleName, makeBeatReel, beatSeconds, QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds, LEVEL_ENDLESS_STEP, levelEndlessId, levelEndlessBase, levelSurvivalId, levelSurvivalBase, makeLevelEndless };
+return { STEPS_PER_BAR, KICK, SNARE, HAT, CRASH, TOM, INSTRUMENTS, CHAR_LANES, isLeftThumb, COUNT_IN_BARS, OUTRO_BARS, JUDGE, POINTS, ACC_WEIGHT, STAR_RULES, DIFFICULTY_WORDS, LEVELS, tapBars, STUDIO_LEVELS, getStudioLevel, FREE_UPTO, VERIFY_LEVELS, needsVerify, CLOSED_LEVELS, SKIP_LEVELS, isClosed, prevOpenId, nextOpenId, noteToMidi, parseChord, chordAt, pianoHarmony, pianoLeftHand, parseMelody, getLevel, beatDur, stepDur, barDur, levelDuration, TempoMap, tempoOf, levelLanes, buildNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, GOLD_SPOTS, buildRolls, markGoldNotes, noteCount, comboMultiplier, pointsFor, ALT_GAP, ALT_SHARE, isQuickAlt, quickAltShare, maxScore, accuracy, gradeFor, starsFor, scoreBounds, isClearBest, LAST_LEVEL_ID, MAIN_LEVELS, levelLabel, shiftOldLevelKey, ENDLESS_FROM, FREE_LEVELS, isUnlocked, tierOf, unlockHint, nextChallenge, ENDLESS_ID, ROUND_BARS, ENDLESS_BASE_BPM, ENDLESS_BPM_STEP, DIAMOND_RULES, diamondsFor, roundBpm, roundInfo, roundBars, makeEndless, BEAT_ID, BEAT_MIN_BPM, BEAT_MAX_BPM, BEAT_MAX_ROUNDS, beatOpts, BEAT_STYLES, BEAT_DIFFS, beatStyleName, makeBeatReel, beatSeconds, QUIZ_BARS, quizId, isQuizId, makeQuizLevel, quizSeconds, LEVEL_ENDLESS_STEP, levelEndlessId, levelEndlessBase, levelSurvivalId, levelSurvivalBase, makeLevelEndless };
 })();
 
 // ---- versus.js ----
@@ -14048,7 +14074,7 @@ return { queueOffline, offlineCount, takeOffline, offlineResult, backupOffline, 
 const __m_game = (() => {
 // 한 판의 게임 진행: 시간 관리, 입력 판정, 점수/콤보.
 
-const { STEPS_PER_BAR, tempoOf, ROUND_BARS, roundInfo, diamondsFor, buildNotes, JUDGE, pointsFor, accuracy, gradeFor, starsFor, COUNT_IN_BARS, OUTRO_BARS, maxScore, levelLanes, INSTRUMENTS, KICK, SNARE, HAT, CRASH, buildRolls, markGoldNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, parseMelody, pianoHarmony } = __m_charts;
+const { STEPS_PER_BAR, tempoOf, ROUND_BARS, roundInfo, diamondsFor, buildNotes, JUDGE, pointsFor, accuracy, gradeFor, starsFor, COUNT_IN_BARS, OUTRO_BARS, maxScore, levelLanes, INSTRUMENTS, KICK, SNARE, HAT, CRASH, buildRolls, markGoldNotes, ROLL_HEART_HITS, ROLL_MAX_HEARTS, parseMelody, pianoHarmony, ALT_GAP, ALT_SHARE, quickAltShare } = __m_charts;
 const { SongPlayer } = __m_audio;
 
 const COUNT_LABELS = ['1', '2', '3', '4!'];
@@ -14138,6 +14164,8 @@ class Game {
     /** 쌍 봐주기로 GOOD 준 콩 수 · 엄지 쪽(left/right)마다 마지막으로 헛침·늦은 MISS 가 된 터치 시각 (_pairSave) */
     this.pairSaved = 0;
     this._wasteAt = {};
+    /** 위험 곡(빠른 번갈아 콩이 많음)이면 번갈아 콩도 봐줌 — 2026-11-24 사용자 '해당되는 곡만 GOOD' (_canPairSave) */
+    this.altSave = this.pairHeart && !level.endless && quickAltShare(this.notes) >= ALT_SHARE;
     // 자동 연주(영상 찍기)나 죽었을 때 처리할 곳이 없으면 목숨 없음
     //   💀 실패 영상(level.failReel): 자동 연주라도 목숨이 있음 → failAt 부터 일부러 놓쳐서 하트가 다 떨어짐
     this.livesOn = (!auto || !!level.failReel) && !!this.onDeath;
@@ -14853,7 +14881,9 @@ class Game {
    *   그 엄지 쪽에서 헛침·늦은 터치·일찍 누름이 있었으면(누르다 틀림) 그대로 MISS. 무제한·챌린지·멀티(pairHeart false)는 안 함
    */
   _canPairSave(n) {
-    if (!this.pairHeart || n.early || !this._mateHit(n)) return false;
+    if (!this.pairHeart || n.early) return false;
+    // 쌍의 다른 콩을 쳤음 / (위험 곡) 바로 앞(0.04~0.16초)의 다른 엄지 콩을 쳤음 — 그 엄지가 떨어질 때 이 터치가 빠졌을 수 있음
+    if (!this._mateHit(n) && !(this.altSave && this._prevOtherHit(n))) return false;
     const hand = INSTRUMENTS[n.lane] && INSTRUMENTS[n.lane].hand;
     return (this._wasteAt[hand] ?? -9) < n.time - JUDGE.good;
   }
@@ -14877,6 +14907,21 @@ class Game {
       this.lives++;
       this.r.onLife(this.lives, +1, rt);
     }
+  }
+
+  /** 바로 앞(ALT_GAP)의 다른 엄지 콩을 진짜로 쳤나 (봐준 GOOD 은 안 침 — 줄줄이 봐주지 않게) */
+  _prevOtherHit(n) {
+    const hand = INSTRUMENTS[n.lane] && INSTRUMENTS[n.lane].hand;
+    for (const l of this.laneOrder) {
+      if (!INSTRUMENTS[l] || INSTRUMENTS[l].hand === hand) continue;
+      const list = this.lanes[l];
+      for (let i = this._from(l, n.time - 1); i < list.length && list[i].time < n.time; i++) {
+        const m = list[i];
+        const d = n.time - m.time;
+        if (d > ALT_GAP[0] && d < ALT_GAP[1] && m.judged && m.result !== 'miss' && !m.saved) return true;
+      }
+    }
+    return false;
   }
 
   /** 같은 시각 다른 줄 콩(쌍) 중 맞힌 게 있나 (MISS 말고) */
@@ -15976,14 +16021,14 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-24f',
+    id: '2026-11-24g',
     date: '11월 24일',
     title: '🛒 상점 오픈! · 🖐 터치 판정을 단순하게',
     items: [
       '<b>🛒 상점이 열렸어요!</b> 첫 화면 <b>상점</b> 버튼 · 모은 코인으로 콩 스킨·무대·드럼·세트를 살 수 있어요 (레어 5천 · 에픽 1만 · 전설 4만 · 🎤 라이브 스테이지 세트 2만5천)',
       '업데이트·건의하기·홈 화면으로 보기는 <b>⚙ 설정</b> 안으로 · 설정 → <b>터치 표시</b>를 켜면 누른 자리에 동그라미와 판정이 보여요',
       '<b>누른 줄에 콩이 있으면 맞음, 없으면 헛침</b> — 엄지를 떼며 미끄러지거나 조금 일찍 눌러도 다음 콩이 MISS 되지 않아요',
-      '<b>🖐 같이 치는 두 콩</b>은 하나만 쳐져도 남은 콩을 <b>GOOD</b> 으로 쳐 줘요 (무제한·멀티 빼고) — 두 엄지를 같이 누르면 아이폰이 터치를 하나만 보낼 때가 있어서예요',
+      '<b>🖐 같이 치는 두 콩</b>은 하나만 쳐져도 남은 콩을 <b>GOOD</b> 으로 쳐 줘요 · 빠르게 번갈아 치는 곡(윌리엄 텔·엘리제·크리스마스 곡 등)은 <b>번갈아 치는 콩</b>도요 (무제한·멀티 빼고) — 아이폰이 두 엄지 터치를 하나만 보낼 때가 있어서예요',
       '왼엄지·오른엄지 쪽 <b>아무 줄이나</b> 눌러도 그쪽에 먼저 온 콩이 쳐져요 — 엄지를 벌려 바깥쪽을 눌러도 돼요',
     ],
   },
@@ -18015,7 +18060,14 @@ function deviceLabel() {
   const ios = ua.match(/(?:iPhone|CPU) OS (\d+)[_.](\d+)(?:[_.](\d+))?/);
   const ipad = /iPad/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const android = ua.match(/Android (\d+(?:\.\d+)?)/);
-  if (ios) out.push(`${ipad ? 'iPad' : 'iPhone'} iOS ${ios[1]}.${ios[2]}${ios[3] ? '.' + ios[3] : ''}`);
+  // 사파리 26 부터 주소창 정보(UA)의 iOS 숫자는 18.x 로 고정 → 진짜 버전은 사파리 버전(= iOS 버전). 인스타는 자기 칸에 진짜 iOS 를 적음
+  const safariV = ua.match(/Version\/(\d+)(?:\.(\d+))?/);
+  const igV = ua.match(/; iOS (\d+)[_.](\d+)(?:[_.](\d+))?;/);
+  let iosV = ios ? `${ios[1]}.${ios[2]}${ios[3] ? '.' + ios[3] : ''}` : '';
+  if (igV) iosV = `${igV[1]}.${igV[2]}${igV[3] ? '.' + igV[3] : ''}`;
+  else if (safariV && +safariV[1] >= 26) iosV = `${safariV[1]}.${safariV[2] || 0}`;
+  else if (ios && +ios[1] === 18 && +ios[2] >= 6 && !safariV) iosV += '↑'; // 크롬 등: 고정된 숫자라 '이 버전 이상'
+  if (ios) out.push(`${ipad ? 'iPad' : 'iPhone'} iOS ${iosV}`);
   else if (ipad) out.push('iPad');
   else if (android) out.push(`Android ${android[1]}`);
   const model = ua.match(/\((iPhone\d+,\d+|iPad\d+,\d+);/) || ua.match(/Android [\d.]+; ([^;)]+?)(?: Build|;|\))/);

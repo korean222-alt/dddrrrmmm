@@ -1414,6 +1414,32 @@ export function pointsFor(judge, comboAfter) {
   return Math.round(POINTS[judge] * comboMultiplier(comboAfter));
 }
 
+/**
+ * 🍎 아이폰 터치 빠짐이 잘 나는 '빠른 번갈아' 콩 (2026-11-24, tasks/채보-만들때-주의.md):
+ *   다른 엄지 콩이 ALT_GAP[0]~ALT_GAP[1]초 앞에 있는 콩 — 앞 엄지가 떨어지는 순간 이 엄지가 닿기 쉬움.
+ *   이런 콩이 전체의 ALT_SHARE 넘는 곡 = '위험 곡' → 게임이 번갈아 콩도 봐줌 (game _altSave)
+ */
+export const ALT_GAP = [0.04, 0.16];
+export const ALT_SHARE = 0.2;
+/** 콩 n 바로 앞(ALT_GAP)에 다른 엄지 콩이 있나. notes 는 시각 순 */
+export function isQuickAlt(notes, i) {
+  const n = notes[i];
+  const hand = INSTRUMENTS[n.lane] && INSTRUMENTS[n.lane].hand;
+  for (let j = i - 1; j >= 0 && n.time - notes[j].time < ALT_GAP[1]; j--) {
+    const m = notes[j];
+    if (n.time - m.time > ALT_GAP[0] && INSTRUMENTS[m.lane] && INSTRUMENTS[m.lane].hand !== hand) return true;
+  }
+  return false;
+}
+/** 빠른 번갈아 콩 비율 (0~1) */
+export function quickAltShare(notes) {
+  const ns = [...notes].sort((a, b) => a.time - b.time);
+  if (!ns.length) return 0;
+  let k = 0;
+  for (let i = 0; i < ns.length; i++) if (isQuickAlt(ns, i)) k++;
+  return k / ns.length;
+}
+
 /** 전부 PERFECT 일 때 점수 */
 export function maxScore(level) {
   const n = noteCount(level);
