@@ -16434,7 +16434,7 @@ const __m_cover = (() => {
 // 🖼 릴스 썸네일(표지) 만들기: 실제 게임 화면(맵·3D 드럼·떨어지는 노트·PERFECT 효과)을 1080×1920 으로 그리고
 //   위에 큰 훅 문구를 얹음. 인스타 프로필 격자는 가운데(3:4)만 보여서 중요한 건 가운데 쪽에.
 
-const { Renderer } = __m_render;
+const { Renderer, preloadShopBg } = __m_render;
 const { levelLanes, buildNotes, tempoOf, COUNT_IN_BARS } = __m_charts;
 
 const FONT = '"Jua", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif';
@@ -16481,7 +16481,7 @@ function pill(ctx, text, cx, cy, size, fill, color) {
  * @param {{ lv, title, sub, bottom }} o  lv = 칠 판(단계), title = 큰 훅(두 줄까지), sub = 곡 이름 배지, bottom = 아래 유도 문구
  * @returns {Promise<HTMLCanvasElement>} 1080×1920
  */
-async function makeReelCover({ lv, title, sub, bottom }) {
+async function makeReelCover({ lv, title, sub, bottom, deco = null }) {
   // 그릴 글자가 든 글꼴 묶음을 미리 받음 (안 그러면 처음 보는 글자만 기본 글꼴로 나옴, 예: '캉캉')
   try {
     await Promise.race([document.fonts.load(`40px ${FONT.split(',')[0]}`, `${title}${sub || ''}${bottom || ''}0123456789`), new Promise((r) => setTimeout(r, 3000))]);
@@ -16493,8 +16493,11 @@ async function makeReelCover({ lv, title, sub, bottom }) {
     const r = new Renderer(cv);
     r.laneOrder = levelLanes(lv);
     r.newLane = -1;
-    r.setTheme(lv);
     r.studio = { cover: true, top: '', bottom: '', label: '' };
+    // 🎨 영상 찍기 「꾸미기」 켰으면 상점에서 장착한 무대·드럼·세트도 썸네일에 (2026-11-24 사용자). 콩 색은 부르는 쪽이 맞춤
+    if (deco) Object.assign(r, { studioSkin: true, bgPick: deco.bgPick, kitPick: deco.kitPick, photoDim: deco.photoDim, bgPhoto: deco.bgPhoto, uiStyle: deco.uiStyle });
+    r.setTheme(lv);
+    if (r.theme.img) await preloadShopBg(r.theme.img); // 상점 무대 그림은 받은 뒤에 그림
     await r.resize(3);
     // 노트가 화면에 가장 많이 내려오는 순간 (첫·끝 마디는 빼고)
     const tempo = tempoOf(lv);
@@ -21664,7 +21667,17 @@ async function studioCover() {
   toast('썸네일 만드는 중…', 1500);
   try {
     await fontsReady(top + sub + bottom);
-    const canvas = await makeReelCover({ lv, title: top, sub, bottom });
+    // 🎨 「꾸미기」 체크를 따라 썸네일에도 장착한 스킨·무대·드럼 (끄면 원래 맵·기본 콩)
+    const skin = $('#studio-skin').checked;
+    applyDeco(); // 장착한 것 최신으로 (첫 판 전이면 아직 안 불렸을 수 있음)
+    const deco = skin ? { bgPick: renderer.bgPick, kitPick: renderer.kitPick, photoDim: renderer.photoDim, bgPhoto: renderer.bgPhoto, uiStyle: renderer.uiStyle } : null;
+    if (!skin) applyNoteColors('basic');
+    let canvas;
+    try {
+      canvas = await makeReelCover({ lv, title: top, sub, bottom, deco });
+    } finally {
+      if (!skin) applyDeco();
+    }
     const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
     const file = new File([blob], `okaystra-cover-${lv.id}.png`, { type: 'image/png' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {

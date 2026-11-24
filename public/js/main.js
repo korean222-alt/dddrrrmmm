@@ -4778,7 +4778,17 @@ async function studioCover() {
   toast('썸네일 만드는 중…', 1500);
   try {
     await fontsReady(top + sub + bottom);
-    const canvas = await makeReelCover({ lv, title: top, sub, bottom });
+    // 🎨 「꾸미기」 체크를 따라 썸네일에도 장착한 스킨·무대·드럼 (끄면 원래 맵·기본 콩)
+    const skin = $('#studio-skin').checked;
+    applyDeco(); // 장착한 것 최신으로 (첫 판 전이면 아직 안 불렸을 수 있음)
+    const deco = skin ? { bgPick: renderer.bgPick, kitPick: renderer.kitPick, photoDim: renderer.photoDim, bgPhoto: renderer.bgPhoto, uiStyle: renderer.uiStyle } : null;
+    if (!skin) applyNoteColors('basic');
+    let canvas;
+    try {
+      canvas = await makeReelCover({ lv, title: top, sub, bottom, deco });
+    } finally {
+      if (!skin) applyDeco();
+    }
     const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
     const file = new File([blob], `okaystra-cover-${lv.id}.png`, { type: 'image/png' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
