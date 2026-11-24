@@ -47,6 +47,8 @@ const PROFILES = {
   붙음: { sigma: 0.04, bias: 0.01, posSigma: 0.18, skip: 0, offbeatMul: 1.3, frame: 1 / 60, lag: 0.03, toCenter: 0.45 },
   // 가짜 터치: 진짜로 친 뒤 0.03~0.08초에 가운데 쪽 0.3~0.6줄 옆에서 터치가 하나 더 들어옴 (엄지를 떼며 굴림 → 움직임을 새 터치로 본 것,
   //   다른 엄지가 스침 등). stray = 진짜 터치 중 그런 게 생기는 비율. 2026-11-24 '아직 인식이 제대로 안 돼요' 때 추가
+  // 벌림: 두 엄지를 벌려 바깥 줄(챙·츠)만 누름 — 두 엄지가 가운데서 붙으면 폰이 터치를 하나만 보내는 사람에게 권하는 자세 (2026-11-24)
+  벌림: { sigma: 0.045, bias: 0.01, posSigma: 0.15, skip: 0.01, offbeatMul: 1.35, frame: 1 / 60, lag: 0.03, wide: true },
   가짜조금: { sigma: 0.04, bias: 0.01, posSigma: 0.2, skip: 0, offbeatMul: 1.3, frame: 1 / 60, lag: 0.03, toCenter: 0.15, stray: 0.03 },
   가짜많이: { sigma: 0.04, bias: 0.01, posSigma: 0.2, skip: 0, offbeatMul: 1.3, frame: 1 / 60, lag: 0.03, toCenter: 0.15, stray: 0.1 },
 };
@@ -115,10 +117,14 @@ async function engine(dir) {
   return { C, make, play };
 }
 
-function human(E, lv, P, seed) {
+function human(E, lv, P, seed, lives = false) {
   const R = rng(seed);
   const gauss = () => Math.sqrt(-2 * Math.log(R() || 1e-9)) * Math.cos(2 * Math.PI * R());
   const g = E.make(lv);
+  if (lives) {
+    g.livesOn = true;
+    g.onDeath = () => {};
+  }
   const order = g.laneOrder;
   const notes = order.flatMap((l) => g.lanes[l]);
   const step = 60 / (lv.bpm || 100) / 4;
@@ -140,21 +146,35 @@ function human(E, lv, P, seed) {
       lastLeft[n.lane] = left;
       shift = left ? -P.alt : P.alt;
     }
-    const u = order.indexOf(n.lane) + 0.5 + shift + gauss() * P.posSigma + (P.toCenter ? (left ? P.toCenter : -P.toCenter) : 0);
-    taps.push({ at: n.time + err, u });
+    // 벌림: 엄지를 벌려 맨 바깥 줄만 누름 (왼엄지 = 맨 왼쪽 줄, 오른엄지 = 맨 오른쪽 줄)
+    const home = P.wide ? (left ? 0 : order.length - 1) : order.indexOf(n.lane);
+    const u = home + 0.5 + shift + gauss() * P.posSigma + (P.toCenter ? (left ? P.toCenter : -P.toCenter) : 0);
+    taps.push({ at: n.time + err, u, n });
     if (P.stray && R() < P.stray) {
       const dir = u < order.length / 2 ? 1 : -1; // 가운데 쪽으로
       taps.push({ at: n.time + err + 0.03 + 0.05 * R(), u: u + dir * (0.3 + 0.3 * R()), stray: true });
       n._stray = true;
     }
   }
+  // 폰이 동시에 닿은 두 엄지 중 하나의 터치를 안 보냄 (2026-11-24 DM 영상: 쌍 5번 중 3번) — pairDrop = 쌍마다 그럴 확률
+  if (P.pairDrop) {
+    const byPair = new Map();
+    for (const tp of taps) if (tp.n && tp.n.pair >= 0 && !tp.stray) (byPair.get(tp.n.pair) || byPair.set(tp.n.pair, []).get(tp.n.pair)).push(tp);
+    const drop = new Set();
+    for (const g2 of byPair.values()) if (g2.length > 1 && R() < P.pairDrop) drop.add(g2[Math.floor(R() * g2.length)]);
+    for (let i = taps.length - 1; i >= 0; i--) if (drop.has(taps[i])) {
+      taps[i].n._exp = 'drop';
+      taps.splice(i, 1);
+    }
+  }
   taps.sort((a, b) => a.at - b.at);
   E.play(g, taps, P, Math.max(...notes.map((n) => n.time)) + 1);
+  if (lives) return { alive: g.state !== 'dead', drops: notes.filter((n) => n._exp === 'drop').length };
   const rank = { perfect: 3, great: 2, good: 1, miss: 0 };
   let eaten = 0, down = 0, strays = 0;
   for (const n of notes) {
     if (n._stray) strays++;
-    if (n._exp === 'skip' || n._exp === 'miss') continue;
+    if (n._exp === 'skip' || n._exp === 'miss' || n._exp === 'drop') continue;
     if (!n.judged || n.result === 'miss') eaten++;
     else if (rank[n.result] < rank[n._exp]) down++;
   }
@@ -199,6 +219,25 @@ for (const [name, P] of Object.entries(PROFILES)) {
   });
   console.log(name.padEnd(5), cols.join('   '));
 }
+console.log('\n폰이 쌍(동시치기) 중 하나의 터치를 안 보냄 — 하트 켜고 끝까지 살아남은 판 (2026-11-24 쌍 하트 규칙)');
+for (const [name, base] of [['잘침', PROFILES.잘침], ['보통', PROFILES.보통]]) {
+  for (const drop of [0, 0.3, 0.6]) {
+    const cols = engines.map(({ E }) => {
+      let alive = 0, runs = 0;
+      for (const id of IDS) {
+        const lv = E.C.LEVELS.find((l) => l.id === id);
+        if (!lv) continue;
+        for (let k = 0; k < RUNS; k++) {
+          runs++;
+          if (human(E, lv, { ...base, pairDrop: drop }, 5000 * id + k, true).alive) alive++;
+        }
+      }
+      return `${alive}/${runs}판`;
+    });
+    console.log(`  ${name} · 쌍 ${Math.round(drop * 100)}% 빠짐:`.padEnd(20), engines.map((e, i) => `[${e.name}] ${cols[i]}`).join('   '));
+  }
+}
+
 console.log('\n마구 연타 (두 엄지 초당 N번씩) 맞히는 비율 — 올라가면 안 됨');
 for (const rate of [4, 8, 12]) {
   const cols = engines.map(({ E }) => {

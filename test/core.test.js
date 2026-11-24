@@ -592,7 +592,7 @@ test('🖐 폰 버벅임(2026-11-23): 화면 갱신이 밀린 터치보다 먼�
   assert.equal(g.counts.miss, 1);
   assert.equal(g.counts.wrong, 0);
 
-  // 4) 동시치기 둘 다 MISS 로 넘어간 뒤 하나만 되살리면 목숨은 여전히 하나 깎인 채
+  // 4) 동시치기 둘 다 MISS 로 넘어간 뒤 하나를 되살리면 목숨 돌려받음 (쌍은 하나만 쳐도 하트 그대로, 2026-11-24)
   g = (() => {
     const gg = make(['K...............']);
     // 짝 줄에 같은 시각 콩을 직접 넣음 (동시치기)
@@ -608,7 +608,7 @@ test('🖐 폰 버벅임(2026-11-23): 화면 갱신이 밀린 터치보다 먼�
   g._sweep(kk.time + 0.6, 0);
   assert.equal(g.lives, MAX_LIVES - 1, '동시치기 둘 다 놓쳐도 하나만');
   tap(g, KICK, kk.time);
-  assert.equal(g.lives, MAX_LIVES - 1, '짝은 아직 MISS → 목숨은 짝 몫');
+  assert.equal(g.lives, MAX_LIVES, '짝은 아직 MISS 지만 쌍 하나를 쳤으니 하트 그대로');
   tap(g, SNARE, sn.time);
   assert.equal(g.lives, MAX_LIVES);
   assert.equal(g.counts.miss, 0);
@@ -892,4 +892,128 @@ test('🖐 터치 판정 단순하게(2026-11-24 \'아직 인식이 제대로 �
   tap(g, 1.6, k.time + 0.01);
   assert.ok(k.judged && s.judged);
   assert.equal(g.counts.wrong, 0);
+});
+
+test('엄지를 벌려 바깥 줄을 눌러도: 챙 줄을 눌렀는데 쿵 콩이 먼저 와 있으면 쿵 (같은 엄지 줄, 2026-11-24)', async () => {
+  const { Game } = await import('../public/js/game.js');
+  const { KICK, SNARE } = await import('../public/js/charts.js');
+  const noop = () => {};
+  globalThis.cancelAnimationFrame ??= noop;
+  const renderer = new Proxy({}, { get: () => noop });
+  let clock = 0;
+  const audio = new Proxy({ ctx: {}, heardTime: () => clock }, { get: (o, k) => (k in o ? o[k] : noop) });
+  const lv = LEVELS.find((l) => levelLanes(l).includes(CRASH) && levelLanes(l).includes(KICK));
+  const g = new Game({ audio, renderer, level: lv, settings: {}, onDeath: noop, onEnd: noop });
+  g.startTime = 0;
+  g.state = 'playing';
+  g.player = { stop: noop };
+  g.livesOn = false;
+  // 쿵(t) → 0.1초 뒤 챙 을 만들어 넣음: 다른 콩은 치움
+  const k = g.lanes[KICK][0];
+  const base = { ...k };
+  for (const l of g.laneOrder) g.lanes[l] = [];
+  const kick = { ...base, lane: KICK, time: 10, pair: -1 };
+  const crash = { ...base, lane: CRASH, time: 10.1, pair: -1 };
+  const snare = { ...base, lane: SNARE, time: 10.2, pair: -1 };
+  g.lanes[KICK] = [kick];
+  g.lanes[CRASH] = [crash];
+  g.lanes[SNARE] = [snare];
+  for (const l of g.laneOrder) g.ptr[l] = 0;
+  g.firstNoteTime = 10;
+  g.lastNoteTime = 10.2;
+  // 챙 줄 맨 바깥(쿵 쪽 선에서 멂)을 쿵 시각에 누름 → 쿵이 쳐짐 (예전엔 아직 안 온 챙을 일찍 침)
+  clock = 10;
+  let r = g.input(CRASH, 0, [{ lane: KICK, d: 0.8 }]);
+  assert.equal(r.lane, KICK);
+  assert.equal(kick.result, 'perfect');
+  assert.ok(!crash.judged);
+  // 0.1초 뒤 같은 자리 → 챙
+  clock = 10.1;
+  r = g.input(CRASH, 0, [{ lane: KICK, d: 0.8 }]);
+  assert.equal(r.lane, CRASH);
+  assert.equal(crash.result, 'perfect');
+  // 다른 엄지 줄(짝) 콩은 안 가져감: 챙 줄을 짝 시각에 눌러도 짝은 그대로
+  clock = 10.2;
+  r = g.input(CRASH, 0, [{ lane: KICK, d: 0.8 }]);
+  assert.ok(!snare.judged);
+});
+
+test('🖐 쌍(점선 동시치기)은 하나만 쳐도 하트 그대로 — 점수·콤보·정확도는 MISS 그대로 (폰이 두 엄지 중 하나를 안 보낼 때, 2026-11-24)', async () => {
+  const { Game, MAX_LIVES } = await import('../public/js/game.js');
+  const { JUDGE } = await import('../public/js/charts.js');
+  const noop = () => {};
+  globalThis.cancelAnimationFrame ??= noop;
+  const renderer = new Proxy({}, { get: () => noop });
+  let clock = 0;
+  const audio = new Proxy({ ctx: { suspend: async () => {}, resume: async () => {} }, heardTime: () => clock }, { get: (o, k) => (k in o ? o[k] : noop) });
+  const lv = LEVELS.find((l) => l.id === 21); // 위 위시 유 어 메리 크리스마스 (4줄, DM 영상 곡)
+  const g = new Game({ audio, renderer, level: lv, settings: {}, onDeath: noop, onEnd: noop });
+  g.startTime = 0;
+  g.state = 'playing';
+  g.player = { stop: noop };
+  const pairs = new Map();
+  for (const n of g.notes) if (n.pair >= 0) (pairs.get(n.pair) || pairs.set(n.pair, []).get(n.pair)).push(n);
+  const [p1, p2, p3] = [...pairs.values()];
+  const clear = (t) => {
+    for (const n of g.notes) if (n.time < t && !n.judged) g._judge(n, 0, 0);
+  };
+  // 이 시각 콩이 막 MISS 로 넘어갈 만큼만 화면을 넘김 (뒤 콩은 안 건드림)
+  const pass = (t) => {
+    g._sweep(t + JUDGE.good + 0.13, 0);
+    g._sweep(t + JUDGE.good + 0.135, 0);
+  };
+  // ① 한 콩만 침(다른 쪽 터치는 폰이 안 보냄) → 남은 콩은 MISS 인데 하트는 그대로
+  clear(p1[0].time);
+  clock = p1[0].time;
+  g.input(p1[0].lane, 0, []);
+  assert.equal(p1[0].result, 'perfect');
+  pass(p1[1].time);
+  assert.equal(p1[1].result, 'miss');
+  assert.equal(g.counts.miss, 1);
+  assert.equal(g.combo, 0, '콤보는 끊김');
+  assert.equal(g.lives, MAX_LIVES, '하트는 그대로');
+  // ② 둘 다 놓침 → 하트 하나 (예전 규칙 그대로)
+  clear(p2[0].time);
+  const before = g.lives;
+  pass(p2[0].time);
+  assert.ok(p2.every((n) => n.result === 'miss'));
+  assert.equal(g.lives, before - 1);
+  // ③ 늦게 친 쪽(GOOD 밖 조금 늦게)도 MISS 지만 다른 콩을 쳤으면 하트 그대로
+  clear(p3[0].time);
+  const b3 = g.lives;
+  clock = p3[0].time;
+  g.input(p3[0].lane, 0, []);
+  clock = p3[1].time + JUDGE.good + 0.05;
+  g.input(p3[1].lane, 0, []);
+  assert.equal(p3[1].result, 'miss');
+  assert.equal(g.lives, b3);
+  // ④ 둘 다 놓쳐 하트가 깎인 뒤 늦게 도착한 터치(폰 버벅임)가 하나를 되살리면 → 하트 돌려받음 (이제 쌍 하나를 친 것)
+  const p4 = [...pairs.values()][3];
+  clear(p4[0].time);
+  const b4 = g.lives;
+  pass(p4[0].time);
+  assert.equal(g.lives, b4 - 1);
+  clock = p4[1].time + 0.02; // 누른 시각은 제때 (도착만 늦음)
+  g.input(p4[1].lane, 0, []);
+  assert.equal(p4[1].result, 'perfect');
+  assert.equal(g.lives, b4, '하트 돌려받음');
+  // 쌍이 아닌 콩을 놓치면 하트 하나 (그대로)
+  const single = g.notes.find((n) => n.pair < 0 && !n.judged && n.time > p4[0].time + 1);
+  const b5 = g.lives;
+  g._miss(single, 0);
+  assert.equal(g.lives, b5 - 1);
+  // 살아남기가 곧 랭킹·승부인 곳(무제한·챌린지 = level.challenge, 멀티 = pairHeart:false)은 예전 그대로 하트가 깎임
+  assert.equal(new Game({ audio, renderer, level: { ...lv, challenge: true }, settings: {}, onDeath: noop, onEnd: noop }).pairHeart, false);
+  const h = new Game({ audio, renderer, level: lv, settings: {}, onDeath: noop, onEnd: noop, pairHeart: false });
+  h.startTime = 0;
+  h.state = 'playing';
+  h.player = { stop: noop };
+  for (const n of h.notes) if (n.time < p1[0].time) h._judge(n, 0, 0);
+  const q = h.notes.filter((n) => n.pair === p1[0].pair);
+  clock = q[0].time;
+  h.input(q[0].lane, 0, []);
+  h._sweep(q[1].time + JUDGE.good + 0.13, 0);
+  h._sweep(q[1].time + JUDGE.good + 0.135, 0);
+  assert.equal(q[1].result, 'miss');
+  assert.equal(h.lives, MAX_LIVES - 1);
 });

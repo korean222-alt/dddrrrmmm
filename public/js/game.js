@@ -51,7 +51,7 @@ export class Game {
    * @param {import('./audio.js').AudioEngine} o.audio
    * @param {import('./render.js').Renderer} o.renderer
    */
-  constructor({ audio, renderer, level, settings, auto = false, onHud, onEnd, onDeath }) {
+  constructor({ audio, renderer, level, settings, auto = false, onHud, onEnd, onDeath, pairHeart }) {
     this.audio = audio;
     this.r = renderer;
     this.level = level;
@@ -87,6 +87,11 @@ export class Game {
     this._hardBreaks = 0;
     /** 줄마다 마지막으로 눌린 곡 시각 (TWIN_GAP) */
     this._touchAt = {};
+    /**
+     * 쌍(동시치기)에서 다른 콩을 쳤으면 남은 콩 MISS 로 하트를 안 깎음 (_loseLife). 살아남는 게 곧 랭킹·승부인 곳
+     *   (무제한·레벨업 챌린지·서바이벌 = level.challenge, 멀티 = main 이 false 로 줌)은 빼고 예전 그대로
+     */
+    this.pairHeart = pairHeart ?? !level.challenge;
     // 자동 연주(영상 찍기)나 죽었을 때 처리할 곳이 없으면 목숨 없음
     //   💀 실패 영상(level.failReel): 자동 연주라도 목숨이 있음 → failAt 부터 일부러 놓쳐서 하트가 다 떨어짐
     this.livesOn = (!auto || !!level.failReel) && !!this.onDeath;
@@ -462,7 +467,17 @@ export class Game {
       const k = this._take(c.lane, t);
       if (k && (!alt || k.time < alt.time)) alt = k;
     }
-    if (own) return alt && alt.time < own.time ? alt : own;
+    const hand = INSTRUMENTS[lane] && INSTRUMENTS[lane].hand;
+    if (own) {
+      // 같은 엄지가 맡는 줄(챙·쿵 / 짝·츠)은 동시에 나오지 않음 → 내 줄 콩은 아직 안 왔고 같은 엄지 줄 콩이 먼저 와 있으면 그 콩
+      //   (2026-11-24: 두 엄지를 거의 같이 누르면 폰이 터치를 하나만 보낼 때가 있음 → 엄지를 벌려 바깥 줄(챙·츠)만 눌러도 쿵·짝이 다 쳐지게)
+      for (const l of this.laneOrder) {
+        if (l === lane || !INSTRUMENTS[l] || INSTRUMENTS[l].hand !== hand) continue;
+        const k = this._take(l, t);
+        if (k && (!alt || k.time < alt.time)) alt = k;
+      }
+      return alt && alt.time < own.time ? alt : own;
+    }
     if (alt) return alt;
     // 동시에 치는 콩: 이 줄 콩을 다른 엄지가 방금 (선을 넘어) 쳤으면 → 같은 시각의 남은 콩
     const done = this._doneNear(lane, t);
@@ -475,7 +490,6 @@ export class Game {
     }
     // 같은 엄지가 맡는 줄(챙·쿵·탐 / 짝·츠)은 동시에 나오지 않음 → 내 줄에 노트가 없으면 같은 엄지 줄의 노트로.
     //   4줄일 때 맨 왼쪽 챙 줄이 넓어서 왼쪽 엄지가 쿵 대신 챙을 눌러 쿵이 '안 쳐지던' 것 (유저 맵 신고)
-    const hand = INSTRUMENTS[lane] && INSTRUMENTS[lane].hand;
     for (const l of this.laneOrder) {
       if (l === lane || !INSTRUMENTS[l] || INSTRUMENTS[l].hand !== hand) continue;
       const k = this._take(l, t);
@@ -610,20 +624,31 @@ export class Game {
       n.wasWrong = false;
       this.counts.wrong++;
     }
-    if (n.hurt) {
-      n.hurt = false;
-      // 같이 놓친 동시치기 콩이 아직 MISS 면 목숨 하나는 그 콩 몫 (동시치기 둘 다 놓쳐도 하나만 깎는 규칙)
-      let twin = null;
-      for (const l of this.laneOrder) {
-        if (l === n.lane) continue;
-        const list = this.lanes[l];
-        for (let i = this._from(l, n.time); i < list.length && list[i].time <= n.time; i++) if (list[i].swept && list[i].time === n.time) twin = list[i];
+    // 이 MISS 로 깎인 하트를 돌려줌. 같은 쌍의 다른 콩이 MISS 로 깎은 하트도 — 이제 이 콩을 쳤으니
+    //   쌍 규칙(하나만 쳐도 하트 그대로, _loseLife·pairHeart)으로 그 MISS 는 하트를 안 깎음
+    let refund = !!n.hurt;
+    n.hurt = false;
+    for (const l of this.laneOrder) {
+      if (l === n.lane) continue;
+      const list = this.lanes[l];
+      for (let i = this._from(l, n.time); i < list.length && list[i].time <= n.time; i++) {
+        const m = list[i];
+        if (m.time !== n.time) continue;
+        if (this.pairHeart) {
+          if (m.hurt) {
+            m.hurt = false;
+            refund = true;
+          }
+        } else if (refund && m.swept) {
+          // 쌍 규칙을 안 쓰는 곳: 같이 놓친 동시치기 콩이 아직 MISS → 목숨 하나는 그 콩 몫 (둘 다 놓쳐도 하나만 깎는 규칙)
+          m.hurt = true;
+          refund = false;
+        }
       }
-      if (twin) twin.hurt = true;
-      else if (this.livesOn && this.state === 'playing') {
-        this.lives = Math.min(MAX_LIVES, this.lives + 1);
-        if (this._lostAt === n.time) this._lostAt = null;
-      }
+    }
+    if (refund && this.livesOn && this.state === 'playing') {
+      this.lives = Math.min(MAX_LIVES, this.lives + 1);
+      if (this._lostAt === n.time) this._lostAt = null;
     }
     const u = n.undo;
     n.undo = null;
@@ -739,14 +764,33 @@ export class Game {
     }
   }
 
-  /** MISS → 목숨 하나. 동시치기(두 레인 같은 시각)를 둘 다 놓쳐도 하나만 깎음 */
+  /**
+   * MISS → 목숨 하나. 동시치기(두 레인 같은 시각)를 둘 다 놓쳐도 하나만 깎음.
+   *   🖐 쌍(점선으로 이어진 동시치기 = 같은 시각 콩)에서 다른 콩은 쳤으면 하트는 안 깎음 — 점수·콤보·정확도는 MISS 그대로 (2026-11-24):
+   *   폰이 동시에 닿은 두 엄지 중 하나의 터치를 아예 안 보낼 때가 있음(DM 영상: 쌍 5번 중 3번, 「창·캔·포」가 1만 오름).
+   *   안 누른 건지 폰이 안 보낸 건지 게임은 모름 → 맞음으로 쳐 주진 않고(랭킹 점수 그대로), 폰 탓일 수 있는 하트만 지킴
+   */
   _loseLife(n, rt) {
     if (!this.livesOn || this.state !== 'playing') return;
     if (n.time < this.graceUntil) return;
     if (this._lostAt === n.time) return;
+    if (this.pairHeart && this._mateHit(n)) return;
     this._lostAt = n.time;
     n.hurt = true; // 되살리면 돌려줌 (_revive)
     this._hurt(rt);
+  }
+
+  /** 같은 시각 다른 줄 콩(쌍) 중 맞힌 게 있나 (MISS 말고) */
+  _mateHit(n) {
+    for (const l of this.laneOrder) {
+      if (l === n.lane) continue;
+      const list = this.lanes[l];
+      for (let i = this._from(l, n.time); i < list.length && list[i].time <= n.time; i++) {
+        const m = list[i];
+        if (m.time === n.time && m.judged && m.result !== 'miss') return true;
+      }
+    }
+    return false;
   }
 
   /** 목숨 하나 깎기 (0개면 멈춤) */

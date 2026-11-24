@@ -821,6 +821,8 @@ async function startLevel(id, opts = {}) {
   starBox.hidden = !!lv.endless;
   starBox.innerHTML = starsHTML(0);
   state.game = new Game({
+    // 🖐 쌍 하나만 쳐도 하트 그대로(2026-11-24)는 혼자 하는 판만 — 멀티는 살아남기가 승부라 예전 그대로 (무제한·챌린지는 game 이 알아서 뺌)
+    pairHeart: room ? false : undefined,
     audio,
     renderer,
     level: lv,
