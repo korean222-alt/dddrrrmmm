@@ -772,7 +772,7 @@ export class Renderer {
     const d = this.touchDiag || {};
     ctx.strokeStyle = 'rgba(0,0,0,0.75)';
     ctx.lineWidth = 3;
-    const lines = [`터치 ${this.touchCount || 0} · 창 ${d.win || 0} 캔 ${d.can || 0} 포 ${d.ptr || 0} 뗌 ${d.end || 0}`, `누르는 중 ${(this.touchHeld || []).length} · 한쪽만 ${d.only || 0}`];
+    const lines = [`터치 ${this.touchCount || 0} · 창 ${d.win || 0} 캔 ${d.can || 0} 포 ${d.ptr || 0} 뗌 ${d.end || 0}`, `누르는 중 ${(this.touchHeld || []).length} · 한쪽만 ${d.only || 0} · 살림 ${d.saved || 0}`];
     lines.forEach((txt, i) => {
       const y = Math.max(150, L.H * 0.24) + i * 16;
       ctx.strokeText(txt, 8, y);
