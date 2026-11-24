@@ -1817,6 +1817,9 @@ export function runCheck(c, elapsedMs) {
     const rv = int(c.rv, 0, 100000), lag = int(c.lag, 0, 10000);
     if (rv) out.rv = rv;
     if (lag) out.lag = lag;
+    // 🖐 쌍 봐주기로 GOOD 받은 콩 수 (2026-11-24, 아이폰이 터치를 빠뜨린 걸로 보는 것). 0 이면 안 적음
+    const ps = int(c.ps, 0, 100000);
+    if (ps) out.ps = ps;
   }
   return JSON.stringify(out);
 }

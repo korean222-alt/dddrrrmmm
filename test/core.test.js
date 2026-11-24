@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { LEVELS, levelLanes, HAT, CRASH, buildNotes, noteCount, maxScore, gradeFor, scoreBounds, pointsFor, needsVerify, VERIFY_LEVELS, CLOSED_LEVELS, FREE_UPTO, isClosed, parseMelody, parseChord, chordAt, noteToMidi, starsFor, accuracy } from '../public/js/charts.js';
+import { LEVELS, levelLanes, HAT, CRASH, INSTRUMENTS, buildNotes, noteCount, maxScore, gradeFor, scoreBounds, pointsFor, needsVerify, VERIFY_LEVELS, CLOSED_LEVELS, FREE_UPTO, isClosed, parseMelody, parseChord, chordAt, noteToMidi, starsFor, accuracy } from '../public/js/charts.js';
 import { sign, unsign } from '../server/session.js';
 
 test('채보: 모든 마디가 16칸, 허용 문자만', () => {
@@ -938,7 +938,7 @@ test('엄지를 벌려 바깥 줄을 눌러도: 챙 줄을 눌렀는데 쿵 콩�
   assert.ok(!snare.judged);
 });
 
-test('🖐 쌍(점선 동시치기)은 하나만 쳐도 하트 그대로 — 점수·콤보·정확도는 MISS 그대로 (폰이 두 엄지 중 하나를 안 보낼 때, 2026-11-24)', async () => {
+test('🖐 쌍(점선 동시치기)은 하나만 쳐도 남은 콩 GOOD — 그쪽을 누르다 틀렸으면 MISS (폰이 두 엄지 중 하나를 안 보낼 때, 2026-11-24)', async () => {
   const { Game, MAX_LIVES } = await import('../public/js/game.js');
   const { JUDGE } = await import('../public/js/charts.js');
   const noop = () => {};
@@ -962,23 +962,26 @@ test('🖐 쌍(점선 동시치기)은 하나만 쳐도 하트 그대로 — 점
     g._sweep(t + JUDGE.good + 0.13, 0);
     g._sweep(t + JUDGE.good + 0.135, 0);
   };
-  // ① 한 콩만 침(다른 쪽 터치는 폰이 안 보냄) → 남은 콩은 MISS 인데 하트는 그대로
+  // ① 한 콩만 침(다른 쪽 터치는 폰이 안 보냄) → 남은 콩은 GOOD, 하트·콤보 그대로
   clear(p1[0].time);
   clock = p1[0].time;
   g.input(p1[0].lane, 0, []);
   assert.equal(p1[0].result, 'perfect');
+  const c1 = g.combo;
   pass(p1[1].time);
-  assert.equal(p1[1].result, 'miss');
-  assert.equal(g.counts.miss, 1);
-  assert.equal(g.combo, 0, '콤보는 끊김');
+  assert.equal(p1[1].result, 'good');
+  assert.equal(g.counts.miss, 0);
+  assert.equal(g.pairSaved, 1);
+  assert.equal(g.combo, c1 + 1, '콤보 이어짐');
   assert.equal(g.lives, MAX_LIVES, '하트는 그대로');
+  assert.equal(g._check().ps, 1);
   // ② 둘 다 놓침 → 하트 하나 (예전 규칙 그대로)
   clear(p2[0].time);
   const before = g.lives;
   pass(p2[0].time);
   assert.ok(p2.every((n) => n.result === 'miss'));
   assert.equal(g.lives, before - 1);
-  // ③ 늦게 친 쪽(GOOD 밖 조금 늦게)도 MISS 지만 다른 콩을 쳤으면 하트 그대로
+  // ③ 그쪽을 늦게 친 것(GOOD 밖 조금 늦게) = 누르다 틀림 → GOOD 안 주고 MISS (다른 콩을 쳤으니 하트는 그대로)
   clear(p3[0].time);
   const b3 = g.lives;
   clock = p3[0].time;
@@ -987,8 +990,35 @@ test('🖐 쌍(점선 동시치기)은 하나만 쳐도 하트 그대로 — 점
   g.input(p3[1].lane, 0, []);
   assert.equal(p3[1].result, 'miss');
   assert.equal(g.lives, b3);
+  // ③-2 그쪽 엄지가 헛침을 냈으면(누르다 틀림) 남은 콩은 GOOD 아님
+  const p5 = [...pairs.values()][5];
+  clear(p5[0].time);
+  clock = p5[1].time - 0.4;
+  const side = (l) => INSTRUMENTS[l].hand;
+  const other = g.laneOrder.find((l) => l !== p5[1].lane && side(l) === side(p5[1].lane) && !g.lanes[l].some((n) => Math.abs(n.time - clock) < 0.3));
+  if (other != null) {
+    clock = p5[1].time - 0.1;
+    g._wrong(other, 0, clock);
+    clock = p5[0].time;
+    g.input(p5[0].lane, 0, []);
+    pass(p5[1].time);
+    assert.equal(p5[1].result, 'miss');
+  }
+  // ③-3 늦게 도착한 진짜 터치(폰 버벅임)가 GOOD 준 콩을 치면 → 그 터치 시각으로 다시 판정
+  const p6 = [...pairs.values()][6];
+  clear(p6[0].time);
+  clock = p6[0].time;
+  g.input(p6[0].lane, 0, []);
+  pass(p6[1].time);
+  assert.equal(p6[1].result, 'good');
+  const goods = g.counts.good, saved = g.pairSaved;
+  clock = p6[1].time + 0.01;
+  g.input(p6[1].lane, 0, []);
+  assert.equal(p6[1].result, 'perfect');
+  assert.equal(g.counts.good, goods - 1);
+  assert.equal(g.pairSaved, saved - 1);
   // ④ 둘 다 놓쳐 하트가 깎인 뒤 늦게 도착한 터치(폰 버벅임)가 하나를 되살리면 → 하트 돌려받음 (이제 쌍 하나를 친 것)
-  const p4 = [...pairs.values()][3];
+  const p4 = [...pairs.values()][8];
   clear(p4[0].time);
   const b4 = g.lives;
   pass(p4[0].time);

@@ -92,6 +92,9 @@ export class Game {
      *   (무제한·레벨업 챌린지·서바이벌 = level.challenge, 멀티 = main 이 false 로 줌)은 빼고 예전 그대로
      */
     this.pairHeart = pairHeart ?? !level.challenge;
+    /** 쌍 봐주기로 GOOD 준 콩 수 · 엄지 쪽(left/right)마다 마지막으로 헛침·늦은 MISS 가 된 터치 시각 (_pairSave) */
+    this.pairSaved = 0;
+    this._wasteAt = {};
     // 자동 연주(영상 찍기)나 죽었을 때 처리할 곳이 없으면 목숨 없음
     //   💀 실패 영상(level.failReel): 자동 연주라도 목숨이 있음 → failAt 부터 일부러 놓쳐서 하트가 다 떨어짐
     this.livesOn = (!auto || !!level.failReel) && !!this.onDeath;
@@ -434,6 +437,7 @@ export class Game {
     for (const l of [lane, ...side.map((c) => c.lane)]) {
       const late = this._late(l, t);
       if (!late) continue;
+      this._waste(touched, t);
       if (!late.judged) this._miss(late, rt);
       return { lane: l, res: 'miss' };
     }
@@ -615,6 +619,17 @@ export class Game {
    *   콤보는 그 MISS 뒤에 다른 실수(헛침·진짜 MISS)가 없었을 때만 이어 줌
    */
   _revive(n, dt, rt) {
+    if (n.saved) {
+      // 쌍 봐주기로 GOOD 준 콩에 늦게 도착한 진짜 터치(폰 버벅임) → 봐준 GOOD 을 되돌리고 그 터치 시각으로 판정
+      n.saved = false;
+      n.swept = false;
+      this.pairSaved--;
+      this.counts.good--;
+      this.score -= n.savedPts || 0;
+      if (n.saveHard === this._hardBreaks) this.combo = Math.max(0, this.combo - 1);
+      this._judge(n, dt, rt);
+      return;
+    }
     n.swept = false;
     n.revived = true;
     this.revived++;
@@ -659,6 +674,7 @@ export class Game {
   /** 노트 없는 곳을 누름(헛침): 콤보 끊김 + 목숨 하나. 두 엄지가 동시에 미끄러져도(0.12초 안) 하나만 */
   _wrong(lane, rt, t) {
     this.counts.wrong++;
+    if (t !== undefined) this._waste(lane, t);
     if (t !== undefined) this._wrongT = Math.max(this._wrongT ?? -9, t);
     this.combo = 0;
     this._hardBreaks++;
@@ -755,7 +771,8 @@ export class Game {
           continue;
         }
         if (h - n.time > JUDGE.good + MISS_SLACK) {
-          this._miss(n, rt, true);
+          if (this._canPairSave(n)) this._pairSave(n, rt);
+          else this._miss(n, rt, true);
           this.ptr[lane]++;
           continue;
         }
@@ -778,6 +795,45 @@ export class Game {
     this._lostAt = n.time;
     n.hurt = true; // 되살리면 돌려줌 (_revive)
     this._hurt(rt);
+  }
+
+  /** 이 터치가 헛침·늦은 MISS 였음 → 그 엄지 쪽 기록 (쌍 봐주기는 그쪽을 누르다 틀린 콩엔 안 줌) */
+  _waste(lane, t) {
+    const hand = INSTRUMENTS[lane] && INSTRUMENTS[lane].hand;
+    if (hand) this._wasteAt[hand] = Math.max(this._wasteAt[hand] ?? -9, t);
+  }
+
+  /**
+   * 🖐 쌍 봐주기 (2026-11-24, 사용자 결정 'MISS 뜨고 하트 안 깎이는 것보다 GOOD'):
+   *   쌍(같은 시각 콩)에서 다른 콩은 쳤는데 이 콩은 터치 없이 지나감 → MISS 대신 GOOD (하트·콤보 그대로, 점수는 GOOD 만큼).
+   *   아이폰은 한 엄지가 떨어지는 순간 다른 엄지가 닿으면 그 터치를 아예 안 보낼 때가 있음(CLAUDE.md 🍎).
+   *   그 엄지 쪽에서 헛침·늦은 터치·일찍 누름이 있었으면(누르다 틀림) 그대로 MISS. 무제한·챌린지·멀티(pairHeart false)는 안 함
+   */
+  _canPairSave(n) {
+    if (!this.pairHeart || n.early || !this._mateHit(n)) return false;
+    const hand = INSTRUMENTS[n.lane] && INSTRUMENTS[n.lane].hand;
+    return (this._wasteAt[hand] ?? -9) < n.time - JUDGE.good;
+  }
+
+  _pairSave(n, rt) {
+    n.judged = true;
+    n.swept = true; // 늦게 도착한 진짜 터치가 오면 되돌리고 다시 판정 (_revive)
+    n.saved = true;
+    n.result = 'good';
+    n.saveHard = this._hardBreaks;
+    this.pairSaved++;
+    this.combo++;
+    this.maxCombo = Math.max(this.maxCombo, this.combo);
+    this.counts.good++;
+    n.savedPts = Math.round(pointsFor('good', this.combo) * (n.mult || 1));
+    this.score += n.savedPts;
+    n.comboAt = this.combo;
+    this.r.onJudge(n.lane, 'good', rt);
+    this.r.onCombo(this.combo, rt);
+    if (this.livesOn && this.combo % LIFE_REGEN_COMBO === 0 && this.lives < MAX_LIVES) {
+      this.lives++;
+      this.r.onLife(this.lives, +1, rt);
+    }
   }
 
   /** 같은 시각 다른 줄 콩(쌍) 중 맞힌 게 있나 (MISS 말고) */
@@ -1111,7 +1167,7 @@ export class Game {
     const n = o.length;
     const mean = n ? o.reduce((a, b) => a + b, 0) / n : 0;
     const sd = n > 1 ? Math.sqrt(o.reduce((a, b) => a + (b - mean) * (b - mean), 0) / (n - 1)) : 0;
-    return { sd: Math.round(sd * 1000), mean: Math.round(mean * 1000), n, fake: this.fakeTaps, rv: this.revived, lag: Math.round(this.maxLag * 1000) };
+    return { sd: Math.round(sd * 1000), mean: Math.round(mean * 1000), n, fake: this.fakeTaps, rv: this.revived, lag: Math.round(this.maxLag * 1000), ps: this.pairSaved };
   }
 
   /** 무제한 모드 / 레벨업 챌린지 결과: 몇 단계까지 깼나 + 다이아몬드 */

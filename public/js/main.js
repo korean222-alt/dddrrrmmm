@@ -976,6 +976,7 @@ function setKit(lv) {
   }
   renderer.setTheme(lv); // 단계 묶음마다 맵 분위기가 다름 (themes.js)
   renderer.touchShow = !!load('touchShow', false);
+  if (renderer.touchShow && !renderer.touchEnv) renderer.touchEnv = deviceLabel();
   renderer.touchMarks = [];
   renderer.touchCount = 0;
   renderer.touchHeld = [];
@@ -987,6 +988,33 @@ function setKit(lv) {
     renderer.keyLabels = {};
     renderer.laneOrder.forEach((lane, i) => (renderer.keyLabels[lane] = letters[i]));
   }
+}
+
+/**
+ * 🖐 터치 표시용 기기 정보 (2026-11-24): 폰 종류·OS·브라우저를 터치 진단 숫자 밑에 한 줄로.
+ *   아이폰은 한 엄지가 떨어지는 순간 다른 엄지가 닿으면 터치를 빠뜨림(CLAUDE.md 🍎) → iOS 버전 차이인지 영상으로 확인하려고.
+ *   사파리 26 부터는 주소창 정보(UA)의 iOS 숫자가 18.6 으로 고정이라 사파리 버전도 같이 보여 줌. 인스타 안 브라우저는 기종 번호(iPhone15,2 등)도 나옴
+ */
+function deviceLabel() {
+  const ua = navigator.userAgent || '';
+  const out = [];
+  const ios = ua.match(/(?:iPhone|CPU) OS (\d+)[_.](\d+)(?:[_.](\d+))?/);
+  const ipad = /iPad/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const android = ua.match(/Android (\d+(?:\.\d+)?)/);
+  if (ios) out.push(`${ipad ? 'iPad' : 'iPhone'} iOS ${ios[1]}.${ios[2]}${ios[3] ? '.' + ios[3] : ''}`);
+  else if (ipad) out.push('iPad');
+  else if (android) out.push(`Android ${android[1]}`);
+  const model = ua.match(/\((iPhone\d+,\d+|iPad\d+,\d+);/) || ua.match(/Android [\d.]+; ([^;)]+?)(?: Build|;|\))/);
+  if (model && model[1] !== 'K') out.push(model[1].trim());
+  const safari = ua.match(/Version\/(\d+(?:\.\d+)?)/);
+  if (/Instagram/i.test(ua)) out.push('인스타');
+  else if (/KAKAOTALK/i.test(ua)) out.push('카톡');
+  else if (/CriOS\/(\d+)/.test(ua)) out.push(`크롬 ${ua.match(/CriOS\/(\d+)/)[1]}`);
+  else if (safari && (ios || ipad)) out.push(`사파리 ${safari[1]}`);
+  else if (/Chrome\/(\d+)/.test(ua)) out.push(`크롬 ${ua.match(/Chrome\/(\d+)/)[1]}`);
+  const standalone = navigator.standalone === true || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+  if (standalone) out.push('홈 화면');
+  return out.join(' · ') || ua.slice(0, 40);
 }
 
 /** 누른 줄의 악기 (원근으로 비스듬한 줄 모양 그대로. 악기 그림을 정확히 안 눌러도 됨) */

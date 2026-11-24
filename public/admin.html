@@ -359,7 +359,7 @@
           <td>${x.rank}위<div class="meta">${x.players}명 중${x.near ? ` · 만점근처 ${x.nearCount}명${x.rare ? ' (드묾)' : ''}` : ''}</div></td>
           ${tryCell(x)}
           <td>${x.realSec != null ? susSec(x.realSec) : x.off ? '📴 서버 없을 때' : '-'}<div class="meta">곡 ${susSec(x.playSec)}</div></td>
-          <td>${x.sd != null ? `±${x.sd}ms${x.bot ? ' 🎯' : ''}` : '-'}<div class="meta">${x.sd != null ? `보통 ${x.sdMid != null ? '±' + x.sdMid + 'ms' : '-'}` : ''}${x.fake ? ` · 🤖 가짜 ${x.fake}` : ''}${x.lag >= 150 ? ` · 📶 터치 지연 ${x.lag}ms${x.rv ? ` (되살림 ${x.rv})` : ''}` : ''}</div></td>
+          <td>${x.sd != null ? `±${x.sd}ms${x.bot ? ' 🎯' : ''}` : '-'}<div class="meta">${x.sd != null ? `보통 ${x.sdMid != null ? '±' + x.sdMid + 'ms' : '-'}` : ''}${x.fake ? ` · 🤖 가짜 ${x.fake}` : ''}${x.lag >= 150 ? ` · 📶 터치 지연 ${x.lag}ms${x.rv ? ` (되살림 ${x.rv})` : ''}` : ''}${x.ps ? ` · 🖐 쌍 봐줌 ${x.ps}` : ''}</div></td>
           <td>${fmtAt(x.at)}<div class="meta">${x.copied ? '한꺼번에 들어옴(옮기기·합치기)' : x.gapSec == null ? '첫 기록' : `직전과 ${susSec(x.gapSec)}${x.overlap ? ` ⏱ 곡은 ${susSec(x.playSec)}` : ''}`}</div></td></tr>`;
       }).join('');
       $('#sus-report').innerHTML = `<div style="margin-top:10px"><div><b>${esc(p.username)}</b> ${p.ig ? '@' + esc(p.ig) : ''} <span class="meta">의심 점수 ${p.risk}${p.listed ? ' · 강한 의심 목록에 있음' : ''}</span></div>

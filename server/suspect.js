@@ -63,7 +63,7 @@ function analyze(list, st) {
         bot: !!(r.chk && r.chk.sd != null && r.chk.n >= BOT_MIN_HITS && r.chk.sd <= BOT_SD_MS),
         off: !!(r.chk && r.chk.off), // 📴 서버 없을 때 친 판 (판 토큰 없이 나중에 올림, 11-22)
         // 📶 폰 버벅임 (11-23): 터치가 가장 늦게 처리된 시간(ms)·늦게 온 터치로 되살린 MISS 수
-        lag: (r.chk && r.chk.lag) || 0, rv: (r.chk && r.chk.rv) || 0,
+        lag: (r.chk && r.chk.lag) || 0, rv: (r.chk && r.chk.rv) || 0, ps: (r.chk && r.chk.ps) || 0,
       };
     })
     .filter(Boolean)

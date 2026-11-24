@@ -8386,6 +8386,7 @@ class Renderer {
     ctx.strokeStyle = 'rgba(0,0,0,0.75)';
     ctx.lineWidth = 3;
     const lines = [`터치 ${this.touchCount || 0} · 창 ${d.win || 0} 캔 ${d.can || 0} 포 ${d.ptr || 0} 뗌 ${d.end || 0}`, `누르는 중 ${(this.touchHeld || []).length} · 한쪽만 ${d.only || 0}`];
+    if (this.touchEnv) lines.push(this.touchEnv); // 기기·iOS·브라우저 (main deviceLabel)
     lines.forEach((txt, i) => {
       const y = Math.max(150, L.H * 0.24) + i * 16;
       ctx.strokeText(txt, 8, y);
@@ -14134,6 +14135,9 @@ class Game {
      *   (무제한·레벨업 챌린지·서바이벌 = level.challenge, 멀티 = main 이 false 로 줌)은 빼고 예전 그대로
      */
     this.pairHeart = pairHeart ?? !level.challenge;
+    /** 쌍 봐주기로 GOOD 준 콩 수 · 엄지 쪽(left/right)마다 마지막으로 헛침·늦은 MISS 가 된 터치 시각 (_pairSave) */
+    this.pairSaved = 0;
+    this._wasteAt = {};
     // 자동 연주(영상 찍기)나 죽었을 때 처리할 곳이 없으면 목숨 없음
     //   💀 실패 영상(level.failReel): 자동 연주라도 목숨이 있음 → failAt 부터 일부러 놓쳐서 하트가 다 떨어짐
     this.livesOn = (!auto || !!level.failReel) && !!this.onDeath;
@@ -14476,6 +14480,7 @@ class Game {
     for (const l of [lane, ...side.map((c) => c.lane)]) {
       const late = this._late(l, t);
       if (!late) continue;
+      this._waste(touched, t);
       if (!late.judged) this._miss(late, rt);
       return { lane: l, res: 'miss' };
     }
@@ -14657,6 +14662,17 @@ class Game {
    *   콤보는 그 MISS 뒤에 다른 실수(헛침·진짜 MISS)가 없었을 때만 이어 줌
    */
   _revive(n, dt, rt) {
+    if (n.saved) {
+      // 쌍 봐주기로 GOOD 준 콩에 늦게 도착한 진짜 터치(폰 버벅임) → 봐준 GOOD 을 되돌리고 그 터치 시각으로 판정
+      n.saved = false;
+      n.swept = false;
+      this.pairSaved--;
+      this.counts.good--;
+      this.score -= n.savedPts || 0;
+      if (n.saveHard === this._hardBreaks) this.combo = Math.max(0, this.combo - 1);
+      this._judge(n, dt, rt);
+      return;
+    }
     n.swept = false;
     n.revived = true;
     this.revived++;
@@ -14701,6 +14717,7 @@ class Game {
   /** 노트 없는 곳을 누름(헛침): 콤보 끊김 + 목숨 하나. 두 엄지가 동시에 미끄러져도(0.12초 안) 하나만 */
   _wrong(lane, rt, t) {
     this.counts.wrong++;
+    if (t !== undefined) this._waste(lane, t);
     if (t !== undefined) this._wrongT = Math.max(this._wrongT ?? -9, t);
     this.combo = 0;
     this._hardBreaks++;
@@ -14797,7 +14814,8 @@ class Game {
           continue;
         }
         if (h - n.time > JUDGE.good + MISS_SLACK) {
-          this._miss(n, rt, true);
+          if (this._canPairSave(n)) this._pairSave(n, rt);
+          else this._miss(n, rt, true);
           this.ptr[lane]++;
           continue;
         }
@@ -14820,6 +14838,45 @@ class Game {
     this._lostAt = n.time;
     n.hurt = true; // 되살리면 돌려줌 (_revive)
     this._hurt(rt);
+  }
+
+  /** 이 터치가 헛침·늦은 MISS 였음 → 그 엄지 쪽 기록 (쌍 봐주기는 그쪽을 누르다 틀린 콩엔 안 줌) */
+  _waste(lane, t) {
+    const hand = INSTRUMENTS[lane] && INSTRUMENTS[lane].hand;
+    if (hand) this._wasteAt[hand] = Math.max(this._wasteAt[hand] ?? -9, t);
+  }
+
+  /**
+   * 🖐 쌍 봐주기 (2026-11-24, 사용자 결정 'MISS 뜨고 하트 안 깎이는 것보다 GOOD'):
+   *   쌍(같은 시각 콩)에서 다른 콩은 쳤는데 이 콩은 터치 없이 지나감 → MISS 대신 GOOD (하트·콤보 그대로, 점수는 GOOD 만큼).
+   *   아이폰은 한 엄지가 떨어지는 순간 다른 엄지가 닿으면 그 터치를 아예 안 보낼 때가 있음(CLAUDE.md 🍎).
+   *   그 엄지 쪽에서 헛침·늦은 터치·일찍 누름이 있었으면(누르다 틀림) 그대로 MISS. 무제한·챌린지·멀티(pairHeart false)는 안 함
+   */
+  _canPairSave(n) {
+    if (!this.pairHeart || n.early || !this._mateHit(n)) return false;
+    const hand = INSTRUMENTS[n.lane] && INSTRUMENTS[n.lane].hand;
+    return (this._wasteAt[hand] ?? -9) < n.time - JUDGE.good;
+  }
+
+  _pairSave(n, rt) {
+    n.judged = true;
+    n.swept = true; // 늦게 도착한 진짜 터치가 오면 되돌리고 다시 판정 (_revive)
+    n.saved = true;
+    n.result = 'good';
+    n.saveHard = this._hardBreaks;
+    this.pairSaved++;
+    this.combo++;
+    this.maxCombo = Math.max(this.maxCombo, this.combo);
+    this.counts.good++;
+    n.savedPts = Math.round(pointsFor('good', this.combo) * (n.mult || 1));
+    this.score += n.savedPts;
+    n.comboAt = this.combo;
+    this.r.onJudge(n.lane, 'good', rt);
+    this.r.onCombo(this.combo, rt);
+    if (this.livesOn && this.combo % LIFE_REGEN_COMBO === 0 && this.lives < MAX_LIVES) {
+      this.lives++;
+      this.r.onLife(this.lives, +1, rt);
+    }
   }
 
   /** 같은 시각 다른 줄 콩(쌍) 중 맞힌 게 있나 (MISS 말고) */
@@ -15153,7 +15210,7 @@ class Game {
     const n = o.length;
     const mean = n ? o.reduce((a, b) => a + b, 0) / n : 0;
     const sd = n > 1 ? Math.sqrt(o.reduce((a, b) => a + (b - mean) * (b - mean), 0) / (n - 1)) : 0;
-    return { sd: Math.round(sd * 1000), mean: Math.round(mean * 1000), n, fake: this.fakeTaps, rv: this.revived, lag: Math.round(this.maxLag * 1000) };
+    return { sd: Math.round(sd * 1000), mean: Math.round(mean * 1000), n, fake: this.fakeTaps, rv: this.revived, lag: Math.round(this.maxLag * 1000), ps: this.pairSaved };
   }
 
   /** 무제한 모드 / 레벨업 챌린지 결과: 몇 단계까지 깼나 + 다이아몬드 */
@@ -15919,14 +15976,14 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-24e',
+    id: '2026-11-24f',
     date: '11월 24일',
     title: '🛒 상점 오픈! · 🖐 터치 판정을 단순하게',
     items: [
       '<b>🛒 상점이 열렸어요!</b> 첫 화면 <b>상점</b> 버튼 · 모은 코인으로 콩 스킨·무대·드럼·세트를 살 수 있어요 (레어 5천 · 에픽 1만 · 전설 4만 · 🎤 라이브 스테이지 세트 2만5천)',
       '업데이트·건의하기·홈 화면으로 보기는 <b>⚙ 설정</b> 안으로 · 설정 → <b>터치 표시</b>를 켜면 누른 자리에 동그라미와 판정이 보여요',
       '<b>누른 줄에 콩이 있으면 맞음, 없으면 헛침</b> — 엄지를 떼며 미끄러지거나 조금 일찍 눌러도 다음 콩이 MISS 되지 않아요',
-      '<b>🖐 같이 치는 두 콩</b>은 하나만 쳐져도 <b>하트가 안 깎여요</b> (무제한·멀티 빼고) — 두 엄지를 같이 누르면 폰이 터치를 하나만 보낼 때가 있어서예요',
+      '<b>🖐 같이 치는 두 콩</b>은 하나만 쳐져도 남은 콩을 <b>GOOD</b> 으로 쳐 줘요 (무제한·멀티 빼고) — 두 엄지를 같이 누르면 아이폰이 터치를 하나만 보낼 때가 있어서예요',
       '왼엄지·오른엄지 쪽 <b>아무 줄이나</b> 눌러도 그쪽에 먼저 온 콩이 쳐져요 — 엄지를 벌려 바깥쪽을 눌러도 돼요',
     ],
   },
@@ -17933,6 +17990,7 @@ function setKit(lv) {
   }
   renderer.setTheme(lv); // 단계 묶음마다 맵 분위기가 다름 (themes.js)
   renderer.touchShow = !!load('touchShow', false);
+  if (renderer.touchShow && !renderer.touchEnv) renderer.touchEnv = deviceLabel();
   renderer.touchMarks = [];
   renderer.touchCount = 0;
   renderer.touchHeld = [];
@@ -17944,6 +18002,33 @@ function setKit(lv) {
     renderer.keyLabels = {};
     renderer.laneOrder.forEach((lane, i) => (renderer.keyLabels[lane] = letters[i]));
   }
+}
+
+/**
+ * 🖐 터치 표시용 기기 정보 (2026-11-24): 폰 종류·OS·브라우저를 터치 진단 숫자 밑에 한 줄로.
+ *   아이폰은 한 엄지가 떨어지는 순간 다른 엄지가 닿으면 터치를 빠뜨림(CLAUDE.md 🍎) → iOS 버전 차이인지 영상으로 확인하려고.
+ *   사파리 26 부터는 주소창 정보(UA)의 iOS 숫자가 18.6 으로 고정이라 사파리 버전도 같이 보여 줌. 인스타 안 브라우저는 기종 번호(iPhone15,2 등)도 나옴
+ */
+function deviceLabel() {
+  const ua = navigator.userAgent || '';
+  const out = [];
+  const ios = ua.match(/(?:iPhone|CPU) OS (\d+)[_.](\d+)(?:[_.](\d+))?/);
+  const ipad = /iPad/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const android = ua.match(/Android (\d+(?:\.\d+)?)/);
+  if (ios) out.push(`${ipad ? 'iPad' : 'iPhone'} iOS ${ios[1]}.${ios[2]}${ios[3] ? '.' + ios[3] : ''}`);
+  else if (ipad) out.push('iPad');
+  else if (android) out.push(`Android ${android[1]}`);
+  const model = ua.match(/\((iPhone\d+,\d+|iPad\d+,\d+);/) || ua.match(/Android [\d.]+; ([^;)]+?)(?: Build|;|\))/);
+  if (model && model[1] !== 'K') out.push(model[1].trim());
+  const safari = ua.match(/Version\/(\d+(?:\.\d+)?)/);
+  if (/Instagram/i.test(ua)) out.push('인스타');
+  else if (/KAKAOTALK/i.test(ua)) out.push('카톡');
+  else if (/CriOS\/(\d+)/.test(ua)) out.push(`크롬 ${ua.match(/CriOS\/(\d+)/)[1]}`);
+  else if (safari && (ios || ipad)) out.push(`사파리 ${safari[1]}`);
+  else if (/Chrome\/(\d+)/.test(ua)) out.push(`크롬 ${ua.match(/Chrome\/(\d+)/)[1]}`);
+  const standalone = navigator.standalone === true || (window.matchMedia && matchMedia('(display-mode: standalone)').matches);
+  if (standalone) out.push('홈 화면');
+  return out.join(' · ') || ua.slice(0, 40);
 }
 
 /** 누른 줄의 악기 (원근으로 비스듬한 줄 모양 그대로. 악기 그림을 정확히 안 눌러도 됨) */
