@@ -716,7 +716,10 @@ export class Renderer {
    */
   markTouch(x, y, r, rt) {
     const list = (this.touchMarks ||= []);
-    list.push({ x, y, lane: r ? r.lane : null, res: r ? r.res : 'none', t0: rt });
+    // 같은 자리를 또 누르면 동그라미가 겹쳐 안 보임 → 옆으로 조금씩 옮겨 그림
+    const k = list.filter((m) => rt - m.t0 < 1.4 && Math.abs(m.x0 - x) < 14 && Math.abs(m.y0 - y) < 14).length;
+    const dx = k ? (k % 2 ? 1 : -1) * Math.ceil(k / 2) * 22 : 0;
+    list.push({ x0: x, y0: y, x: x + dx, y, lane: r ? r.lane : null, res: r ? r.res : 'none', t0: rt });
     if (list.length > 30) list.splice(0, list.length - 30);
     this.touchCount = (this.touchCount || 0) + 1;
   }
@@ -757,9 +760,24 @@ export class Renderer {
     ctx.textAlign = 'left';
     ctx.fillStyle = '#fff';
     ctx.strokeStyle = 'rgba(0,0,0,0.75)';
-    const txt = `터치 ${this.touchCount || 0}`;
-    ctx.strokeText(txt, 10, L.H - 14);
-    ctx.fillText(txt, 10, L.H - 14);
+    // 폰이 지금 '누르고 있다'고 보는 손가락 (하얀 고리)
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#fff';
+    for (const h of this.touchHeld || []) {
+      ctx.beginPath();
+      ctx.arc(h.x, h.y, 27, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+    // 받은 이벤트 수 (인스타 아래 툴바에 안 가리게 위쪽): 친 터치 · 창 touchstart · 캔버스 touchstart · pointerdown · 뗌 / 누르는 중 · 한쪽 이벤트로만 온 터치
+    const d = this.touchDiag || {};
+    ctx.strokeStyle = 'rgba(0,0,0,0.75)';
+    ctx.lineWidth = 3;
+    const lines = [`터치 ${this.touchCount || 0} · 창 ${d.win || 0} 캔 ${d.can || 0} 포 ${d.ptr || 0} 뗌 ${d.end || 0}`, `누르는 중 ${(this.touchHeld || []).length} · 한쪽만 ${d.only || 0}`];
+    lines.forEach((txt, i) => {
+      const y = Math.max(150, L.H * 0.24) + i * 16;
+      ctx.strokeText(txt, 8, y);
+      ctx.fillText(txt, 8, y);
+    });
     ctx.restore();
   }
 

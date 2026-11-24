@@ -976,6 +976,8 @@ function setKit(lv) {
   renderer.touchShow = !!load('touchShow', false);
   renderer.touchMarks = [];
   renderer.touchCount = 0;
+  renderer.touchHeld = [];
+  if (renderer.touchDiag) Object.assign(renderer.touchDiag, { win: 0, can: 0, ptr: 0, end: 0, only: 0 });
   // 마우스·키보드 쓰는 컴퓨터면 줄마다 키 글자를 보여줌 (폰·태블릿은 안 보임)
   renderer.keyLabels = null;
   if (window.matchMedia && matchMedia('(hover: hover) and (pointer: fine)').matches) {
@@ -1019,15 +1021,40 @@ const KEY_LABELS = { 2: ['F', 'J'], 3: ['F', 'J', 'K'], 4: ['D', 'F', 'J', 'K'],
 function bindGameInput() {
   const canvas = $('#game-canvas');
   // 폰·태블릿: 손가락마다 touchstart 의 changedTouches 로 바로 받음 (두 엄지가 거의 동시에 닿아도 하나씩 다 들어옴).
-  //   pointerdown 은 마우스·펜(그리고 터치 이벤트가 없는 기기의 터치)만 → 같은 터치를 두 번 치지 않게
-  const touchEvents = 'ontouchstart' in window;
+  //   2026-11-24: 터치의 pointerdown 도 같이 받음 — 일부 아이폰에서 같은 자리를 빨리 다시 누르면 터치가 안 들어온다는 신고.
+  //   폰이 둘 중 하나만 보내도 치게 하고, 둘 다 오면(보통) 같은 자리·같은 시각 것은 한 번만 침 (seen)
+  const diag = (renderer.touchDiag = { win: 0, can: 0, ptr: 0, end: 0, only: 0 });
+  const seen = [];
+  /** 이 터치를 쳐도 되나 (다른 쪽 이벤트로 이미 쳤으면 false). 짝이 안 온 채 지난 것 = 한쪽 이벤트로만 온 터치 → 세어 둠 */
+  const fresh = (src, x, y, ts) => {
+    while (seen.length && ts - seen[0].ts > 250) if (!seen.shift().both) diag.only++;
+    const i = seen.findIndex((k) => k.src !== src && !k.both && Math.abs(k.x - x) < 3 && Math.abs(k.y - y) < 3 && Math.abs(k.ts - ts) < 80);
+    if (i >= 0) {
+      seen[i].both = true;
+      return false;
+    }
+    seen.push({ src, x, y, ts, both: false });
+    return true;
+  };
+  /** 🖐 터치 표시: 지금 폰이 '누르고 있다'고 보는 손가락들 (뗐는데도 남아 있으면 폰이 뗀 걸 못 본 것) */
+  const held = (e) => {
+    if (!renderer.touchShow || !canvasRect) return;
+    renderer.touchHeld = Array.from(e.touches, (t) => ({ x: t.clientX - canvasRect.left, y: t.clientY - canvasRect.top }));
+  };
+  window.addEventListener('touchstart', (e) => (diag.win += e.changedTouches.length), { capture: true, passive: true });
   canvas.addEventListener(
     'pointerdown',
     (e) => {
       e.preventDefault();
-      if (!state.game || (touchEvents && e.pointerType === 'touch')) return;
+      if (!state.game) return;
+      if (e.pointerType === 'touch') {
+        diag.ptr++;
+        if (!fresh('p', e.clientX, e.clientY, e.timeStamp)) return;
+      }
       if (!e.isTrusted) state.game.fakeTaps++;
-      tapAt(e.clientX, e.clientY, e.timeStamp);
+      try {
+        tapAt(e.clientX, e.clientY, e.timeStamp);
+      } catch {}
     },
     { passive: false }
   );
@@ -1036,20 +1063,41 @@ function bindGameInput() {
     (e) => {
       e.preventDefault();
       if (!state.game) return;
-      if (!e.isTrusted) state.game.fakeTaps += e.changedTouches.length;
+      diag.can += e.changedTouches.length;
       // 한 터치에서 오류가 나도 같이 온 다른 엄지 터치는 꼭 침 (두 엄지가 동시에 닿으면 한 이벤트에 같이 옴)
       for (const t of e.changedTouches) {
+        if (!fresh('t', t.clientX, t.clientY, e.timeStamp)) continue;
+        if (!e.isTrusted) state.game.fakeTaps++;
         try {
           tapAt(t.clientX, t.clientY, e.timeStamp);
         } catch {}
       }
+      held(e);
     },
     { passive: false }
   );
-  // 손가락 움직임(touchmove)은 터치로 안 셈 — 손가락을 새로 댄 것(touchstart)만 침 (2026-11-24).
+  // 손가락 움직임(touchmove)은 터치로 안 셈 — 손가락을 새로 댄 것만 침 (2026-11-24).
   //   예전엔 '두 엄지를 폰이 한 손가락으로 합쳐 보낸다'고 보고 다른 줄로 넘어간 움직임을 새 터치로 셌는데(11-22·11-23),
   //   엄지를 떼며 굴리기만 해도 가짜 터치가 생겨 헛침·다음 콩 MISS 가 났음. 폰 자판도 두 엄지 빠른 입력을 따로 받으므로 합쳐짐은 드묾
-  canvas.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+  canvas.addEventListener(
+    'touchmove',
+    (e) => {
+      e.preventDefault();
+      held(e);
+    },
+    { passive: false }
+  );
+  // 뗄 때도 기본 동작을 막음 (아이폰이 빠른 두 번 터치를 '두 번 탭' 몸짓으로 보고 기다리지 않게)
+  for (const ev of ['touchend', 'touchcancel'])
+    canvas.addEventListener(
+      ev,
+      (e) => {
+        if (e.cancelable) e.preventDefault();
+        diag.end += e.changedTouches.length;
+        held(e);
+      },
+      { passive: false }
+    );
   ['gesturestart', 'dblclick', 'contextmenu'].forEach((ev) =>
     canvas.addEventListener(ev, (e) => e.preventDefault(), { passive: false })
   );
