@@ -893,3 +893,47 @@ test('🖐 터치 판정 단순하게(2026-11-24 \'아직 인식이 제대로 �
   assert.ok(k.judged && s.judged);
   assert.equal(g.counts.wrong, 0);
 });
+
+test('엄지를 벌려 바깥 줄을 눌러도: 챙 줄을 눌렀는데 쿵 콩이 먼저 와 있으면 쿵 (같은 엄지 줄, 2026-11-24)', async () => {
+  const { Game } = await import('../public/js/game.js');
+  const { KICK, SNARE } = await import('../public/js/charts.js');
+  const noop = () => {};
+  globalThis.cancelAnimationFrame ??= noop;
+  const renderer = new Proxy({}, { get: () => noop });
+  let clock = 0;
+  const audio = new Proxy({ ctx: {}, heardTime: () => clock }, { get: (o, k) => (k in o ? o[k] : noop) });
+  const lv = LEVELS.find((l) => levelLanes(l).includes(CRASH) && levelLanes(l).includes(KICK));
+  const g = new Game({ audio, renderer, level: lv, settings: {}, onDeath: noop, onEnd: noop });
+  g.startTime = 0;
+  g.state = 'playing';
+  g.player = { stop: noop };
+  g.livesOn = false;
+  // 쿵(t) → 0.1초 뒤 챙 을 만들어 넣음: 다른 콩은 치움
+  const k = g.lanes[KICK][0];
+  const base = { ...k };
+  for (const l of g.laneOrder) g.lanes[l] = [];
+  const kick = { ...base, lane: KICK, time: 10, pair: -1 };
+  const crash = { ...base, lane: CRASH, time: 10.1, pair: -1 };
+  const snare = { ...base, lane: SNARE, time: 10.2, pair: -1 };
+  g.lanes[KICK] = [kick];
+  g.lanes[CRASH] = [crash];
+  g.lanes[SNARE] = [snare];
+  for (const l of g.laneOrder) g.ptr[l] = 0;
+  g.firstNoteTime = 10;
+  g.lastNoteTime = 10.2;
+  // 챙 줄 맨 바깥(쿵 쪽 선에서 멂)을 쿵 시각에 누름 → 쿵이 쳐짐 (예전엔 아직 안 온 챙을 일찍 침)
+  clock = 10;
+  let r = g.input(CRASH, 0, [{ lane: KICK, d: 0.8 }]);
+  assert.equal(r.lane, KICK);
+  assert.equal(kick.result, 'perfect');
+  assert.ok(!crash.judged);
+  // 0.1초 뒤 같은 자리 → 챙
+  clock = 10.1;
+  r = g.input(CRASH, 0, [{ lane: KICK, d: 0.8 }]);
+  assert.equal(r.lane, CRASH);
+  assert.equal(crash.result, 'perfect');
+  // 다른 엄지 줄(짝) 콩은 안 가져감: 챙 줄을 짝 시각에 눌러도 짝은 그대로
+  clock = 10.2;
+  r = g.input(CRASH, 0, [{ lane: KICK, d: 0.8 }]);
+  assert.ok(!snare.judged);
+});

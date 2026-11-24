@@ -47,6 +47,8 @@ const PROFILES = {
   붙음: { sigma: 0.04, bias: 0.01, posSigma: 0.18, skip: 0, offbeatMul: 1.3, frame: 1 / 60, lag: 0.03, toCenter: 0.45 },
   // 가짜 터치: 진짜로 친 뒤 0.03~0.08초에 가운데 쪽 0.3~0.6줄 옆에서 터치가 하나 더 들어옴 (엄지를 떼며 굴림 → 움직임을 새 터치로 본 것,
   //   다른 엄지가 스침 등). stray = 진짜 터치 중 그런 게 생기는 비율. 2026-11-24 '아직 인식이 제대로 안 돼요' 때 추가
+  // 벌림: 두 엄지를 벌려 바깥 줄(챙·츠)만 누름 — 두 엄지가 가운데서 붙으면 폰이 터치를 하나만 보내는 사람에게 권하는 자세 (2026-11-24)
+  벌림: { sigma: 0.045, bias: 0.01, posSigma: 0.15, skip: 0.01, offbeatMul: 1.35, frame: 1 / 60, lag: 0.03, wide: true },
   가짜조금: { sigma: 0.04, bias: 0.01, posSigma: 0.2, skip: 0, offbeatMul: 1.3, frame: 1 / 60, lag: 0.03, toCenter: 0.15, stray: 0.03 },
   가짜많이: { sigma: 0.04, bias: 0.01, posSigma: 0.2, skip: 0, offbeatMul: 1.3, frame: 1 / 60, lag: 0.03, toCenter: 0.15, stray: 0.1 },
 };
@@ -140,7 +142,9 @@ function human(E, lv, P, seed) {
       lastLeft[n.lane] = left;
       shift = left ? -P.alt : P.alt;
     }
-    const u = order.indexOf(n.lane) + 0.5 + shift + gauss() * P.posSigma + (P.toCenter ? (left ? P.toCenter : -P.toCenter) : 0);
+    // 벌림: 엄지를 벌려 맨 바깥 줄만 누름 (왼엄지 = 맨 왼쪽 줄, 오른엄지 = 맨 오른쪽 줄)
+    const home = P.wide ? (left ? 0 : order.length - 1) : order.indexOf(n.lane);
+    const u = home + 0.5 + shift + gauss() * P.posSigma + (P.toCenter ? (left ? P.toCenter : -P.toCenter) : 0);
     taps.push({ at: n.time + err, u });
     if (P.stray && R() < P.stray) {
       const dir = u < order.length / 2 ? 1 : -1; // 가운데 쪽으로

@@ -462,7 +462,17 @@ export class Game {
       const k = this._take(c.lane, t);
       if (k && (!alt || k.time < alt.time)) alt = k;
     }
-    if (own) return alt && alt.time < own.time ? alt : own;
+    const hand = INSTRUMENTS[lane] && INSTRUMENTS[lane].hand;
+    if (own) {
+      // 같은 엄지가 맡는 줄(챙·쿵 / 짝·츠)은 동시에 나오지 않음 → 내 줄 콩은 아직 안 왔고 같은 엄지 줄 콩이 먼저 와 있으면 그 콩
+      //   (2026-11-24: 두 엄지가 가운데서 붙으면 폰이 터치를 하나만 보냄 → 엄지를 벌려 바깥 줄(챙·츠)만 눌러도 쿵·짝이 다 쳐지게)
+      for (const l of this.laneOrder) {
+        if (l === lane || !INSTRUMENTS[l] || INSTRUMENTS[l].hand !== hand) continue;
+        const k = this._take(l, t);
+        if (k && (!alt || k.time < alt.time)) alt = k;
+      }
+      return alt && alt.time < own.time ? alt : own;
+    }
     if (alt) return alt;
     // 동시에 치는 콩: 이 줄 콩을 다른 엄지가 방금 (선을 넘어) 쳤으면 → 같은 시각의 남은 콩
     const done = this._doneNear(lane, t);
@@ -475,7 +485,6 @@ export class Game {
     }
     // 같은 엄지가 맡는 줄(챙·쿵·탐 / 짝·츠)은 동시에 나오지 않음 → 내 줄에 노트가 없으면 같은 엄지 줄의 노트로.
     //   4줄일 때 맨 왼쪽 챙 줄이 넓어서 왼쪽 엄지가 쿵 대신 챙을 눌러 쿵이 '안 쳐지던' 것 (유저 맵 신고)
-    const hand = INSTRUMENTS[lane] && INSTRUMENTS[lane].hand;
     for (const l of this.laneOrder) {
       if (l === lane || !INSTRUMENTS[l] || INSTRUMENTS[l].hand !== hand) continue;
       const k = this._take(l, t);
