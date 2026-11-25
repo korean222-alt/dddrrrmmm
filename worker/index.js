@@ -111,7 +111,7 @@ async function offlineSave(request, env) {
     // 쿠키 서명 열쇠: D1 로 옮길 때 Neon 의 것을 그대로 가져감 → Neon 에서 읽음 (새로 만들지 않음)
     if (!neonSecret) neonSecret = env.SESSION_SECRET || ((await pg("SELECT value FROM settings WHERE key = 'secret:session'"))[0] || {}).value || null;
     if (!neonSecret) return Response.json({ error: 'no_backup' }, { status: 503, headers: h });
-    const out = await backupSave({ pg, secret: neonSecret, cookieHeader: request.headers.get('cookie'), body: raw ? JSON.parse(raw) : {}, now });
+    const out = await backupSave({ pg, secret: neonSecret, cookieHeader: request.headers.get('cookie'), playerHeader: request.headers.get('x-player'), body: raw ? JSON.parse(raw) : {}, now });
     return Response.json(out.body, { status: out.status, headers: h });
   } catch (e) {
     console.error('[api] 서버 보관함 실패', e);

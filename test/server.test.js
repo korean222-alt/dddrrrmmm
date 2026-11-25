@@ -1241,3 +1241,4 @@ test('🗳 투표: 등록한 사람만 · 한 사람 한 표(바꿀 수 있음) 
   assert.deepEqual(v3.json.counts, { a: 1, b: 1 });
   assert.deepEqual((await client()('GET', '/api/poll?id=piano2')).json.counts, { a: 1, b: 1 });
 });
+

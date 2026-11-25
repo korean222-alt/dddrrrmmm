@@ -2,7 +2,7 @@
 //   서버 없는 모드에선 판 토큰을 못 받아 점수를 못 올림 → 단계마다 최고 기록 하나만 폰에 모아 둠
 //   서버가 돌아오면 다음 판 시작(/api/runs)·점수 등록(/api/scores)에 얹어 보냄 (코인처럼, 요청 안 늘림)
 //   서버는 콩 수·점수 상한·친 시각(36시간 안)만 보고 받음. 한 번에 5개씩, 받은 것(done)만 지움
-import { load, save } from './storage.js';
+import { load, save, playerHeaders } from './storage.js';
 import { SEASONS } from './season.js';
 
 const KEEP_MS = 34 * 3600 * 1000; // 서버는 36시간까지 받음 → 조금 일찍 버림
@@ -74,7 +74,7 @@ export async function backupOffline(levelId) {
     const res = await fetch('/api/offline-save', {
       method: 'POST',
       credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
+      headers: playerHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ records: list }),
     });
     if (!res.ok) return false;

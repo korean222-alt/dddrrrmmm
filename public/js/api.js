@@ -2,7 +2,7 @@
 //
 // 랭킹: guest(닉네임) → startRun() 으로 판 토큰 → submitScore() (끝까지 친 판은 알아서 올림)
 
-import { load, save } from './storage.js';
+import { load, save, playerHeaders, notePlayer } from './storage.js';
 import { gradeFor } from './charts.js';
 import { takeTrack } from './track.js';
 import { takeCoins, coinsResult } from './coins.js';
@@ -13,9 +13,10 @@ async function http(method, url, body) {
   const res = await fetch(url, {
     method,
     credentials: 'same-origin',
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    headers: playerHeaders(body ? { 'Content-Type': 'application/json' } : {}),
     body: body ? JSON.stringify(body) : undefined,
   });
+  notePlayer(res);
   let data = null;
   try {
     data = await res.json();
@@ -363,8 +364,9 @@ export async function createApi(cfg) {
     const ctrl = new AbortController();
     // Cloudflare 서버가 막 새로 떴을 땐 1~2초 걸릴 수 있음 → 넉넉히 (서버가 꺼져 있으면 바로 실패가 와서 오래 안 기다림)
     const timer = setTimeout(() => ctrl.abort(), 6000);
-    const res = await fetch('/api/health?boot=1', { signal: ctrl.signal, credentials: 'same-origin' });
+    const res = await fetch('/api/health?boot=1', { signal: ctrl.signal, credentials: 'same-origin', headers: playerHeaders() });
     clearTimeout(timer);
+    notePlayer(res);
     if (res.ok) {
       const j = await res.json();
       if (j && j.ok && j.app === 'okaystra') {

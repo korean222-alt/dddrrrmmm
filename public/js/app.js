@@ -13770,7 +13770,22 @@ async function photoDelete() {
   remove('bgPhotoUrl');
 }
 
-return { load, save, remove, DEFAULT_SETTINGS, loadSettings, saveSettings, loadBests, saveBest, resetOldLevel18, migrateLevelOrder, photoSave, photoLoad, photoDelete };
+// 🔑 로그인 열쇠를 폰 저장소에도 (2026-11-25): 들어올 때마다 쿠키가 날아가 새 계정이 생기던 폰이 있어서.
+//   서버가 X-Player 로 열쇠를 주면 저장, 요청마다 같이 보냄('-' 면 지움 = 로그아웃)
+function playerHeaders(h = {}) {
+  const t = load('ptok', '');
+  if (t && typeof t === 'string') h['X-Player'] = t;
+  return h;
+}
+function notePlayer(res) {
+  try {
+    const t = res && res.headers && res.headers.get('X-Player');
+    if (t === '-') remove('ptok');
+    else if (t) save('ptok', t);
+  } catch {}
+}
+
+return { load, save, remove, DEFAULT_SETTINGS, loadSettings, saveSettings, loadBests, saveBest, resetOldLevel18, migrateLevelOrder, photoSave, photoLoad, photoDelete, playerHeaders, notePlayer };
 })();
 
 // ---- coins.js ----
@@ -13941,7 +13956,7 @@ const __m_offrec = (() => {
 //   서버 없는 모드에선 판 토큰을 못 받아 점수를 못 올림 → 단계마다 최고 기록 하나만 폰에 모아 둠
 //   서버가 돌아오면 다음 판 시작(/api/runs)·점수 등록(/api/scores)에 얹어 보냄 (코인처럼, 요청 안 늘림)
 //   서버는 콩 수·점수 상한·친 시각(36시간 안)만 보고 받음. 한 번에 5개씩, 받은 것(done)만 지움
-const { load, save } = __m_storage;
+const { load, save, playerHeaders } = __m_storage;
 const { SEASONS } = __m_season;
 
 const KEEP_MS = 34 * 3600 * 1000; // 서버는 36시간까지 받음 → 조금 일찍 버림
@@ -14013,7 +14028,7 @@ async function backupOffline(levelId) {
     const res = await fetch('/api/offline-save', {
       method: 'POST',
       credentials: 'same-origin',
-      headers: { 'Content-Type': 'application/json' },
+      headers: playerHeaders({ 'Content-Type': 'application/json' }),
       body: JSON.stringify({ records: list }),
     });
     if (!res.ok) return false;
@@ -15617,7 +15632,7 @@ const __m_api = (() => {
 //
 // 랭킹: guest(닉네임) → startRun() 으로 판 토큰 → submitScore() (끝까지 친 판은 알아서 올림)
 
-const { load, save } = __m_storage;
+const { load, save, playerHeaders, notePlayer } = __m_storage;
 const { gradeFor } = __m_charts;
 const { takeTrack } = __m_track;
 const { takeCoins, coinsResult } = __m_coins;
@@ -15628,9 +15643,10 @@ async function http(method, url, body) {
   const res = await fetch(url, {
     method,
     credentials: 'same-origin',
-    headers: body ? { 'Content-Type': 'application/json' } : undefined,
+    headers: playerHeaders(body ? { 'Content-Type': 'application/json' } : {}),
     body: body ? JSON.stringify(body) : undefined,
   });
+  notePlayer(res);
   let data = null;
   try {
     data = await res.json();
@@ -15978,8 +15994,9 @@ async function createApi(cfg) {
     const ctrl = new AbortController();
     // Cloudflare 서버가 막 새로 떴을 땐 1~2초 걸릴 수 있음 → 넉넉히 (서버가 꺼져 있으면 바로 실패가 와서 오래 안 기다림)
     const timer = setTimeout(() => ctrl.abort(), 6000);
-    const res = await fetch('/api/health?boot=1', { signal: ctrl.signal, credentials: 'same-origin' });
+    const res = await fetch('/api/health?boot=1', { signal: ctrl.signal, credentials: 'same-origin', headers: playerHeaders() });
     clearTimeout(timer);
+    notePlayer(res);
     if (res.ok) {
       const j = await res.json();
       if (j && j.ok && j.app === 'okaystra') {
@@ -16037,6 +16054,14 @@ const __m_news = (() => {
 //   짧게: 하루에 한 덩어리(같은 날 소식은 합침), 한 줄씩 2~5줄. 유저가 몰라도 되는 것(내부 구조·자잘한 수정·로딩 안내 등)은 안 씀
 
 const NEWS = [
+  {
+    id: '2026-11-25a',
+    date: '11월 25일',
+    title: '🔑 들어올 때마다 계정이 새로 생기던 문제 고침',
+    items: [
+      '일부 폰(앱 안 브라우저 등)에서 다시 들어올 때마다 <b>랭킹 계정·코인이 새로 시작</b>되던 문제를 고쳤어요 — 이제 한 번 등록하면 그대로 이어져요',
+    ],
+  },
   {
     id: '2026-11-24h',
     date: '11월 24일',

@@ -25,8 +25,9 @@ async function ensureTable(pg) {
  * 맡기기: 쿠키(서명)로 누군지 확인 → 기록 검사(판 토큰 없는 검사 그대로) → Neon 에 단계마다 최고점만
  * @returns {{status:number, body:object}}
  */
-export async function backupSave({ pg, secret, cookieHeader, body, now = Date.now() }) {
-  const p = unsign(parseCookies(cookieHeader)['kk_player'], secret);
+export async function backupSave({ pg, secret, cookieHeader, playerHeader, body, now = Date.now() }) {
+  // 쿠키가 없으면 폰 저장소에 둔 열쇠(X-Player 헤더, 2026-11-25)
+  const p = unsign(parseCookies(cookieHeader)['kk_player'], secret) || (playerHeader && String(playerHeader).length < 400 ? unsign(String(playerHeader), secret) : null);
   if (!p || !p.igsid) return { status: 401, body: { error: 'no_player' } };
   const list = Array.isArray(body && body.records) ? body.records.slice(0, SAVE_MAX) : [];
   const rows = new Map();

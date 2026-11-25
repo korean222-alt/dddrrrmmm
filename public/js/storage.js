@@ -180,3 +180,18 @@ export async function photoDelete() {
   } catch {}
   remove('bgPhotoUrl');
 }
+
+// 🔑 로그인 열쇠를 폰 저장소에도 (2026-11-25): 들어올 때마다 쿠키가 날아가 새 계정이 생기던 폰이 있어서.
+//   서버가 X-Player 로 열쇠를 주면 저장, 요청마다 같이 보냄('-' 면 지움 = 로그아웃)
+export function playerHeaders(h = {}) {
+  const t = load('ptok', '');
+  if (t && typeof t === 'string') h['X-Player'] = t;
+  return h;
+}
+export function notePlayer(res) {
+  try {
+    const t = res && res.headers && res.headers.get('X-Player');
+    if (t === '-') remove('ptok');
+    else if (t) save('ptok', t);
+  } catch {}
+}

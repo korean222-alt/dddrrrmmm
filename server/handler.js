@@ -156,6 +156,7 @@ export function igSimilar(a, b) {
 }
 
 const PLAYER_COOKIE = 'kk_player';
+const playerSeen = new WeakMap(); // 요청마다 알아본 로그인 열쇠 (X-Player 돌려줄지)
 const TRANSFER_TTL_MS = 10 * 60 * 1000;
 /**
  * 기기 옮기기로 넘길 것만 골라 정리: 단계별 기록(bests) + 닉네임들 + 설정 일부.
@@ -707,6 +708,9 @@ export function createHandler(cfg, { store, meter = null }) {
   return async function handle(request, { ip = '?' } = {}) {
     const url = new URL(request.url);
     const setCookies = [];
+    try {
+      request._setCookies = setCookies;
+    } catch {}
     if (meter) meter.q++;
     const adminUsage = url.pathname === '/api/admin/usage';
     if (url.pathname.startsWith('/api/') && !(adminUsage && Date.now() < dbDownUntil)) await flushUsage(Date.now());
@@ -733,6 +737,9 @@ export function createHandler(cfg, { store, meter = null }) {
     const json = (status, data, extra = {}) => {
       const h = new Headers({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store', ...extra });
       for (const c of setCookies) h.append('Set-Cookie', c);
+      // 🔑 로그인 열쇠를 폰 저장소에도 (쿠키가 날아가는 폰용, 2026-11-25): 새로 준 쿠키 · 쿠키↔헤더 한쪽만 있던 열쇠를 X-Player 로 돌려줌
+      const tok = playerTokOut(request, setCookies);
+      if (tok !== null) h.set('X-Player', tok);
       return new Response(JSON.stringify(data), { status, headers: h });
     };
     const text = (status, body = '') => new Response(body, { status, headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
@@ -765,10 +772,35 @@ export function createHandler(cfg, { store, meter = null }) {
     return parseCookies(request.headers.get('cookie'));
   }
 
+  // 🔑 로그인 열쇠: 쿠키가 먼저, 없으면 폰 저장소에 둔 것(X-Player 헤더). 2026-11-25 들어올 때마다 쿠키가 날아가
+  //   새 계정이 생기던 폰(빨대 ncgjsi, 계정 5개) → 폰 저장소(localStorage)는 남아 있어서 거기에도 둠
+  function playerRaw(request) {
+    const c = cookiesOf(request)[PLAYER_COOKIE] || '';
+    const hd = String(request.headers.get('x-player') || '');
+    const raw = c && unsign(c, cfg.sessionSecret) ? c : hd && hd.length < 400 && unsign(hd, cfg.sessionSecret) ? hd : '';
+    return { raw, c, hd };
+  }
+  function playerTokOut(request, setCookies) {
+    // 이번 응답에서 새 쿠키를 줬으면 그 값(지울 땐 '-')
+    for (let i = setCookies.length - 1; i >= 0; i--) {
+      const m = setCookies[i].match(new RegExp('^' + PLAYER_COOKIE + '=([^;]*)'));
+      if (m) return m[1] ? decodeURIComponent(m[1]) : '-';
+    }
+    const seen = playerSeen.get(request);
+    if (!seen) return null;
+    // 폰 저장소에 없거나 다르면 알려 줌 (쿠키만 있던 폰도 저장소에 하나 갖게)
+    return seen.hd !== seen.raw ? seen.raw : null;
+  }
   async function getPlayer(request) {
-    const p = unsign(cookiesOf(request)[PLAYER_COOKIE], cfg.sessionSecret);
+    const { raw, c, hd } = playerRaw(request);
+    const p = raw ? unsign(raw, cfg.sessionSecret) : null;
     if (!p || !p.igsid) return null;
     const rec = await store.getPlayer(p.igsid);
+    if (rec && rec.username) {
+      playerSeen.set(request, { raw, hd });
+      // 쿠키가 날아간 폰: 헤더로 왔으면 쿠키를 다시 줌
+      if (c !== raw && request._setCookies) request._setCookies.push(cookie(PLAYER_COOKIE, raw, { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
+    }
     return rec && rec.username ? { igsid: rec.igsid, username: rec.username, ig: rec.ig || null, hiddenAt: rec.hiddenAt || null, checkedAt: rec.checkedAt || null } : null;
   }
 
