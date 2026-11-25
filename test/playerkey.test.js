@@ -39,3 +39,36 @@ test('쿠키가 날아가도 폰 저장소 열쇠(X-Player)로 같은 계정 · 
   const r6 = await call('/api/logout', { method: 'POST', headers: { 'X-Player': tok } });
   assert.equal(r6.headers.get('x-player'), '-');
 });
+
+// 🔑 같은 아이디·닉네임 예전 계정 → 새로 만들지 않고 '암호로 이어가기 / 새로 시작'
+test('예전 계정 있으면 409 old_account · 새로 시작(fresh) 됨 · 암호로 이어가면 그 계정 + 새 계정 코인도 옮김', async () => {
+  const tmp2 = fs.mkdtempSync(path.join(os.tmpdir(), 'kk-old-'));
+  const cfg2 = loadConfig({ SESSION_SECRET: 's', GATE_MODE: 'soft', DATA_FILE: path.join(tmp2, 'db.json'), FREE_PASS_UNTIL: String(Date.now() + 86400000), FOLLOW_PASSWORD: '암호1' });
+  const store = new JsonStore(cfg2.dataFile).init();
+  const h = createHandler(cfg2, { store });
+  const req = (p, body, headers = {}) => h(new Request('http://x' + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) }), { ip: '9.9.9.' + Math.random() });
+  store.upsertPlayer('g_old', { username: '빨대', ig: 'straw' });
+  store.recordScore('g_old', 3, { score: 1000, grade: 'A', maxCombo: 10 });
+  // 이용 등록(임시) · 같은 아이디+닉네임(띄어쓰기·대소문자 무시) → 409
+  const r1 = await req('/api/verify/password', { name: '빨 대', ig: 'straw' });
+  assert.equal(r1.status, 409);
+  assert.equal((await r1.json()).username, '빨대');
+  assert.equal((await req('/api/guest', { name: '빨대', ig: 'straw' })).status, 409);
+  // 닉네임 다르면 그냥 새로
+  assert.equal((await req('/api/verify/password', { name: '딴사람', ig: 'straw' })).status, 200);
+  // 새로 시작
+  const r2 = await req('/api/verify/password', { name: '빨대', ig: 'straw', fresh: true });
+  assert.equal(r2.status, 200);
+  const tok = r2.headers.get('x-player');
+  const nu = JSON.parse(Buffer.from(tok.split('.')[0], 'base64url').toString()).igsid;
+  assert.notEqual(nu, 'g_old');
+  store.putWallet(nu, { coins: 300, t: 5, tn: 1, fday: '', fn: 0, init: 1, owned: ['bg:x'] });
+  store.putWallet('g_old', { coins: 1000, t: 2, tn: 0, fday: '', fn: 0, init: 0, owned: [] });
+  // 그 폰이 암호로 이어가기 → 예전 계정 + 코인 합침
+  const r3 = await req('/api/verify/password', { password: '암호1', restore: true }, { 'X-Player': tok });
+  assert.equal(r3.status, 200);
+  assert.equal((await r3.json()).restored.username, '빨대');
+  assert.equal(store.getWallet('g_old').coins, 1300);
+  assert.deepEqual(store.getWallet('g_old').owned, ['bg:x']);
+  assert.equal(store.getPlayer(nu), null);
+});

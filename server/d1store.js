@@ -67,6 +67,8 @@ export const D1_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS plays_t (started_at INTEGER NOT NULL, id TEXT NOT NULL, sid TEXT NOT NULL, vid TEXT NOT NULL, level TEXT NOT NULL, mode TEXT, ended_at INTEGER, result TEXT, score INTEGER, stars INTEGER, sec INTEGER, w INTEGER NOT NULL DEFAULT 1, PRIMARY KEY (started_at, id)) WITHOUT ROWID`,
   // 랭킹에서 내린 사람만 담는 작은 색인 (지우기 purgeHidden 이 참여자 표 전체를 안 읽게). 안 내린 사람은 색인에 안 들어가 쓰기도 안 늚
   `CREATE INDEX IF NOT EXISTS players_hidden ON players (hidden_at) WHERE hidden_at IS NOT NULL`,
+  // 🔑 같은 인스타 아이디의 예전 계정 찾기 (2026-11-25, 새로 등록할 때마다 → 표 전체 안 읽게)
+  `CREATE INDEX IF NOT EXISTS players_ig ON players (ig)`,
   `CREATE TABLE IF NOT EXISTS ranked_runs (igsid TEXT NOT NULL, level INTEGER NOT NULL, rating INTEGER NOT NULL, at INTEGER NOT NULL, data TEXT NOT NULL, PRIMARY KEY (igsid, level))`,
   // 🗳 투표 (2026-11-23 시즌 2 피아노 미리보기): 한 사람 한 표
   `CREATE TABLE IF NOT EXISTS poll_votes (poll TEXT NOT NULL, igsid TEXT NOT NULL, choice TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (poll, igsid)) WITHOUT ROWID`,

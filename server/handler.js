@@ -791,6 +791,23 @@ export function createHandler(cfg, { store, meter = null }) {
     // 폰 저장소에 없거나 다르면 알려 줌 (쿠키만 있던 폰도 저장소에 하나 갖게)
     return seen.hd !== seen.raw ? seen.raw : null;
   }
+  // 🔑 같은 인스타 아이디 + 같은 닉네임(대소문자·띄어쓰기 무시) + 랭킹 기록이 있는 예전 계정 (색인 players_ig)
+  async function sameOldAccount(ig, name) {
+    if (!ig || !name) return null;
+    const key = (t) => String(t || '').replace(/\s+/g, '').toLowerCase();
+    return (await store.playersByIg(ig)).find((o) => o.scores > 0 && key(o.username) === key(name)) || null;
+  }
+  // 🪙 계정 합칠 때 지갑도 (2026-11-25: 예전엔 점수만 옮기고 새 계정 코인은 버려졌음) — 코인 더하고 산 것 합침
+  async function moveWallet(from, to) {
+    if (from === to || !store.getWallet) return;
+    const a = await store.getWallet(from);
+    if (!a || (!a.coins && !(a.owned && a.owned.length))) return;
+    const b = (await store.getWallet(to)) || { coins: 0, t: 0, tn: 0, fday: '', fn: 0, init: 0, owned: [] };
+    const owned = [...new Set([...(b.owned || []), ...(a.owned || [])])];
+    const later = (a.t || 0) > (b.t || 0);
+    await store.putWallet(to, { ...b, coins: (b.coins || 0) + (a.coins || 0), t: later ? a.t : b.t, tn: later ? a.tn : b.tn, init: Math.max(a.init || 0, b.init || 0), owned });
+    await store.putWallet(from, { coins: 0, t: a.t || 0, tn: a.tn || 0, fday: a.fday || '', fn: a.fn || 0, init: a.init || 0, owned: [] });
+  }
   async function getPlayer(request) {
     const { raw, c, hd } = playerRaw(request);
     const p = raw ? unsign(raw, cfg.sessionSecret) : null;
@@ -906,6 +923,11 @@ export function createHandler(cfg, { store, meter = null }) {
       const pl = await getPlayer(request);
       const ig = cleanInstagram(body.ig);
       if (!ig && !(pl && pl.ig)) return json(400, { error: 'bad_ig' });
+      // 🔑 같은 아이디·닉네임의 예전 계정이 있으면 새로 만들지 않고 알려 줌 → 폰이 '팔로워 암호로 이어가기 / 새로 시작' (2026-11-25)
+      if (!pl && body.fresh !== true) {
+        const o = await sameOldAccount(ig, name);
+        if (o) return json(409, { error: 'old_account', username: o.username });
+      }
       const igsid = pl ? pl.igsid : 'g_' + newId().replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
       const rec = await store.upsertPlayer(igsid, { username: name, ig });
       if (!pl) setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
@@ -934,6 +956,11 @@ export function createHandler(cfg, { store, meter = null }) {
         if (body.password) passFail(ip);
         return json(403, { error: free ? 'need_password' : 'wrong_password' });
       }
+      // 🔑 암호 없이(임시 이용) 새로 시작하는데 같은 아이디·닉네임의 예전 계정이 있으면 → 폰이 '암호로 이어가기 / 새로 시작' (2026-11-25)
+      if (!okPw && !pl && name && ig && body.fresh !== true) {
+        const o = await sameOldAccount(ig, name);
+        if (o) return json(409, { error: 'old_account', username: o.username });
+      }
       // 기록 되찾기: 이 인스타 아이디로 된 예전 계정(랭킹 기록이 가장 많은 것)이 있으면 그 계정으로 다시 붙음.
       //   새 주소로 옮기며 쿠키가 끊겨 새로 인증한 사람 → 새 계정 점수는 예전 계정으로 합치고 새 계정은 지움
       const wantIg = ig || pl.ig;
@@ -953,6 +980,7 @@ export function createHandler(cfg, { store, meter = null }) {
         igsid = old.igsid;
         if (pl && pl.ig === wantIg) {
           await store.moveScores(pl.igsid, igsid);
+          await moveWallet(pl.igsid, igsid);
           await store.deletePlayer(pl.igsid);
         }
         await store.upsertPlayer(igsid, { ig: wantIg });

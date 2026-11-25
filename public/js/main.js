@@ -244,6 +244,8 @@ const freePassDay = () => {
 
 function openVerify(id, { pass = '', label = '', then = null, restore = false } = {}) {
   state.verifyRestore = restore;
+  state.verifyFresh = false;
+  $('#verify-fresh').hidden = true;
   state.verifyFor = id ?? state.verifyFor ?? null;
   // 인증하면 이어서 할 일 (멀티 창 열기·건의하기 등)
   state.verifyThen = then;
@@ -321,6 +323,7 @@ async function submitVerify() {
     if (!/^[a-z0-9._]{1,30}$/.test(ig)) return err('인스타 아이디를 정확히 써 주세요. (영문·숫자·_ . 만)');
     body.ig = ig;
   }
+  if (state.verifyFresh) body.fresh = true;
   const free = freePass() && !state.verifyRestore;
   if (free) delete body.password;
   else if (!body.password) return err('DM 으로 받은 팔로워 암호를 적어 주세요.');
@@ -351,6 +354,7 @@ async function submitVerify() {
     if (then) setTimeout(then, 400);
   } catch (e) {
     const c = e.data && e.data.error;
+    if (c === 'old_account') return showOldAccount(e.data.username);
     if (state.verifyRestore && (c === 'no_old' || c === 'bad_name' || c === 'need_password')) $('#verify-req').hidden = false;
     err(
       c === 'need_password' ? '예전 기록 되찾기는 팔로워 암호가 있어야 해요. 지금은 인스타 DM 이 막혀 있어서, 아래 「되찾기 요청」으로 보내 주세요.'
@@ -366,6 +370,20 @@ async function submitVerify() {
   } finally {
     btn.disabled = false;
   }
+}
+
+// 🔑 같은 아이디·닉네임의 예전 계정이 있음 (2026-11-25): 팔로워 암호로 이어가기 / 새로 시작
+function showOldAccount(username) {
+  state.verifyRestore = true;
+  state.verifyFresh = false;
+  $('#verify-pass-row').hidden = false;
+  $('#verify-name-row').hidden = false;
+  $('#verify-ig-row').hidden = false;
+  $('#verify-submit').textContent = '이어가기';
+  $('#verify-fresh').hidden = false;
+  $('#verify-err').textContent = `「${username}」 예전 계정이 있어요! 팔로워 암호를 넣으면 기록·코인이 이어져요.`;
+  $('#verify-err').hidden = false;
+  $('#verify-pass').focus();
 }
 
 /** 단계 id → 칠 판 (숫자 = 일반 단계, 'endless' = 무제한 모드, 'e13' = 13단계 무제한, 'ch4' = 영상용 레벨업 챌린지 4단계까지) */
@@ -1681,6 +1699,13 @@ async function submitJoin() {
     else toast(`${name} 님, 반가워요!`, 3000);
     submitRank();
   } catch (e) {
+    if (e.data && e.data.error === 'old_account') {
+      save('lastNick', name);
+      save('lastIg', ig);
+      closeModal('modal-join');
+      openVerify(null);
+      return showOldAccount(e.data.username);
+    }
     err(e.status === 429 ? '잠시 후 다시 시도해 주세요.' : e.data && e.data.error === 'bad_ig' ? '인스타 아이디를 정확히 써 주세요.' : '등록하지 못했어요. 다시 시도해 주세요.');
   }
 }
@@ -6421,6 +6446,12 @@ const ACTIONS = {
 };
 
 function bindActions() {
+  $('#verify-fresh').addEventListener('click', () => {
+    state.verifyRestore = false;
+    state.verifyFresh = true;
+    $('#verify-fresh').hidden = true;
+    submitVerify();
+  });
   $('#verify-form').addEventListener('submit', (e) => {
     e.preventDefault();
     submitVerify();

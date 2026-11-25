@@ -44,6 +44,7 @@ const SCHEMA = [
      igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, grade TEXT, max_combo INTEGER,
      at BIGINT NOT NULL, PRIMARY KEY (igsid, level))`,
   `CREATE INDEX IF NOT EXISTS scores_rank ON scores (level, score DESC, at)`,
+  `CREATE INDEX IF NOT EXISTS players_ig ON players (ig)`,
   // chk = 핵 의심 확인용 JSON { ms 실제로 친 시간, sd·mean 박자 오차(ms), n 친 수, fake 가짜 입력 수 } (2026-11-21)
   `ALTER TABLE scores ADD COLUMN IF NOT EXISTS chk TEXT`,
   // 단계마다 몇 판 했나 (핵 의심 확인용, 2026-11-22): starts = 판 시작(4단계부터만, 누군지 아는 판), clears = 깨고 점수 올린 판
