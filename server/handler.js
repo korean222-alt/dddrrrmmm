@@ -815,7 +815,17 @@ export function createHandler(cfg, { store, meter = null }) {
     const { raw, c, hd } = playerRaw(request);
     const p = raw ? unsign(raw, cfg.sessionSecret) : null;
     if (!p || !p.igsid) return null;
-    const rec = await store.getPlayer(p.igsid);
+    let rec = await store.getPlayer(p.igsid);
+    // 🔗 합쳐서 지운 계정(2026-11-25 중복 계정 합치기) → 남긴 계정으로 이어 주고 새 열쇠를 줌. 없는 계정일 때만 읽기 1번
+    if (!rec && store.getSetting) {
+      const to = await store.getSetting('alias:' + p.igsid);
+      const rec2 = to ? await store.getPlayer(to) : null;
+      if (rec2 && rec2.username) {
+        rec = rec2;
+        if (request._setCookies) request._setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid: rec2.igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
+        return { igsid: rec.igsid, username: rec.username, ig: rec.ig || null, hiddenAt: rec.hiddenAt || null, checkedAt: rec.checkedAt || null };
+      }
+    }
     if (rec && rec.username) {
       playerSeen.set(request, { raw, hd });
       // 쿠키가 날아간 폰: 헤더로 왔으면 쿠키를 다시 줌

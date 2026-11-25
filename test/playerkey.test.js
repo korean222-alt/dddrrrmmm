@@ -75,3 +75,20 @@ test('예전 계정 있으면 409 old_account · 새로 시작(fresh) 됨 · 암
   setOldAsk(false);
   assert.equal((await req('/api/verify/password', { name: '빨대', ig: 'straw' })).status, 200, '꺼 두면 그냥 새로');
 });
+
+test('합쳐서 지운 계정의 열쇠 → 남긴 계정으로 이어 주고 새 열쇠', async () => {
+  const tmp3 = fs.mkdtempSync(path.join(os.tmpdir(), 'kk-alias-'));
+  const cfg3 = loadConfig({ SESSION_SECRET: 's', GATE_MODE: 'soft', DATA_FILE: path.join(tmp3, 'db.json'), FREE_PASS_UNTIL: '0' });
+  const store = new JsonStore(cfg3.dataFile).init();
+  const h = createHandler(cfg3, { store });
+  const r1 = await h(new Request('http://x/api/guest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: '옛계정', ig: 'old_one' }) }), { ip: '5.5.5.5' });
+  const tok = r1.headers.get('x-player');
+  const oldId = JSON.parse(Buffer.from(tok.split('.')[0], 'base64url').toString()).igsid;
+  store.upsertPlayer('g_keep', { username: '남긴계정', ig: 'old_one' });
+  store.deletePlayer(oldId);
+  store.setSetting('alias:' + oldId, 'g_keep');
+  const r2 = await h(new Request('http://x/api/me', { headers: { 'X-Player': tok } }), { ip: '5.5.5.5' });
+  assert.equal((await r2.json()).player.username, '남긴계정');
+  const nt = r2.headers.get('x-player');
+  assert.equal(JSON.parse(Buffer.from(nt.split('.')[0], 'base64url').toString()).igsid, 'g_keep');
+});
