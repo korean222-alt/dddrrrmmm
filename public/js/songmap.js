@@ -831,8 +831,8 @@ export function transcribeSong({ mix, voc = null, sr, firstBeat, bpm, bars, grid
   // ③ 드럼 (곡의 쿵·짝)
   let drums = null;
   try {
-    // 같은 줄 8분 안 두 번(쿵쿵·짝짝)은 덜 중요한 쪽을 뺌 (2026-11-25 사용자 '두 번 치는 게 너무 많아')
-    drums = tidyDrums(songChart(accM, sr, { firstBeat, bpm, bars, diff: 'normal' }).bars);
+    // 같은 줄 8분 안 두 번(쿵쿵·짝짝)은 마디에 한 번까지 (2026-11-25 사용자 '있어도 되는데 너무 자주')
+    drums = tidyDrums(songChart(accM, sr, { firstBeat, bpm, bars, diff: 'normal' }).bars, 1);
   } catch (e) {
     drums = null;
   }

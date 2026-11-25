@@ -10713,29 +10713,33 @@ function harmonize(bars) {
 // 2026-11-25 사용자 '두 번 치고 또 두 번 치는 게 너무 많아, 노래랑 맞게' → 다시 만듦.
 //   예전: 멜로디가 8분 엇박에서 시작할 때마다 쿵·짝을 하나 더 → 바로 옆 박과 같은 줄 연타(쿵쿵·짝짝)가 마디마다 1.6번(보통),
 //   어려움은 하이햇 8분을 쿵 위에도 얹어 동시치기가 마디마다 2.8번.
-//   이제: 같은 줄을 8분 안에 두 번 치지 않음(tidyDrums) · 동시치기는 프레이즈 첫 크래시뿐 · 멜로디 모양 따라 마디마다 다르게.
+//   같은 날 사용자 '두 번 치는 거 있어도 되는데 너무 자주라서. 어려움은 더 어렵게' →
+//   같은 줄 연타는 가끔만(보통 2마디·어려움 1마디에 한 번까지, tidyDrums gap), 어려움은 하이햇 8분 + 쿵쿵 + 16분.
 const BEAT_W = (s) => (s % 8 === 0 ? 3 : s % 4 === 0 ? 2 : s % 2 === 0 ? 1 : 0);
-/** 칸 하나의 줄들 */
-const lanesOf = (ch) => CHAR_LANES[ch] || [];
+const INST_LANE = { K: KICK, S: SNARE, H: HAT, C: CRASH };
 /**
- * 같은 줄을 8분 칸(2칸) 안에 또 치면 덜 중요한 쪽(엇박)을 뺌 — '두 번 치고 또 두 번' 막기.
- *   동시치기 칸은 겹치는 줄만 빼고 나머지는 남김. 마디를 넘어서도 봄
+ * 같은 줄을 8분 칸(2칸) 안에 또 치는 '연타'를 가끔만 남김 — '두 번 치고 또 두 번' 막기.
+ *   gap = 연타 하나 남긴 뒤 다음 연타까지 띄울 마디 수 (Infinity = 다 뺌). 뺄 땐 덜 중요한 쪽(엇박)을 뺌.
+ *   16분(바로 옆 칸) 같은 줄은 늘 뺌. 동시치기 칸은 겹치는 줄만 빼고 나머지는 남김. 마디를 넘어서도 봄
  */
-function tidyDrums(bars) {
+function tidyDrums(bars, gap = Infinity) {
   const cells = bars.join('').split('');
   const last = {}; // 줄 → 마지막으로 친 칸
+  let lastDouble = -Infinity; // 마지막으로 남긴 연타의 마디
   for (let i = 0; i < cells.length; i++) {
-    const ln = lanesOf(cells[i]);
-    if (!ln.length) continue;
+    if (!(CHAR_LANES[cells[i]] || []).length) continue;
+    const bar = Math.floor(i / STEPS_PER_BAR);
     const keep = { K: false, S: false, H: false, C: false };
     const c = drumCell(cells[i]);
     for (const inst of ['K', 'S', 'H', 'C']) {
       if (!c[inst]) continue;
-      const lane = { K: KICK, S: SNARE, H: HAT, C: CRASH }[inst];
+      const lane = INST_LANE[inst];
       const j = last[lane];
       if (j != null && i - j <= 2) {
-        // 앞 칸과 겨룸: 박 무게가 더 큰 쪽을 남김 (같으면 앞)
-        if (BEAT_W(i % STEPS_PER_BAR) > BEAT_W(j % STEPS_PER_BAR)) {
+        if (i - j === 2 && Number.isFinite(gap) && bar - lastDouble >= gap) {
+          lastDouble = bar; // 이번 연타는 남김
+        } else if (BEAT_W(i % STEPS_PER_BAR) > BEAT_W(j % STEPS_PER_BAR)) {
+          // 앞 칸과 겨룸: 박 무게가 더 큰 쪽을 남김 (같으면 앞)
           const pc = drumCell(cells[j]);
           pc[inst] = false;
           cells[j] = cellChar(pc);
@@ -10754,29 +10758,29 @@ function tidyDrums(bars) {
  * 멜로디에 맞춘 드럼 채보 (쉬움 · 보통 · 어려움)
  *   쉬움: 쿵(1·3박) 짝(2·4박), 멜로디가 쉬는 마디는 쿵·짝 하나씩
  *   보통: + 멜로디가 박 앞에서 당겨 들어오면(엇박에 시작해 다음 박까지 끄는 음) 그 박 드럼도 당김 — 마디에 하나까지,
- *         엇박에 시작하는 8분 넘는 음엔 하이햇(마디에 둘까지). 한 음만 길게 끄는 마디는 반으로(쿵 … 짝),
- *         프레이즈 시작(쉰 뒤·8마디마다)에 크래시
- *   어려움: + 멜로디가 8분 엇박에서 시작하는 곳에 하이햇, 엇박이 없는 마디는 2·4박 뒤 하이햇, 16분 음 하나는 쿵
- *   다 만든 뒤 같은 줄 8분 안 두 번은 뺌(tidyDrums)
+ *         엇박에 시작하는 8분 넘는 음엔 하이햇(마디에 둘까지, 홀수 마디 첫째는 쿵 → 쿵쿵짝). 한 음만 길게 끄는 마디는 반으로(쿵 … 짝),
+ *         프레이즈 시작(쉰 뒤·8마디마다)에 크래시. 연타는 2마디에 한 번까지
+ *   어려움: 하이햇 8분 내내 + 멜로디 엇박 중 가장 긴 음 자리는 쿵(쿵쿵짝) + 16분 음 둘까지(옆 칸과 다른 엄지),
+ *           4마디마다 끝에 16분 필인, 프레이즈 시작은 크래시+짝. 연타는 마디에 한 번까지
  */
 function autoDrums(bars, diff = 'normal') {
-  const onsetsOf = (bar) => new Set(bar.map((n) => n.step));
   const sounding = (bar) => bar.length > 0;
   const raw = bars.map((bar, b) => {
     const cells = new Array(STEPS_PER_BAR).fill('.');
     const on = (s, inst) => (cells[s] = cellChar({ ...drumCell(cells[s]), [inst]: true }));
-    const ons = onsetsOf(bar);
-    const prevBar = b > 0 ? bars[b - 1] : null;
-    const phraseStart = sounding(bar) && (b === 0 ? false : !sounding(prevBar) || b % 8 === 0);
+    const ons = new Set(bar.map((n) => n.step));
+    const byLen = [...bar].sort((x, y) => y.len - x.len || x.step - y.step); // 긴 음부터
+    const phraseStart = sounding(bar) && b > 0 && (!sounding(bars[b - 1]) || b % 8 === 0);
     if (!sounding(bar)) {
-      // 멜로디가 쉬는 마디: 가볍게
+      // 멜로디가 쉬는 마디: 가볍게 (어려움은 하이햇만 더)
       on(0, 'K');
       on(8, 'S');
+      if (diff === 'hard') for (const s of [4, 12]) on(s, 'H');
       return cells;
     }
-    // 긴 음만(박 머리 음이 2개 이하·엇박 없음) → 반으로
+    // 한 음만 길게 끄는 마디 → 반으로 (어려움은 안 함)
     const offbeats = [...ons].filter((s) => s % 4 !== 0);
-    const half = diff !== 'easy' && ons.size <= 1 && !offbeats.length && b % 4 !== 3;
+    const half = diff === 'normal' && ons.size <= 1 && !offbeats.length && b % 4 !== 3;
     if (half) {
       on(0, 'K');
       on(8, 'S');
@@ -10789,43 +10793,50 @@ function autoDrums(bars, diff = 'normal') {
     if (diff === 'easy') return cells;
     // 당김: 엇박(8분)에 시작한 음이 다음 박을 덮고, 다음 박엔 새 음이 없음 → 그 박 드럼을 앞으로
     if (!half) {
-      let moved = 0;
-      for (const n of [...bar].sort((x, y) => y.len - x.len)) { // 긴 음부터
-        if (moved >= 1) break;
+      for (const n of byLen) {
         const s = n.step;
         if (s % 4 !== 2 || s + 2 >= STEPS_PER_BAR) continue;
         if (n.len < 3 || ons.has(s + 2)) continue;
         cells[s] = cells[s + 2];
         cells[s + 2] = '.';
-        moved++;
+        break;
       }
     }
     if (diff === 'normal') {
-      // 멜로디가 엇박에 시작하는 긴 음(8분 이상) 자리에 하이햇 — 마디에 둘까지
+      // 멜로디가 엇박에 시작하는 긴 음(8분 이상) 자리에 하이햇 — 마디에 둘까지, 홀수 마디 첫째는 쿵
       let hats = 0;
-      for (const n of [...bar].sort((x, y) => y.len - x.len)) {
+      for (const n of byLen) {
         if (hats >= 2) break;
         if (n.step % 4 !== 2 || n.len < 2 || cells[n.step] !== '.') continue;
-        on(n.step, 'H');
+        on(n.step, !hats && b % 2 === 1 ? 'K' : 'H');
         hats++;
       }
     }
     if (diff === 'hard') {
-      let hats = 0;
-      for (const s of [2, 6, 10, 14]) {
-        if (!ons.has(s) || cells[s] !== '.') continue;
-        on(s, 'H');
-        hats++;
+      // 멜로디 엇박 중 가장 긴 음 자리는 쿵 (쿵쿵짝), 나머지 빈 8분은 하이햇
+      const kickAt = byLen.find((n) => n.step % 4 === 2 && cells[n.step] === '.');
+      if (kickAt) on(kickAt.step, 'K');
+      for (let s = 2; s < STEPS_PER_BAR; s += 4) if (cells[s] === '.') on(s, 'H');
+      // 16분 음 둘까지: 옆 칸이 한 엄지면 다른 엄지로 (같은 엄지 16분 연타는 안 만듦)
+      let six = 0;
+      for (const n of bar) {
+        if (six >= 2) break;
+        const s = n.step;
+        if (s % 2 !== 1 || cells[s] !== '.') continue;
+        const near = [cells[s - 1], cells[s + 1] ?? '.'].flatMap((ch) => CHAR_LANES[ch] || []);
+        const leftBusy = near.some((l) => l === KICK || l === CRASH);
+        const rightBusy = near.some((l) => l === SNARE || l === HAT);
+        if (leftBusy && rightBusy) continue;
+        cells[s] = leftBusy ? 'H' : 'K';
+        six++;
       }
-      if (!hats && !half) for (const s of [6, 14]) if (cells[s] === '.') on(s, 'H');
-      // 16분 음 하나: 앞뒤 칸이 비었으면 쿵 (같은 줄 연타는 tidy 가 거름)
-      const sixteenth = bar.find((n) => n.step % 2 === 1 && cells[n.step - 1] === '.' && cells[n.step + 1] === '.');
-      if (sixteenth) cells[sixteenth.step] = 'K';
+      // 4마디마다 끝에 필인 (짝·쿵·하이햇·크래시 16분 — 엄지를 번갈아, 같은 줄 연타 없이)
+      if (b % 4 === 3 && b < bars.length - 1) for (const [k, ch] of [[12, 'S'], [13, 'K'], [14, 'H'], [15, 'C']]) cells[k] = ch;
     }
-    if (phraseStart) cells[0] = 'C';
+    if (phraseStart) cells[0] = diff === 'hard' ? 'X' : 'C';
     return cells;
   });
-  return tidyDrums(raw.map((c) => c.join('')));
+  return tidyDrums(raw.map((c) => c.join('')), diff === 'hard' ? 1 : diff === 'normal' ? 2 : Infinity);
 }
 
 // ---------- 검사 (서버가 저장 전에) ----------
@@ -12656,8 +12667,8 @@ function transcribeSong({ mix, voc = null, sr, firstBeat, bpm, bars, grid = 2, l
   // ③ 드럼 (곡의 쿵·짝)
   let drums = null;
   try {
-    // 같은 줄 8분 안 두 번(쿵쿵·짝짝)은 덜 중요한 쪽을 뺌 (2026-11-25 사용자 '두 번 치는 게 너무 많아')
-    drums = tidyDrums(songChart(accM, sr, { firstBeat, bpm, bars, diff: 'normal' }).bars);
+    // 같은 줄 8분 안 두 번(쿵쿵·짝짝)은 마디에 한 번까지 (2026-11-25 사용자 '있어도 되는데 너무 자주')
+    drums = tidyDrums(songChart(accM, sr, { firstBeat, bpm, bars, diff: 'normal' }).bars, 1);
   } catch (e) {
     drums = null;
   }
@@ -16143,11 +16154,11 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-25c',
+    id: '2026-11-25d',
     date: '11월 25일',
     title: '🔑 계정이 새로 생기던 문제 고침 · 🎹 유저 맵 자동 드럼',
     items: [
-      '<b>🎹 내 맵 만들기 ⚡ 자동 드럼</b>이 같은 북을 두 번씩 연달아 치던 것을 줄이고, <b>멜로디 리듬에 맞게</b> 바뀌어요 (당겨 들어오는 음·긴 음·쉬는 마디)',
+      '<b>🎹 내 맵 만들기 ⚡ 자동 드럼</b>이 <b>멜로디 리듬에 맞게</b> 바뀌어요 — 같은 북 연달아 치기는 가끔만, <b>어려움</b>은 하이햇·쿵쿵짝·필인으로 더 빽빽하게',
       '일부 폰(앱 안 브라우저 등)에서 다시 들어올 때마다 <b>랭킹 계정·코인이 새로 시작</b>되던 문제를 고쳤어요 — 이제 한 번 등록하면 그대로 이어져요',
     ],
   },

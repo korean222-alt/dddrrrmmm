@@ -43,24 +43,30 @@ test('화음·드럼 자동, 검사 통과, 단계로', () => {
   assert.ok(cleanMap({ name: '<b>x</b>', bpm: 120, bars: ['K...S...K...S...', 'K...S...K...S...'], melody: ['_:16', '_:16'], prog: ['C', 'C'] }).name === 'bx/b');
 });
 
-test('자동 드럼: 같은 줄 8분 안 두 번 없음 · 당김 음 따라감 (2026-11-25)', () => {
-  const same = (drums) => {
+test('자동 드럼: 같은 줄 연타는 가끔만 · 당김 음 따라감 · 어려움은 빽빽 (2026-11-25)', () => {
+  const doubles = (drums) => {
     const s = drums.join('');
     const last = {};
+    let n = 0;
     for (let i = 0; i < s.length; i++)
       for (const l of CHAR_LANES[s[i]] || []) {
-        if (last[l] != null && i - last[l] <= 2) return true;
+        if (last[l] != null && i - last[l] <= 2) n++;
         last[l] = i;
       }
-    return false;
+    return n;
   };
-  const mel = melodyToBars(['C5:2 D5:2 E5:2 F5:2 G5:2 A5:2 B5:2 C6:2', '_:2 D5:4 F5:2 A5:4 G5:2 F5:2', 'E5:6 C5:2 E5:4 D5:2 C5:2', 'C5:16', '_:16']);
-  for (const d of ['easy', 'normal', 'hard']) assert.equal(same(autoDrums(mel, d)), false, d);
+  const mel = melodyToBars(['C5:2 D5:2 E5:2 F5:2 G5:2 A5:2 B5:2 C6:2', '_:2 D5:4 F5:2 A5:4 G5:2 F5:2', 'E5:6 C5:2 E5:4 D5:2 C5:2', 'C5:16', '_:16', 'C5:2 D5:2 E5:2 F5:2 G5:2 A5:2 B5:2 C6:2', 'E5:6 C5:2 E5:4 D5:2 C5:2', 'C5:16']);
+  assert.equal(doubles(autoDrums(mel, 'easy')), 0);
+  assert.ok(doubles(autoDrums(mel, 'normal')) <= Math.ceil(mel.length / 2));
+  assert.ok(doubles(autoDrums(mel, 'hard')) <= mel.length);
+  const count = (d) => d.join('').replace(/\./g, '').length;
+  assert.ok(count(autoDrums(mel, 'hard')) > count(autoDrums(mel, 'normal')) * 1.4);
   // 2박 앞에서 당겨 들어온 긴 음 → 짝도 당김
   assert.equal(autoDrums(mel, 'normal')[1].slice(0, 6), 'K.S...');
   // 쉬는 마디는 가볍게
   assert.equal(autoDrums(mel, 'normal')[4], 'K.......S.......');
   assert.deepEqual(tidyDrums(['KK.KS.S.K...S...']), ['K..KS...K...S...']);
+  assert.deepEqual(tidyDrums(['K.K.S...K.K.S...', 'K.K.S...K...S...'], 1), ['K.K.S...K...S...', 'K.K.S...K...S...']);
 });
 
 test('음 따기: 사인파 멜로디를 거의 그대로 땀', () => {
