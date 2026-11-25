@@ -156,6 +156,9 @@ export function igSimilar(a, b) {
 }
 
 const PLAYER_COOKIE = 'kk_player';
+// 🔑 같은 아이디·닉네임 예전 계정이 있으면 '암호로 이어가기' 묻기 (2026-11-25 만들고 같은 날 꺼 둠 — 암호 DM 을 못 줘서)
+export let OLD_ASK = false;
+export const setOldAsk = (on) => (OLD_ASK = !!on);
 const playerSeen = new WeakMap(); // 요청마다 알아본 로그인 열쇠 (X-Player 돌려줄지)
 const TRANSFER_TTL_MS = 10 * 60 * 1000;
 /**
@@ -924,7 +927,7 @@ export function createHandler(cfg, { store, meter = null }) {
       const ig = cleanInstagram(body.ig);
       if (!ig && !(pl && pl.ig)) return json(400, { error: 'bad_ig' });
       // 🔑 같은 아이디·닉네임의 예전 계정이 있으면 새로 만들지 않고 알려 줌 → 폰이 '팔로워 암호로 이어가기 / 새로 시작' (2026-11-25)
-      if (!pl && body.fresh !== true) {
+      if (OLD_ASK && !pl && body.fresh !== true) {
         const o = await sameOldAccount(ig, name);
         if (o) return json(409, { error: 'old_account', username: o.username });
       }
@@ -957,7 +960,8 @@ export function createHandler(cfg, { store, meter = null }) {
         return json(403, { error: free ? 'need_password' : 'wrong_password' });
       }
       // 🔑 암호 없이(임시 이용) 새로 시작하는데 같은 아이디·닉네임의 예전 계정이 있으면 → 폰이 '암호로 이어가기 / 새로 시작' (2026-11-25)
-      if (!okPw && !pl && name && ig && body.fresh !== true) {
+      // ⏸ 11-25 사용자: DM 이 막혀 암호 받을 길이 없어 '암호 요청 DM' 만 늘어남 → 끔(OLD_ASK). 임시 이용이 끝나면 암호 인증이 알아서 예전 계정에 붙음
+      if (OLD_ASK && !okPw && !pl && name && ig && body.fresh !== true) {
         const o = await sameOldAccount(ig, name);
         if (o) return json(409, { error: 'old_account', username: o.username });
       }
