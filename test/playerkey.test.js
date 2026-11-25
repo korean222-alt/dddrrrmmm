@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
-import { createHandler } from '../server/handler.js';
+import { createHandler, setOldAsk } from '../server/handler.js';
 import { loadConfig } from '../server/config.js';
 import { JsonStore } from '../server/store.js';
 
@@ -47,6 +47,7 @@ test('예전 계정 있으면 409 old_account · 새로 시작(fresh) 됨 · 암
   const store = new JsonStore(cfg2.dataFile).init();
   const h = createHandler(cfg2, { store });
   const req = (p, body, headers = {}) => h(new Request('http://x' + p, { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: JSON.stringify(body) }), { ip: '9.9.9.' + Math.random() });
+  setOldAsk(true);
   store.upsertPlayer('g_old', { username: '빨대', ig: 'straw' });
   store.recordScore('g_old', 3, { score: 1000, grade: 'A', maxCombo: 10 });
   // 이용 등록(임시) · 같은 아이디+닉네임(띄어쓰기·대소문자 무시) → 409
@@ -71,4 +72,6 @@ test('예전 계정 있으면 409 old_account · 새로 시작(fresh) 됨 · 암
   assert.equal(store.getWallet('g_old').coins, 1300);
   assert.deepEqual(store.getWallet('g_old').owned, ['bg:x']);
   assert.equal(store.getPlayer(nu), null);
+  setOldAsk(false);
+  assert.equal((await req('/api/verify/password', { name: '빨대', ig: 'straw' })).status, 200, '꺼 두면 그냥 새로');
 });
