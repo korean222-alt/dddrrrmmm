@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { barToMelody, melodyToBars, toggleDrum, cellChar, harmonize, autoDrums, cleanMap, mapLevel, transcribe, mapDifficulty } from '../public/js/usermap.js';
-import { parseMelody, levelLanes } from '../public/js/charts.js';
+import { barToMelody, melodyToBars, toggleDrum, cellChar, harmonize, autoDrums, tidyDrums, cleanMap, mapLevel, transcribe, mapDifficulty } from '../public/js/usermap.js';
+import { parseMelody, levelLanes, CHAR_LANES } from '../public/js/charts.js';
 
 test('멜로디 마디 ↔ 문자열', () => {
   const bar = [{ step: 2, midi: 72, len: 2 }, { step: 4, midi: 76, len: 4 }, { step: 12, midi: 79, len: 8 }];
@@ -41,6 +41,26 @@ test('화음·드럼 자동, 검사 통과, 단계로', () => {
   assert.equal(cleanMap({ name: 'x', bpm: 300, bars: ['K...S...K...S...', 'K...S...K...S...'], melody: ['_:16', '_:16'], prog: ['C', 'C'] }), null);
   assert.equal(cleanMap({ name: 'x', bpm: 120, bars: ['K...S...K...S...', 'K...S...K...S...'], melody: ['_:16', '_:16'], prog: ['C', 'Q'] }), null);
   assert.ok(cleanMap({ name: '<b>x</b>', bpm: 120, bars: ['K...S...K...S...', 'K...S...K...S...'], melody: ['_:16', '_:16'], prog: ['C', 'C'] }).name === 'bx/b');
+});
+
+test('자동 드럼: 같은 줄 8분 안 두 번 없음 · 당김 음 따라감 (2026-11-25)', () => {
+  const same = (drums) => {
+    const s = drums.join('');
+    const last = {};
+    for (let i = 0; i < s.length; i++)
+      for (const l of CHAR_LANES[s[i]] || []) {
+        if (last[l] != null && i - last[l] <= 2) return true;
+        last[l] = i;
+      }
+    return false;
+  };
+  const mel = melodyToBars(['C5:2 D5:2 E5:2 F5:2 G5:2 A5:2 B5:2 C6:2', '_:2 D5:4 F5:2 A5:4 G5:2 F5:2', 'E5:6 C5:2 E5:4 D5:2 C5:2', 'C5:16', '_:16']);
+  for (const d of ['easy', 'normal', 'hard']) assert.equal(same(autoDrums(mel, d)), false, d);
+  // 2박 앞에서 당겨 들어온 긴 음 → 짝도 당김
+  assert.equal(autoDrums(mel, 'normal')[1].slice(0, 6), 'K.S...');
+  // 쉬는 마디는 가볍게
+  assert.equal(autoDrums(mel, 'normal')[4], 'K.......S.......');
+  assert.deepEqual(tidyDrums(['KK.KS.S.K...S...']), ['K..KS...K...S...']);
 });
 
 test('음 따기: 사인파 멜로디를 거의 그대로 땀', () => {

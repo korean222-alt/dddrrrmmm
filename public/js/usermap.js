@@ -144,35 +144,122 @@ export function harmonize(bars) {
 }
 
 // ---------- 드럼 자동 ----------
+// 2026-11-25 사용자 '두 번 치고 또 두 번 치는 게 너무 많아, 노래랑 맞게' → 다시 만듦.
+//   예전: 멜로디가 8분 엇박에서 시작할 때마다 쿵·짝을 하나 더 → 바로 옆 박과 같은 줄 연타(쿵쿵·짝짝)가 마디마다 1.6번(보통),
+//   어려움은 하이햇 8분을 쿵 위에도 얹어 동시치기가 마디마다 2.8번.
+//   이제: 같은 줄을 8분 안에 두 번 치지 않음(tidyDrums) · 동시치기는 프레이즈 첫 크래시뿐 · 멜로디 모양 따라 마디마다 다르게.
+const BEAT_W = (s) => (s % 8 === 0 ? 3 : s % 4 === 0 ? 2 : s % 2 === 0 ? 1 : 0);
+/** 칸 하나의 줄들 */
+const lanesOf = (ch) => CHAR_LANES[ch] || [];
+/**
+ * 같은 줄을 8분 칸(2칸) 안에 또 치면 덜 중요한 쪽(엇박)을 뺌 — '두 번 치고 또 두 번' 막기.
+ *   동시치기 칸은 겹치는 줄만 빼고 나머지는 남김. 마디를 넘어서도 봄
+ */
+export function tidyDrums(bars) {
+  const cells = bars.join('').split('');
+  const last = {}; // 줄 → 마지막으로 친 칸
+  for (let i = 0; i < cells.length; i++) {
+    const ln = lanesOf(cells[i]);
+    if (!ln.length) continue;
+    const keep = { K: false, S: false, H: false, C: false };
+    const c = drumCell(cells[i]);
+    for (const inst of ['K', 'S', 'H', 'C']) {
+      if (!c[inst]) continue;
+      const lane = { K: KICK, S: SNARE, H: HAT, C: CRASH }[inst];
+      const j = last[lane];
+      if (j != null && i - j <= 2) {
+        // 앞 칸과 겨룸: 박 무게가 더 큰 쪽을 남김 (같으면 앞)
+        if (BEAT_W(i % STEPS_PER_BAR) > BEAT_W(j % STEPS_PER_BAR)) {
+          const pc = drumCell(cells[j]);
+          pc[inst] = false;
+          cells[j] = cellChar(pc);
+        } else continue;
+      }
+      keep[inst] = true;
+      last[lane] = i;
+    }
+    cells[i] = cellChar(keep);
+  }
+  const out = [];
+  for (let b = 0; b < bars.length; b++) out.push(cells.slice(b * STEPS_PER_BAR, (b + 1) * STEPS_PER_BAR).join(''));
+  return out;
+}
 /**
  * 멜로디에 맞춘 드럼 채보 (쉬움 · 보통 · 어려움)
- *   쉬움: 쿵(1·3박) 짝(2·4박) / 보통: + 멜로디가 8분 자리에서 시작하면 쿵·짝 / 어려움: + 하이햇 8분, 8마디마다 크래시
- *   멜로디가 쉬는 마디는 단순하게
+ *   쉬움: 쿵(1·3박) 짝(2·4박), 멜로디가 쉬는 마디는 쿵·짝 하나씩
+ *   보통: + 멜로디가 박 앞에서 당겨 들어오면(엇박에 시작해 다음 박까지 끄는 음) 그 박 드럼도 당김 — 마디에 하나까지,
+ *         엇박에 시작하는 8분 넘는 음엔 하이햇(마디에 둘까지). 한 음만 길게 끄는 마디는 반으로(쿵 … 짝),
+ *         프레이즈 시작(쉰 뒤·8마디마다)에 크래시
+ *   어려움: + 멜로디가 8분 엇박에서 시작하는 곳에 하이햇, 엇박이 없는 마디는 2·4박 뒤 하이햇, 16분 음 하나는 쿵
+ *   다 만든 뒤 같은 줄 8분 안 두 번은 뺌(tidyDrums)
  */
 export function autoDrums(bars, diff = 'normal') {
-  return bars.map((bar, b) => {
+  const onsetsOf = (bar) => new Set(bar.map((n) => n.step));
+  const sounding = (bar) => bar.length > 0;
+  const raw = bars.map((bar, b) => {
     const cells = new Array(STEPS_PER_BAR).fill('.');
     const on = (s, inst) => (cells[s] = cellChar({ ...drumCell(cells[s]), [inst]: true }));
-    on(0, 'K');
-    on(8, 'K');
-    on(4, 'S');
-    on(12, 'S');
-    if (diff !== 'easy') {
-      for (const n of bar) {
-        if (n.step % 2) continue;
-        if (n.step % 4 === 0) continue; // 정박은 이미 있음
-        // 8분 엇박: 앞 박이 쿵이면 짝, 짝이면 쿵 (번갈아)
-        const prevBeat = Math.floor(n.step / 4) % 2;
-        on(n.step, prevBeat ? 'K' : 'S');
+    const ons = onsetsOf(bar);
+    const prevBar = b > 0 ? bars[b - 1] : null;
+    const phraseStart = sounding(bar) && (b === 0 ? false : !sounding(prevBar) || b % 8 === 0);
+    if (!sounding(bar)) {
+      // 멜로디가 쉬는 마디: 가볍게
+      on(0, 'K');
+      on(8, 'S');
+      return cells;
+    }
+    // 긴 음만(박 머리 음이 2개 이하·엇박 없음) → 반으로
+    const offbeats = [...ons].filter((s) => s % 4 !== 0);
+    const half = diff !== 'easy' && ons.size <= 1 && !offbeats.length && b % 4 !== 3;
+    if (half) {
+      on(0, 'K');
+      on(8, 'S');
+    } else {
+      on(0, 'K');
+      on(4, 'S');
+      on(8, 'K');
+      on(12, 'S');
+    }
+    if (diff === 'easy') return cells;
+    // 당김: 엇박(8분)에 시작한 음이 다음 박을 덮고, 다음 박엔 새 음이 없음 → 그 박 드럼을 앞으로
+    if (!half) {
+      let moved = 0;
+      for (const n of [...bar].sort((x, y) => y.len - x.len)) { // 긴 음부터
+        if (moved >= 1) break;
+        const s = n.step;
+        if (s % 4 !== 2 || s + 2 >= STEPS_PER_BAR) continue;
+        if (n.len < 3 || ons.has(s + 2)) continue;
+        cells[s] = cells[s + 2];
+        cells[s + 2] = '.';
+        moved++;
+      }
+    }
+    if (diff === 'normal') {
+      // 멜로디가 엇박에 시작하는 긴 음(8분 이상) 자리에 하이햇 — 마디에 둘까지
+      let hats = 0;
+      for (const n of [...bar].sort((x, y) => y.len - x.len)) {
+        if (hats >= 2) break;
+        if (n.step % 4 !== 2 || n.len < 2 || cells[n.step] !== '.') continue;
+        on(n.step, 'H');
+        hats++;
       }
     }
     if (diff === 'hard') {
-      for (let s = 0; s < STEPS_PER_BAR; s += 2) if (cells[s] === '.' || cells[s] === 'K') on(s, 'H');
-      for (const n of bar) if (n.step % 2 && n.len >= 2) on(n.step, 'H');
-      if (b % 8 === 0) cells[0] = 'X';
-    } else if (diff === 'normal' && b % 8 === 0 && b > 0) cells[0] = 'X';
-    return cells.join('');
+      let hats = 0;
+      for (const s of [2, 6, 10, 14]) {
+        if (!ons.has(s) || cells[s] !== '.') continue;
+        on(s, 'H');
+        hats++;
+      }
+      if (!hats && !half) for (const s of [6, 14]) if (cells[s] === '.') on(s, 'H');
+      // 16분 음 하나: 앞뒤 칸이 비었으면 쿵 (같은 줄 연타는 tidy 가 거름)
+      const sixteenth = bar.find((n) => n.step % 2 === 1 && cells[n.step - 1] === '.' && cells[n.step + 1] === '.');
+      if (sixteenth) cells[sixteenth.step] = 'K';
+    }
+    if (phraseStart) cells[0] = 'C';
+    return cells;
   });
+  return tidyDrums(raw.map((c) => c.join('')));
 }
 
 // ---------- 검사 (서버가 저장 전에) ----------

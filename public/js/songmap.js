@@ -4,7 +4,7 @@
 //      목소리가 없는 곳(전주·간주·연주곡)은 반주에서 가장 또렷한 위쪽 줄(신스·피아노·카우벨 등)을 땀
 //   ② 화음: 반주(원래 소리 − 목소리)의 음 분포로 반 마디마다 코드 (멜로디로 짐작하지 않고 곡에서)
 //   ③ 드럼: 곡의 쿵·짝을 그대로 (beatsync.js songChart)
-import { fft, cleanMelody } from './usermap.js';
+import { fft, cleanMelody, tidyDrums } from './usermap.js';
 import { STEPS_PER_BAR } from './charts.js';
 import { songChart } from './beatsync.js';
 
@@ -831,7 +831,8 @@ export function transcribeSong({ mix, voc = null, sr, firstBeat, bpm, bars, grid
   // ③ 드럼 (곡의 쿵·짝)
   let drums = null;
   try {
-    drums = songChart(accM, sr, { firstBeat, bpm, bars, diff: 'normal' }).bars;
+    // 같은 줄 8분 안 두 번(쿵쿵·짝짝)은 덜 중요한 쪽을 뺌 (2026-11-25 사용자 '두 번 치는 게 너무 많아')
+    drums = tidyDrums(songChart(accM, sr, { firstBeat, bpm, bars, diff: 'normal' }).bars);
   } catch (e) {
     drums = null;
   }
