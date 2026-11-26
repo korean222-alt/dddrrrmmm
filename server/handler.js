@@ -648,7 +648,7 @@ export function createHandler(cfg, { store, meter = null }) {
     ranked,
     getPlayer: (request) => getPlayer(request),
     isConfirmed: (pl) => cfg.gateMode === 'open' || isConfirmed(pl),
-    canPlay: async (levelId, pl) => (cfg.gateMode !== 'open' && isClosed(levelId) && !isConfirmed(pl) && !(await openNow()) ? (isVerified(pl) ? 'confirm_pending' : 'confirm_required') : null),
+    canPlay: async (levelId, pl) => (cfg.gateMode !== 'open' && (tileSong(levelId) ? tileClosed(tileSong(levelId)) : isClosed(levelId)) && !isConfirmed(pl) && !(await openNow()) ? (isVerified(pl) ? 'confirm_pending' : 'confirm_required') : null),
   });
 
   // 🧯 DB 가 막혔을 때(D1 하루 한도 초과 등, 2026-11-22): 5분 동안 DB 를 안 건드리고 바로 503 db_down

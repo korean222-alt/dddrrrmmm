@@ -11,6 +11,23 @@
 import { newId } from './session.js';
 import { LEVELS, getLevel, levelDuration, FREE_UPTO, LAST_LEVEL_ID } from '../public/js/charts.js';
 import { RANKED_POOL, rankedPoolFor } from './ranked.js';
+import { TILE_SONGS, TILE_FREE, tileSong, tileId } from '../public/js/tiles.js';
+
+// 🎹 시즌 2 피아노 타일 대결 (2026-11-26): 곡 = 't3' 같은 글자. 1:1 점수(친 타일 수) 승부, 3바퀴까지 (클라이언트 VS_LAPS)
+/** 방 곡: 드럼 단계 번호 또는 타일 곡 't3' (아니면 null) */
+export function roomLevel(v) {
+  const t = tileSong(v);
+  if (t) return t.key;
+  const lv = getLevel(v);
+  return lv ? lv.id : null;
+}
+/** 🎲 타일 랜덤 대결 곡: 둘 다 인증했으면 어려움까지(지옥 빼고), 아니면 누구나 치는 곡만 */
+export function pickTileLevel(bothConfirmed, rand = Math.random) {
+  const pool = TILE_SONGS.filter((t, i) => (bothConfirmed ? t.diff <= 3 : i < TILE_FREE));
+  return tileId(pool[Math.floor(rand() * pool.length)].id);
+}
+/** 타일 대결 한 판 길이(넉넉히): 3바퀴 + 여유 */
+const TILE_ROOM_MS = 5 * 60_000;
 
 export const ROOM_TTL_MS = 2 * 3600 * 1000;
 export const ROOM_START_DELAY_MS = 4500;
@@ -128,7 +145,7 @@ export function createRoomHandler({ store, getPlayer, canPlay, isConfirmed = () 
       const name = cleanRoomName(body.name);
       if (!name) return [400, { error: 'bad_name' }];
       const mode = body.mode === 'team' ? 'team' : 'versus';
-      const level = getLevel(body.level) ? getLevel(body.level).id : 1;
+      const level = roomLevel(body.level) ?? 1;
       const key = newId();
       const data = {
         mode, level, status: 'lobby', round: 0, cfgVer: 1, host: 'a', createdAt: now,
@@ -164,14 +181,15 @@ export function createRoomHandler({ store, getPlayer, canPlay, isConfirmed = () 
     // 🎲 랜덤 대결 기다리는 사람 수 (멀티 창 열 때 한 번만 물어봄. 5명 넘으면 5)
     if (action === 'count') {
       const rush = await store.findOpenRooms('rush', now - QUICK_FRESH_MS, now);
-      return [200, { waiting: { rush: rush.length } }];
+      const tiles = await store.findOpenRooms('tiles', now - QUICK_FRESH_MS, now);
+      return [200, { waiting: { rush: rush.length, tiles: tiles.length } }];
     }
 
     // ⚡ 빠른 대결: 같은 묶음에서 기다리는 사람이 있으면 그 방(대기실)에 붙음, 없으면 내가 방을 열고 기다림
     if (action === 'quick') {
       const name = cleanRoomName(body.name);
       if (!name) return [400, { error: 'bad_name' }];
-      const bracket = ['hard', 'ranked', 'rush'].includes(body.bracket) ? body.bracket : 'easy';
+      const bracket = ['hard', 'ranked', 'rush', 'tiles'].includes(body.bracket) ? body.bracket : 'easy';
       const pl = await getPlayer(request);
       const ok = !!isConfirmed(pl);
       // 어려움·극악 묶음은 전부 4단계 이상 → 팔로워 인증한 사람만
@@ -206,12 +224,17 @@ export function createRoomHandler({ store, getPlayer, canPlay, isConfirmed = () 
           const level = pickRushLevel();
           Object.assign(top, { level, recent: [level], status: 'playing', round: 1, startAt: now + RUSH_START_DELAY_MS });
         }
+        if (bracket === 'tiles') {
+          // 🎹 타일 랜덤 대결: 대기실 없이 바로 한 곡 (둘 다 인증했으면 어려움까지)
+          const level = pickTileLevel(ok && !!d.players.a.ok);
+          Object.assign(top, { level, status: 'playing', round: 1, startAt: now + RUSH_START_DELAY_MS, endBy: now + RUSH_START_DELAY_MS + TILE_ROOM_MS });
+        }
         const joined = await store.patchRoom(code, { top, slot: 'b', player: me, cond: { slotFree: 'b', status: 'lobby', round: d.round || 0 } }, now, exp(now));
         if (!joined) continue;
         // 빠른 대결은 바로 시작하지 않고 대기실로: 둘 다 '준비!'를 누르면 시작 (곡은 그때 무작위)
         return [200, { code, slot: 'b', key, room: publicRoom(joined, now), now }];
       }
-      const data = { mode: 'versus', level: BRACKETS[bracket][0], status: 'lobby', round: 0, cfgVer: 1, host: 'a', createdAt: now, pub: bracket, players: { a: me } };
+      const data = { mode: 'versus', level: bracket === 'tiles' ? tileId(TILE_SONGS[0].id) : BRACKETS[bracket][0], status: 'lobby', round: 0, cfgVer: 1, host: 'a', createdAt: now, pub: bracket, players: { a: me } };
       const code = await newCode(data, now);
       if (!code) return [503, { error: 'busy' }];
       return [200, { code, slot: 'a', key, room: publicRoom({ ...data, code }, now), now, waiting: true }];
@@ -235,13 +258,13 @@ export function createRoomHandler({ store, getPlayer, canPlay, isConfirmed = () 
         const left = SLOTS.filter((s) => players[s]);
         if (!left.length) await store.deleteRoom(code);
         // 🎲 랜덤 대결은 한 명이 나가면 그 방은 끝 (남은 사람에게 모르는 사람이 또 붙지 않게)
-        else await store.patchRoom(code, { top: { players, host: d.host === slot ? left[0] : d.host, status: d.pub === 'rush' ? 'over' : 'lobby' } }, now, exp(now));
+        else await store.patchRoom(code, { top: { players, host: d.host === slot ? left[0] : d.host, status: d.pub === 'rush' || d.pub === 'tiles' ? 'over' : 'lobby' } }, now, exp(now));
         return [200, { ok: true }];
       }
 
       // 한 판 더: 대기실로 (준비는 판 번호가 바뀌어서 저절로 풀림)
       if (action === 'again') {
-        if (d.pub === 'ranked' || d.pub === 'rush') return [400, { error: 'bad_action' }];
+        if (d.pub === 'ranked' || d.pub === 'rush' || d.pub === 'tiles') return [400, { error: 'bad_action' }];
         const out = (await store.patchRoom(code, { top: { status: 'lobby' }, cond: { status: 'playing', round: d.round || 0 } }, now, exp(now))) || (await store.getRoom(code, now));
         return [200, { room: publicRoom(out, now), now }];
       }
@@ -261,8 +284,9 @@ export function createRoomHandler({ store, getPlayer, canPlay, isConfirmed = () 
         }
         if (body.part !== undefined && ROOM_PARTS_READY.includes(body.part)) me.part = body.part;
         // 방장만: 곡·모드 바꾸기 (바꾸면 준비가 풀림)
-        if (isHost && !d.pub && body.level !== undefined && getLevel(body.level) && getLevel(body.level).id !== d.level) {
-          top.level = getLevel(body.level).id;
+        const nl = body.level !== undefined ? roomLevel(body.level) : null;
+        if (isHost && !d.pub && nl != null && nl !== d.level) {
+          top.level = nl;
           top.cfgVer = (d.cfgVer || 0) + 1;
         }
         // 방장만: 개인전 무제한(서바이벌) 켜고 끄기 — 빠른 대결 방도 됨
@@ -314,9 +338,10 @@ export function createRoomHandler({ store, getPlayer, canPlay, isConfirmed = () 
         // 빠른 대결 방은 '한 판 더' 때마다 같은 묶음에서 새 곡
         const level = out.pub ? pickQuickLevel(out.pub, ps.every((p) => p.ok)) : out.level;
         const lv = getLevel(level);
+        const dur = tileSong(level) ? TILE_ROOM_MS : lv ? levelDuration(lv) * 1000 : 0;
         const started = await store.patchRoom(
           code,
-          { top: { level, status: 'playing', round: (out.round || 0) + 1, startAt: now + ROOM_START_DELAY_MS, endBy: now + ROOM_START_DELAY_MS + (lv ? levelDuration(lv) * 1000 : 0) + 120_000 }, cond: { status: 'lobby', round: out.round || 0 } },
+          { top: { level, status: 'playing', round: (out.round || 0) + 1, startAt: now + ROOM_START_DELAY_MS, endBy: now + ROOM_START_DELAY_MS + dur + 120_000 }, cond: { status: 'lobby', round: out.round || 0 } },
           now,
           exp(now)
         );

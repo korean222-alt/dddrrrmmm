@@ -7,11 +7,13 @@ import fs from 'node:fs';
 import { createHandler } from '../server/handler.js';
 import { loadConfig } from '../server/config.js';
 import { JsonStore } from '../server/store.js';
-import { TILE_SONGS, tileLap, lapMirrors, tileTimes, tilesWithin, checkTileRun, tileSong, tileSlot, lapSpeed, lapStars, TILE_MIN_GAP, MAX_LAPS, gradeLaps, lapGrade } from '../public/js/tiles.js';
+import { TILE_SONGS, tileLap, lapMirrors, tileTimes, tilesWithin, checkTileRun, tileSong, tileSlot, lapSpeed, lapStars, MAX_LAPS, gradeLaps, lapGrade } from '../public/js/tiles.js';
 import { todayQuests, applyS2, kstDay, prevDay, attReward, QUEST_POOL } from '../public/js/quests.js';
 import { kakaoHash } from '../server/kakao.js';
+import { getLevel } from '../public/js/charts.js';
+import { roomLevel, pickTileLevel } from '../server/rooms.js';
 
-test('타일 채보: 곡마다 타일 사이 8분 이상 · 같은 줄 연속 없음(바퀴 경계 포함) · 시각은 바퀴마다 빨라짐', () => {
+test('타일 채보: 음 하나 = 타일 하나 · 같은 줄 연속 없음(바퀴 경계 포함) · 타일 사이 0.12초 이상 · 첫 곡 뒤부터 빨라짐', () => {
   for (const s of TILE_SONGS) {
     const lap = tileLap(s.id);
     assert.ok(lap && lap.tiles.length >= 20, `${s.id} 타일 수`);
@@ -23,11 +25,14 @@ test('타일 채보: 곡마다 타일 사이 8분 이상 · 같은 줄 연속 �
         assert.ok(lane >= 0 && lane <= 3);
         assert.notEqual(lane, prev, `${s.id} 바퀴 ${k} 타일 ${i}: 같은 줄 연속`);
         prev = lane;
-        if (i) assert.ok(t.step - lap.tiles[i - 1].step >= TILE_MIN_GAP, `${s.id} 타일 간격`);
+        if (i) assert.ok(((t.step - lap.tiles[i - 1].step) * 15) / s.bpm >= 0.119, `${s.id} 타일 간격`);
       });
     }
-    // 한 바퀴는 22초 이상, 타일 시각은 늘어나기만
-    assert.ok((lap.beats * 60) / s.bpm >= 22 - 0.01);
+    // 음 하나 = 타일 하나 (묶음 없음)
+    const notes = getLevel(s.id).song.melody.join(' ').split(/\s+/).filter((x) => x && !x.startsWith('_')).length;
+    assert.equal(lap.tiles.length, notes * lap.reps, `${s.id} 음 수`);
+    // 한 바퀴는 20초 이상, 타일 시각은 늘어나기만
+    assert.ok((lap.beats * 60) / s.bpm >= 20 - 0.01);
     const times = tileTimes(s.id);
     assert.equal(times.length, lap.tiles.length * MAX_LAPS);
     for (let i = 1; i < times.length; i++) assert.ok(times[i] > times[i - 1]);
@@ -36,8 +41,13 @@ test('타일 채보: 곡마다 타일 사이 8분 이상 · 같은 줄 연속 �
     assert.ok(times[2 * n - 1] - times[n] < times[n - 1] - times[0]);
   }
   assert.equal(lapSpeed(0), 1);
-  assert.ok(lapSpeed(3) > lapSpeed(2));
-  assert.deepEqual(lapStars(5), { stars: 3, crowns: 2 });
+  assert.ok(lapSpeed(1) > 1 && lapSpeed(3) > lapSpeed(2));
+  // 첫 바퀴 동안 별이 차오르고(1/3·2/3·끝), 그 뒤로 다이아
+  assert.deepEqual(lapStars(0, 0.2), { stars: 0, gems: 0 });
+  assert.deepEqual(lapStars(0, 0.34), { stars: 1, gems: 0 });
+  assert.deepEqual(lapStars(0, 0.99), { stars: 2, gems: 0 });
+  assert.deepEqual(lapStars(1), { stars: 3, gems: 0 });
+  assert.deepEqual(lapStars(5), { stars: 3, gems: 4 });
   assert.equal(gradeLaps(lapGrade(7)), 7);
   assert.equal(tileSong('t99'), null);
   assert.equal(tileSong('t1').order, 1);
@@ -244,4 +254,28 @@ for (const kind of KINDS) test(`[${kind}] 카카오 로그인: 키 없으면 꺼
     globalThis.fetch = realFetch;
   }
   assert.notEqual(kakaoHash('1', 'a'), kakaoHash('1', 'b'));
+});
+
+test('⚔️ 타일 대결: 랜덤(tiles) 두 사람이 붙으면 바로 타일 곡 · 친구 방 곡을 타일로 바꿀 수 있음', async () => {
+  assert.equal(roomLevel('t3'), 't3');
+  assert.equal(roomLevel(5), 5);
+  assert.equal(roomLevel('t999'), null);
+  for (let i = 0; i < 20; i++) assert.ok(['t1', 't2', 't3'].includes(pickTileLevel(false)));
+  const a = await setup();
+  const b = await setup();
+  // 같은 서버(저장소)에서 두 사람: b 의 call 을 a 의 handler 로 쓰려면 같은 setup 이어야 함 → a 하나로 쿠키만 바꿔 씀
+  const room = async (body) => (await a.call('/api/rooms', body)).json();
+  const w = await room({ action: 'quick', name: '하나', bracket: 'tiles' });
+  assert.equal(w.waiting, true);
+  const j = await room({ action: 'quick', name: '둘', bracket: 'tiles' });
+  assert.equal(j.room.status, 'playing');
+  assert.match(String(j.room.level), /^t\d+$/);
+  const cnt = await room({ action: 'count' });
+  assert.equal(typeof cnt.waiting.tiles, 'number');
+  // 친구 방: 타일 곡으로 만들고 바꾸기
+  const c = await room({ action: 'create', name: '방장', mode: 'versus', level: 't2' });
+  assert.equal(c.room.level, 't2');
+  const ch = await room({ action: 'sync', code: c.code, slot: c.slot, key: c.key, level: 't1' });
+  assert.equal(ch.room.level, 't1');
+  void b;
 });

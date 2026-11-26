@@ -34,9 +34,9 @@ import { RoomClient, roomOutcome, survivalOutcome } from './room.js';
 import { makeReelCover } from './cover.js';
 import { detectBeat, monoOf, songChart } from './beatsync.js';
 import { seasonLeftText, BOARD_LABEL, seasonAt } from './season.js';
-import { TILE_SONGS, TILE_DIFF, tileSong, tileId, tileClosed, lapStars } from './tiles.js';
+import { TILE_SONGS, TILE_DIFF, tileSong, tileId, tileClosed, lapStars, tileLap } from './tiles.js';
 import { TileGame } from './tilegame.js';
-import { noteTilePlay, noteDrum, questView, claimQuest, claimCommunity, communityClaimed, attView, noteAttendance } from './s2claims.js';
+import { noteTilePlay, noteDrum, claimQuest, claimCommunity, communityClaimed, attView, noteAttendance } from './s2claims.js';
 import { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder, resetOldLevel18, photoSave, photoLoad, photoDelete } from './storage.js';
 
 resetOldLevel18(); // 18번 = 엘리제를 위하여 (그 전 찬송가 기록 지움)
@@ -5410,16 +5410,23 @@ async function showRushWaiting() {
   el.hidden = false;
   el.classList.toggle('on', n.rush > 0);
   el.textContent = n.rush > 0 ? `지금 대기 ${n.rush >= 5 ? '5명+' : n.rush + '명'} · 바로 붙어요!` : '지금 대기 0명';
+  const te = $('#tiles-wait');
+  if (te && n.tiles != null) {
+    te.hidden = false;
+    te.classList.toggle('on', n.tiles > 0);
+    te.textContent = n.tiles > 0 ? `지금 대기 ${n.tiles >= 5 ? '5명+' : n.tiles + '명'} · 바로 붙어요!` : '지금 대기 0명';
+  }
 }
 // ----- 🎲 랜덤 대결 (4~18단계 무작위 · 둘 다 깨면 다음 곡 · 먼저 쓰러지면 짐) -----
 const RUSH_WAIT_MAX_MS = 3 * 60_000; // 이만큼 기다려도 안 잡히면 그만 (서버 요청 아끼기)
 const rush = { over: null }; // 끝난 판 결과 (방을 나간 뒤에도 결과 화면에 그대로)
-async function rushGo() {
+async function rushGo(bracket = 'rush') {
+  if (bracket !== 'tiles' && bracket !== 'rush') bracket = 'rush';
   if (followGated()) {
-    openVerify(null, { label: '🎲 랜덤 대결은 팔로워만', then: rushGo });
+    openVerify(null, { label: '🎲 랜덤 대결은 팔로워만', then: () => rushGo(bracket) });
     return;
   }
-  if (needsCalibration()) {
+  if (bracket === 'rush' && needsCalibration()) {
     closeModal('modal-room');
     openCalibration({ required: true, after: rushGo });
     return;
@@ -5431,7 +5438,7 @@ async function rushGo() {
   const c = state.roomClient;
   try {
     if (c.active) await c.leave();
-    const waiting = await c.quick(myRoomName(), 'rush');
+    const waiting = await c.quick(myRoomName(), bracket);
     if (!waiting) return; // 바로 붙음 → renderRoom 이 시작
   } catch (e) {
     toast(roomErrText(e), 3000);
@@ -5443,7 +5450,7 @@ async function rushGo() {
   const tick = async () => {
     if (!c.active || !c.waiting) return stopWaitTimer();
     const sec = Math.floor((Date.now() - t0) / 1000);
-    $('#room-wait-title').textContent = `🎲 상대 찾는 중… ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
+    $('#room-wait-title').textContent = `${bracket === 'tiles' ? '🎹' : '🎲'} 상대 찾는 중… ${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, '0')}`;
     $('#room-wait-sub').textContent = '누가 들어오면 바로 시작해요 · 친구에게 랜덤 대결 들어오라고 해 보세요!';
     if (Date.now() - t0 < RUSH_WAIT_MAX_MS) return;
     stopWaitTimer();
@@ -5525,6 +5532,13 @@ function renderFriendRoom(room) {
     const startAt = c.toLocal(room.startAt);
     if (startAt - Date.now() > -2000) {
       closeModal('modal-room');
+      // 🎹 타일 곡이면 타일 대결 (시즌 2)
+      if (tileSong(room.level)) {
+        stopWaitTimer();
+        rk.game = null;
+        tilePlay(tileSong(room.level).id, { room: { startAt, round: room.round, pub: room.pub || null } });
+        return;
+      }
       // 개인전 + 방장이 '무제한'을 켰으면 서바이벌 (곡이 끝나도 둘 다 살아 있으면 끝없이 빨라짐). 아니면 원래 곡으로 점수 승부
       rk.game = null;
       if (room.pub === 'rush') {
@@ -5537,8 +5551,9 @@ function renderFriendRoom(room) {
     }
   }
   if ($('#screen-result').classList.contains('in-room')) renderRoomResult();
+  if (tp.room && !$('#tp-over').hidden) renderTileVs();
   // 🎲 랜덤 대결은 대기실 없음 (붙으면 바로 시작)
-  if (room.pub === 'rush') {
+  if (room.pub === 'rush' || room.pub === 'tiles') {
     if (c.waiting && !$('#modal-room').hidden) roomPanel('wait');
     return;
   }
@@ -5567,8 +5582,11 @@ function renderFriendRoom(room) {
   const host = c.isHost;
   // 개인전 규칙: 점수 승부 / 💎 무제한(서바이벌) — 방장이 고름 (빠른 대결 방도)
   const versus = room.mode === 'versus';
-  $('#room-rule').hidden = !versus;
-  $('#room-rule-note').hidden = !versus;
+  const tileRoom = !!tileSong(room.level);
+  $('#room-rule').hidden = !versus || tileRoom;
+  $('#room-rule-note').hidden = !versus || tileRoom;
+  $('#room-mode').hidden = pub || tileRoom;
+  $('#room-part').hidden = tileRoom;
   $$('#room-rule [data-rule]').forEach((b) => {
     const on = (b.dataset.rule === 'endless') === !!room.endless;
     b.setAttribute('aria-pressed', String(on));
@@ -5582,10 +5600,19 @@ function renderFriendRoom(room) {
     b.disabled = !host && b.dataset.mode !== room.mode;
   });
   const sel = $('#room-level');
-  const opts = LEVELS.filter((lv) => !lv.long).map((lv) => {
+  const drumOpts = LEVELS.filter((lv) => !lv.long).map((lv) => {
     const ok = lv.id <= FREE_UPTO || isConfirmed() || freePass();
     return `<option value="${lv.id}"${ok ? '' : ' disabled'}>${levelLabel(lv)} · ${lv.name}${ok ? '' : ' (잠김)'}</option>`;
   }).join('');
+  // 🎹 시즌 2: 피아노 타일 곡도 (타일 대결 = 3바퀴 동안 친 타일 수 승부)
+  const tileOpts = s2On() || tileSong(room.level)
+    ? TILE_SONGS.map((t) => {
+        const song = tileSong(tileId(t.id));
+        const ok = !tileLocked(song);
+        return `<option value="${song.key}"${ok ? '' : ' disabled'}>🎹 ${song.level.name} · ${TILE_DIFF[t.diff]}${ok ? '' : ' (잠김)'}</option>`;
+      }).join('')
+    : '';
+  const opts = tileOpts ? `<optgroup label="🎹 피아노 타일">${tileOpts}</optgroup><optgroup label="🥁 드럼">${drumOpts}</optgroup>` : drumOpts;
   if (sel.dataset.sig !== opts) {
     sel.innerHTML = opts;
     sel.dataset.sig = opts;
@@ -5616,7 +5643,9 @@ function renderFriendRoom(room) {
       ? `${other.name} 님이 준비하면 바로 시작해요`
       : !(me && me.ready) && other.ready
         ? `${other.name} 님은 준비 완료! '준비!'를 누르면 시작해요`
-        : room.mode === 'team'
+        : tileRoom
+          ? '🎹 타일 대결: 같은 곡을 동시에 · 3바퀴 동안 많이 친 사람이 이겨요!'
+          : room.mode === 'team'
           ? '팀전: 둘의 점수를 합쳐요. 피아노 파트는 곧 나와요!'
           : room.endless
             ? '💎 무제한 서바이벌: 먼저 목숨을 다 쓰면 져요!'
@@ -5628,7 +5657,7 @@ async function roomCreate() {
   save('roomName', name);
   try {
     roomUi.round = 0;
-    await state.roomClient.create(name, roomUi.newMode, 1);
+    await state.roomClient.create(name, roomUi.newMode, s2On() ? tileId(TILE_SONGS[0].id) : 1);
   } catch (e) {
     toast(roomErrText(e), 2800);
   }
@@ -6131,25 +6160,14 @@ function refreshHome2() {
   if (gd) $('#gear-dot2').hidden = gd.hidden;
   const sn = seasonAt();
   $('#s2-start-sub').textContent = sn.n >= 2 && sn.end ? seasonLeftText().replace(/^🏆 /, '🎹 ') : '🎹 시즌 2 랭킹 진행 중';
-  // 출석
+  // 📅 출석 체크 버튼 하나 (11-26 사용자: 퀘스트 버튼 뺌)
   const a = attView();
-  $('#s2-att-title').textContent = a.done ? `출석 ${a.streak}일째` : '출석 체크';
-  $('#s2-att-sub').textContent = a.done ? '오늘 출석 완료 ✓' : `한 판 치면 +${a.todayReward}`;
-  // 퀘스트
-  const q = questView();
-  const got = q.list.filter((x) => x.claimed).length;
-  $('#s2-q-title').textContent = `퀘스트 ${got}/${q.list.length}`;
-  const nextQ = q.list.find((x) => !x.done);
-  $('#s2-q-sub').textContent = q.left ? `받을 보상 ${q.left}개!` : nextQ ? `${nextQ.text} ${nextQ.now}/${nextQ.goal}` : q.all.claimed ? '오늘 다 했어요 ✓' : '';
-  $('#s2-q-dot').hidden = !q.left;
-  // 다 같이 퀘스트 (운영자가 숫자를 올림)
-  const comm = (state.cfg.s2Community || []).find((c) => !communityClaimed(c.id));
-  const cb = $('#s2-comm');
-  cb.hidden = !comm;
-  if (comm) {
-    const pct = Math.min(100, Math.round((comm.now / comm.goal) * 100));
-    cb.innerHTML = `<span class="c-ico">${escapeHtml(comm.icon)}</span><b>${escapeHtml(comm.title)}</b><em>${comm.done ? `달성! 받기 +${fmt(comm.reward)}` : `${fmt(comm.now)} / ${fmt(comm.goal)}`}</em><span class="c-bar"><i style="width:${comm.done ? 100 : pct}%"></i></span>`;
-  }
+  $('#s2-cal-day').textContent = String(a.done ? a.streak : a.streak + 1);
+  $('#s2-att-title').textContent = a.done ? `출석 ${a.streak}일째 완료!` : `출석 체크 · ${a.streak + 1}일째`;
+  $('#s2-att-sub').textContent = a.done ? '내일 또 와서 한 판!' : `오늘 한 판 치면 🪙 +${a.todayReward}`;
+  $('#s2-att-week').innerHTML = a.week.map((d) => `<i class="${d.on ? 'on' : ''} ${d.today ? 'today' : ''}"></i>`).join('');
+  // 다 같이 목표(팔로워 등)를 달성했는데 아직 안 받았으면 빨간 점
+  $('#s2-att-dot').hidden = !(state.cfg.s2Community || []).some((c) => c.done && !communityClaimed(c.id));
   const foot = $('#title-foot2');
   foot.innerHTML = state.me.guest ? `<b>${escapeHtml(state.me.player?.username || '')}</b> 님, 오늘도 좋은 하루!` : handle() ? `만든 곳 <a href="https://instagram.com/${handle()}" target="_blank" rel="noopener">${atHandle()}</a>` : '';
 }
@@ -6163,26 +6181,88 @@ function openModes() {
 }
 
 // ----- 🎹 타일 곡 고르기 -----
+/** 별 3개 + 다이아 (직접 그린 SVG — 이모지 안 씀) */
+const GEM_SVG = '<svg viewBox="0 0 24 24" class="gem-i" aria-hidden="true"><path d="M7 4h10l5 5.5L12 21 2 9.5z" fill="#3aa8e8"/><path d="M7 4h10l5 5.5H2z" fill="#a9e8ff"/><path d="M7 4h10l-5 5.5z" fill="#e6f9ff"/><path d="M8.5 9.5h7L12 21z" fill="#7fd7ff"/><path d="M7 4h10l5 5.5L12 21 2 9.5z" fill="none" stroke="#1d6fa3" stroke-width="1.4" stroke-linejoin="round"/></svg>';
+function tileStarsHtml(stars, gems) {
+  return `<span class="t-stars">${[0, 1, 2].map((i) => `<i class="${i < stars ? 'on' : ''}">★</i>`).join('')}</span>${gems ? `<span class="t-gems">${GEM_SVG}<b>${gems}</b></span>` : ''}`;
+}
+/** 곡 표지: 곡마다 색이 다른 그라데이션 + 내려오는 타일 무늬 + 음표 */
+const TILE_HUES = [28, 340, 200, 265, 150, 12, 300, 185, 45, 230, 320, 95, 255, 5, 170, 280, 210, 355];
+function tileCoverHtml(t, i, big = false) {
+  const h = TILE_HUES[i % TILE_HUES.length];
+  return `<span class="t-cover ${big ? 'big' : ''}" style="--h:${h}"><i></i><i></i><i></i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 17.5a2.5 2.5 0 1 1-1.2-2.1V5.6l10-2.1v11.9a2.5 2.5 0 1 1-1.2-2.1V7.1l-7.6 1.6z" fill="#fff"/></svg></span>`;
+}
+const tl = { filter: 'all', pick: null };
+/** 내 최고 기록의 별·다이아 (첫 바퀴를 못 돌았으면 그때 받은 별) */
+const bestStars = (b) => (!b ? { stars: 0, gems: 0 } : b.laps >= 1 ? lapStars(b.laps) : { stars: Math.min(2, b.stars || 0), gems: 0 });
+/** 오늘의 추천: 날짜로 고른, 이 폰에서 열린 곡 하나 */
+function tileToday() {
+  const open = TILE_SONGS.filter((t) => !tileLocked(tileSong(tileId(t.id))));
+  const day = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
+  let h = 0;
+  for (const ch of day) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return (open.length ? open : TILE_SONGS)[h % (open.length || TILE_SONGS.length)];
+}
 function renderTiles() {
   const best = tileBests();
   const v = tileView();
   $$('#tl-view button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tview === v)));
-  const sn = seasonAt();
-  $('#tl-live-sub').textContent = sn.n >= 2 && sn.end ? seasonLeftText().replace(/^🏆 /, '') : '';
-  $('#tl-list').innerHTML = TILE_SONGS.map((t) => {
-    const song = tileSong(tileId(t.id));
-    const lv = song.level;
-    const b = best[t.id];
-    const lock = tileLocked(song);
-    const { stars, crowns } = lapStars(b ? b.laps : 0);
-    const starTxt = [0, 1, 2].map((i) => (i < stars ? '★' : '<span class="off">★</span>')).join('') + (crowns ? ` 👑${crowns > 1 ? '×' + crowns : ''}` : '');
-    const meta = lock ? `<span class="lockline">${icon('lock')} 팔로워 인증</span>` : b ? `<span class="tl-stars">${starTxt}</span><span>${fmt(b.tiles)} 타일</span>` : `<span class="tl-stars">${starTxt}</span><span>NEW</span>`;
-    return `<button class="tl-card d${t.diff} ${lock ? 'locked' : ''}" data-tsong="${t.id}">
-      <span class="tl-num">${song.order}</span>
-      <span class="tl-info"><h4>${escapeHtml(lv.name)} <small>${escapeHtml(lv.composer)}</small></h4><span class="tl-diff">${TILE_DIFF[t.diff]}</span></span>
-      <span class="tl-meta">${meta}</span>
+  $$('#tl-filter button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tfilter === tl.filter)));
+  // 🔥 오늘의 추천 (큰 카드)
+  const hot = tileToday();
+  const hs = tileSong(tileId(hot.id));
+  const hb = best[hot.id];
+  const hi = TILE_SONGS.indexOf(hot);
+  const hst = bestStars(hb);
+  $('#tl-hero').innerHTML = `<button class="tl-hero-card" data-tplay="${hot.id}" style="--h:${TILE_HUES[hi % TILE_HUES.length]}">
+      <span class="tl-hero-fall"><i></i><i></i><i></i><i></i><i></i><i></i></span>
+      <span class="tl-hero-tag"><span class="live-dot"></span>오늘의 추천 · 시즌 2 랭킹 중</span>
+      <b class="tl-hero-name">${escapeHtml(hs.level.name)}</b>
+      <small class="tl-hero-sub">${escapeHtml(hs.level.composer)} · ${TILE_DIFF[hot.diff]}${hb ? ` · 내 최고 ${fmt(hb.tiles)}` : ''}</small>
+      <span class="tl-hero-stars">${tileStarsHtml(hst.stars, hst.gems)}</span>
+      <span class="tl-hero-play"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>플레이</span>
     </button>`;
-  }).join('');
+  const rows = TILE_SONGS.map((t, i) => ({ t, i })).filter(({ t }) => tl.filter === 'all' || (tl.filter === '4' ? t.diff >= 4 : String(t.diff) === tl.filter));
+  $('#tl-list').innerHTML = rows
+    .map(({ t, i }) => {
+      const song = tileSong(tileId(t.id));
+      const lv = song.level;
+      const b = best[t.id];
+      const lock = tileLocked(song);
+      const { stars: st, gems } = bestStars(b);
+      const tag = lock ? '' : !b ? '<em class="t-tag new">NEW</em>' : '';
+      const pips = [1, 2, 3, 4, 5].map((k) => `<i class="${k <= t.diff ? 'on' : ''}"></i>`).join('');
+      return `<div class="tl-row d${t.diff} ${lock ? 'locked' : ''} ${tl.pick === t.id ? 'pick' : ''}" data-tsong="${t.id}" role="button" tabindex="0">
+      ${tileCoverHtml(t, i)}
+      <span class="tl-info"><b>${escapeHtml(lv.name)}${tag}</b><small>${escapeHtml(lv.composer)}</small><span class="t-diff"><span class="t-pips">${pips}</span>${TILE_DIFF[t.diff]}</span></span>
+      <span class="tl-side">${lock ? `<span class="lockline">${icon('lock')} 팔로워 인증</span>` : `${tileStarsHtml(st, gems)}<small>${b ? `${fmt(b.tiles)} 타일` : '&nbsp;'}</small>`}</span>
+      <button class="tl-go" data-tplay="${t.id}" aria-label="${escapeHtml(lv.name)} 시작">${lock ? icon('lock') : '<svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>'}</button>
+    </div>`;
+    })
+    .join('');
+}
+/** 곡을 누르면: 고른 표시 + 멜로디 앞부분을 피아노로 살짝 들려줌 (요청 없음). 다시 누르거나 ▶ 면 시작 */
+let tilePreviewAt = 0;
+async function tilePreview(songId) {
+  const song = tileSong(tileId(songId));
+  if (!song) return;
+  if (tl.pick === songId && performance.now() - tilePreviewAt > 250) return tilePlay(songId);
+  tl.pick = songId;
+  $$('#tl-list .tl-row').forEach((r) => r.classList.toggle('pick', Number(r.dataset.tsong) === songId));
+  tilePreviewAt = performance.now();
+  try {
+    await audio.unlock();
+    audio.loadPiano();
+    const lap = tileLap(songId);
+    const sd = 15 / song.bpm;
+    const t0 = audio.ctx.currentTime + 0.05;
+    const first = lap.tiles[0].step;
+    for (const n of lap.tiles) {
+      const at = (n.step - first) * sd;
+      if (at > 2.6) break;
+      if (audio.piano) audio.pianoNote(t0 + at, n.midi, Math.min(0.6, n.len * sd), 0.6, audio.sfxBus);
+    }
+  } catch {}
 }
 function openTiles() {
   closeModal('modal-modes');
@@ -6216,11 +6296,15 @@ function stopTile() {
   if (tp.game) tp.game.stop();
   tp.game = null;
 }
-async function tilePlay(songId = tp.song) {
+/** ⚔️ 타일 대결은 3바퀴까지 (점수 = 친 타일 수) */
+const VS_LAPS = 3;
+async function tilePlay(songId = tp.song, { room = null } = {}) {
   const song = tileSong(tileId(songId));
   if (!song) return;
-  if (tileLocked(song)) return openVerify(null);
+  if (!room && tileLocked(song)) return openVerify(null);
   tp.song = songId;
+  tp.room = room;
+  tp.vsDone = false;
   stopTile();
   show('screen-tplay');
   tpLayers(null);
@@ -6230,7 +6314,7 @@ async function tilePlay(songId = tp.song) {
   await Promise.race([audio.loadPiano(), new Promise((r) => setTimeout(r, 3000))]);
   // 랭킹에 올릴 수 있는 사람만 판 토큰 (요청 아끼기). 시즌 2 를 열기 전엔 서버가 기록을 안 올림(미리보기)
   tp.runToken = null;
-  if (state.api && state.api.mode === 'server' && isConfirmed()) {
+  if (!room && state.api && state.api.mode === 'server' && isConfirmed()) {
     try {
       tp.runToken = (await state.api.startRun(tileId(songId))).runToken;
     } catch (e) {
@@ -6242,11 +6326,24 @@ async function tilePlay(songId = tp.song) {
   }
   if (!$('#screen-tplay').classList.contains('active')) return;
   tpStage();
-  const g = new TileGame({ audio, canvas: $('#tp-canvas'), songId, view: tileView(), offsetMs: state.settings.offsetMs || 0, onEnd: (r) => tileEnd(r) });
+  const c = state.roomClient;
+  const vs = room
+    ? {
+        name: (c.other && c.other.name) || '상대',
+        other: () => {
+          const o = c.active && c.room && c.room.round === room.round ? c.other : null;
+          if (!o) return null;
+          return { score: o.final ? o.final.score : o.live ? o.live.score : 0, lives: o.live ? o.live.lives : null, done: !!o.final || !!o.left };
+        },
+        onLive: (live) => c.active && c.send({ live }),
+      }
+    : null;
+  const g = new TileGame({ audio, canvas: $('#tp-canvas'), songId, view: tileView(), offsetMs: state.settings.offsetMs || 0, onEnd: (r) => tileEnd(r), maxLaps: room ? VS_LAPS : undefined, vs });
   if (isLocalDev()) window.__tg = g; // 내 컴퓨터에서 시험할 때만
   tp.game = g;
   trackPlayStart(tileId(songId));
-  g.start();
+  // 대결: 서버가 정한 시각에 같이 시작 (그때까지는 'VS 상대' 화면)
+  g.start(room ? Math.max(0.35, (room.startAt - Date.now()) / 1000) : 0.35);
 }
 function tilePause() {
   if (tp.game && tp.game.pause()) tpLayers('tp-paused');
@@ -6254,29 +6351,35 @@ function tilePause() {
 async function tileEnd(r) {
   tp.game = null;
   tp.last = r;
+  const room = tp.room;
+  // ⚔️ 대결: 내 결과를 상대에게
+  if (room && state.roomClient.active) state.roomClient.send({ final: { score: r.tiles, stars: r.stars, grade: '', failed: r.died, died: r.died, maxCombo: r.maxCombo, accuracy: 0, lv: r.laps } }, true);
   try {
     trackPlayEnd({ result: r.complete ? 'clear' : 'fail', score: r.tiles, stars: r.stars });
   } catch {}
   const song = tileSong(tileId(r.songId));
   // 🪙 타일 하나 = 1코인 · 퀘스트 진행 · 출석
-  if (r.tiles > 0) addRunCoins(r.tiles, tp.runToken && !String(tp.runToken).startsWith('mock.') ? tp.runToken : null);
+  if (r.tiles > 0) addRunCoins(r.tiles, !room && tp.runToken && !String(tp.runToken).startsWith('mock.') ? tp.runToken : null);
   noteTilePlay(r);
   const att = noteAttendance(isConfirmed());
   // 내 최고 기록 (폰)
   const bests = tileBests();
   const old = bests[r.songId];
   const isNew = r.tiles > 0 && (!old || r.tiles > old.tiles);
-  if (isNew || (old && r.laps > old.laps)) {
-    bests[r.songId] = { tiles: Math.max(r.tiles, old ? old.tiles : 0), laps: Math.max(r.laps, old ? old.laps : 0), at: Date.now() };
+  if (!room && (isNew || (old && (r.laps > old.laps || r.stars > (old.stars || 0))))) {
+    bests[r.songId] = { tiles: Math.max(r.tiles, old ? old.tiles : 0), laps: Math.max(r.laps, old ? old.laps : 0), stars: Math.max(r.stars, (old && old.stars) || 0), at: Date.now() };
     save('tileBest', bests);
   }
   // 결과 카드
   $('#tp-res-song').textContent = `${song.order}. ${song.level.name} · ${song.level.composer}`;
   const st = $('#tp-res-stars');
-  st.innerHTML = [0, 1, 2].map(() => '<span>★</span>').join('') + (r.crowns ? `<span class="crown">👑${r.crowns > 1 ? '×' + r.crowns : ''}</span>` : '');
-  $('#tp-res-new').hidden = !isNew;
+  st.innerHTML = [0, 1, 2].map(() => '<span>★</span>').join('') + (r.gems ? `<span class="gem">${GEM_SVG}<b>${r.gems}</b></span>` : '');
+  $('#tp-res-new').hidden = !isNew || !!room;
   $('#tp-res-rank').hidden = true;
-  $('#tp-res-stats').innerHTML = `<div><b>${r.laps}</b><small>바퀴</small></div><div><b>${r.maxCombo}</b><small>최대 연속</small></div><div><b>×${r.topSpeed.toFixed(2)}</b><small>최고 빠르기</small></div>`;
+  $('#tp-res-stats').innerHTML = `<div><b>${r.laps}</b><small>바퀴</small></div><div><b>${r.maxCombo}</b><small>최대 연속</small></div><div><b>${r.missed + r.wrong}</b><small>실수</small></div>`;
+  $('#tp-res-btns').hidden = !!room;
+  $('#tp-res-vs').hidden = !room;
+  if (room) renderTileVs();
   const gifts = [];
   if (r.tiles > 0) gifts.push(`🪙 +${fmt(r.tiles)}`);
   if (att) gifts.push(`📅 출석 ${att.streak}일째 +${att.reward}`);
@@ -6294,7 +6397,7 @@ async function tileEnd(r) {
   };
   requestAnimationFrame(step);
   [...st.children].forEach((x, i) => {
-    if (i < r.stars || x.classList.contains('crown'))
+    if (i < r.stars || x.classList.contains('gem'))
       setTimeout(() => {
         x.classList.add('on');
         try {
@@ -6303,6 +6406,7 @@ async function tileEnd(r) {
       }, 500 + i * 260);
   });
   if (r.complete || r.stars >= 3) setTimeout(() => audio.sfxFile('cheer', 0.6), 1400);
+  if (room) return; // 대결 판은 랭킹 없음
   // 🏆 시즌 2 랭킹에 올리기
   const rk = $('#tp-res-rank');
   const say = (html) => {
@@ -6331,6 +6435,38 @@ async function tileEnd(r) {
     if (e && e.status === 409) return;
     say('랭킹에 못 올렸어요. 다음 판에 다시 해 볼게요');
   }
+}
+
+/** ⚔️ 타일 대결 결과: 상대가 끝날 때까지 기다렸다가 승패 */
+function renderTileVs() {
+  const room = tp.room;
+  const r = tp.last;
+  const box = $('#tp-res-vs');
+  if (!room || !r || !box) return;
+  const c = state.roomClient;
+  const o = c.active && c.room && c.room.round === room.round ? c.other : null;
+  const acts = room.pub
+    ? '<div class="tp-res-btns"><button class="btn btn-ghost" data-action="tvs-leave">나가기</button><button class="btn btn-hot" data-action="tvs-rush">🎹 새 상대 찾기</button></div>'
+    : '<div class="tp-res-btns"><button class="btn btn-ghost" data-action="tvs-leave">나가기</button><button class="btn btn-primary" data-action="tvs-again">한 판 더</button></div>';
+  if (tp.vsDone) return;
+  let res = null;
+  let why = '';
+  const theirs = o ? (o.final ? o.final.score : o.live ? o.live.score : 0) : null;
+  if (!c.active || !o || (o.left && !o.final)) {
+    res = 'win';
+    why = '상대가 나갔어요';
+  } else if (o.final) {
+    res = r.tiles > o.final.score ? 'win' : r.tiles < o.final.score ? 'lose' : 'draw';
+    why = res === 'draw' ? '친 타일 수가 같아요' : '친 타일 수로';
+  } else {
+    box.innerHTML = `<div class="room-word">${escapeHtml(o.name)} 님 아직 치는 중… ${fmt(theirs || 0)}타일</div><div class="tvs-row"><span>나 <b>${fmt(r.tiles)}</b></span><span>VS</span><span>${escapeHtml(o.name)} <b>${fmt(theirs || 0)}</b></span></div>` + acts;
+    return;
+  }
+  const word = { win: '승리! 🎉', lose: '아쉽게 패배…', draw: '무승부!' };
+  box.innerHTML = `<div class="room-word ${res}">${word[res]}</div><div class="room-why">${why}</div><div class="tvs-row"><span>나 <b>${fmt(r.tiles)}</b></span><span>VS</span><span>${escapeHtml((o && o.name) || '상대')} <b>${theirs == null ? '-' : fmt(theirs)}</b></span></div>` + acts;
+  tp.vsDone = true;
+  if (res === 'win') setTimeout(() => audio.sfxFile('cheer', 0.6), 300);
+  if (room.pub && c.active) c.leave(); // 랜덤 대결은 판이 끝나면 방에서 나옴
 }
 
 // ----- 🏆 시즌 2 랭킹 -----
@@ -6366,8 +6502,8 @@ async function renderS2Rank() {
     const medal = (n) => (n === 1 ? '🥇' : n === 2 ? '🥈' : n === 3 ? '🥉' : n);
     const row = (e, mine = false) => {
       const sub = sr.tab === 'total' ? `${e.n || 0}곡` : (() => {
-        const { stars, crowns } = lapStars(e.laps || 0);
-        return `${'★'.repeat(stars)}${crowns ? ' 👑' + (crowns > 1 ? '×' + crowns : '') : ''}`;
+        const { stars, gems } = lapStars(e.laps || 0);
+        return e.laps ? tileStarsHtml(stars, gems) : '';
       })();
       return `<div class="sr-row ${e.me || mine ? 'me' : ''} ${e.rank <= 3 ? 'top' + e.rank : ''}"><span class="r">${e.rank ? medal(e.rank) : '-'}</span><span class="n">${escapeHtml(e.username || '')}</span><span class="s">${fmt(e.score)}<small>${sub}</small></span></div>`;
     };
@@ -6385,11 +6521,6 @@ function renderS2Q() {
   const a = attView();
   $('#s2q-att-note').innerHTML = a.done ? `오늘 출석 완료! <b>${a.streak}일 연속</b> 🔥` : `오늘 드럼이나 타일을 <b>한 판</b> 치면 출석 <b>+${a.todayReward}</b>🪙`;
   $('#s2q-week').innerHTML = a.week.map((d) => `<div class="s2q-day ${d.on ? 'on' : ''} ${d.today ? 'today' : ''} ${d.n === 7 ? 'day7' : ''}"><span>${d.n}일</span><b>${d.n === 7 ? '🎁' : '🪙'}</b><span>${d.coins}</span></div>`).join('');
-  const q = questView();
-  const btn = (x, id) => (x.claimed ? '<button class="q-go got" disabled>받음 ✓</button>' : x.done ? `<button class="q-go ready" data-q="${id}">받기 +${x.reward}</button>` : `<button class="q-go" disabled>+${x.reward}</button>`);
-  $('#s2q-list').innerHTML =
-    q.list.map((x) => `<div class="s2q-item"><span class="q-ico">${x.icon}</span><b>${escapeHtml(x.text)}</b>${btn(x, x.id)}<span><span class="q-bar"><i style="width:${Math.round((x.now / x.goal) * 100)}%"></i></span><span class="q-num">${fmt(x.now)} / ${fmt(x.goal)}</span></span></div>`).join('') +
-    `<div class="s2q-item all"><span class="q-ico">${q.all.icon}</span><b>${q.all.text}</b>${btn(q.all, q.all.id)}<span><span class="q-bar"><i style="width:${Math.round((q.all.now / q.all.goal) * 100)}%"></i></span><span class="q-num">${q.all.now} / ${q.all.goal}</span></span></div>`;
   const comm = state.cfg.s2Community || [];
   $('#s2q-comm-wrap').hidden = !comm.length;
   $('#s2q-comm').innerHTML = comm
@@ -6399,14 +6530,14 @@ function renderS2Q() {
       return `<div class="s2q-item"><span class="q-ico">${escapeHtml(c.icon)}</span><b>${escapeHtml(c.title)}</b>${b}<span><span class="q-bar"><i style="width:${c.done ? 100 : Math.min(100, Math.round((c.now / c.goal) * 100))}%"></i></span><span class="q-num">${c.done ? '달성!' : `${fmt(c.now)} / ${fmt(c.goal)}`}</span></span></div>`;
     })
     .join('');
-  $('#s2q-foot').textContent = '퀘스트는 매일 밤 12시에 새로 바뀌어요';
+  $('#s2q-foot').textContent = a.done ? '출석은 매일 밤 12시에 새로 시작해요 · 하루 빠지면 1일째부터' : '드럼이든 타일이든 한 판만 치면 출석! · 하루 빠지면 1일째부터';
 }
 function openS2Q() {
   renderS2Q();
   openModal('modal-s2q');
 }
 document.addEventListener('click', (e) => {
-  const t = e.target.closest && e.target.closest('[data-q],[data-cq],[data-tsong],[data-tview],[data-srtab],[data-srsong]');
+  const t = e.target.closest && e.target.closest('[data-q],[data-cq],[data-tplay],[data-tsong],[data-tview],[data-tfilter],[data-srtab],[data-srsong]');
   if (!t) return;
   if (t.dataset.q) {
     const n = claimQuest(t.dataset.q, isConfirmed());
@@ -6427,8 +6558,16 @@ document.addEventListener('click', (e) => {
     renderS2Q();
     refreshCoins();
     refreshHome2();
-  } else if (t.dataset.tsong) tilePlay(Number(t.dataset.tsong));
-  else if (t.dataset.tview) setTileView(t.dataset.tview);
+  } else if (t.dataset.tplay) tilePlay(Number(t.dataset.tplay));
+  else if (t.dataset.tsong) {
+    const song = tileSong(tileId(Number(t.dataset.tsong)));
+    if (song && tileLocked(song)) openVerify(null);
+    else tilePreview(Number(t.dataset.tsong));
+  } else if (t.dataset.tview) setTileView(t.dataset.tview);
+  else if (t.dataset.tfilter) {
+    tl.filter = t.dataset.tfilter;
+    renderTiles();
+  }
   else if (t.dataset.srtab) {
     sr.tab = t.dataset.srtab;
     renderS2Rank();
@@ -6551,12 +6690,41 @@ const ACTIONS = {
   's2rank-back': () => (sr.from === 'screen-tiles' ? (renderTiles(), show('screen-tiles')) : show(sr.from === 'screen-home2' ? 'screen-title' : sr.from || 'screen-title')),
   's2-hall': () => openRank('hall-stage'),
   'tp-pause': () => tilePause(),
+  'tiles-rush-go': () => rushGo('tiles'),
+  'tvs-leave': async () => {
+    tpLayers(null);
+    tp.room = null;
+    if (state.roomClient.active) await state.roomClient.leave();
+    roomUi.round = 0;
+    show('screen-title');
+    openRoom();
+  },
+  'tvs-rush': async () => {
+    tpLayers(null);
+    tp.room = null;
+    if (state.roomClient.active) await state.roomClient.leave();
+    show('screen-title');
+    openRoom();
+    rushGo('tiles');
+  },
+  'tvs-again': async () => {
+    tpLayers(null);
+    tp.room = null;
+    show('screen-title');
+    if (state.roomClient.active) await state.roomClient.again();
+    openRoom();
+  },
   'tp-resume': () => {
     tpLayers(null);
     if (tp.game) tp.game.resume();
   },
   'tp-again': () => tilePlay(tp.song),
   'tp-exit': () => {
+    if (tp.room && state.roomClient.active) {
+      state.roomClient.send({ final: { score: tp.game ? tp.game.score : 0, stars: 0, grade: '', failed: true, died: true, maxCombo: 0, accuracy: 0 } }, true);
+      state.roomClient.leave();
+      tp.room = null;
+    }
     stopTile();
     tpLayers(null);
     renderTiles();
@@ -7330,7 +7498,7 @@ async function boot() {
     takeBridgeCode(bridgeCode);
   }
   $('#room-level').addEventListener('change', (e) => {
-    if (state.roomClient.isHost) state.roomClient.send({ level: Number(e.target.value) }, true);
+    if (state.roomClient.isHost) state.roomClient.send({ level: /^t\d+$/.test(e.target.value) ? e.target.value : Number(e.target.value) }, true);
   });
   // 🖼 릴스 썸네일 만들기 (운영자 전용): /?thumb=okay 로 들어오면 이 기기에서 켜지고 영상 찍기 화면으로, ?thumb=off 면 끔
   const thumb = params.get('thumb');

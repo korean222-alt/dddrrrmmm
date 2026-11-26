@@ -1409,3 +1409,101 @@ html.s2 #screen-levels .follow-chip { display: none !important; }
 .kakao-box.on { background: #eef9e6; border-color: #9bd47a; }
 /* 시즌 2: 드럼 결과 화면의 '랭킹 보기'도 숨김 (드럼은 랭킹 없음) */
 html.s2 #btn-rank { display: none; }
+
+/* ---------- 🎹 타일 곡 목록 2 (2026-11-26 사용자 '재미없어, 누르고 싶게' — 리듬 게임 곡 목록처럼: 오늘의 추천·곡 표지·플레이 버튼) ---------- */
+.tl-hero-card { position: relative; overflow: hidden; width: 100%; display: grid; justify-items: start; gap: 4px; text-align: left; padding: 16px 16px 14px; border-radius: 26px; border: 3px solid var(--ink); box-shadow: 0 7px 0 var(--ink); color: #fff;
+  background: linear-gradient(135deg, hsl(var(--h), 90%, 58%), hsl(calc(var(--h) + 40), 85%, 45%) 60%, hsl(calc(var(--h) + 80), 70%, 30%)); text-shadow: 0 2px 0 rgba(0, 0, 0, 0.2); min-height: 150px; }
+.tl-hero-card:active { transform: translateY(4px); box-shadow: 0 3px 0 var(--ink); }
+.tl-hero-fall { position: absolute; inset: 0; pointer-events: none; opacity: 0.45; }
+.tl-hero-fall i { position: absolute; width: 11%; height: 30%; border-radius: 7px; background: rgba(20, 10, 40, 0.55); border-bottom: 3px solid rgba(255, 220, 150, 0.9); animation: mbfall 2.2s linear infinite; }
+.tl-hero-fall i:nth-child(1) { right: 4%; animation-delay: -0.3s; }
+.tl-hero-fall i:nth-child(2) { right: 17%; animation-delay: -1.2s; }
+.tl-hero-fall i:nth-child(3) { right: 30%; animation-delay: -0.7s; }
+.tl-hero-fall i:nth-child(4) { right: 4%; animation-delay: -1.7s; }
+.tl-hero-fall i:nth-child(5) { right: 17%; animation-delay: -2.1s; }
+.tl-hero-fall i:nth-child(6) { right: 30%; animation-delay: -1.6s; }
+.tl-hero-tag { position: relative; display: inline-flex; align-items: center; gap: 7px; font-size: 13px; padding: 3px 11px; border-radius: 99px; background: rgba(20, 10, 40, 0.45); text-shadow: none; }
+.tl-hero-name { position: relative; font-weight: 400; font-size: 30px; line-height: 1.15; margin-top: 4px; max-width: 70%; }
+.tl-hero-sub { position: relative; font-size: 14px; opacity: 0.95; }
+.tl-hero-stars { position: relative; margin-top: 2px; }
+.tl-hero-play { position: absolute; right: 14px; bottom: 14px; display: inline-flex; align-items: center; gap: 4px; padding: 9px 16px 9px 12px; border-radius: 99px; background: #fff; color: var(--ink); font-size: 18px; border: 3px solid var(--ink); box-shadow: 0 4px 0 var(--ink); text-shadow: none; animation: s2bob 1.4s ease-in-out infinite; }
+.tl-hero-play svg { width: 22px; height: 22px; color: #ff5fa2; }
+.tl-tools { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.tl-filter { display: flex; gap: 5px; overflow-x: auto; scrollbar-width: none; }
+.tl-filter button { flex: none; padding: 5px 9px; border-radius: 99px; background: rgba(255, 255, 255, 0.9); border: 2px solid var(--ink); font-size: 13px; }
+.tl-tools { flex-wrap: wrap; }
+.tl-filter button[aria-pressed='true'] { background: var(--ink); color: #ffe27a; }
+.tl-viewsw { flex: none; display: flex; padding: 3px; border-radius: 99px; background: rgba(27, 18, 64, 0.6); }
+.tl-viewsw button { padding: 5px 10px; border-radius: 99px; color: rgba(255, 255, 255, 0.75); font-size: 13px; }
+.tl-viewsw button[aria-pressed='true'] { background: #fff; color: var(--ink); }
+.tl-row { position: relative; display: grid; grid-template-columns: 60px 1fr auto 48px; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 20px; background: #fff; border: 3px solid var(--ink); box-shadow: 0 4px 0 var(--ink); cursor: pointer; transition: transform 0.12s, box-shadow 0.12s; -webkit-user-select: none; user-select: none; }
+.tl-row:active { transform: translateY(2px); box-shadow: 0 2px 0 var(--ink); }
+.tl-row.pick { background: #fff7ea; box-shadow: 0 4px 0 var(--ink), 0 0 0 4px rgba(255, 138, 76, 0.45); }
+.tl-row.locked { opacity: 0.72; }
+.tl-row.locked .t-cover { filter: grayscale(0.85); }
+.t-cover { position: relative; width: 60px; height: 60px; border-radius: 15px; overflow: hidden; display: grid; place-items: center; border: 2px solid var(--ink);
+  background: linear-gradient(140deg, hsl(var(--h), 90%, 66%), hsl(calc(var(--h) + 45), 80%, 46%)); }
+.t-cover i { position: absolute; top: -20%; width: 22%; height: 42%; border-radius: 4px; background: rgba(20, 10, 40, 0.35); }
+.t-cover i:nth-child(1) { left: 6%; top: 52%; }
+.t-cover i:nth-child(2) { left: 39%; top: 12%; }
+.t-cover i:nth-child(3) { left: 72%; top: 38%; }
+.t-cover svg { position: relative; width: 58%; height: 58%; filter: drop-shadow(0 2px 0 rgba(0, 0, 0, 0.25)); }
+.tl-row.pick .t-cover svg { animation: s3q 0.9s ease-in-out infinite; }
+.tl-info { min-width: 0; display: grid; gap: 1px; }
+.tl-info b { font-weight: 400; font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tl-info small { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.t-diff { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--muted); }
+.t-pips { display: inline-flex; gap: 2px; }
+.t-pips i { width: 6px; height: 6px; border-radius: 2px; background: #e4dfec; }
+.tl-row.d1 .t-pips i.on { background: #25b865; }
+.tl-row.d2 .t-pips i.on { background: #3d8bff; }
+.tl-row.d3 .t-pips i.on { background: #ff8a4c; }
+.tl-row.d4 .t-pips i.on, .tl-row.d5 .t-pips i.on { background: #ff3d6e; }
+.t-tag { font-style: normal; font-size: 10px; padding: 1px 6px; border-radius: 99px; margin-left: 5px; vertical-align: 2px; color: #fff; background: #ff3d6e; }
+.tl-side { display: grid; justify-items: end; gap: 2px; }
+.tl-side small { font-size: 12px; color: var(--muted); }
+.t-stars { display: inline-flex; gap: 1px; font-size: 15px; line-height: 1; }
+.t-stars i { font-style: normal; color: #e6e1ee; }
+.t-stars i.on { color: #ffc23d; -webkit-text-stroke: 0.6px #d48a00; }
+.t-gems { display: inline-flex; align-items: center; gap: 2px; margin-left: 4px; font-size: 13px; color: #1d6fa3; vertical-align: 1px; }
+.gem-i { width: 16px; height: 16px; display: block; }
+.tl-go { width: 44px; height: 44px; border-radius: 50%; display: grid; place-items: center; color: #fff; background: linear-gradient(135deg, #ffb04a, #ff5fa2); border: 3px solid var(--ink); box-shadow: 0 3px 0 var(--ink); }
+.tl-go svg { width: 22px; height: 22px; margin-left: 2px; }
+.tl-go:active { transform: translateY(2px); box-shadow: 0 1px 0 var(--ink); }
+.tl-row.pick .tl-go { animation: s2bob 0.8s ease-in-out infinite; }
+.tl-row.locked .tl-go { background: #d9d5e2; color: var(--muted); }
+.tl-foot { margin-top: 8px; }
+.sr-row .s .t-stars { font-size: 12px; }
+.tp-res-stars .gem { display: inline-flex; align-items: center; gap: 2px; font-size: 28px; color: #1d6fa3; opacity: 0.6; transform: scale(0.6); transition: transform 0.3s cubic-bezier(0.2, 1.6, 0.4, 1), opacity 0.3s; }
+.tp-res-stars .gem.on { opacity: 1; transform: scale(1); }
+.tp-res-stars .gem .gem-i { width: 34px; height: 34px; }
+
+/* ⚔️ 타일 대결 결과 */
+.tp-res-vs { width: 100%; display: grid; gap: 6px; }
+.tvs-row { display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 14px; background: #f6f3fa; font-size: 14px; }
+.tvs-row span:first-child { text-align: left; }
+.tvs-row span:last-child { text-align: right; }
+.tvs-row b { font-weight: 400; font-size: 20px; }
+.room-tiles { border-color: #ffb04a; background: linear-gradient(180deg, #fff7ea, #fff); }
+
+/* ---------- 시즌 2 첫 화면 2 (11-26 사용자: 배경 바꾸고 출석 체크 버튼 하나로) ---------- */
+html.s2 #app:has(#screen-home2.active)::after { display: none; }
+#screen-home2 { background: #120c34 url('../assets/bg/s2home.webp') center bottom / cover no-repeat; }
+#screen-home2::before { content: ''; position: absolute; inset: 0; pointer-events: none; background: linear-gradient(180deg, rgba(10, 6, 30, 0.55) 0%, rgba(10, 6, 30, 0.1) 30%, rgba(10, 6, 30, 0) 55%, rgba(10, 6, 30, 0.35) 100%); }
+#screen-home2 > * { position: relative; }
+#screen-home2 .logo small { text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6); }
+.s2-att-btn { position: relative; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; padding: 10px 14px 10px 10px; border-radius: 22px; text-align: left; color: var(--ink);
+  background: linear-gradient(100deg, #fff8e6, #ffe9f3); border: 3px solid var(--ink); box-shadow: 0 5px 0 var(--ink); }
+.s2-att-btn:active { transform: translateY(3px); box-shadow: 0 2px 0 var(--ink); }
+.s2-cal { display: grid; justify-items: center; width: 52px; height: 54px; border-radius: 12px; background: #fff; border: 2px solid var(--ink); overflow: hidden; box-shadow: inset 0 14px 0 #ff5f7e; padding-top: 12px; }
+.s2-cal b { font-weight: 400; font-size: 24px; line-height: 1.1; }
+.s2-cal small { font-size: 9px; letter-spacing: 1px; color: var(--muted); }
+.s2-att-txt { display: grid; gap: 2px; min-width: 0; }
+.s2-att-txt b { font-weight: 400; font-size: 19px; }
+.s2-att-txt small { font-size: 13px; color: var(--grass-dark); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.s2-att-week { display: grid; grid-template-columns: repeat(7, 9px); gap: 3px; }
+.s2-att-week i { width: 9px; height: 9px; border-radius: 50%; background: rgba(59, 42, 74, 0.14); }
+.s2-att-week i.on { background: #ffb020; }
+.s2-att-week i.today { box-shadow: 0 0 0 2px #ff5fa2; }
+.s2-att-week i:last-child { border-radius: 3px; }
+.s2-att-btn .dot { position: absolute; top: -5px; right: -5px; width: 14px; height: 14px; border-radius: 50%; background: #ff3d6e; border: 2px solid #fff; animation: pulse 1.4s ease-in-out infinite; }

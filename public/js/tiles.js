@@ -1,32 +1,34 @@
 // 🎹 시즌 2 피아노 타일 (2026-11-26, 투표에서 'A 타일'이 이김) — 브라우저와 서버가 같이 씀
-//   곡 = 드럼 단계 곡(퍼블릭 도메인)의 멜로디. 타일 하나 = 8분음표 칸 하나(더 빠른 음은 그 타일을 누르면 같이 울림)
-//   한 바퀴(lap) 돌 때마다 빨라짐: ★ → ★★ → ★★★ → 👑(그 뒤 바퀴마다) — 하트 3개(놓침·빈 줄 누름에 하나씩), 바퀴를 돌면 하나 회복
+//   곡 = 드럼 단계 곡(퍼블릭 도메인)의 멜로디. 타일 하나 = 멜로디 음 하나 (11-26 사용자 '같이 넣으니까 노래가 이상해' → 묶음·화음 없앰)
+//   첫 바퀴(곡 하나) 동안 별 3개가 차오름(1/3·2/3·끝) → 그 뒤부터 바퀴마다 빨라지고 다이아몬드가 하나씩 (11-26 사용자)
+//   하트 3개(놓침·빈 줄 누름에 하나씩), 바퀴를 돌면 하나 회복
 //   점수 = 친 타일 수. 랭킹 = 곡마다(scores 칸 3000+곡 번호) + 시즌 타일 총합(명예의 전당 'tiles')
 //   판정 글자 없음: 아래쪽에 온 타일을 누르기만 하면 됨 (빠를수록 그 시간이 짧아짐)
 //   ⚠ 서버는 tileTimes 로 '그 시간 안에 칠 수 있는 타일 수'를 넘는 점수를 막음 → 이 파일을 바꾸면 이미 올라간 기록과 기준이 달라짐
 
 import { parseMelody, STEPS_PER_BAR, COUNT_IN_BARS, getLevel, TempoMap, CRASH } from './charts.js';
 
-/** 곡 목록 (쉬운 것부터). bpm = 타일용 빠르기 (느린 곡은 조금 빠르게: 첫 바퀴 초당 타일 1.5~2개쯤) */
+/** 곡 목록 (쉬운 것부터). bpm = 타일용 빠르기 (11-26 사용자 '너무 느려' → 첫 바퀴 초당 타일 쉬움 2.6 · 보통 3 · 어려움 3.4 · 지옥 4 · 지옥+ 4.8,
+ *    단 타일 사이가 너무 붙지 않게(쉬움 0.16초·지옥+ 0.12초 이상) — 16분음표가 많은 곡은 원곡보다 느려짐) */
 export const TILE_SONGS = [
-  { id: 1, bpm: 128, diff: 1 },
-  { id: 2, bpm: 118, diff: 1 },
-  { id: 3, bpm: 128, diff: 1 },
-  { id: 4, bpm: 138, diff: 1 },
-  { id: 5, bpm: 146, diff: 2 },
-  { id: 6, bpm: 113, diff: 2 },
-  { id: 11, bpm: 108, diff: 2 },
-  { id: 12, bpm: 128, diff: 2 },
-  { id: 7, bpm: 112, diff: 3 },
-  { id: 17, bpm: 132, diff: 3 },
-  { id: 9, bpm: 110, diff: 3 },
-  { id: 8, bpm: 108, diff: 3 },
-  { id: 16, bpm: 120, diff: 4 },
-  { id: 10, bpm: 108, diff: 4 },
-  { id: 13, bpm: 112, diff: 4 },
-  { id: 18, bpm: 144, diff: 4 },
-  { id: 14, bpm: 132, diff: 5 },
-  { id: 15, bpm: 144, diff: 5 },
+  { id: 1, bpm: 178, diff: 1 },
+  { id: 2, bpm: 162, diff: 1 },
+  { id: 3, bpm: 188, diff: 1 },
+  { id: 4, bpm: 234, diff: 1 },
+  { id: 5, bpm: 188, diff: 2 },
+  { id: 6, bpm: 160, diff: 2 },
+  { id: 11, bpm: 80, diff: 2 },
+  { id: 12, bpm: 156, diff: 2 },
+  { id: 7, bpm: 104, diff: 3 },
+  { id: 17, bpm: 162, diff: 3 },
+  { id: 9, bpm: 126, diff: 3 },
+  { id: 8, bpm: 124, diff: 3 },
+  { id: 16, bpm: 114, diff: 4 },
+  { id: 10, bpm: 86, diff: 4 },
+  { id: 13, bpm: 102, diff: 4 },
+  { id: 18, bpm: 102, diff: 4 },
+  { id: 14, bpm: 74, diff: 5 },
+  { id: 15, bpm: 110, diff: 5 },
 ];
 export const TILE_DIFF = ['', '쉬움', '보통', '어려움', '지옥', '지옥+'];
 /** 처음 몇 곡은 누구나 (나머지는 드럼 4단계부터처럼 팔로워 인증) */
@@ -34,10 +36,8 @@ export const TILE_FREE = 3;
 /** 랭킹 저장 칸: scores.level = 3000 + 곡 번호 */
 export const TILE_SLOT0 = 3000;
 export const TILE_SLOT_MAX = 3999;
-/** 한 바퀴는 적어도 이만큼 (짧은 멜로디는 되풀이) */
-export const LAP_MIN_SEC = 22;
-/** 타일 사이 최소 칸 (16분 칸, 2 = 8분음표) */
-export const TILE_MIN_GAP = 2;
+/** 한 바퀴(= 곡 하나)는 적어도 이만큼 (짧은 멜로디는 되풀이) */
+export const LAP_MIN_SEC = 20;
 /** 이 바퀴까지 돌면 끝 (그 전에 사람은 못 버팀) */
 export const MAX_LAPS = 16;
 export const TILE_HEARTS = 3;
@@ -47,13 +47,17 @@ export const NEXT_B = 3;
 export const GONE_B = 0.5;
 export const GONE_MIN_SEC = 0.15;
 
-/** 바퀴 k(0부터)의 빠르기 배수: 1 → 1.2 → 1.4 → 바퀴마다 +0.12 */
+/** 바퀴 k(0부터)의 빠르기 배수: 첫 곡은 그대로, 그 뒤 바퀴마다 +0.12 */
 export function lapSpeed(k) {
-  return k <= 0 ? 1 : k === 1 ? 1.2 : 1.4 + 0.12 * (k - 2);
+  return k <= 0 ? 1 : 1 + 0.12 * k;
 }
-/** 바퀴 수 → 별(1~3) · 왕관(4바퀴부터 1개씩) */
-export function lapStars(laps) {
-  return { stars: Math.min(3, Math.max(0, laps)), crowns: Math.max(0, laps - 3) };
+/**
+ * 별 · 다이아: 첫 바퀴에서 별 3개가 차오름 (frac = 첫 바퀴 진행 0~1, 1/3·2/3·끝), 다 돌면 그 뒤 바퀴마다 다이아 하나
+ *   laps = 다 돈 바퀴 수
+ */
+export function lapStars(laps, frac = 0) {
+  if (laps >= 1) return { stars: 3, gems: laps - 1 };
+  return { stars: Math.max(0, Math.min(2, Math.floor(frac * 3 + 1e-9))), gems: 0 };
 }
 
 export const tileId = (songId) => `t${songId}`;
@@ -72,10 +76,7 @@ export const isTileSlot = (slot) => slot > TILE_SLOT0 && slot <= TILE_SLOT_MAX;
 export const tileClosed = (song) => !!song && song.order > TILE_FREE;
 
 const _laps = new Map();
-/**
- * 한 바퀴 타일 [{ step, beat, notes:[{ d, midi, len }], midi, bar }] + 바퀴 정보 (곡마다 기억)
- *   step = 바퀴 안 16분 칸, d = 타일 첫 음에서 몇 칸 뒤에 울리는지
- */
+/** 한 바퀴 타일 [{ step, beat, midi, len, bar, s, lane }] + 바퀴 정보 (곡마다 기억). step = 바퀴 안 16분 칸 */
 export function tileLap(songId) {
   if (_laps.has(songId)) return _laps.get(songId);
   const s = TILE_SONGS.find((x) => x.id === songId);
@@ -85,18 +86,12 @@ export function tileLap(songId) {
   const reps = Math.max(1, Math.ceil(LAP_MIN_SEC / ((bars * 240) / s.bpm)));
   const notes = parseMelody(level.song.melody);
   const tiles = [];
-  for (let r = 0; r < reps; r++) {
-    let last = -99;
+  // 음 하나 = 타일 하나
+  for (let r = 0; r < reps; r++)
     for (const n of notes) {
       const step = (r * bars + n.bar) * STEPS_PER_BAR + n.step;
-      const cur = tiles[tiles.length - 1];
-      if (cur && step - last < TILE_MIN_GAP) cur.notes.push({ d: step - cur.step, midi: n.midi, len: n.len });
-      else {
-        tiles.push({ step, beat: step / 4, bar: r * bars + n.bar, s: n.step, midi: n.midi, len: n.len, notes: [{ d: 0, midi: n.midi, len: n.len }] });
-        last = step;
-      }
+      tiles.push({ step, beat: step / 4, bar: r * bars + n.bar, s: n.step, midi: n.midi, len: n.len });
     }
-  }
   const lanes = tileLanes(tiles.map((t) => t.midi));
   tiles.forEach((t, i) => (t.lane = lanes[i]));
   const lap = { songId, bpm: s.bpm, bars: bars * reps, reps, beats: bars * reps * 4, tiles };

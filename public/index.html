@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=f9f3fb25f7" />
+  <link rel="stylesheet" href="css/style.css?v=7910196bb3" />
 </head>
 <body>
   <div id="app">
@@ -87,11 +87,13 @@
       </div>
       <div class="s2-actions">
         <button class="s2-start" data-action="s2-modes"><span class="s2-start-shine"></span><b>게임 시작</b><small id="s2-start-sub">🎹 시즌 2 랭킹 진행 중</small></button>
-        <div class="s2-daily">
-          <button class="s2-mini s2-att" data-action="s2-quests" id="s2-att-card"><span class="s2-mini-ico">📅</span><b id="s2-att-title">출석</b><small id="s2-att-sub"></small><i class="dot" id="s2-att-dot" hidden></i></button>
-          <button class="s2-mini s2-q" data-action="s2-quests" id="s2-q-card"><span class="s2-mini-ico">🎯</span><b id="s2-q-title">퀘스트</b><small id="s2-q-sub"></small><i class="dot" id="s2-q-dot" hidden></i></button>
-        </div>
-        <button class="s2-comm" data-action="s2-quests" id="s2-comm" hidden></button>
+        <!-- 📅 출석 체크 버튼 하나 (11-26 사용자: 퀘스트 버튼은 뺌) -->
+        <button class="s2-att-btn" data-action="s2-quests" id="s2-att-card">
+          <span class="s2-cal"><b id="s2-cal-day">1</b><small>DAY</small></span>
+          <span class="s2-att-txt"><b id="s2-att-title">출석 체크</b><small id="s2-att-sub"></small></span>
+          <span class="s2-att-week" id="s2-att-week"></span>
+          <i class="dot" id="s2-att-dot" hidden></i>
+        </button>
         <div class="s2-row">
           <button class="s2-icon" data-action="shop-open"><span>🛒</span><small>상점</small></button>
           <button class="s2-icon" data-action="room-open"><span>⚔️</span><small>멀티</small></button>
@@ -110,13 +112,22 @@
         <button class="icon-btn" data-action="s2-rank" aria-label="랭킹"><span data-icon="trophy"></span></button>
       </header>
       <div class="tl-wrap">
-        <div class="tl-live"><span class="live-dot"></span><b>시즌 2 랭킹 진행 중</b><small id="tl-live-sub"></small></div>
-        <div class="seg seg-sm tl-view" id="tl-view">
-          <button data-tview="tile" aria-pressed="true"><b>클래식 타일</b><small>검은 타일 4줄</small></button>
-          <button data-tview="road" aria-pressed="false"><b>원근 타일</b><small>멀리서 내려오는 게 보여요</small></button>
+        <div class="tl-hero" id="tl-hero"></div>
+        <div class="tl-tools">
+          <div class="tl-filter" id="tl-filter">
+            <button data-tfilter="all" aria-pressed="true">전체</button>
+            <button data-tfilter="1" aria-pressed="false">쉬움</button>
+            <button data-tfilter="2" aria-pressed="false">보통</button>
+            <button data-tfilter="3" aria-pressed="false">어려움</button>
+            <button data-tfilter="4" aria-pressed="false">지옥</button>
+          </div>
+          <div class="tl-viewsw" id="tl-view">
+            <button data-tview="tile" aria-pressed="true">클래식</button>
+            <button data-tview="road" aria-pressed="false">원근</button>
+          </div>
         </div>
         <div class="tl-list" id="tl-list"></div>
-        <p class="levels-foot">한 바퀴 돌 때마다 빨라져요 · ★ 1바퀴 · ★★ 2바퀴 · ★★★ 3바퀴 · 👑 그 뒤로<br>하트 3개 — 놓치거나 빈 줄을 누르면 하나씩, 한 바퀴 돌면 하나 회복</p>
+        <p class="levels-foot tl-foot">곡 하나를 끝까지 치면 <b>별 3개</b> · 그 뒤로 빨라지며 바퀴마다 <b>다이아몬드</b><br>하트 3개 — 놓치거나 빈 줄을 누르면 하나씩, 한 바퀴 돌면 하나 회복</p>
       </div>
     </section>
 
@@ -142,11 +153,14 @@
             <div class="tp-res-rank" id="tp-res-rank" hidden></div>
             <div class="tp-res-stats" id="tp-res-stats"></div>
             <div class="tp-res-gift" id="tp-res-gift" hidden></div>
-            <div class="tp-res-btns">
-              <button class="btn btn-ghost" data-action="tp-list">곡 목록</button>
-              <button class="btn btn-primary" data-action="tp-again">다시 하기</button>
+            <div class="tp-res-vs" id="tp-res-vs" hidden></div>
+            <div id="tp-res-btns">
+              <div class="tp-res-btns">
+                <button class="btn btn-ghost" data-action="tp-list">곡 목록</button>
+                <button class="btn btn-primary" data-action="tp-again">다시 하기</button>
+              </div>
+              <button class="link" data-action="tp-rank">🏆 이 곡 랭킹 보기</button>
             </div>
-            <button class="link" data-action="tp-rank">🏆 이 곡 랭킹 보기</button>
           </div>
         </div>
       </div>
@@ -930,10 +944,8 @@
       <h3>📅 출석 체크</h3>
       <p class="s2q-att-note" id="s2q-att-note"></p>
       <div class="s2q-week" id="s2q-week"></div>
-      <h3>🎯 오늘의 퀘스트</h3>
-      <div class="s2q-list" id="s2q-list"></div>
       <div class="s2q-comm-wrap" id="s2q-comm-wrap" hidden>
-        <h3>📣 다 같이 퀘스트</h3>
+        <h3>📣 다 같이 목표</h3>
         <div class="s2q-list" id="s2q-comm"></div>
       </div>
       <p class="muted small" id="s2q-foot"></p>
@@ -1061,6 +1073,11 @@
       <button class="icon-btn close" data-action="room-close" aria-label="닫기"><span data-icon="close"></span></button>
       <h3><span data-icon="swords" data-e></span> 멀티</h3>
       <div id="room-entry">
+        <div class="room-sec room-rush room-tiles s2-only">
+          <h4>🎹 타일 랜덤 대결 <em class="rush-wait" id="tiles-wait" hidden></em></h4>
+          <p class="muted small">모르는 사람과 같은 피아노 타일 곡을 동시에! 3바퀴 동안 많이 친 사람이 이겨요</p>
+          <button class="btn btn-primary btn-big" data-action="tiles-rush-go">🎹 상대 찾기</button>
+        </div>
         <div class="room-sec room-rush">
           <h4>🎲 랜덤 대결 <em class="rush-wait" id="rush-wait" hidden></em></h4>
           <p class="muted small">모르는 사람과 바로! 4~18단계 중 무작위 곡 · 둘 다 깨면 다른 곡이 바로 이어져요 · 먼저 목숨을 다 쓰면 져요</p>
@@ -1275,6 +1292,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=b30917032e" defer></script>
+  <script src="js/app.js?v=824356dd6a" defer></script>
 </body>
 </html>
