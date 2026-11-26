@@ -13,7 +13,7 @@ import { kakaoAuthUrl, kakaoUserId, kakaoHash, KAKAO_STATE_MS } from './kakao.js
 import { cleanMap, mapDifficulty, mapLevel } from '../public/js/usermap.js';
 import { buyItem, cleanOwned, legacyRefund, seasonRewards } from '../public/js/shop.js';
 import { seasonAt, endedSeasons, HALL_BOARDS, hallBoardsOf, cleanHallImage, SEASONS } from '../public/js/season.js';
-import { tileSong, tileSlot, tileClosed, checkTileRun, lapGrade, gradeLaps, TILE_SONGS } from '../public/js/tiles.js';
+import { tileSong, tileSlot, tileClosed, checkTileRun, lapGrade, gradeLaps, TILE_SONGS, mapTileMax } from '../public/js/tiles.js';
 import { applyS2, cleanCommunity, COMMUNITY_DEFAULT, s2Of } from '../public/js/quests.js';
 import { LEVELS, LAST_LEVEL_ID, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur, ENDLESS_ID, ROUND_BARS, roundBpm, pointsFor, levelEndlessBase, LEVEL_ENDLESS_STEP, needsVerify, isClosed, diamondsFor } from '../public/js/charts.js';
 
@@ -1219,7 +1219,8 @@ export function createHandler(cfg, { store, meter = null }) {
       const pl = await getPlayer(request);
       const canWrite = cfg.gateMode === 'open' ? !!pl : isConfirmed(pl);
       const writeErr = () => json(403, { error: !pl ? 'confirm_required' : isVerified(pl) ? 'confirm_pending' : 'confirm_required' });
-      const pub = (m) => ({ id: m.id, nick: m.nick, name: m.name, bpm: m.bpm, bars: m.bars, diff: m.diff, at: m.at, plays: m.plays, likes: m.likes, mine: !!pl && m.igsid === pl.igsid });
+      // 🎹 타일 맵은 diff 칸에 100 을 더해 적음 (표에 열을 안 늘리려고, 2026-11-26)
+      const pub = (m) => ({ id: m.id, nick: m.nick, name: m.name, bpm: m.bpm, bars: m.bars, diff: m.diff % 100, kind: m.diff >= 100 ? 'tiles' : 'drum', at: m.at, plays: m.plays, likes: m.likes, mine: !!pl && m.igsid === pl.igsid });
       if (p === '/api/maps' && m === 'GET') {
         const sort = url.searchParams.get('sort') === 'top' ? 'top' : 'new';
         // 목록은 인스턴스마다 1분 (사람 많아지면 같은 목록을 계속 읽음). 'top' 은 맵 표 전체를 정렬해서 더
@@ -1236,7 +1237,7 @@ export function createHandler(cfg, { store, meter = null }) {
         let id = null;
         for (let i = 0; i < 5 && !id; i++) {
           const tryId = crypto.randomBytes(5).toString('base64url').replace(/[-_]/g, 'x').slice(0, 7);
-          if (await store.addMap({ id: tryId, igsid: pl.igsid, nick: pl.username, name: map.name, bpm: map.bpm, bars: map.bars.length, diff: mapDifficulty(map), data: map, at: now })) id = tryId;
+          if (await store.addMap({ id: tryId, igsid: pl.igsid, nick: pl.username, name: map.name, bpm: map.bpm, bars: map.bars.length, diff: mapDifficulty(map) + (map.kind === 'tiles' ? 100 : 0), data: map, at: now })) id = tryId;
         }
         if (!id) return json(500, { error: 'server_error' });
         memo.delete('maps:new');
@@ -1261,15 +1262,16 @@ export function createHandler(cfg, { store, meter = null }) {
           return json(200, { ok: await store.deleteMap(id, pl.igsid) });
         }
         if (act === 'score') {
-          // 🏆 판이 끝날 때 한 번: mode 'free'(무적) / 'hearts'(하트 5개, 끝까지 살아남은 판만)
+          // 🏆 판이 끝날 때 한 번: mode 'free'(무적) / 'hearts'(하트 5개, 끝까지 살아남은 판만) / 'tiles'(🎹 타일 맵)
           const b = await readJson(request);
-          const mode = b.mode === 'hearts' ? 'hearts' : b.mode === 'free' ? 'free' : null;
+          const mode = ['hearts', 'free', 'tiles'].includes(b.mode) ? b.mode : null;
           const score = Math.floor(Number(b.score));
           if (!mode || !Number.isFinite(score) || score < 0) return json(400, { error: 'bad_score' });
           const r = await store.getMap(id);
           if (!r) return json(404, { error: 'not_found' });
           const map = cleanMap(r.data);
-          if (!map || score > maxScore(mapLevel(map))) return json(400, { error: 'bad_score' });
+          if (!map || (mode === 'tiles') !== (map.kind === 'tiles')) return json(400, { error: 'bad_score' });
+          if (score > (mode === 'tiles' ? mapTileMax(map) : maxScore(mapLevel(map)))) return json(400, { error: 'bad_score' });
           const s = await store.addMapScore(id, pl.igsid, pl.username, mode, score);
           if (!s) return json(404, { error: 'not_found' });
           memo.delete('maptop:' + id);

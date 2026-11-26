@@ -883,8 +883,8 @@ END $$`);
     // 모드마다 색인(map_scores_top)으로 위 n 줄만 읽음 (예전 ROW_NUMBER 는 그 맵 기록을 전부 읽었음, 2026-11-22)
     const part = (mode, a) =>
       `SELECT mode, nick, score, at FROM (SELECT mode, nick, score, at FROM map_scores WHERE map_id = $1 AND mode = '${mode}' ORDER BY score DESC, at ASC LIMIT $2) ${a}`;
-    const rows = await this.q(`${part('free', 'f')} UNION ALL ${part('hearts', 'h')}`, [id, n]);
-    const out = { free: [], hearts: [] };
+    const rows = await this.q(`${part('free', 'f')} UNION ALL ${part('hearts', 'h')} UNION ALL ${part('tiles', 't')}`, [id, n]);
+    const out = { free: [], hearts: [], tiles: [] };
     rows.sort((a, b) => Number(b.score) - Number(a.score) || Number(a.at) - Number(b.at));
     for (const r of rows) if (out[r.mode]) out[r.mode].push({ nick: r.nick, score: Number(r.score) });
     return out;

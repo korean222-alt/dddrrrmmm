@@ -572,7 +572,7 @@ export class JsonStore {
   }
   /** 모드별 1~n등 { free: [{ nick, score }], hearts: [...] } */
   topMapScores(id, n = 3) {
-    const out = { free: [], hearts: [] };
+    const out = { free: [], hearts: [], tiles: [] };
     for (const [k, v] of Object.entries(this.data.mapScores)) {
       const [mid, mode] = k.split('|');
       if (mid === id && out[mode]) out[mode].push({ nick: v.nick, score: v.score, at: v.at });

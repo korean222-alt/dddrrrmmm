@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=7910196bb3" />
+  <link rel="stylesheet" href="css/style.css?v=572fd664cb" />
 </head>
 <body>
   <div id="app">
@@ -148,12 +148,13 @@
           <div class="tp-res">
             <div class="tp-res-song" id="tp-res-song"></div>
             <div class="tp-res-stars" id="tp-res-stars"></div>
-            <div class="tp-res-score"><span id="tp-res-score">0</span><small>타일</small></div>
+            <div class="tp-res-score"><span id="tp-res-score">0</span><small>점</small></div>
             <div class="tp-res-new" id="tp-res-new" hidden>최고 기록!</div>
             <div class="tp-res-rank" id="tp-res-rank" hidden></div>
             <div class="tp-res-stats" id="tp-res-stats"></div>
             <div class="tp-res-gift" id="tp-res-gift" hidden></div>
             <div class="tp-res-vs" id="tp-res-vs" hidden></div>
+            <div class="map-rank tp-res-maprank" id="tp-res-maprank" hidden><small>🎹 이 맵 랭킹</small><ol id="tp-res-maptop"></ol></div>
             <div id="tp-res-btns">
               <div class="tp-res-btns">
                 <button class="btn btn-ghost" data-action="tp-list">곡 목록</button>
@@ -310,6 +311,7 @@
           <button type="button" data-sort="new"><b>✨ 새 맵</b><small>방금 올라온 것</small></button>
           <button type="button" data-sort="top"><b>❤ 인기</b><small>좋아요 많은 것</small></button>
         </div>
+        <p class="maps-warn" id="maps-warn">⚠ 11월 27일에 좋아요(❤)가 2개 이하인 맵은 지워져요</p>
         <div id="maps-list" class="maps-list"></div>
         <p class="hint maps-foot">누구나 피아노나 드럼으로 곡을 만들어 올릴 수 있어요. 이상한 맵은 「신고」를 눌러 주세요.</p>
       </div>
@@ -324,6 +326,10 @@
       </header>
       <div class="studio mapmake">
         <div class="studio-block mk-top">
+          <div class="seg mk-kind" id="mk-kind">
+            <button type="button" data-mkkind="drum"><b>🥁 드럼 맵</b><small>쿵·짝 치기</small></button>
+            <button type="button" data-mkkind="tiles"><b>🎹 타일 맵</b><small>피아노 타일</small></button>
+          </div>
           <label class="field"><span>곡 이름</span><input type="text" id="mk-name" maxlength="30" placeholder="예) 내가 만든 노래" /></label>
           <div class="mk-row">
             <span>빠르기</span>
@@ -941,9 +947,11 @@
   <div class="modal" id="modal-s2q" hidden>
     <div class="sheet s2q">
       <button class="icon-btn close" data-action="close-s2q" aria-label="닫기"><span data-icon="close"></span></button>
-      <h3>📅 출석 체크</h3>
+      <h3>📅 출석 체크 · 퀘스트</h3>
       <p class="s2q-att-note" id="s2q-att-note"></p>
       <div class="s2q-week" id="s2q-week"></div>
+      <h3>🎯 오늘의 퀘스트</h3>
+      <div class="s2q-list" id="s2q-list"></div>
       <div class="s2q-comm-wrap" id="s2q-comm-wrap" hidden>
         <h3>📣 다 같이 목표</h3>
         <div class="s2q-list" id="s2q-comm"></div>
@@ -1292,6 +1300,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=57c0a05aa6" defer></script>
+  <script src="js/app.js?v=2a9b6e3d02" defer></script>
 </body>
 </html>

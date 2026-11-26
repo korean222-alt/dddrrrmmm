@@ -309,6 +309,11 @@ export function cleanMap(raw) {
     return null;
   }
   const out = { name, bpm, bars: [...bars], melody: melody.map((m) => m.trim().replace(/\s+/g, ' ')), prog: prog.map((p) => String(p).trim().replace(/\s+/g, ' ')) };
+  // 🎹 타일 맵 (2026-11-26): 멜로디로 피아노 타일을 침 → 음이 적어도 minNotes 개
+  if (raw.kind === 'tiles') {
+    if (parseMelody(out.melody).length < MAP_LIMITS.minNotes) return null;
+    out.kind = 'tiles';
+  }
   // 🎹 왼손(아래 줄, 악보에서) — 있으면 자동 베이스 대신 이걸 침. 이상하면 빼고 맵은 그대로
   const low = raw.low;
   if (Array.isArray(low) && low.length === bars.length && low.every((m) => typeof m === 'string' && m.length <= 200)) {
