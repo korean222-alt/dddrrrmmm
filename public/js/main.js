@@ -68,6 +68,7 @@ const audio = new AudioEngine();
 const renderer = new Renderer($('#game-canvas'));
 // 자동 화질: 이 기기에서 버벅여서 내려갔던 단계를 기억해 다음 판부터 그대로
 renderer.quality = Math.max(0, Math.min(2, Number(load('gfxQ', 2)) || 0));
+renderer.noLights = !!load('noLights', false);
 renderer.onQualityDrop = (q) => {
   save('gfxQ', q);
   if (q === 0) state.suggestLite = true;
@@ -1935,6 +1936,7 @@ function openSettings() {
   $('#set-vibrate').checked = !!s.vibrate;
   $('#set-lite').checked = !!s.lite;
   $('#set-touchshow').checked = !!load('touchShow', false);
+  $('#set-nolights').checked = !!load('noLights', false);
   $$('#set-band button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.band === (s.band || 'orch')));
   $$('#set-tview button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tview === tileView())));
   refreshKakao();
@@ -2668,6 +2670,11 @@ function bindSettings() {
   $('#set-touchshow').addEventListener('input', (e) => {
     save('touchShow', e.target.checked);
     renderer.touchShow = e.target.checked;
+  });
+  // 💡 조명 효과 끄기 (2026-11-26 건의)
+  $('#set-nolights').addEventListener('input', (e) => {
+    save('noLights', e.target.checked);
+    renderer.noLights = e.target.checked;
   });
   $('#set-band').addEventListener('click', async (e) => {
     const b = e.target.closest('[data-band]');
