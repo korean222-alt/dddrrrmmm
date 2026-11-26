@@ -20,7 +20,7 @@ const saveProg = (p) => save('s2q', p);
 export function noteTilePlay(r, now = Date.now()) {
   const p = prog(now);
   p.tplays++;
-  p.ttiles += int(r.tiles);
+  p.ttiles += int(r.hits ?? r.tiles); // 2026-11-27 부터 r.tiles 는 점수 → 친 타일 수는 hits
   p.tstar = Math.max(p.tstar, int(r.stars));
   p.tcombo = Math.max(p.tcombo, int(r.maxCombo));
   if (!p.tsongs.includes(r.songId)) p.tsongs.push(r.songId);

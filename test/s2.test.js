@@ -14,65 +14,65 @@ import { kakaoHash } from '../server/kakao.js';
 import { getLevel } from '../public/js/charts.js';
 import { roomLevel, pickTileLevel } from '../server/rooms.js';
 
-test('타일 채보: 줄 단위 · 같은 줄 연속·겹침 없음 · 곡 하나 끝까지 · 코인 파티 · 빨라져도 이웃 타일 0.2초 이상(아이폰)', () => {
+test('타일 채보: 줄 단위 · 같은 줄 연속·겹침 없음 · 바퀴마다 같은 타일 · 코인 파티 · 제일 빠른 바퀴도 이웃 타일 0.2초 이상(아이폰)', () => {
   for (const s of TILE_SONGS) {
     const lap = tileLap(s.id);
     assert.ok(lap && lap.tiles.length >= 30, `${s.id} 타일 수`);
     assert.ok(lap.u >= 2 && lap.u <= 8, `${s.id} 한 줄 칸`);
-    assert.ok(lap.notes.length >= lap.tiles.length, `${s.id} 노래 음 ⊇ 타일`);
     const c = tileCourse(s.id);
+    const song = c.tiles.filter((t) => !t.coin);
+    const coins = c.tiles.filter((t) => t.coin);
+    assert.equal(c.laps, MAX_LAPS);
     let prev = -1;
     const end = [-1, -1, -1, -1];
-    let seenParty = false;
-    c.tiles.forEach((t, i) => {
+    song.forEach((t, i) => {
       assert.ok(t.lane >= 0 && t.lane <= 3);
       assert.notEqual(t.lane, prev, `${s.id} 타일 ${i}: 같은 줄 연속`);
       prev = t.lane;
-      // 같은 줄 타일끼리 안 겹침 (긴 타일 포함)
       assert.ok(t.abs >= end[t.lane] - 1e-9, `${s.id} 줄 겹침`);
       end[t.lane] = t.abs + t.rows * c.u;
-      if (t.coin) {
-        seenParty = true;
-        assert.equal(t.pts, 0);
-        assert.equal(t.rows, 1);
-      } else assert.ok(t.rows >= 1 && t.pts === t.rows && t.hold === t.rows >= 2);
+      assert.ok(t.rows >= 1 && t.hold === t.rows >= 2);
       if (i > 0) {
-        const p = c.tiles[i - 1];
-        // 📱 아이폰: 이웃 타일은 늘 0.2초 이상 · 긴 타일은 끝난 뒤 0.2초 이상 비움
+        const p = song[i - 1];
+        // 📱 아이폰: 이웃 타일은 늘 0.2초 이상 · 긴 타일은 끝난 뒤 0.2초 이상 비움 (제일 빠른 바퀴까지)
         assert.ok(t.t - p.t >= MIN_TAP_SEC - 1e-6, `${s.id} 타일 ${i} 간격 ${(t.t - p.t).toFixed(3)}`);
         if (p.hold) assert.ok(t.t - (c.tempo.stepTime(p.abs + p.rows * c.u) - c.t0) >= MIN_TAP_SEC - 1e-6, `${s.id} 긴 타일 뒤 간격`);
-        assert.ok(t.abs - p.abs >= c.u - 1e-9, `${s.id} 한 줄에 하나`);
       }
     });
-    assert.ok(seenParty, `${s.id} 코인 파티`);
-    // 코인 파티는 첫 바퀴 바로 뒤
-    const firstCoin = c.tiles.findIndex((t) => t.coin);
-    assert.equal(firstCoin, c.lapEnd[0], `${s.id} 파티 자리`);
-    assert.equal(c.tiles[firstCoin - 1].k, 0);
-    assert.equal(c.tiles.filter((t) => t.coin).length > 8, true);
-    // 한 바퀴는 25초 이상 (짧은 곡을 같은 높이로 되풀이하지 않음), 타일 시각은 늘어나기만
+    // 바퀴마다 같은 타일 · 같은 줄 (2026-11-27 '띄엄띄엄 이상해')
+    const lapsOf = [0, 1, 2, 3].map((k) => song.filter((t) => t.k === k));
+    for (const L of lapsOf.slice(1)) assert.deepEqual(L.map((t) => t.lane + ':' + t.rows), lapsOf[0].map((t) => t.lane + ':' + t.rows), `${s.id} 바퀴마다 같음`);
+    // 코인 파티: 첫 바퀴 바로 뒤, 많이, 같은 줄 안 겹침
+    assert.ok(coins.length > 20, `${s.id} 코인 수`);
+    assert.ok(coins.every((t) => t.abs >= lapsOf[0].at(-1).abs && t.abs < lapsOf[1][0].abs));
+    const cend = [-1, -1, -1, -1];
+    for (const t of coins) {
+      assert.ok(t.abs >= cend[t.lane] - 1e-9, `${s.id} 코인 겹침`);
+      cend[t.lane] = t.abs + c.u;
+    }
+    // 바퀴마다 빨라짐 (바퀴 안에선 고정)
+    const dur = lapsOf.map((L) => L.at(-1).t - L[0].t);
+    for (let k = 1; k < 4; k++) assert.ok(dur[k] < dur[k - 1], `${s.id} 빨라짐`);
     assert.ok((lap.steps * 15) / lap.bpm >= 25, `${s.id} 바퀴 길이`);
     const { t: times } = tileTimes(s.id);
-    assert.equal(times.length, c.lapEnd[MAX_LAPS - 1]);
+    assert.equal(times.length, song.length);
     assert.equal(times[0], 0);
     for (let i = 1; i < times.length; i++) assert.ok(times[i] > times[i - 1]);
-    // 둘째 바퀴는 첫 바퀴보다 짧게 걸림 (빨라짐)
-    const l0 = c.tiles.filter((t) => t.k === 0);
-    const l1 = c.tiles.filter((t) => t.k === 1);
-    assert.ok(l1.at(-1).t - l1[0].t < l0.at(-1).t - l0[0].t, `${s.id} 빨라짐`);
   }
   // 조각뿐이던 곡은 곡 전체 (징글벨 = 절 + 후렴)
   assert.equal(tileLap(3).bars, 32);
   assert.equal(lapSpeed(0), 1);
-  assert.ok(lapSpeed(1) > 1 && lapSpeed(3) > lapSpeed(2));
+  assert.ok(lapSpeed(1) > 1 && lapSpeed(3) > lapSpeed(2) && lapSpeed(9) === lapSpeed(3));
   // 첫 바퀴 동안 별이 차오르고(1/3·2/3·끝), 둘째 바퀴에 다이아 3개가 똑같이
   assert.deepEqual(lapStars(0, 0.2), { stars: 0, gems: 0 });
   assert.deepEqual(lapStars(0, 0.34), { stars: 1, gems: 0 });
   assert.deepEqual(lapStars(0, 0.99), { stars: 2, gems: 0 });
+  // 다이아는 빨라진 곡을 끝낼 때마다 하나 (2026-11-27)
   assert.deepEqual(lapStars(1), { stars: 3, gems: 0 });
-  assert.deepEqual(lapStars(1, 0.7), { stars: 3, gems: 2 });
-  assert.deepEqual(lapStars(5), { stars: 3, gems: 3 });
-  assert.equal(gradeLaps(lapGrade(7)), 7);
+  assert.deepEqual(lapStars(2), { stars: 3, gems: 1 });
+  assert.deepEqual(lapStars(3), { stars: 3, gems: 2 });
+  assert.deepEqual(lapStars(4), { stars: 3, gems: 3 });
+  assert.equal(gradeLaps(lapGrade(3)), 3);
   assert.equal(tileSong('t99'), null);
   assert.equal(tileSong('t1').order, 1);
   assert.equal(tileSlot(12), 3012);
@@ -91,17 +91,19 @@ test('유저 맵 타일: 멜로디로 한 바퀴 · 최대 점수 2바퀴 · cle
   assert.equal(cleanMap({ ...raw, kind: undefined }).kind, undefined);
 });
 
-test('타일 점수 검사: 시간 안에 칠 수 있는 수만 · 바퀴 수와 맞아야', () => {
-  const lap = tileLap(1);
-  const per = lap.tiles.length;
+test('타일 점수 검사 (드럼처럼 판정 점수): 시간 안에 칠 수 있는 점수만 · 바퀴 수와 맞아야', () => {
+  const c = tileCourse(1);
+  const per = c.lapEnd[0];
   const sec = tileTimes(1).t[per - 1] + 1;
-  assert.ok(checkTileRun(1, { tiles: per, laps: 1, maxCombo: per }, sec).ok);
-  assert.ok(checkTileRun(1, { tiles: lap.points, laps: 1, maxCombo: per }, sec).ok);
-  assert.equal(checkTileRun(1, { tiles: per, laps: 1 }, 5).error, 'too_fast');
+  assert.ok(checkTileRun(1, { tiles: c.lapPts[0], laps: 1, maxCombo: per }, sec).ok);
+  assert.ok(checkTileRun(1, { tiles: per * 400, laps: 1, maxCombo: per }, sec).ok);
+  assert.equal(checkTileRun(1, { tiles: c.lapPts[0], laps: 1 }, 5).error, 'too_fast');
   assert.equal(checkTileRun(1, { tiles: 5, laps: 3 }, 999).error, 'bad_score');
-  assert.equal(checkTileRun(1, { tiles: 3 * lap.points, laps: 1 }, 9999).error, 'bad_score');
+  assert.equal(checkTileRun(1, { tiles: c.lapPts[1] + 1, laps: 1 }, 9999).error, 'bad_score');
   assert.equal(checkTileRun(1, { tiles: -1, laps: 0 }, 10).error, 'bad_score');
   assert.ok(tilesWithin(1, 0) < tilesWithin(1, 30));
+  // 만점 = PERFECT × 콤보 배수 (첫 타일 1010점)
+  assert.equal(c.tiles[0].pts, 1010);
 });
 
 test('퀘스트: 날마다 3개(쉬운 것 1개), 같은 종류 안 겹침 · 출석은 하루 한 번, 이어지면 연속', () => {
@@ -193,13 +195,13 @@ for (const kind of KINDS) test(`[${kind}] 시즌 2 타일 랭킹: 열기 전엔 
   assert.equal(run.s2.att.streak, 1);
   assert.equal(run.coins, attReward(1));
   const per = tileLap(1).tiles.length;
-  const play = { level: 't1', runToken: run.runToken, tiles: 40, laps: 0, maxCombo: 40 };
+  const play = { level: 't1', runToken: run.runToken, tiles: 40000, laps: 0, maxCombo: 40 };
   // 너무 빨리 올림 → 거절 (판 시작 바로 뒤라 40개를 칠 수 없음)
   assert.equal((await call('/api/scores', play)).status, 400);
   // 시간을 당겨서 (판 토큰을 1분 전 것으로) — 열기 전엔 미리보기
   const { sign } = await import('../server/session.js');
   const old = sign({ l: 't1', t: Date.now() - 60_000, n: 'nonce-1' }, 's');
-  const pre = await (await call('/api/scores', { ...play, runToken: old, tiles: per + 5, laps: 1 })).json();
+  const pre = await (await call('/api/scores', { ...play, runToken: old, tiles: (per + 5) * 1000, laps: 1 })).json();
   assert.equal(pre.preview, true);
   assert.equal((await store.leaderboard(3001, 50)).rows.length, 0);
   // admin 이 시즌 2 를 열고 팔로워 수를 적음
@@ -207,19 +209,19 @@ for (const kind of KINDS) test(`[${kind}] 시즌 2 타일 랭킹: 열기 전엔 
   const ad = await (await call('/api/admin/s2', { open: true, community: [{ id: 'f2000', icon: '📸', title: '팔로워 2,000명', goal: 2000, now: 2010, reward: 1000, done: true }] }, { 'X-Admin-Token': 'adm' })).json();
   assert.equal(ad.open, true);
   assert.equal(ad.community[0].done, true);
-  const out = await (await call('/api/scores', { ...play, runToken: old, tiles: per + 5, laps: 1 })).json();
+  const out = await (await call('/api/scores', { ...play, runToken: old, tiles: (per + 5) * 1000, laps: 1 })).json();
   assert.equal(out.improved, true);
   assert.equal(out.rank, 1);
   assert.ok(out.next && out.next.t1, '다음 판 토큰');
   // 같은 판 토큰 다시 → 409
-  assert.equal((await call('/api/scores', { ...play, runToken: old, tiles: per + 6, laps: 1 })).status, 409);
+  assert.equal((await call('/api/scores', { ...play, runToken: old, tiles: (per + 6) * 1000, laps: 1 })).status, 409);
   const lb = await (await call('/api/leaderboard?level=t1')).json();
   assert.equal(lb.entries[0].username, '타일왕');
-  assert.equal(lb.entries[0].score, per + 5);
+  assert.equal(lb.entries[0].score, (per + 5) * 1000);
   assert.equal(lb.entries[0].laps, 1);
   const hall = await (await call('/api/hall?board=tiles')).json();
   assert.equal(hall.board, 'tiles');
-  assert.equal(hall.me.score, per + 5);
+  assert.equal(hall.me.score, (per + 5) * 1000);
   // 드럼 단계 총합엔 안 섞임
   const stage = await (await call('/api/hall?board=stage')).json();
   assert.equal(stage.me, null);

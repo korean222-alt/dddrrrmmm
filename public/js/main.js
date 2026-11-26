@@ -101,7 +101,16 @@ function show(screenId) {
   // 곡 도중 다른 화면으로 나가면 '중간에 나감'으로 기록
   if (screenId !== 'screen-game' && hasOpenPlay()) trackPlayEnd({ result: 'quit' });
   $$('.screen').forEach((s) => s.classList.toggle('active', s.id === screenId));
+  // 🎹 시즌 2 아래 탭은 홈·뮤직·이벤트·상점·명예의 전당에서 계속 보임 (2026-11-27)
+  const tabs = $('#s2-tabs');
+  if (tabs) {
+    const on = s2On() && TAB_SCREENS.includes(screenId);
+    tabs.hidden = !on;
+    document.documentElement.classList.toggle('has-tabs', on);
+    if (on) $$('#s2-tabs [data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === (screenId === 'screen-hall' ? 'screen-events' : screenId)));
+  }
 }
+const TAB_SCREENS = ['screen-home2', 'screen-tiles', 'screen-events', 'screen-shop', 'screen-hall'];
 function openModal(id) {
   $('#' + id).hidden = false;
 }
@@ -6228,22 +6237,12 @@ function refreshHome2() {
   if (gd) $('#gear-dot2').hidden = gd.hidden;
   const sn = seasonAt();
   $('#s2-start-sub').textContent = sn.n >= 2 && sn.end ? seasonLeftText().replace(/^🏆 /, '🎹 ') : '🎹 시즌 2 랭킹 진행 중';
-  // 📅 출석 체크 버튼 하나 (11-26 사용자: 퀘스트 버튼 뺌)
+  // 📅 출석·퀘스트·오늘의 노래·다 같이 퀘스트는 아래 탭 「이벤트」 화면 (2026-11-27 첫 화면 깔끔하게)
   const a = attView();
-  $('#s2-cal-day').textContent = String(a.done ? a.streak : a.streak + 1);
-  $('#s2-att-title').textContent = a.done ? `출석 ${a.streak}일째 완료!` : `출석 체크 · ${a.streak + 1}일째`;
-  $('#s2-att-sub').textContent = a.done ? '내일 또 와서 한 판!' : `오늘 한 판 치면 🪙 +${a.todayReward}`;
-  $('#s2-att-week').innerHTML = a.week.map((d) => `<i class="${d.on ? 'on' : ''} ${d.today ? 'today' : ''}"></i>`).join('');
-  // 다 같이 목표(팔로워 등)를 달성했는데 아직 안 받았으면 빨간 점
   const qv = questView();
-  $('#s2-att-dot').hidden = !(qv.left || (state.cfg.s2Community || []).some((c) => c.done && !communityClaimed(c.id)));
-  if (a.done) $('#s2-att-sub').textContent = qv.left ? `🎯 퀘스트 보상 ${qv.left}개 받기!` : `🎯 퀘스트 ${qv.list.filter((x) => x.claimed).length}/${qv.list.length}`;
+  // 받을 보상이 있으면 「이벤트」 탭에 빨간 점
+  $('#h2-tab-dot').hidden = !(qv.left || !a.done || (state.cfg.s2Community || []).some((c) => c.done && !communityClaimed(c.id)));
   $('#h2-streak').textContent = String(a.streak || 0);
-  $('#h2-tab-dot').hidden = $('#s2-att-dot').hidden;
-  try {
-    renderHomeToday();
-    renderHomeComm();
-  } catch {}
   const foot = $('#title-foot2');
   foot.innerHTML = state.me.guest ? `<b>${escapeHtml(state.me.player?.username || '')}</b> 님, 오늘도 좋은 하루!` : handle() ? `만든 곳 <a href="https://instagram.com/${handle()}" target="_blank" rel="noopener">${atHandle()}</a>` : '';
 }
@@ -6372,6 +6371,14 @@ function renderTiles() {
 }
 /** 곡을 누르면: 고른 표시 + 멜로디 앞부분을 피아노로 살짝 들려줌 (요청 없음). 다시 누르거나 ▶ 면 시작 */
 let tilePreviewAt = 0;
+let tilePreviewBus = null;
+function stopTilePreview() {
+  if (!tilePreviewBus) return;
+  try {
+    tilePreviewBus.disconnect();
+  } catch {}
+  tilePreviewBus = null;
+}
 async function tilePreview(songId) {
   const song = tileSong(tileId(songId));
   if (!song) return;
@@ -6386,10 +6393,15 @@ async function tilePreview(songId) {
     const sd = 15 / lap.bpm;
     const t0 = audio.ctx.currentTime + 0.05;
     const first = lap.notes[0].at;
+    // 미리듣기는 따로 된 소리 줄로 → 판을 시작하면 바로 끔 (2026-11-27 '게임 중인데 다른 노래가 들려')
+    stopTilePreview();
+    const bus = audio.ctx.createGain();
+    bus.connect(audio.sfxBus);
+    tilePreviewBus = bus;
     for (const n of lap.notes) {
       const at = (n.at - first) * sd;
       if (at > 2.6) break;
-      if (audio.piano) audio.pianoNote(t0 + at, n.midi, Math.min(0.6, n.len * sd), 0.6, audio.sfxBus);
+      if (audio.piano) audio.pianoNote(t0 + at, n.midi, Math.min(0.6, n.len * sd), 0.6, bus);
     }
   } catch {}
 }
@@ -6467,6 +6479,9 @@ async function tilePlay(songId = tp.song, { room = null, map = null } = {}) {
   tp.map = map;
   tp.room = room;
   tp.vsDone = false;
+  // 판은 하나만 (두 번 누르면 판이 둘 생겨 노래가 겹쳐 들리던 것, 2026-11-27)
+  const gen = (tp.gen = (tp.gen || 0) + 1);
+  stopTilePreview();
   stopTile();
   show('screen-tplay');
   tpLayers(null);
@@ -6492,7 +6507,8 @@ async function tilePlay(songId = tp.song, { room = null, map = null } = {}) {
       }
     }
   }
-  if (!$('#screen-tplay').classList.contains('active')) return;
+  if (!$('#screen-tplay').classList.contains('active') || gen !== tp.gen) return;
+  stopTile();
   tpStage();
   const c = state.roomClient;
   const vs = room
@@ -6614,7 +6630,7 @@ async function tileEnd(r) {
   if (!tp.runToken || r.tiles <= 0) return;
   // 📉 서버에 올라간 내 최고 기록을 못 넘은 판은 바로 안 보냄 (Worker 요청 아끼기, 2026-11-27 무료 한도 점검)
   //   토큰은 다음 판에 그대로 쓰고, 코인은 5분 또는 5판마다 한 번 몰아서 보냄 (코인이 너무 오래 폰에만 있지 않게)
-  const srv = load('tileSrvBest', {}) || {};
+  const srv = load('tileSrvBest2', {}) || {};
   const known = srv[r.songId];
   const k = tp.keep && tp.keep.tok === tp.runToken ? tp.keep : null;
   if (known != null && r.tiles <= known && k) {
@@ -6631,7 +6647,7 @@ async function tileEnd(r) {
     tp.keep = null; // 다음 판은 서버가 준 다음 판 토큰으로
     if (out && Number.isFinite(out.best) && !out.preview) {
       srv[r.songId] = Math.max(out.best, srv[r.songId] || 0);
-      save('tileSrvBest', srv);
+      save('tileSrvBest2', srv);
     }
     refreshCoins();
     if (out.preview) say('👀 미리보기 · 시즌 2 가 열리면 랭킹에 올라가요');
@@ -6686,7 +6702,7 @@ function renderTileVs() {
     res = r.tiles > o.final.score ? 'win' : r.tiles < o.final.score ? 'lose' : 'draw';
     why = res === 'draw' ? '친 타일 수가 같아요' : '친 타일 수로';
   } else {
-    box.innerHTML = `<div class="room-word">${escapeHtml(o.name)} 님 아직 치는 중… ${fmt(theirs || 0)}타일</div><div class="tvs-row"><span>나 <b>${fmt(r.tiles)}</b></span><span>VS</span><span>${escapeHtml(o.name)} <b>${fmt(theirs || 0)}</b></span></div>` + acts;
+    box.innerHTML = `<div class="room-word">${escapeHtml(o.name)} 님 아직 치는 중… ${fmt(theirs || 0)}점</div><div class="tvs-row"><span>나 <b>${fmt(r.tiles)}</b></span><span>VS</span><span>${escapeHtml(o.name)} <b>${fmt(theirs || 0)}</b></span></div>` + acts;
     return;
   }
   const word = { win: '승리! 🎉', lose: '아쉽게 패배…', draw: '무승부!' };
@@ -6754,22 +6770,16 @@ function renderS2Q() {
     q.list.map((x) => `<div class="s2q-item"><span class="q-ico">${x.icon}</span><b>${escapeHtml(x.text)}</b>${btn(x, x.id)}<span><span class="q-bar"><i style="width:${Math.round((x.now / x.goal) * 100)}%"></i></span><span class="q-num">${fmt(x.now)} / ${fmt(x.goal)}</span></span></div>`).join('') +
     `<div class="s2q-item all"><span class="q-ico">${q.all.icon}</span><b>${q.all.text}</b>${btn(q.all, q.all.id)}<span><span class="q-bar"><i style="width:${Math.round((q.all.now / q.all.goal) * 100)}%"></i></span><span class="q-num">${q.all.now} / ${q.all.goal}</span></span></div>`;
   $('#s2q-week').innerHTML = a.week.map((d) => `<div class="s2q-day ${d.on ? 'on' : ''} ${d.today ? 'today' : ''} ${d.n === 7 ? 'day7' : ''}"><span>${d.n}일</span><b>${d.n === 7 ? '🎁' : '🪙'}</b><span>${d.coins}</span></div>`).join('');
-  const comm = state.cfg.s2Community || [];
-  $('#s2q-comm-wrap').hidden = !comm.length;
-  $('#s2q-comm').innerHTML = comm
-    .map((c) => {
-      const got = communityClaimed(c.id);
-      const b = got ? '<button class="q-go got" disabled>받음 ✓</button>' : c.done ? `<button class="q-go ready" data-cq="${escapeHtml(c.id)}">받기 +${fmt(c.reward)}</button>` : `<button class="q-go" disabled>+${fmt(c.reward)}</button>`;
-      // 📸 팔로워 목표엔 「팔로우하러 가기」 (11-26 사용자 '내 인스타 넣어줘 눌리게')
-      const follow = /팔로/.test(c.title) && handle() ? `<a class="q-follow" href="https://www.instagram.com/${handle()}/" target="_blank" rel="noopener">${icon('insta')} 팔로우하러 가기 <small>@${escapeHtml(handle())}</small></a>` : '';
-      return `<div class="s2q-item ${follow ? 'has-follow' : ''}"><span class="q-ico">${escapeHtml(c.icon)}</span><b>${escapeHtml(c.title)}</b>${b}<span><span class="q-bar"><i style="width:${c.done ? 100 : Math.min(100, Math.round((c.now / c.goal) * 100))}%"></i></span><span class="q-num">${c.done ? '달성!' : `${fmt(c.now)} / ${fmt(c.goal)}`}</span></span>${follow}</div>`;
-    })
-    .join('');
+  try {
+    renderHomeToday();
+    renderHomeComm();
+  } catch {}
+  $('#ev-q-left').textContent = q.left ? `받을 보상 ${q.left}개!` : `${q.list.filter((x) => x.claimed).length}/${q.list.length} 받음`;
   $('#s2q-foot').textContent = a.done ? '출석은 매일 밤 12시에 새로 시작해요 · 하루 빠지면 1일째부터' : '드럼이든 타일이든 한 판만 치면 출석! · 하루 빠지면 1일째부터';
 }
 function openS2Q() {
   renderS2Q();
-  openModal('modal-s2q');
+  show('screen-events');
 }
 document.addEventListener('click', (e) => {
   const t = e.target.closest && e.target.closest('[data-q],[data-cq],[data-tplay],[data-tsong],[data-tview],[data-tfilter],[data-srtab],[data-srsong]');
@@ -6823,6 +6833,70 @@ document.addEventListener(
   },
   true
 );
+
+// ----- 🏛 명예의 전당 전시관 (2026-11-27 사용자 '미술관 전시회처럼, 넘기면서 1·2·3등 사진·한마디') -----
+//   데이터는 /api/hall 응답의 hall (끝난 시즌 1·2·3등 + 사진·한마디) — 랭킹 창과 같은 요청(1분 기억), 새 API 없음
+const gal = { list: [], i: 0, from: 'screen-title' };
+const GAL_BOARD = { stage: '🎵 단계 총합', endless: '💎 무제한 총합', tiles: '🎹 타일 총합' };
+async function openGallery() {
+  const act = $$('.screen.active')[0];
+  if (act && act.id !== 'screen-hall') gal.from = act.id;
+  closeModal('modal-more');
+  show('screen-hall');
+  const track = $('#gal-track');
+  track.innerHTML = '<p class="gal-empty">작품을 거는 중…</p>';
+  $('#gal-dots').innerHTML = '';
+  let hall = [];
+  try {
+    if (state.api && state.api.hall) hall = (await state.api.hall('tiles')).hall || [];
+  } catch {}
+  // 최근 시즌 먼저, 판마다 1·2·3등
+  gal.list = hall.slice().sort((a, b) => b.season - a.season || a.board.localeCompare(b.board) || a.rank - b.rank);
+  gal.i = 0;
+  renderGallery();
+}
+function galFrame(h) {
+  const medal = ['🥇', '🥈', '🥉'][h.rank - 1] || '🏅';
+  const pic = h.image
+    ? `<img src="${escapeHtml(h.image)}" alt="${escapeHtml(h.username || '')} 사진" />`
+    : `<span class="gal-noimg"><b>${escapeHtml((h.username || '?').slice(0, 1))}</b><small>사진 준비 중</small></span>`;
+  const score = h.board === 'endless' && h.rounds ? `Lv.${fmt(h.rounds)} · ${fmt(h.score % 1e9)}점` : `${fmt(h.score)}점`;
+  return `<article class="gal-slide r${h.rank}">
+      <div class="gal-light"></div>
+      <div class="gal-frame"><div class="gal-mat">${pic}</div></div>
+      <div class="gal-plaque">
+        <span class="gal-medal">${medal} ${h.rank}등</span>
+        <b>${escapeHtml(h.username || '')}</b>
+        <small>시즌 ${h.season} · ${GAL_BOARD[h.board] || h.board} · ${score}</small>
+      </div>
+      <p class="gal-quote">${h.msg ? `“${escapeHtml(h.msg)}”` : '<span class="muted">아직 한마디가 없어요</span>'}</p>
+      ${h.me ? '<button class="btn btn-ghost btn-sm" data-action="s2-hall">📷 내 사진·한마디 바꾸기</button>' : ''}
+    </article>`;
+}
+function renderGallery() {
+  const track = $('#gal-track');
+  if (!gal.list.length) {
+    track.innerHTML = '<p class="gal-empty">아직 전시된 작품이 없어요</p>';
+    return;
+  }
+  track.innerHTML = gal.list.map(galFrame).join('');
+  $('#gal-dots').innerHTML = gal.list.map((h, i) => `<i class="${i === gal.i ? 'on' : ''}"></i>`).join('');
+  track.onscroll = () => {
+    const w = track.clientWidth || 1;
+    const i = Math.round(track.scrollLeft / w);
+    if (i !== gal.i) {
+      gal.i = i;
+      $$('#gal-dots i').forEach((d, k) => d.classList.toggle('on', k === i));
+    }
+  };
+}
+function galGo(d) {
+  const track = $('#gal-track');
+  if (!gal.list.length) return;
+  gal.i = Math.max(0, Math.min(gal.list.length - 1, gal.i + d));
+  track.scrollTo({ left: gal.i * track.clientWidth, behavior: 'smooth' });
+  $$('#gal-dots i').forEach((x, k) => x.classList.toggle('on', k === gal.i));
+}
 
 // ----- 🔑 카카오·구글 로그인 -----
 const OA_NAME = { kakao: '카카오', google: '구글' };
@@ -6939,9 +7013,15 @@ const ACTIONS = {
   // 🎹 시즌 2
   's2-modes': () => openModes(),
   's2-home': () => {
-    const sc = $('#screen-home2 .h2-scroll');
-    if (sc) sc.scrollTo({ top: 0, behavior: 'smooth' });
+    if ($('#screen-home2').classList.contains('active')) {
+      const sc = $('#screen-home2 .h2-scroll');
+      if (sc) sc.scrollTo({ top: 0, behavior: 'smooth' });
+    } else show('screen-title');
   },
+  'hall-open': () => openGallery(),
+  'hall-back': () => (gal.from === 'screen-events' ? openS2Q() : show(gal.from || 'screen-title')),
+  'gal-prev': () => galGo(-1),
+  'gal-next': () => galGo(1),
   'close-modes': () => closeModal('modal-modes'),
   's2-tiles': () => openTiles(),
   's2-drum': () => {
@@ -6951,7 +7031,6 @@ const ACTIONS = {
   },
   's2-s3': () => toast('🔒 시즌 3은 아직 비밀이에요 · 곧 공개할게요!', 2600),
   's2-quests': () => openS2Q(),
-  'close-s2q': () => closeModal('modal-s2q'),
   's2-more': () => openModal('modal-more'),
   'close-more': () => closeModal('modal-more'),
   's2-rank': () => openS2Rank(),

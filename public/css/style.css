@@ -1635,3 +1635,67 @@ html.s2 #app:has(#screen-home2.active)::after { display: none; }
 @keyframes trophybob { 0%, 100% { transform: translateY(-1px) scale(1.14) rotate(0deg); } 50% { transform: translateY(-3px) scale(1.17) rotate(-5deg); } }
 .btn3d .dot { top: -3px; right: -3px; }
 html.lite .btn3d img { animation: none; filter: none; }
+
+/* ---------- 🎹 시즌 2 메뉴 2차 (2026-11-27 사용자: 아래 탭 고정 · 첫 화면 깔끔 · 멀티·유저 맵 꺼내기 · 이벤트 화면 · 명예의 전당 전시관) ---------- */
+#s2-tabs.h2-tabs { position: fixed; z-index: 30; left: 50%; right: auto; width: min(100%, 560px); transform: translateX(-50%); bottom: 0; }
+#s2-tabs[hidden] { display: none; }
+html.has-tabs .screen.active:not(#screen-home2) { padding-bottom: calc(96px + var(--safe-bottom)); }
+.bar-gap { width: 46px; }
+.h2-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.h2-big { position: relative; overflow: hidden; display: grid; justify-items: start; gap: 2px; padding: 12px 14px; border-radius: 20px; color: #fff; text-align: left; border: 3px solid var(--ink); box-shadow: 0 5px 0 var(--ink); }
+.h2-big:active { transform: translateY(3px); box-shadow: 0 2px 0 var(--ink); }
+.h2-big b { font-weight: 400; font-size: 21px; }
+.h2-big small { font-size: 12px; opacity: 0.9; }
+.h2-big-ico { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 50%; background: rgba(255, 255, 255, 0.25); }
+.h2-big-ico svg { width: 22px; height: 22px; color: #fff; }
+.h2-multi { background: linear-gradient(135deg, #4f8cff, #7a4dff); }
+.h2-maps { background: linear-gradient(135deg, #ff8a3d, #ff4f8f); }
+#screen-home2 .h2-hero { padding-top: 10px; }
+#screen-home2 .h2-hero .s2-buddies { width: min(64%, 260px); }
+
+/* 🎉 이벤트 화면 */
+#screen-events { background: linear-gradient(180deg, #2a1670, #4a2aa8 45%, #3a2090); }
+#screen-events .bar h2, #screen-hall .bar h2 { color: #fff; }
+.ev-wrap { width: 100%; max-width: 560px; margin: 0 auto; display: grid; gap: 10px; }
+.ev-card { padding: 12px; border-radius: 20px; background: #fff; border: 3px solid var(--ink); box-shadow: 0 5px 0 var(--ink); }
+.ev-card .s2q-att-note { margin: 0 0 8px; }
+.ev-hall { position: relative; overflow: hidden; display: grid; justify-items: start; gap: 2px; padding: 16px 16px 14px 120px; min-height: 96px; border-radius: 22px; text-align: left; color: #fff;
+  background: radial-gradient(circle at 18% 30%, rgba(255, 220, 140, 0.45), transparent 45%), linear-gradient(120deg, #3b2412, #6b3f1d 55%, #2a1a0e); border: 3px solid #e7b95a; box-shadow: 0 5px 0 #3a2410, inset 0 0 0 2px rgba(255, 255, 255, 0.15); }
+.ev-hall b { font-weight: 400; font-size: 20px; color: #ffe7a8; }
+.ev-hall small { font-size: 13px; opacity: 0.9; }
+.ev-hall-frames { position: absolute; left: 14px; top: 50%; transform: translateY(-50%); display: flex; gap: 6px; align-items: flex-end; }
+.ev-hall-frames i { display: block; width: 26px; height: 34px; border-radius: 3px; background: linear-gradient(135deg, #fff3d0, #d9b36a); border: 3px solid #c99632; box-shadow: 0 2px 0 #3a2410; }
+.ev-hall-frames i:nth-child(2) { height: 46px; width: 32px; border-color: #f3c64d; }
+.ev-foot { color: rgba(255, 255, 255, 0.75); text-align: center; }
+
+/* 🏛 명예의 전당 전시관: 어두운 벽 · 조명 · 금 액자 · 명판 · 넘기기 */
+#screen-hall { padding-left: 0; padding-right: 0; background: radial-gradient(ellipse at 50% 0%, #4a3523 0%, #1e140d 55%, #0f0a06 100%); }
+#screen-hall .bar { padding: 0 16px; }
+.gal-wall { position: relative; flex: 1; min-height: 0; display: flex; flex-direction: column; }
+.gal-track { flex: 1; min-height: 0; display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scrollbar-width: none; -webkit-overflow-scrolling: touch; }
+.gal-track::-webkit-scrollbar { display: none; }
+.gal-slide { position: relative; flex: 0 0 100%; scroll-snap-align: center; display: flex; flex-direction: column; align-items: center; justify-content: flex-start; gap: 12px; padding: 18px 24px 10px; text-align: center; overflow-y: auto; }
+.gal-light { position: absolute; top: -20px; left: 50%; width: 80%; height: 70%; transform: translateX(-50%); pointer-events: none; background: radial-gradient(ellipse at 50% 0%, rgba(255, 235, 190, 0.35), rgba(255, 235, 190, 0) 65%); }
+.gal-frame { position: relative; width: min(66vw, 260px); aspect-ratio: 4 / 5; padding: 14px; border-radius: 6px; background: linear-gradient(135deg, #f8dd8a, #b9862b 35%, #f3cf6d 55%, #8f6418 80%, #e9c063); box-shadow: 0 18px 30px rgba(0, 0, 0, 0.6), inset 0 0 0 3px rgba(255, 255, 255, 0.25), inset 0 0 12px rgba(80, 50, 0, 0.6); }
+.gal-slide.r2 .gal-frame { background: linear-gradient(135deg, #f4f6fa, #9aa3b3 35%, #e6eaf2 55%, #737c8c 80%, #d7dde7); }
+.gal-slide.r3 .gal-frame { background: linear-gradient(135deg, #f2c49a, #a5622d 35%, #e7ae7c 55%, #7d4318 80%, #d99b66); }
+.gal-mat { width: 100%; height: 100%; padding: 10px; background: #f6efe0; box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.35); display: grid; place-items: center; overflow: hidden; }
+.gal-mat img { width: 100%; height: 100%; object-fit: cover; box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4); }
+.gal-noimg { width: 100%; height: 100%; display: grid; place-items: center; align-content: center; gap: 6px; background: linear-gradient(160deg, #e8dcc2, #cdb98f); color: #6b5530; }
+.gal-noimg b { font-weight: 400; font-size: 64px; line-height: 1; }
+.gal-noimg small { font-size: 12px; }
+.gal-plaque { display: grid; gap: 2px; padding: 8px 18px; border-radius: 6px; background: linear-gradient(180deg, #e9c46a, #b88a2c); color: #3a2608; border: 2px solid #f6dd94; box-shadow: 0 4px 10px rgba(0, 0, 0, 0.5); min-width: 60%; }
+.gal-slide.r2 .gal-plaque { background: linear-gradient(180deg, #e3e7ee, #a3abba); border-color: #f4f6fa; color: #2c3240; }
+.gal-slide.r3 .gal-plaque { background: linear-gradient(180deg, #e7ae7c, #a5622d); border-color: #f2c49a; color: #3a1d08; }
+.gal-medal { font-size: 13px; letter-spacing: 1px; }
+.gal-plaque b { font-weight: 400; font-size: 22px; }
+.gal-plaque small { font-size: 12px; opacity: 0.85; }
+.gal-quote { margin: 0; max-width: 300px; font-size: 18px; line-height: 1.45; color: #fff3d6; font-style: italic; text-shadow: 0 2px 6px rgba(0, 0, 0, 0.6); }
+.gal-quote .muted { color: rgba(255, 243, 214, 0.55); font-size: 14px; font-style: normal; }
+.gal-empty { margin: auto; color: rgba(255, 243, 214, 0.75); }
+.gal-nav { position: absolute; top: 38%; width: 40px; height: 56px; border-radius: 12px; font-size: 34px; line-height: 1; color: #ffe7a8; background: rgba(0, 0, 0, 0.35); border: 1px solid rgba(255, 231, 168, 0.35); }
+.gal-nav.prev { left: 6px; }
+.gal-nav.next { right: 6px; }
+.gal-dots { display: flex; justify-content: center; gap: 6px; padding: 6px 0 4px; }
+.gal-dots i { width: 8px; height: 8px; border-radius: 50%; background: rgba(255, 231, 168, 0.3); }
+.gal-dots i.on { background: #ffd86b; width: 20px; border-radius: 4px; }

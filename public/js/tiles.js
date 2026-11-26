@@ -12,12 +12,18 @@
 //   · 점수 = 친 타일 + 긴 타일 덤. 코인 = 친 타일 하나에 1개 + 코인 파티 타일. 랭킹 = 곡마다(scores 칸 3000+곡 번호) + 시즌 총합(명예의 전당 'tiles')
 //   ⚠ 서버는 tileTimes 로 '그 시간 안에 칠 수 있는 점수'를 넘는 기록을 막음
 
-import { parseMelody, parseChord, noteToMidi, STEPS_PER_BAR, getLevel, TempoMap } from './charts.js';
+import { parseMelody, parseChord, noteToMidi, STEPS_PER_BAR, getLevel, TempoMap, pointsFor } from './charts.js';
 
 /** 화면에 보이는 줄 수 (보통 타일 높이 = 화면 높이 / TILE_ROWS). 바꾸지 말 것 (11-26 사용자) */
-export const TILE_ROWS = 4;
+// 2026-11-27 사용자 '타일 세로 크기 조금만 더' → 4 → 3.5 (그래도 모든 곡·유저 맵이 같은 크기)
+export const TILE_ROWS = 3.5;
 /** 난이도별 첫 바퀴 빠르기 (초당 줄 수) */
-export const TILE_RPS = [0, 3.0, 3.4, 3.8, 4.3, 4.8];
+//   2026-11-27: 마지막 바퀴(×1.3)에서도 한 줄 = 0.2초 이상이 되게 첫 바퀴를 3.8 까지로 (그래야 바퀴마다 똑같은 타일)
+export const TILE_RPS = [0, 2.6, 2.9, 3.2, 3.5, 3.8];
+/** 🎹 2026-11-27 사용자 '빠르기 고정, 곡 끝날 때마다 다이아 하나, 더 빠르게 → 다이아 3개' : 바퀴마다 빠르기 (바퀴 안에선 고정) */
+export const LAP_SPEEDS = [1, 1.1, 1.2, 1.3];
+/** 긴 타일 덤 (줄 하나 더 누를 때마다) */
+export const HOLD_PTS = 500;
 
 /** 곡 목록 (쉬운 것부터) */
 export const TILE_SONGS = [
@@ -47,7 +53,8 @@ export const TILE_FREE = 3;
 export const TILE_SLOT0 = 3000;
 export const TILE_SLOT_MAX = 3999;
 /** 이 바퀴까지 돌면 끝 (그 전에 사람은 못 버팀) */
-export const MAX_LAPS = 16;
+/** 첫 바퀴(별 3개) + 다이아 3바퀴 = 4바퀴에서 끝 (2026-11-27) */
+export const MAX_LAPS = 4;
 export const TILE_HEARTS = 3;
 /** 이만큼(줄) 화면 아래로 지나가면 놓침 */
 export const GONE_ROWS = 0.35;
@@ -147,12 +154,11 @@ export function rowUnit(notes) {
 
 /**
  * 한 바퀴(곡 하나) 만들기: melody(마디 문자열) · prog(마디 코드) · rps(첫 바퀴 초당 줄)
- *   → { u, bpm, bars, steps, notes, prog, first, tiles, points }
- *   notes = 노래(반주가 치는 멜로디 전부), tiles = 첫 바퀴 타일(박자만 — 아이폰 간격 규칙으로 고른 음)
+ *   → { u, bpm, bars, steps, notes, prog, first, pattern, tiles, points }
+ *   notes = 노래(반주가 치는 멜로디 전부), pattern = 한 바퀴 타일 (모든 바퀴가 똑같음 — 2026-11-27 사용자 '띄엄띄엄 이상해')
  */
 export function buildLap(melody, prog, rps) {
   const parsed = parseMelody(melody).map((n) => ({ ...n, at: n.bar * STEPS_PER_BAR + n.step }));
-  // 같은 칸에 음이 둘이면 위 음 하나만 (멜로디)
   const uniq = [];
   for (const n of parsed) {
     const last = uniq[uniq.length - 1];
@@ -163,28 +169,52 @@ export function buildLap(melody, prog, rps) {
   if (!uniq.length) return null;
   const u = rowUnit(uniq);
   const bars = melody.length;
-  const lap = {
-    u,
-    bpm: 15 * u * rps,
-    bars,
-    steps: bars * STEPS_PER_BAR,
-    notes: uniq.map((n) => ({ at: n.at, bar: n.bar, len: n.len, midi: n.midi })),
-    prog: melody.map((_, i) => String(prog[i] || 'C')),
-    first: uniq[0].at,
-  };
-  // 첫 바퀴 = 실제 판의 첫 바퀴 그대로 (뒤에 코인 파티가 오니 마지막 음도 같게)
+  const steps = bars * STEPS_PER_BAR;
+  // 📱 제일 빠른 바퀴(×1.3)에서도 한 줄이 0.2초 이상이 되게 빠르기 상한
+  const maxSp = LAP_SPEEDS[LAP_SPEEDS.length - 1];
+  rps = Math.min(rps, 1 / (MIN_TAP_SEC * maxSp) - 1e-6);
+  const bpm = 15 * u * rps;
+  const fastStep = 15 / (bpm * maxSp); // 제일 빠른 바퀴의 16분 한 칸(초)
+  const minSteps = Math.max(u, Math.ceil(MIN_TAP_SEC / fastStep - 1e-9));
+  // 타일 고르기: 한 줄 + 0.2초(제일 빠른 바퀴 기준) 이상 떨어진 음만 → 모든 바퀴에서 같은 타일
+  const pat = [];
+  for (const n of uniq) {
+    const last = pat[pat.length - 1];
+    if (last && n.at - last.at < minSteps) continue;
+    pat.push({ at: n.at, bar: n.bar, len: n.len, midi: n.midi });
+  }
+  // 바퀴 이음새(마지막 타일 → 다음 바퀴 첫 타일)도 같은 간격
+  while (pat.length > 2 && steps - pat[pat.length - 1].at + pat[0].at < minSteps) pat.pop();
+  // 긴 타일: 쉼 없이 두 줄 이상 끄는 음, 끝난 뒤 다음 타일까지 0.2초(제일 빠른 바퀴) 이상 비움
+  pat.forEach((t, i) => {
+    const nx = i + 1 < pat.length ? pat[i + 1].at : steps + pat[0].at;
+    const gap = nx - t.at;
+    let rows = Math.floor(Math.min(t.len, gap) / u + 1e-9);
+    while (rows >= 2 && gap - rows * u < minSteps) rows--;
+    t.rows = Math.max(1, Math.min(rows, 6));
+    t.hold = t.rows >= 2;
+  });
+  assignLanes(pat.map((t) => Object.assign(t, { abs: t.at })), u);
+  // 이음새에서 같은 줄 연속 안 되게
+  if (pat.length > 2 && pat[pat.length - 1].lane === pat[0].lane) {
+    const last = pat[pat.length - 1];
+    const prev = pat[pat.length - 2].lane;
+    last.lane = [0, 1, 2, 3].find((x) => x !== prev && x !== pat[0].lane && Math.abs(x - last.lane) <= 2) ?? last.lane;
+  }
+  const lap = { u, bpm, bars, steps, notes: uniq.map((n) => ({ at: n.at, bar: n.bar, len: n.len, midi: n.midi })), prog: melody.map((_, i) => String(prog[i] || 'C')), first: pat[0].at, pattern: pat };
   const two = buildCourse(lap, { laps: 2, party: true });
   lap.tiles = two.tiles.filter((t) => t.k === 0);
   lap.points = two.lapPts[0];
   return lap;
 }
 
+/** 판정에 따른 점수 (드럼처럼: PERFECT 1000·GREAT 700·GOOD 400 × 콤보 배수, 콤보는 PERFECT 만 쌓임) */
+export const tilePoints = (word, combo) => pointsFor(word, combo);
+
 /**
- * 판 전체(코스) 만들기 — 바퀴 0 → 🪙 코인 파티 → 바퀴 1, 2, … (바퀴마다 빨라짐)
- *   타일 = 노래 음 중에서 고름: 이웃 타일은 적어도 한 줄(u 칸) + MIN_TAP_SEC 초 떨어지게 (빨라질수록 더 듬성듬성)
- *   긴 타일(꾹)은 끝난 뒤 다음 타일까지 MIN_TAP_SEC 이상 남게 (손 떼는 순간 = 다른 손가락 누르는 순간이 안 겹치게)
- *   → { tempo, t0, B, P, laps, segs, tiles, points, lapEnd, lapPts }
- *     tiles[i] = { abs, step, row, rows, hold, pts, lane, k(바퀴, 파티는 -1), coin, t(초, 첫 타일 = 0), midi, len }
+ * 판 전체(코스): 바퀴 0(별 3개) → 🪙 코인 파티 → 바퀴 1·2·3(점점 빠르게, 다이아 하나씩) — 바퀴마다 같은 타일·같은 줄
+ *   → { tempo, t0, B, P, laps, segs, tiles, points(만점), lapEnd, lapPts, u }
+ *     tiles[i] = { abs, step, row, rows, hold, pts(만점), lane, k(바퀴, 파티는 -1), coin, t(초, 첫 타일 = 0), midi, len }
  */
 export function buildCourse(lap, { laps = MAX_LAPS, party = true } = {}) {
   const B = lap.bars;
@@ -193,7 +223,6 @@ export function buildCourse(lap, { laps = MAX_LAPS, party = true } = {}) {
   const segs = [{ kind: 'lap', k: 0, bar0: 0, bars: B }];
   if (P) segs.push({ kind: 'party', k: -1, bar0: B, bars: P });
   for (let k = 1; k < laps; k++) segs.push({ kind: 'lap', k, bar0: B + P + (k - 1) * B, bars: B });
-  /** 마디 → 그 마디 빠르기 배수 (파티는 다음 바퀴 빠르기로 미리) */
   const speedAt = (bar) => {
     if (bar < B) return lapSpeed(0);
     if (bar < B + P) return lapSpeed(1);
@@ -202,52 +231,49 @@ export function buildCourse(lap, { laps = MAX_LAPS, party = true } = {}) {
   const tempo = new TempoMap((bar) => lap.bpm * speedAt(bar));
   const t0 = tempo.stepTime(lap.first);
   const timeOf = (abs) => tempo.stepTime(abs) - t0;
-  // 후보: 바퀴마다 곡의 음 · 파티는 한 줄마다 코인
-  const cand = [];
+  const tiles = [];
+  let seed = 7 + lap.bars * 13 + lap.notes.length;
+  const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
   for (const sg of segs) {
     const a0 = sg.bar0 * STEPS_PER_BAR;
     if (sg.kind === 'party') {
-      for (let a = a0; a < a0 + P * STEPS_PER_BAR; a += u) cand.push({ abs: a, k: -1, coin: true, len: u, midi: 0 });
-    } else for (const n of lap.notes) cand.push({ abs: a0 + n.at, k: sg.k, coin: false, len: n.len, midi: n.midi });
-  }
-  const tiles = [];
-  let lastAbs = -1e9;
-  let lastT = -1e9;
-  for (const c of cand) {
-    const t = timeOf(c.abs);
-    if (c.abs - lastAbs < u - 1e-9 || t - lastT < MIN_TAP_SEC - 1e-9) continue;
-    c.t = t;
-    tiles.push(c);
-    lastAbs = c.abs;
-    lastT = t;
-  }
-  // 긴 타일: 쉼 없이 두 줄 이상 끄는 음, 끝난 뒤 다음 타일까지 MIN_TAP_SEC 이상 남게
-  for (let i = 0; i < tiles.length; i++) {
-    const c = tiles[i];
-    let rows = 1;
-    if (!c.coin) {
-      const nx = tiles[i + 1];
-      const span = Math.min(c.len, nx ? nx.abs - c.abs : c.len);
-      rows = Math.floor(span / u + 1e-9);
-      while (rows >= 2 && nx && timeOf(c.abs + rows * u) > nx.t - MIN_TAP_SEC + 1e-9) rows--;
-      rows = Math.max(1, Math.min(rows, 6));
+      // 🪙 코인 파티: 반 줄마다 코인이 마구잡이로 (한두 개씩, 같은 줄은 안 겹치게) — 벌 없음
+      const endAt = [-1e9, -1e9, -1e9, -1e9];
+      const half = Math.max(1, u / 2);
+      for (let a = a0; a < a0 + P * STEPS_PER_BAR; a += half) {
+        const n = rnd() < 0.35 ? 2 : 1;
+        for (let j = 0; j < n; j++) {
+          const free = [0, 1, 2, 3].filter((x) => endAt[x] <= a + 1e-9);
+          if (!free.length) break;
+          const L = free[Math.floor(rnd() * free.length)];
+          endAt[L] = a + u;
+          tiles.push({ abs: a, k: -1, coin: true, len: u, midi: 0, rows: 1, hold: false, lane: L });
+        }
+      }
+      continue;
     }
-    c.rows = rows;
-    c.hold = rows >= 2;
-    c.pts = c.coin ? 0 : rows;
-    c.step = c.abs;
-    c.row = c.abs / u;
+    for (const p of lap.pattern) tiles.push({ abs: a0 + p.at, k: sg.k, coin: false, len: p.len, midi: p.midi, rows: p.rows, hold: p.hold, lane: p.lane });
   }
-  assignLanes(tiles, u);
+  tiles.sort((x, y) => x.abs - y.abs || x.lane - y.lane);
+  // 만점: PERFECT 로 계속 쳤을 때 (콤보 배수) + 긴 타일 덤
+  let combo = 0;
+  let pts = 0;
+  let n = 0;
   const lapEnd = [];
   const lapPts = [];
-  let n = 0;
-  let pts = 0;
   for (const c of tiles) {
-    if (c.coin) continue;
+    c.t = timeOf(c.abs);
+    c.step = c.abs;
+    c.row = c.abs / u;
+    if (c.coin) {
+      c.pts = 0;
+      continue;
+    }
     while (lapEnd.length < c.k) lapEnd.push(n), lapPts.push(pts);
-    n++;
+    combo++;
+    c.pts = tilePoints('perfect', combo) + (c.rows - 1) * HOLD_PTS;
     pts += c.pts;
+    n++;
   }
   while (lapEnd.length < laps) lapEnd.push(n), lapPts.push(pts);
   return { tempo, t0, B, P, laps, segs, tiles, points: pts, lapEnd, lapPts, u };
@@ -333,7 +359,7 @@ export function mapTileLap(map) {
   try {
     const probe = buildLap(map.melody, map.prog || map.melody.map(() => 'C'), 1);
     if (!probe) return null;
-    const rps = Math.max(2.6, Math.min(5, map.bpm / (15 * probe.u)));
+    const rps = Math.max(2.6, Math.min(3.8, map.bpm / (15 * probe.u)));
     return buildLap(map.melody, map.prog || map.melody.map(() => 'C'), rps);
   } catch {
     return null;
@@ -348,7 +374,7 @@ export const mapTileMax = (map) => {
 
 /** 바퀴 k(0부터)의 빠르기 배수: 첫 곡은 그대로, 그 뒤 바퀴마다 +0.12 */
 export function lapSpeed(k) {
-  return k <= 0 ? 1 : 1 + 0.12 * k;
+  return LAP_SPEEDS[Math.max(0, Math.min(LAP_SPEEDS.length - 1, k))];
 }
 /**
  * 별 · 다이아: 첫 바퀴에서 별 3개가 차오름 (frac = 그 바퀴 진행 0~1, 1/3·2/3·끝), 둘째 바퀴에서 다이아 3개가 똑같이
@@ -357,8 +383,8 @@ export function lapSpeed(k) {
 export function lapStars(laps, frac = 0) {
   const k = Math.max(0, Math.min(2, Math.floor(frac * 3 + 1e-9)));
   if (laps <= 0) return { stars: k, gems: 0 };
-  if (laps === 1) return { stars: 3, gems: k };
-  return { stars: 3, gems: 3 };
+  // 2026-11-27: 다이아는 빨라진 바퀴(곡 하나)를 끝낼 때마다 하나씩
+  return { stars: 3, gems: Math.max(0, Math.min(3, laps - 1)) };
 }
 
 export const tileId = (songId) => `t${songId}`;
@@ -421,7 +447,7 @@ export function tilesWithin(songId, sec, slack = 4) {
 }
 
 /**
- * 점수 검증 (서버): body { tiles(=점수), laps, maxCombo }, 판 토큰 시작부터 지난 초 elapsed
+ * 점수 검증 (서버): body { tiles(=점수, 2026-11-27 부터 드럼처럼 판정 점수 × 콤보 배수), laps, maxCombo }, 판 토큰 시작부터 지난 초 elapsed
  *   → { ok, tiles, laps, maxCombo } | { ok:false, error }
  */
 export function checkTileRun(songId, body, elapsedSec) {
@@ -434,11 +460,11 @@ export function checkTileRun(songId, body, elapsedSec) {
   if (elapsedSec > 3 * 3600) return { ok: false, error: 'run_expired' };
   // 그 시간 안에 화면에 들어올 수 있는 타일 점수보다 많이 칠 순 없음
   if (tiles > tilesWithin(songId, elapsedSec)) return { ok: false, error: 'too_fast' };
-  // 바퀴 수: 다 돈 바퀴의 타일 수(놓친 건 하트 3개 + 바퀴마다 회복분까지만)보다 적게 칠 순 없음
-  if (laps > 0 && tiles < c.lapEnd[laps - 1] - TILE_HEARTS * (laps + 1)) return { ok: false, error: 'bad_score' };
+  // 바퀴 수: 다 돈 바퀴의 타일(놓친 건 하트 3개 + 바퀴마다 회복분까지만)을 가장 낮은 판정(GOOD 400)으로 쳤을 때보다 적을 순 없음
+  if (laps > 0 && tiles < (c.lapEnd[laps - 1] - TILE_HEARTS * (laps + 1)) * 400) return { ok: false, error: 'bad_score' };
   // 지금 치던 바퀴까지의 점수보다 많이 칠 순 없음
   if (tiles > c.lapPts[Math.min(laps, MAX_LAPS - 1)]) return { ok: false, error: 'bad_score' };
-  const maxCombo = Number.isInteger(body.maxCombo) ? Math.max(0, Math.min(body.maxCombo, tiles)) : 0;
+  const maxCombo = Number.isInteger(body.maxCombo) ? Math.max(0, Math.min(body.maxCombo, c.lapEnd[MAX_LAPS - 1])) : 0;
   return { ok: true, tiles, laps, maxCombo };
 }
 

@@ -15,7 +15,7 @@
 //   ⚔️ 대결(vs): 상대 점수 막대, maxLaps 바퀴(기본 3)에서 끝, 코인 파티 없음
 
 import { STEPS_PER_BAR, parseChord } from './charts.js';
-import { tileLap, tileCourse, buildCourse, lapStars, MAX_LAPS, TILE_HEARTS, TILE_ROWS } from './tiles.js';
+import { tileLap, tileCourse, buildCourse, lapStars, MAX_LAPS, TILE_HEARTS, TILE_ROWS, tilePoints, HOLD_PTS } from './tiles.js';
 
 const FONT = "Jua, 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif";
 const BOLD = "800 {px}px 'Arial Rounded MT Bold', 'Trebuchet MS', system-ui, sans-serif";
@@ -29,7 +29,9 @@ const GRACE_SEC = 0.35;
 const JUDGE_AT = 0.75;
 /** 판정선을 이만큼(줄) 지나 화면 밖으로 나가면 놓침 */
 const GONE_ROWS = (1 - JUDGE_AT) * TILE_ROWS + 0.08;
-const HOLD_BLUE = '#3fe0ff';
+const HOLD_BLUE = '#2fb8ff';
+/** 친 자리에서 코인 칸까지 날아가는 시간 */
+const FLY_SEC = 0.55;
 /** 노래 소리 미리 예약 (초) */
 const LOOKAHEAD = 0.3;
 /** 곡마다 배경 색 (곡 목록 표지와 같은 색) */
@@ -51,6 +53,7 @@ export class TileGame {
     this.vs = vs;
     this.skin = skin || {};
     this.hue = hue ?? SONG_HUES[songId] ?? 220;
+    this.hueRgb = hslRgb(this.hue, 60, 55).join(',');
     this.maxLaps = Math.max(1, Math.min(MAX_LAPS, maxLaps));
     this.lap = lap || tileLap(songId);
     // 혼자 치는 곡 = 서버 검사와 같은 코스 (코인 파티 포함). 대결은 파티 없이
@@ -86,7 +89,7 @@ export class TileGame {
     this.hurtFx = null;
     this.press = new Float32Array(4);
     this.holds = [];
-    this.fx = { bad: [], pop: [], lap: [], icon: [], judge: [], coin: [], ring: [] };
+    this.fx = { bad: [], pop: [], lap: [], icon: [], judge: [], coin: [], ring: [], fly: [] };
     this.recent = [];
     this.state = 'ready';
     this.t = 0;
@@ -136,6 +139,24 @@ export class TileGame {
     for (const sg of this.course.segs) {
       const a0 = sg.bar0 * STEPS_PER_BAR;
       const party = sg.kind === 'party';
+      if (party) {
+        // 🎉 코인 파티 (2026-11-27 '노래가 멈추고 축하 브금'): 곡과 다른 밝은 C 장조 — 쿵짝 + 반짝이 16분 + 환호
+        const prog = [[60, 64, 67], [65, 69, 72], [67, 71, 74], [60, 64, 67]];
+        ev.push({ t: T(a0), sfx: 'cheer' });
+        for (let b = 0; b < sg.bars; b++) {
+          const ch = prog[b % prog.length];
+          for (let e = 0; e < 16; e++) {
+            const abs = a0 + b * STEPS_PER_BAR + e;
+            const t = T(abs);
+            const d = T(abs + 1) - t;
+            if (e % 4 === 0) ev.push({ t, m: ch[0] - 24, d: d * 3.5, v: 0.6, bass: true });
+            if (e % 8 === 4) for (const m of ch) ev.push({ t, m, d: d * 2, v: 0.32 });
+            if (e % 2 === 0) ev.push({ t, hat: true, v: e % 4 === 0 ? 0.5 : 0.3 });
+            ev.push({ t, glock: ch[[0, 1, 2, 1][e % 4]] + 12 + (e >= 8 ? 12 : 0), v: 0.8 });
+          }
+        }
+        continue;
+      }
       for (let b = 0; b < sg.bars; b++) {
         const chs = chordsOf(party ? b : b);
         const n = chs.length;
@@ -153,8 +174,6 @@ export class TileGame {
             if (beat % 2 === 0) ev.push({ t, m: ch.root - 24 + (beat === 2 && n === 1 ? 7 : 0), d: d * 3.6, v: 0.5, bass: true });
             else for (const m of ch.notes.slice(0, 3)) ev.push({ t, m: m - 12, d: d * 1.6, v: party ? 0.22 : 0.26 });
           }
-          // 🪙 코인 파티: 8분마다 한 옥타브 위 펼친 화음 (반짝반짝)
-          if (party) ev.push({ t, m: ch.notes[e % ch.notes.length] + (e >= 4 ? 24 : 12), d: d * 1.4, v: 0.34 });
         }
         if (!party)
           for (const nt of lap.notes) {
@@ -218,8 +237,12 @@ export class TileGame {
       const at = this.aud0 + e.t;
       if (at < now - 0.03) continue;
       try {
-        if (e.bass) a.pianoOr('bass', Math.max(at, now), e.m, e.d, this.bus, e.v);
-        else a.pianoOr('lead', Math.max(at, now), e.m, e.d, this.bus, e.v);
+        const tt = Math.max(at, now);
+        if (e.sfx) a.sfxFile(e.sfx, 0.55);
+        else if (e.hat) a.hat(tt, e.v, false, this.bus);
+        else if (e.glock) a.glock(tt, e.glock, this.bus, e.v);
+        else if (e.bass) a.pianoOr('bass', tt, e.m, e.d, this.bus, e.v);
+        else a.pianoOr('lead', tt, e.m, e.d, this.bus, e.v);
       } catch {}
     }
   }
@@ -342,9 +365,8 @@ export class TileGame {
   }
 
   /** 스킨: 콩 스킨 색이면 [main, light, dark] (줄마다), 아니면 null */
-  _pal(lane) {
-    const p = this.skin.palette;
-    return p ? p[lane % p.length] : null;
+  _pal() {
+    return null; // 2026-11-27 사용자 '색깔은 전부 검정' — 콩 스킨 색은 타일에 안 씀
   }
   get dark() {
     return !!(this.skin.img || this.skin.sky);
@@ -364,17 +386,18 @@ export class TileGame {
     this.spr = {};
     const [bg, b] = mk(W, H);
     this._paintBg(b, W, H);
-    // 줄 사이 가는 흰 선
-    b.fillStyle = 'rgba(255,255,255,0.55)';
+    // 줄 사이 가는 선
+    b.fillStyle = this.dark ? 'rgba(255,255,255,0.4)' : 'rgba(60,50,100,0.12)';
     for (let i = 1; i < 4; i++) b.fillRect(Math.round(i * laneW) - 0.5, 0, 1, H);
-    // 판정선: 옅은 빛 띠
-    const jg = b.createLinearGradient(0, this.judgeY - 26, 0, this.judgeY + 26);
-    jg.addColorStop(0, 'rgba(255,255,255,0)');
-    jg.addColorStop(0.5, 'rgba(255,255,255,0.32)');
-    jg.addColorStop(1, 'rgba(255,255,255,0)');
+    // 판정선: 옅은 띠 + 가는 선
+    const jg = b.createLinearGradient(0, this.judgeY - 22, 0, this.judgeY + 22);
+    const jc = this.dark ? '255,255,255' : `${this.hueRgb}`;
+    jg.addColorStop(0, `rgba(${jc},0)`);
+    jg.addColorStop(0.5, `rgba(${jc},${this.dark ? 0.28 : 0.16})`);
+    jg.addColorStop(1, `rgba(${jc},0)`);
     b.fillStyle = jg;
-    b.fillRect(0, this.judgeY - 26, W, 52);
-    b.fillStyle = 'rgba(255,255,255,0.7)';
+    b.fillRect(0, this.judgeY - 22, W, 44);
+    b.fillStyle = this.dark ? 'rgba(255,255,255,0.7)' : `rgba(${jc},0.45)`;
     b.fillRect(0, this.judgeY - 1, W, 2);
     this.spr.bg = bg;
     const tw = laneW - 1;
@@ -436,78 +459,25 @@ export class TileGame {
       b.fillRect(0, 0, W, H);
       return;
     }
+    // 2026-11-27 사용자 '배경 깔끔하게': 흰 바탕 + 곡 색이 아주 옅게 (무늬 없음)
     const h = this.hue;
-    const gr = b.createLinearGradient(0, 0, W * 0.4, H);
-    gr.addColorStop(0, `hsl(${h + 25},80%,80%)`);
-    gr.addColorStop(0.5, `hsl(${h},75%,70%)`);
-    gr.addColorStop(1, `hsl(${h - 30},80%,62%)`);
+    const gr = b.createLinearGradient(0, 0, 0, H);
+    gr.addColorStop(0, '#ffffff');
+    gr.addColorStop(0.6, `hsl(${h},60%,97%)`);
+    gr.addColorStop(1, `hsl(${h},70%,92%)`);
     b.fillStyle = gr;
     b.fillRect(0, 0, W, H);
-    // 비스듬한 반투명 네모 조각
-    let seed = 7 + h;
-    const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
-    b.save();
-    for (let i = 0; i < 9; i++) {
-      const s = W * (0.35 + rnd() * 0.55);
-      b.save();
-      b.translate(rnd() * W, rnd() * H);
-      b.rotate(-0.6 + rnd() * 0.25);
-      b.fillStyle = `rgba(255,255,255,${0.05 + rnd() * 0.07})`;
-      b.fillRect(-s / 2, -s / 2, s, s);
-      b.restore();
-    }
-    // 보케
-    for (let i = 0; i < 14; i++) {
-      const r = 6 + rnd() * 26;
-      const x = rnd() * W;
-      const y = rnd() * H;
-      const rg = b.createRadialGradient(x, y, 0, x, y, r);
-      rg.addColorStop(0, 'rgba(255,255,255,0.22)');
-      rg.addColorStop(1, 'rgba(255,255,255,0)');
-      b.fillStyle = rg;
-      b.beginPath();
-      b.arc(x, y, r, 0, Math.PI * 2);
-      b.fill();
-    }
-    b.restore();
-    // 아래쪽 살짝 밝게
-    const lo = b.createLinearGradient(0, H * 0.6, 0, H);
-    lo.addColorStop(0, 'rgba(255,255,255,0)');
-    lo.addColorStop(1, 'rgba(255,255,255,0.12)');
-    b.fillStyle = lo;
-    b.fillRect(0, H * 0.6, W, H * 0.4);
   }
 
   /** 타일 한 장 (기본 = 검은 타일, 스킨 = 그 색) */
-  _paintTile(t, tw, th, lane) {
-    const pal = this._pal(lane);
+  _paintTile(t, tw, th) {
+    // 전부 검정 (2026-11-27), 위쪽만 살짝 빛
     const g = t.createLinearGradient(0, 0, 0, th);
-    if (pal) {
-      g.addColorStop(0, pal[1]);
-      g.addColorStop(0.35, pal[0]);
-      g.addColorStop(1, pal[2]);
-    } else {
-      g.addColorStop(0, '#26262e');
-      g.addColorStop(0.18, '#0a0a0e');
-      g.addColorStop(1, '#000000');
-    }
+    g.addColorStop(0, '#2a2a33');
+    g.addColorStop(0.16, '#08080b');
+    g.addColorStop(1, '#000000');
     t.fillStyle = g;
     t.fillRect(0, 0, tw, th);
-    const tex = this.skin.fx && this.skin.fx.tex;
-    if (tex === 's1') {
-      t.font = font(th * 0.5);
-      t.textAlign = 'center';
-      t.textBaseline = 'middle';
-      t.fillStyle = 'rgba(255,215,90,0.85)';
-      t.fillText('1', tw / 2, th / 2);
-    } else if (tex) {
-      t.fillStyle = this.skin.fx.spark || '#fff';
-      t.globalAlpha = 0.7;
-      t.beginPath();
-      t.arc(tw * 0.78, th * 0.22, Math.max(1.5, tw * 0.03), 0, Math.PI * 2);
-      t.fill();
-      t.globalAlpha = 1;
-    }
   }
 
   /** 🪙 코인 타일: 금빛 타일 + 가운데 흰 동그라미 속 우리 코인 */
@@ -675,20 +645,27 @@ export class TileGame {
   _hit(tl, t, x, y, src, id) {
     tl.hit = true;
     tl.hitAt = t;
-    this.score += 1;
+    // 판정 (2026-11-27 사용자 '선에서 맞게 치는데 왜 PERFECT 가 안 떠'): 시각이 아니라 자리로 —
+    //   타일이 판정선에 걸쳐 있으면(아래 끝이 선 조금 위 ~ 위 끝이 선에 닿을 때) PERFECT
+    const d = this._rowAt(t) - tl.row; // 0 = 아래 끝이 선, 1 = 한 줄 지나감
+    const top = tl.hold ? 1 : tl.rows;
+    const word = d >= -0.35 && d <= top + 0.15 ? 'perfect' : d >= -0.85 && d <= top + 0.45 ? 'great' : 'good';
+    // 콤보는 PERFECT 만 쌓임 (2026-11-27 사용자)
+    if (word === 'perfect') {
+      this.combo++;
+      this.perfect++;
+    } else this.combo = 0;
+    this.maxCombo = Math.max(this.maxCombo, this.combo);
+    this.score += tilePoints(word, this.combo);
     this.coins += 1;
     this.hits++;
-    this.combo++;
-    this.maxCombo = Math.max(this.maxCombo, this.combo);
     this.lastHit[tl.lane] = t;
     this.press[tl.lane] = 1;
     this.comboAt = t;
-    // 판정 글자 (점수는 같음): 타일 아래 끝이 판정선에 닿는 때와 얼마나 가까운가
-    const dt = Math.abs(t - tl.t);
-    const word = dt <= 0.08 ? 'PERFECT' : dt <= 0.16 ? 'GREAT' : 'GOOD';
-    if (word === 'PERFECT') this.perfect++;
-    this.fx.judge.push({ at: t, word, n: this.combo });
+    this.fx.judge.push({ at: t, word: word.toUpperCase(), n: this.combo });
     this.fx.ring.push({ at: t, lane: tl.lane, row: tl.row });
+    // 🪙 드럼처럼 코인이 튀어 올라 오른쪽 위 코인 칸으로 쏙
+    this.fx.fly.push({ at: t, x: (tl.lane + 0.5) * this.laneW, y: Math.min(this.judgeY, y) });
     if (tl.hold) {
       this.holds.push({ tile: tl, src, id, at: t });
       tl.fill = 0;
@@ -702,6 +679,7 @@ export class TileGame {
     this.partyCoins += 1;
     this.lastHit[tl.lane] = t;
     this.fx.coin.push({ at: t, x: (tl.lane + 0.5) * this.laneW, y });
+    this.fx.fly.push({ at: t, x: (tl.lane + 0.5) * this.laneW, y });
     try {
       const a = this.audio;
       a.glock(a.ctx.currentTime, [84, 86, 88, 91, 93, 96][this.partyCoins % 6], a.sfxBus, 1.8);
@@ -725,9 +703,9 @@ export class TileGame {
     tl.done = true;
     tl.fill = p;
     if (bonus > 0) {
-      this.score += bonus;
+      this.score += bonus * HOLD_PTS;
       this.coins += bonus;
-      this.fx.pop.push({ at: this.t, lane: tl.lane, v: bonus, tile: tl });
+      this.fx.pop.push({ at: this.t, lane: tl.lane, v: bonus * HOLD_PTS, tile: tl });
     }
   }
 
@@ -770,10 +748,7 @@ export class TileGame {
   }
 
   result() {
-    const lapI = Math.min(1, this.lapsDone);
-    const per = lapI === 0 ? this.lapEnd[0] : this.lapEnd[1] - this.lapEnd[0];
-    const before = lapI === 0 ? 0 : this.lapEnd[0];
-    const frac = this.lapsDone >= 2 ? 1 : Math.max(0, Math.min(1, (this.doneSong - before) / Math.max(1, per)));
+    const frac = Math.max(0, Math.min(1, this.doneSong / Math.max(1, this.lapEnd[0])));
     const { stars, gems } = lapStars(this.lapsDone, frac);
     return {
       songId: this.songId,
@@ -845,19 +820,17 @@ export class TileGame {
       if (!this.tiles[this.head].coin) this.doneSong++;
       this.head++;
     }
-    // 별(첫 바퀴) · 다이아(둘째 바퀴): 1/3 · 2/3 지날 때 하나씩
-    if (this.state === 'playing' && this.lapsDone < 2) {
-      const before = this.lapsDone === 0 ? 0 : this.lapEnd[0];
-      const per = this.lapEnd[this.lapsDone] - before;
-      const st = lapStars(0, (this.doneSong - before) / Math.max(1, per)).stars;
-      if (this.lapsDone === 0) while (this.starsNow < st) this.fx.icon.push({ at: t, i: this.starsNow++, gem: false });
-      else while (this.gemsNow < st) this.fx.icon.push({ at: t, i: this.gemsNow++, gem: true });
+    // 별(첫 바퀴): 1/3 · 2/3 지날 때 하나씩
+    if (this.state === 'playing' && this.lapsDone === 0) {
+      const st = lapStars(0, this.doneSong / Math.max(1, this.lapEnd[0])).stars;
+      while (this.starsNow < st) this.fx.icon.push({ at: t, i: this.starsNow++, gem: false });
     }
-    // 바퀴 다 돎 → 셋째 별 / 셋째 다이아 · 하트 회복 · 빨라짐
+    // 바퀴 다 돎 → 셋째 별 / 다이아 하나 (빨라진 곡을 끝낼 때마다) · 하트 회복 · 다음 바퀴 더 빠르게
     while (this.state === 'playing' && this.lapsDone < this.maxLaps && this.doneSong >= this.lapEnd[this.lapsDone]) {
       this.lapsDone++;
       if (this.lapsDone === 1) while (this.starsNow < 3) this.fx.icon.push({ at: t, i: this.starsNow++, gem: false });
-      if (this.lapsDone === 2) while (this.gemsNow < 3) this.fx.icon.push({ at: t, i: this.gemsNow++, gem: true });
+      const gems = lapStars(this.lapsDone).gems;
+      while (this.gemsNow < gems) this.fx.icon.push({ at: t, i: this.gemsNow++, gem: true });
       if (this.hearts < TILE_HEARTS) {
         this.hearts++;
         this.hurtFx = { at: t, heal: true, heart: this.hearts - 1 };
@@ -866,8 +839,7 @@ export class TileGame {
       // 🪙 코인 파티 알림은 '별 3개' 글자가 사라진 뒤에 (겹치지 않게)
       if (this.lapsDone === 1 && this.partyRange) this.partyAt = Math.max(this.partyRange.t0 - 0.2, t + 1.4);
       try {
-        if (this.lapsDone <= 2) this.audio.fanfare();
-        else this.audio.sfxFile('combo', 0.6);
+        this.audio.fanfare();
       } catch {}
       if (this.onLap) this.onLap(this.lapsDone);
       if (this.lapsDone >= this.maxLaps) {
@@ -994,7 +966,7 @@ export class TileGame {
       const yb = judgeY - (f.row - cur) * rowH;
       const pulse = 1 + 0.06 * Math.sin(this.realT * 6);
       g.save();
-      g.translate((f.lane + 0.5) * laneW, yb - rowH / 2);
+      g.translate((f.lane + 0.5) * laneW, f.hold ? yb - f.rows * rowH * 0.55 : yb - rowH / 2);
       g.scale(pulse, pulse);
       g.font = font(Math.min(30, laneW * 0.28));
       g.textAlign = 'center';
@@ -1026,7 +998,7 @@ export class TileGame {
       g.font = bold(16);
       g.textAlign = 'center';
       g.textBaseline = 'middle';
-      g.fillStyle = '#fff';
+      g.fillStyle = '#e08a00';
       g.fillText('+1', c.x + 22, c.y - 70 * ease(k) - 6);
       g.globalAlpha = 1;
     }
@@ -1048,132 +1020,130 @@ export class TileGame {
     }
   }
 
-  /** 긴 타일: 윗부분 줄 색 → 검정 몸통 + 가운데 줄 + 아래 동그라미, 누르면 판정선까지 하늘색으로 차오름 */
+  /** 긴 타일 (2026-11-27 '꾹 누르는 건 못생기고 못 알아보겠어'): 검정 몸통 + 가운데 흰 점선 + 아래 흰 고리 속 「꾹」,
+   *   누르면 아래부터 판정선까지 하늘색으로 차오르고 고리가 빛남 */
   _drawHold(g, tl, x, y, w, h, yb) {
     const done = tl.done || (tl.hit && !this.holds.some((q) => q.tile === tl));
-    g.globalAlpha = done ? 0.35 : 1;
+    const holding = tl.hit && !done;
+    g.globalAlpha = done ? 0.3 : 1;
     g.fillStyle = '#000';
     g.fillRect(x, y, w, h);
-    g.drawImage(this.spr.holdTop[tl.lane], x, y, w, Math.min(h * 0.55, this.rowH * 1.4));
+    g.fillStyle = 'rgba(255,255,255,0.1)';
+    g.fillRect(x, y, w, Math.max(3, this.rowH * 0.06));
     const cx = x + w / 2;
-    const ry = yb - Math.min(this.rowH * 0.32, h * 0.18);
-    const rr0 = Math.min(16, w * 0.13);
-    // 가운데 줄
-    g.fillStyle = 'rgba(63,224,255,0.55)';
-    g.fillRect(cx - 1, y + this.rowH * 0.3, 2, ry - y - this.rowH * 0.3);
-    // 차오른 만큼 (아래부터 판정선까지, 윗머리 둥글게)
+    const R = Math.min(w * 0.2, this.rowH * 0.2);
+    const ry = yb - this.rowH * 0.42;
+    // 차오른 만큼 (아래부터)
     const f = tl.fill || 0;
     if (tl.hit && f > 0) {
-      const fh = Math.max(rr0 * 2, h * f);
-      const top = yb - fh;
-      g.globalAlpha = done ? 0.35 : 1;
-      g.fillStyle = HOLD_BLUE;
-      g.beginPath();
-      g.moveTo(x, yb);
-      g.lineTo(x, top + w / 2);
-      g.arc(cx, top + w / 2, w / 2, Math.PI, 0);
-      g.lineTo(x + w, yb);
-      g.closePath();
-      g.fill();
-      if (!done) {
-        g.strokeStyle = 'rgba(255,255,255,0.8)';
-        g.lineWidth = 2;
-        g.beginPath();
-        g.arc(cx, top + 10, rr0 * (1.2 + 0.2 * Math.sin(this.realT * 12)), 0, Math.PI * 2);
-        g.stroke();
+      const fh = Math.min(h, Math.max(0, h * f));
+      const gg = g.createLinearGradient(0, yb - fh, 0, yb);
+      gg.addColorStop(0, '#9be9ff');
+      gg.addColorStop(1, '#2fb8ff');
+      g.fillStyle = gg;
+      g.fillRect(x, yb - fh, w, fh);
+      if (holding) {
+        g.fillStyle = '#ffffff';
+        g.fillRect(x, yb - fh - 2, w, 4);
       }
-    } else {
-      // 아래 동그라미 (빛나는 고리)
-      g.strokeStyle = HOLD_BLUE;
-      g.lineWidth = 3;
-      g.shadowColor = HOLD_BLUE;
-      g.shadowBlur = 10;
-      g.beginPath();
-      g.arc(cx, ry, rr0, 0, Math.PI * 2);
-      g.stroke();
-      g.shadowColor = 'transparent';
     }
+    // 가운데 점선 (위 끝까지)
+    g.fillStyle = holding ? 'rgba(255,255,255,0.95)' : 'rgba(255,255,255,0.55)';
+    const dot = Math.max(5, this.rowH * 0.06);
+    for (let yy = ry - R - dot * 1.6; yy > y + dot; yy -= dot * 2) g.fillRect(cx - 1.5, yy - dot, 3, dot);
+    // 아래 고리 + 「꾹」
+    g.lineWidth = Math.max(2.5, R * 0.16);
+    g.strokeStyle = '#ffffff';
+    if (holding) {
+      g.shadowColor = '#7fe0ff';
+      g.shadowBlur = 16;
+    }
+    g.beginPath();
+    g.arc(cx, ry, R * (holding ? 1.12 + 0.06 * Math.sin(this.realT * 14) : 1), 0, Math.PI * 2);
+    g.stroke();
+    g.shadowBlur = 0;
+    g.font = font(R * 0.95);
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillStyle = '#ffffff';
+    g.fillText('꾹', cx, ry + R * 0.05);
     g.globalAlpha = 1;
   }
 
   // ======== 위 정보 (진행 줄 · 별/다이아 · 점수 · 코인 · 하트) ========
   _drawHud(g, t) {
     const { W, H } = this;
-    // 진행 줄: 첫 바퀴 = 별 3개, 둘째 바퀴 = 빈 다이아 3개, 코인 파티 = 금빛
+    const dark = this.dark;
+    const ink = dark ? '#ffffff' : '#2b2440';
+    // 진행 줄: 첫 바퀴 = 별 3개(1/3·2/3·끝), 그 뒤 = 다이아 3개(빨라진 곡 하나 끝낼 때마다 하나), 코인 파티 = 금빛
     const by = Math.max(30, H * 0.062);
     const x0 = W * 0.2;
     const x1 = W * 0.8;
     const party = this.state === 'playing' && this._inParty(t) && this.lapsDone === 1;
+    const gems = this.lapsDone >= 1;
     let p = 0;
     if (this.state !== 'ready') {
       if (party && this.partyRange) p = clamp((t - this.partyRange.t0) / (this.partyRange.t1 - this.partyRange.t0), 0, 1);
+      else if (!gems) p = clamp(this.doneSong / Math.max(1, this.lapEnd[0]), 0, 1);
       else {
         const k = Math.min(this.lapsDone, this.lapEnd.length - 1);
-        const before = k === 0 ? 0 : this.lapEnd[k - 1];
-        p = clamp((this.doneSong - before) / Math.max(1, this.lapEnd[k] - before), 0, 1);
+        const lapP = clamp((this.doneSong - this.lapEnd[k - 1]) / Math.max(1, this.lapEnd[k] - this.lapEnd[k - 1]), 0, 1);
+        p = clamp((this.lapsDone - 1 + (this.lapsDone >= this.maxLaps ? 0 : lapP)) / Math.max(1, Math.min(3, this.maxLaps - 1)), 0, 1);
       }
     }
     g.save();
     g.lineCap = 'round';
-    g.strokeStyle = 'rgba(255,255,255,0.55)';
-    g.lineWidth = 3;
+    g.strokeStyle = dark ? 'rgba(255,255,255,0.45)' : 'rgba(60,50,100,0.15)';
+    g.lineWidth = 4;
     g.beginPath();
     g.moveTo(x0, by);
     g.lineTo(x1, by);
     g.stroke();
     const fg = g.createLinearGradient(x0, 0, x1, 0);
-    if (party) {
-      fg.addColorStop(0, '#ffe066');
-      fg.addColorStop(1, '#ff9f0a');
-    } else {
-      fg.addColorStop(0, '#fff3b0');
-      fg.addColorStop(1, '#ffc23d');
-    }
+    fg.addColorStop(0, party ? '#ffe066' : gems ? '#8fe3ff' : '#ffe08a');
+    fg.addColorStop(1, party ? '#ff9f0a' : gems ? '#2f9bff' : '#ffb320');
     g.strokeStyle = fg;
-    g.lineWidth = 4;
-    g.shadowColor = 'rgba(255,210,90,0.9)';
-    g.shadowBlur = 8;
+    g.lineWidth = 5;
     g.beginPath();
     g.moveTo(x0, by);
     g.lineTo(x0 + (x1 - x0) * p, by);
     g.stroke();
-    g.shadowBlur = 0;
-    g.fillStyle = '#fff';
+    g.fillStyle = dark ? '#fff' : '#ffb320';
     g.beginPath();
     g.arc(x0, by, 5, 0, Math.PI * 2);
     g.fill();
-    // 별 / 다이아 자리
-    const gems = this.lapsDone >= 1;
     for (let i = 1; i <= 3; i++) {
       const x = x0 + ((x1 - x0) * i) / 3;
       const on = i <= (gems ? this.gemsNow : this.starsNow);
       const ev = this.fx.icon.find((f) => f.gem === gems && f.i === i - 1);
       const kk = ev ? clamp((t - ev.at) / 0.4, 0, 1) : 1;
       const sc = on && kk < 1 ? 1 + 0.8 * Math.sin(kk * Math.PI) : 1;
-      const r = Math.max(9, W * 0.032) * sc;
+      const r = Math.max(10, W * 0.034) * sc;
       if (party) coin(g, x, by, r * 0.8);
-      else if (!gems) star(g, x, by, r, on ? '#ffd23f' : '#ffffff', on ? '#e89a00' : 'rgba(120,110,160,0.6)');
+      else if (!gems) star(g, x, by, r, on ? '#ffd23f' : dark ? 'rgba(255,255,255,0.85)' : '#ffffff', on ? '#e89a00' : dark ? null : 'rgba(60,50,100,0.35)');
       else if (on) gem(g, x, by, r * 0.92);
-      else gemOutline(g, x, by, r * 0.92, true);
+      else gemOutline(g, x, by, r * 0.92, dark);
     }
     g.restore();
-    // 점수 (가운데 위, 큰 흰 숫자)
+    // 점수 (가운데 위, 드럼처럼 큰 숫자)
     const sTxt = Math.round(this.shown).toLocaleString();
-    const pop = this.comboAt != null ? 1 + 0.1 * (1 - ease((t - this.comboAt) / 0.15)) : 1;
+    const pop = this.comboAt != null ? 1 + 0.08 * (1 - ease((t - this.comboAt) / 0.15)) : 1;
     g.save();
-    g.translate(W / 2, by + Math.max(18, H * 0.022));
+    g.translate(W / 2, by + Math.max(16, H * 0.02));
     g.scale(pop, pop);
-    g.font = bold(Math.min(64, W * 0.16));
+    g.font = bold(Math.min(48, W * 0.12));
     g.textAlign = 'center';
     g.textBaseline = 'top';
-    g.shadowColor = 'rgba(60,30,110,0.45)';
-    g.shadowBlur = 10;
-    g.shadowOffsetY = 3;
-    g.fillStyle = '#ffffff';
+    g.lineJoin = 'round';
+    g.lineWidth = 6;
+    g.strokeStyle = dark ? 'rgba(10,8,30,0.7)' : '#ffffff';
+    g.strokeText(sTxt, 0, 0);
+    g.fillStyle = ink;
     g.fillText(sTxt, 0, 0);
     g.restore();
-    // 🪙 코인 (오른쪽, 일시정지 버튼 밑)
+    // 🪙 코인 (오른쪽, 일시정지 버튼 밑) — 코인이 날아와 쌓이면 톡 커짐
     const cy = Math.max(78, H * 0.105);
+    this.coinAt = { x: W - 30, y: cy };
     const cTxt = Math.round(this.coinShown).toLocaleString();
     g.save();
     g.font = bold(Math.min(20, W * 0.05));
@@ -1181,25 +1151,40 @@ export class TileGame {
     g.textBaseline = 'middle';
     const tw = g.measureText(cTxt).width;
     const bx = W - 14 - tw - 30;
-    g.fillStyle = 'rgba(20,10,50,0.28)';
+    g.fillStyle = dark ? 'rgba(20,10,50,0.45)' : 'rgba(43,36,64,0.85)';
     rr(g, bx - 6, cy - 15, tw + 44, 30, 15);
     g.fill();
-    const cb = this.fx.coin.length && t - this.fx.coin[this.fx.coin.length - 1].at < 0.2 ? 1.25 : 1;
+    const lastLand = this.fx.fly.length ? this.fx.fly[this.fx.fly.length - 1].at + FLY_SEC : -9;
+    const cb = t - lastLand >= 0 && t - lastLand < 0.15 ? 1.3 : 1;
     coin(g, bx + 12, cy, 10 * cb);
     g.fillStyle = '#fff';
     g.fillText(cTxt, W - 14, cy + 1);
     g.restore();
+    this.coinAt = { x: bx + 12, y: cy };
     // 하트 (왼쪽)
     const hs = Math.min(20, W * 0.05);
     for (let i = 0; i < TILE_HEARTS; i++) {
       const on = i < this.hearts;
       const ev = this.hurtFx && this.hurtFx.heart === i ? this.hurtFx : null;
-      let s = 1;
+      let sz = 1;
       if (ev) {
         const k = (t - ev.at) / 0.45;
-        if (k >= 0 && k < 1) s = ev.heal ? 1 + 0.5 * (1 - ease(k)) : 1 + 0.35 * Math.sin(k * Math.PI);
+        if (k >= 0 && k < 1) sz = ev.heal ? 1 + 0.5 * (1 - ease(k)) : 1 + 0.35 * Math.sin(k * Math.PI);
       }
-      heart(g, 18 + i * (hs + 6) + hs / 2, cy, hs * s, on ? '#ff4d6d' : 'rgba(255,255,255,0.45)');
+      heart(g, 18 + i * (hs + 6) + hs / 2, cy, hs * sz, on ? '#ff4d6d' : dark ? 'rgba(255,255,255,0.45)' : 'rgba(60,50,100,0.18)');
+    }
+    // 날아가는 코인 (치는 자리 → 오른쪽 위 코인 칸)
+    for (const f of this.fx.fly) {
+      const k = (t - f.at) / FLY_SEC;
+      if (k < 0 || k > 1) continue;
+      const e = ease(k);
+      const tx = this.coinAt.x;
+      const ty = this.coinAt.y;
+      const x = f.x + (tx - f.x) * e;
+      const y = f.y + (ty - f.y) * e - Math.sin(k * Math.PI) * 60;
+      g.globalAlpha = k < 0.85 ? 1 : (1 - k) / 0.15;
+      coin(g, x, y, 9 - 3 * k);
+      g.globalAlpha = 1;
     }
     if (this.vs) this._drawVs(g, cy + 24);
   }
@@ -1245,9 +1230,9 @@ export class TileGame {
       g.font = bold(px * 0.75);
       g.textAlign = 'left';
       g.lineWidth = 5;
-      g.strokeStyle = 'rgba(80,40,120,0.35)';
+      g.strokeStyle = this.dark ? 'rgba(80,40,120,0.35)' : '#ffffff';
       g.strokeText(`×${j.n}`, tw / 2 - px * 0.6, px * 0.75);
-      g.fillStyle = '#ffffff';
+      g.fillStyle = this.dark ? '#ffffff' : '#6b3fd1';
       g.fillText(`×${j.n}`, tw / 2 - px * 0.6, px * 0.75);
     }
     g.restore();
@@ -1270,7 +1255,7 @@ export class TileGame {
     g.fill();
     g.font = font(13);
     g.textBaseline = 'top';
-    g.fillStyle = '#fff';
+    g.fillStyle = this.dark ? '#fff' : '#2b2440';
     g.textAlign = 'left';
     g.fillText(`나 ${mine}`, x0, y + 11);
     g.textAlign = 'right';
@@ -1303,10 +1288,13 @@ export class TileGame {
       shows.push({ at: this.partyAt, party: 1 });
       shows.push({ at: Math.max(this.partyRange.t1 - 0.15, this.partyAt + 1.5), speed: 1 });
     }
+    // 다이아 바퀴를 끝내면 1.5초 뒤 '더 빨라져요!' (마지막 바퀴 뒤엔 없음)
+    for (const f of this.fx.lap) if (f.v >= 2 && f.v < this.maxLaps) shows.push({ at: f.at + 1.5, speed: 1 });
     for (const f of shows) {
       const k = (t - f.at) / 1.5;
       if (k < 0 || k > 1) continue;
       if ((f.party || f.speed) && (this.state === 'ready' || this.lapsDone < 1)) continue;
+      if (f.speed && this.state !== 'playing') continue;
       const a = k < 0.12 ? k / 0.12 : k > 0.72 ? (1 - k) / 0.28 : 1;
       g.save();
       g.globalAlpha = a;
@@ -1319,7 +1307,7 @@ export class TileGame {
           const dist = (40 + rnd() * W * 0.45) * ease(k * 1.4);
           const x = W / 2 + Math.cos(ang) * dist;
           const y = cy + Math.sin(ang) * dist * 0.7 + 30 * k * k;
-          g.fillStyle = 'rgba(255,255,255,0.9)';
+          g.fillStyle = this.dark ? 'rgba(255,255,255,0.9)' : i % 2 ? '#ffc23d' : '#8f6bff';
           g.fillRect(x - 3, y - 3, 6, 6);
         }
       }
@@ -1327,11 +1315,19 @@ export class TileGame {
       g.translate(W / 2, cy);
       g.scale(s, s);
       const big = Math.min(46, W * 0.115);
-      if (f.v === 1) for (let i = 0; i < 3; i++) star(g, (i - 1) * big * 1.3, -(i === 1 ? big * 0.3 : 0) - big * 0.5, big * 0.6, '#ffffff', 'rgba(255,190,60,0.9)');
-      else if (f.v === 2) for (let i = 0; i < 3; i++) gem(g, (i - 1) * big * 1.3, -(i === 1 ? big * 0.3 : 0) - big * 0.5, big * 0.55);
+      if (f.v === 1) for (let i = 0; i < 3; i++) star(g, (i - 1) * big * 1.3, -(i === 1 ? big * 0.3 : 0) - big * 0.5, big * 0.6, '#ffd23f', 'rgba(220,140,0,0.9)');
+      else if (f.v >= 2) {
+        const n = Math.min(3, f.v - 1);
+        for (let i = 0; i < 3; i++) {
+          const gx = (i - 1) * big * 1.3;
+          const gy = -(i === 1 ? big * 0.3 : 0) - big * 0.5;
+          if (i < n) gem(g, gx, gy, big * 0.55);
+          else gemOutline(g, gx, gy, big * 0.55, this.dark);
+        }
+      }
       else if (f.party) for (let i = 0; i < 3; i++) coin(g, (i - 1) * big * 1.3, -(i === 1 ? big * 0.3 : 0) - big * 0.5, big * 0.5);
-      const msg = f.party ? 'COIN PARTY!' : f.speed ? '더 빨라져요!' : f.v >= this.maxLaps ? 'COMPLETE!' : f.v === 1 ? 'EXCELLENT!' : f.v === 2 ? 'AMAZING!' : `${f.v}바퀴!`;
-      g.font = f.speed || f.v > 2 ? font(Math.min(34, W * 0.085)) : `italic ${bold(Math.min(40, W * 0.1))}`;
+      const msg = f.party ? 'COIN PARTY!' : f.speed ? '더 빨라져요!' : f.v >= this.maxLaps ? 'COMPLETE!' : ['', 'EXCELLENT!', 'AMAZING!', 'FANTASTIC!'][f.v] || 'GREAT!';
+      g.font = f.speed ? font(Math.min(34, W * 0.085)) : `italic ${bold(Math.min(40, W * 0.1))}`;
       g.textAlign = 'center';
       g.textBaseline = 'middle';
       const tw = g.measureText(msg).width;
@@ -1427,6 +1423,14 @@ export class TileGame {
 TileGame.prototype._gc = 0;
 
 // ---------- 그리기 도우미 ----------
+function hslRgb(h, s, l) {
+  s /= 100;
+  l /= 100;
+  const k = (n) => (n + h / 30) % 12;
+  const a = s * Math.min(l, 1 - l);
+  const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
+  return [Math.round(255 * f(0)), Math.round(255 * f(8)), Math.round(255 * f(4))];
+}
 function rr(g, x, y, w, h, r) {
   r = Math.max(0, Math.min(r, w / 2, h / 2));
   g.beginPath();
