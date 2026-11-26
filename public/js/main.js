@@ -6651,38 +6651,58 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) tilePause();
 });
 
-// ----- 🔑 카카오 로그인 -----
-const kakaoOn = () => !!state.cfg.kakao && s2On() && state.api && state.api.mode === 'server';
-function refreshKakao() {
-  const box = $('#kakao-box');
+// ----- 🔑 카카오·구글 로그인 -----
+const OA_NAME = { kakao: '카카오', google: '구글' };
+const oaOn = (pv) => !!state.cfg[pv] && s2On() && state.api && state.api.mode === 'server';
+function refreshOauth(pv) {
+  const nm = OA_NAME[pv];
+  const box = $(`#${pv}-box`);
   if (!box) return;
-  box.hidden = !kakaoOn();
-  const vk = $('#verify-kakao');
-  if (vk) vk.hidden = !kakaoOn();
+  box.hidden = !oaOn(pv);
+  const vk = $(`#verify-${pv}`);
+  // 구글은 인스타·카톡 앱 안 브라우저에서 로그인을 막아서 거기선 내 계정 찾기 버튼을 안 보임
+  if (vk) vk.hidden = !oaOn(pv) || (pv === 'google' && isInApp());
   if (box.hidden) return;
-  const linked = !!(state.me && state.me.kakao);
+  const linked = !!(state.me && state.me[pv]);
   box.classList.toggle('on', linked);
-  $('#kakao-note').textContent = linked ? '✅ 카카오가 연결돼 있어요. 다른 브라우저·앱에서도 「카카오로 로그인」으로 이 계정에 들어와요.' : state.me.guest ? '카카오를 연결해 두면 다른 브라우저·앱(인스타 안·사파리·홈 화면)에서도 카카오로 같은 계정(기록·코인)에 들어와요.' : '예전에 카카오를 연결한 계정이 있으면 카카오로 바로 들어와요.';
-  const b = $('#kakao-btn');
+  const b = $(`#${pv}-btn`);
+  if (pv === 'google' && isInApp() && !linked) {
+    $(`#${pv}-note`).textContent = '구글 로그인은 인스타·카톡 앱 안에선 안 돼요. 오른쪽 위 ⋯ → 사파리·크롬으로 열어서 해 주세요.';
+    b.hidden = true;
+    return;
+  }
+  const ig = pv === 'google' ? '이' : '가';
+  const eul = pv === 'google' ? '을' : '를';
+  const where = pv === 'google' ? '사파리·크롬·홈 화면' : '인스타 안·사파리·홈 화면';
+  $(`#${pv}-note`).textContent = linked ? `✅ ${nm}${ig} 연결돼 있어요. 다른 브라우저·앱에서도 「${nm}로 로그인」으로 이 계정에 들어와요.` : state.me.guest ? `${nm}${eul} 연결해 두면 다른 브라우저·앱(${where})에서도 ${nm}로 같은 계정(기록·코인)에 들어와요.` : `예전에 ${nm}${eul} 연결한 계정이 있으면 ${nm}로 바로 들어와요.`;
   b.hidden = linked;
-  b.dataset.action = state.me.guest ? 'kakao-link' : 'kakao-login';
-  b.textContent = state.me.guest ? '카카오 연결하기' : '카카오로 로그인';
+  b.dataset.action = state.me.guest ? `${pv}-link` : `${pv}-login`;
+  b.textContent = state.me.guest ? `${nm} 연결하기` : `${nm}로 로그인`;
 }
-async function kakaoGo(mode) {
-  if (!kakaoOn()) return;
+function refreshKakao() {
+  refreshOauth('kakao');
+  refreshOauth('google');
+}
+async function oauthGo(pv, mode) {
+  if (!oaOn(pv)) return;
+  if (pv === 'google' && isInApp()) return toast('구글 로그인은 앱 안에선 안 돼요 · ⋯ → 사파리·크롬으로 열어 주세요', 3400);
   try {
-    const r = await state.api.kakaoStart(mode);
+    const r = await (pv === 'google' ? state.api.googleStart(mode) : state.api.kakaoStart(mode));
     if (r && r.url) location.href = r.url;
   } catch (e) {
-    toast(e && e.status === 401 ? '먼저 이용 등록을 해 주세요' : '카카오 로그인을 시작하지 못했어요');
+    toast(e && e.status === 401 ? '먼저 이용 등록을 해 주세요' : `${OA_NAME[pv]} 로그인을 시작하지 못했어요`);
   }
 }
-const KAKAO_MSG = {
-  login: '🔑 카카오로 로그인했어요!',
-  linked: '🔑 카카오를 연결했어요! 다른 브라우저에서도 카카오로 들어올 수 있어요',
-  taken: '이 카카오는 다른 계정에 연결돼 있어요',
-  none: '이 카카오에 연결된 계정이 없어요 · 이용 등록 뒤 설정에서 연결해 주세요',
-  cancel: '카카오 로그인을 취소했어요',
+const kakaoGo = (mode) => oauthGo('kakao', mode);
+const OA_MSG = (pv) => {
+  const nm = OA_NAME[pv];
+  return {
+    login: `🔑 ${nm}로 로그인했어요!`,
+    linked: `🔑 ${nm}${pv === 'google' ? '을' : '를'} 연결했어요! 다른 브라우저에서도 ${nm}로 들어올 수 있어요`,
+    taken: `이 ${nm} 계정은 다른 계정에 연결돼 있어요`,
+    none: `이 ${nm} 계정에 연결된 계정이 없어요 · 이용 등록 뒤 설정에서 연결해 주세요`,
+    cancel: `${nm} 로그인을 취소했어요`,
+  };
 };
 
 const ACTIONS = {
@@ -6807,6 +6827,8 @@ const ACTIONS = {
   'tp-rank': () => openS2Rank('song', tp.song),
   'kakao-link': () => kakaoGo('link'),
   'kakao-login': () => kakaoGo('login'),
+  'google-link': () => oauthGo('google', 'link'),
+  'google-login': () => oauthGo('google', 'login'),
   'p2-play': (el) => p2Play(el.dataset.style),
   'p2-go': () => {
     p2.turned = true;
@@ -7538,7 +7560,7 @@ async function boot() {
   });
   try {
     const sc = await state.api.config();
-    for (const k of ['gateMode', 'instagramHandle', 'siteUrl', 'freePassUntil', 'shopOpen', 's2Open', 's2Community', 'kakao']) {
+    for (const k of ['gateMode', 'instagramHandle', 'siteUrl', 'freePassUntil', 'shopOpen', 's2Open', 's2Community', 'kakao', 'google']) {
       if (sc[k] !== undefined && sc[k] !== '' && sc[k] !== null) state.cfg[k] = sc[k];
     }
     if (sc.s2Open !== undefined) save('s2OpenSeen', !!sc.s2Open);
@@ -7614,15 +7636,16 @@ async function boot() {
     if ($('#screen-title').classList.contains('active') || $('#screen-home2').classList.contains('active')) show('screen-title');
     setTimeout(() => toast(s2p === 'okay' ? '🎹 시즌 2 미리보기를 켰어요 (이 기기만)' : '시즌 2 미리보기를 껐어요', 2600), 300);
   }
-  // 🔑 카카오 로그인에서 돌아옴 (/?kakao=결과)
-  const kk = params.get('kakao');
-  if (kk) {
+  // 🔑 카카오·구글 로그인에서 돌아옴 (/?kakao=결과 · /?google=결과)
+  for (const pv of ['kakao', 'google']) {
+    const kk = params.get(pv);
+    if (!kk) continue;
     try {
       const u = new URL(location.href);
-      u.searchParams.delete('kakao');
+      u.searchParams.delete(pv);
       history.replaceState(null, '', u.pathname + u.search + u.hash);
     } catch {}
-    setTimeout(() => toast(KAKAO_MSG[kk] || '카카오 로그인이 안 됐어요. 다시 해 주세요', 3400), 500);
+    setTimeout(() => toast(OA_MSG(pv)[kk] || `${OA_NAME[pv]} 로그인이 안 됐어요. 다시 해 주세요`, 3400), 500);
   }
   // 🛒 운영자 시험: /?shoptest=okay 면 이 기기에서만 상점 물건을 전부 써 봄 (산 것으로 안 침, 서버 안 감), ?shoptest=off 면 끔
   const shopTest = params.get('shoptest');

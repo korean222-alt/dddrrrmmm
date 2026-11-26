@@ -1410,6 +1410,9 @@ html.s2 #screen-levels .follow-chip { display: none !important; }
 .kakao-box h4 { margin: 0; font-weight: 400; font-size: 17px; }
 .kakao-box p { margin: 0; }
 .kakao-box.on { background: #eef9e6; border-color: #9bd47a; }
+.btn-google { background: #fff; color: #1f1f1f; border-color: #1f1f1f; box-shadow: 0 3px 0 #1f1f1f; }
+.btn-google:active { box-shadow: 0 1px 0 #1f1f1f; }
+.google-box { background: #f1f5ff; border-color: #a9bff0; }
 /* 시즌 2: 드럼 결과 화면의 '랭킹 보기'도 숨김 (드럼은 랭킹 없음) */
 html.s2 #btn-rank { display: none; }
 

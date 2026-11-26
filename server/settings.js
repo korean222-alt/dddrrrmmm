@@ -28,5 +28,8 @@ export function makeConfig(env = {}) {
     // 🔑 카카오 로그인 (2026-11-26): developers.kakao.com 앱의 REST API 키 · Client Secret. 둘 다 있어야 켜짐 (Cloudflare 비밀값)
     kakaoKey: env.KAKAO_REST_KEY || '',
     kakaoSecret: env.KAKAO_SECRET || '',
+    // 🔑 구글 로그인 (2026-11-26): Google Cloud OAuth 클라이언트 ID · 보안 비밀 (Cloudflare 비밀값)
+    googleKey: env.GOOGLE_CLIENT_ID || '',
+    googleSecret: env.GOOGLE_SECRET || '',
   };
 }

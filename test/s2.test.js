@@ -303,3 +303,40 @@ test('⚔️ 타일 대결: 랜덤(tiles) 두 사람이 붙으면 바로 타일 
   assert.equal(ch.room.level, 't1');
   void b;
 });
+
+for (const kind of KINDS) test(`[${kind}] 구글 로그인: 키 없으면 꺼짐 · 연결 → 다른 브라우저에서 구글로 같은 계정 · 카카오 시작 쿠키로는 못 씀`, async () => {
+  const off = await setup({}, kind);
+  assert.equal((await off.call('/api/auth/google/start', { mode: 'login' })).status, 404);
+  assert.equal((await (await off.call('/api/config')).json()).google, false);
+  const { call, setJar } = await setup({ GOOGLE_CLIENT_ID: 'gk', GOOGLE_SECRET: 'gs', KAKAO_REST_KEY: 'rk', KAKAO_SECRET: 'cs' }, kind);
+  assert.equal((await (await call('/api/config')).json()).google, true);
+  assert.equal((await call('/api/verify/password', { name: '구글이', ig: 'google_one' })).status, 200);
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (u) => {
+    if (String(u).includes('oauth2.googleapis.com/token')) return new Response(JSON.stringify({ access_token: 'at' }), { status: 200 });
+    if (String(u).includes('/v1/userinfo')) return new Response(JSON.stringify({ sub: '1234567890' }), { status: 200 });
+    throw new Error('unexpected ' + u);
+  };
+  try {
+    const go = async (mode) => {
+      const st = await (await call('/api/auth/google/start', { mode })).json();
+      assert.match(st.url, /^https:\/\/accounts\.google\.com\/o\/oauth2\/v2\/auth\?/);
+      assert.equal(new URL(st.url).searchParams.get('redirect_uri'), 'http://x/api/auth/google/callback');
+      const r = await call(`/api/auth/google/callback?code=c&state=${encodeURIComponent(new URL(st.url).searchParams.get('state'))}`);
+      return r.headers.get('location');
+    };
+    assert.equal(await go('link'), '/?google=linked');
+    const me = await (await call('/api/me')).json();
+    assert.equal(me.google, true);
+    assert.equal(me.kakao, false);
+    setJar('');
+    assert.equal(await go('login'), '/?google=login');
+    assert.equal((await (await call('/api/me')).json()).player.username, '구글이');
+    // 카카오로 시작한 쿠키를 구글 callback 에 쓰면 거절
+    const st = await (await call('/api/auth/kakao/start', { mode: 'login' })).json();
+    const r = await call(`/api/auth/google/callback?code=c&state=${encodeURIComponent(new URL(st.url).searchParams.get('state'))}`);
+    assert.equal(r.headers.get('location'), '/?google=expired');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});

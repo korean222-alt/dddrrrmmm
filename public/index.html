@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=887632d754" />
+  <link rel="stylesheet" href="css/style.css?v=e0b1d1cb62" />
 </head>
 <body>
   <div id="app">
@@ -865,6 +865,7 @@
         <button class="btn btn-primary" type="submit" id="verify-submit">시작하기</button>
         <button class="btn btn-ghost btn-sm" type="button" id="verify-fresh" hidden>새로 시작할래요</button>
         <button class="btn btn-kakao btn-sm" type="button" data-action="kakao-login" id="verify-kakao" hidden>카카오로 내 계정 찾기</button>
+        <button class="btn btn-google btn-sm" type="button" data-action="google-login" id="verify-google" hidden>구글로 내 계정 찾기</button>
       </form>
       <details class="a2hs" id="verify-a2hs">
         <summary><span data-icon="phone" data-e></span> 홈 화면에 추가해 두면 바로 들어와요</summary>
@@ -1000,6 +1001,11 @@
         <h4>🔑 카카오 로그인</h4>
         <p class="muted small" id="kakao-note">카카오를 연결해 두면 다른 브라우저·앱에서도 카카오로 같은 계정(기록·코인)에 들어와요.</p>
         <button class="btn btn-kakao btn-sm" data-action="kakao-link" id="kakao-btn">카카오 연결하기</button>
+      </div>
+      <div class="kakao-box google-box" id="google-box" hidden>
+        <h4>🔑 구글 로그인</h4>
+        <p class="muted small" id="google-note">구글을 연결해 두면 다른 브라우저·앱에서도 구글로 같은 계정(기록·코인)에 들어와요.</p>
+        <button class="btn btn-google btn-sm" data-action="google-link" id="google-btn">구글 연결하기</button>
       </div>
       <div class="transfer" id="transfer-box">
         <h4><span data-icon="phone" data-e></span> 다른 폰으로 옮기기</h4>
@@ -1291,6 +1297,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=378b9fba12" defer></script>
+  <script src="js/app.js?v=50e869cde7" defer></script>
 </body>
 </html>

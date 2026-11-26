@@ -49,6 +49,9 @@ const SCHEMA = [
   // kakao = 🔑 카카오 회원번호의 해시 (2026-11-26 카카오 로그인, 연결한 사람만)
   `ALTER TABLE players ADD COLUMN IF NOT EXISTS kakao TEXT`,
   `CREATE INDEX IF NOT EXISTS players_kakao ON players (kakao) WHERE kakao IS NOT NULL`,
+  // google = 🔑 구글 계정 번호의 해시 (2026-11-26 구글 로그인)
+  `ALTER TABLE players ADD COLUMN IF NOT EXISTS google TEXT`,
+  `CREATE INDEX IF NOT EXISTS players_google ON players (google) WHERE google IS NOT NULL`,
   `CREATE TABLE IF NOT EXISTS scores (
      igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, grade TEXT, max_combo INTEGER,
      at BIGINT NOT NULL, PRIMARY KEY (igsid, level))`,
@@ -409,7 +412,7 @@ END $$`);
   // ----- players -----
   async getPlayer(igsid) {
     const r = await this.one('SELECT * FROM players WHERE igsid = $1', [igsid]);
-    return r ? { igsid: r.igsid, username: r.username, ig: r.ig || null, hiddenAt: num(r.hidden_at) ?? null, checkedAt: num(r.checked_at) ?? null, kakao: !!r.kakao } : null;
+    return r ? { igsid: r.igsid, username: r.username, ig: r.ig || null, hiddenAt: num(r.hidden_at) ?? null, checkedAt: num(r.checked_at) ?? null, kakao: !!r.kakao, google: !!r.google } : null;
   }
   async upsertPlayer(igsid, patch) {
     // 인스타 아이디가 바뀌면 운영자가 팔로우를 다시 확인해야 함 (checked_at 비움)
@@ -661,6 +664,18 @@ END $$`);
   }
   async setKakao(igsid, kid) {
     await this.q('UPDATE players SET kakao = $2 WHERE igsid = $1', [igsid, kid]);
+  }
+  // 🔑 구글 로그인 (2026-11-26) — 카카오와 같음
+  async playerByGoogle(gid) {
+    const r = await this.one('SELECT igsid FROM players WHERE google = $1 AND username IS NOT NULL LIMIT 1', [gid]);
+    return r ? r.igsid : null;
+  }
+  async googleOf(igsid) {
+    const r = await this.one('SELECT google FROM players WHERE igsid = $1', [igsid]);
+    return r ? r.google || null : null;
+  }
+  async setGoogle(igsid, gid) {
+    await this.q('UPDATE players SET google = $2 WHERE igsid = $1', [igsid, gid]);
   }
   /** 이 인스타 아이디로 된 참여자들 (기록 되찾기용): 점수 많은 순 → 오래된 순 */
   async playersByIg(ig) {

@@ -10,6 +10,7 @@ import { findSuspects, suspectReport } from './suspect.js';
 import { createRoomHandler } from './rooms.js';
 import { createRankedHandler } from './ranked.js';
 import { kakaoAuthUrl, kakaoUserId, kakaoHash, KAKAO_STATE_MS } from './kakao.js';
+import { googleAuthUrl, googleUserId, googleHash } from './google.js';
 import { cleanMap, mapDifficulty, mapLevel } from '../public/js/usermap.js';
 import { buyItem, cleanOwned, legacyRefund, seasonRewards } from '../public/js/shop.js';
 import { seasonAt, endedSeasons, HALL_BOARDS, hallBoardsOf, cleanHallImage, SEASONS } from '../public/js/season.js';
@@ -258,6 +259,11 @@ const utcDay = (t) => new Date(t).toISOString().slice(0, 10);
 
 export function createHandler(cfg, { store, meter = null }) {
   const limitGuest = rateLimiter(15, 10 * 60 * 1000);
+  // 🔑 카카오·구글 로그인 — 같은 흐름, 공급자별 함수만 다름
+  const OAUTH = {
+    kakao: { authUrl: kakaoAuthUrl, userId: kakaoUserId, hash: kakaoHash, byId: (k) => store.playerByKakao(k), of: (i) => store.kakaoOf(i), set: (i, k) => store.setKakao(i, k) },
+    google: { authUrl: googleAuthUrl, userId: googleUserId, hash: googleHash, byId: (k) => store.playerByGoogle(k), of: (i) => store.googleOf(i), set: (i, k) => store.setGoogle(i, k) },
+  };
   const limitScores = rateLimiter(60, 10 * 60 * 1000);
   const limitAdmin = rateLimiter(30, 10 * 60 * 1000);
   const limitTrack = rateLimiter(200, 10 * 60 * 1000);
@@ -519,6 +525,7 @@ export function createHandler(cfg, { store, meter = null }) {
     hidden: pl.hiddenAt ? { deleteAt: pl.hiddenAt + HIDE_KEEP_MS } : null,
     player: { username: pl.username, ig: pl.ig },
     kakao: !!pl.kakao,
+    google: !!pl.google,
   });
 
   /** 🪙 요청에 얹혀 온 코인 받기 → 잔액(계정 없거나 인증 전이면 null = 폰이 다시 보냄) */
@@ -874,7 +881,7 @@ export function createHandler(cfg, { store, meter = null }) {
       // 쿠키가 날아간 폰: 헤더로 왔으면 쿠키를 다시 줌
       if (c !== raw && request._setCookies) request._setCookies.push(cookie(PLAYER_COOKIE, raw, { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
     }
-    return rec && rec.username ? { igsid: rec.igsid, username: rec.username, ig: rec.ig || null, hiddenAt: rec.hiddenAt || null, checkedAt: rec.checkedAt || null, kakao: !!rec.kakao } : null;
+    return rec && rec.username ? { igsid: rec.igsid, username: rec.username, ig: rec.ig || null, hiddenAt: rec.hiddenAt || null, checkedAt: rec.checkedAt || null, kakao: !!rec.kakao, google: !!rec.google } : null;
   }
 
   // ------------------- API -------------------
@@ -935,7 +942,7 @@ export function createHandler(cfg, { store, meter = null }) {
       return json(200, {
         ok: true,
         app: 'okaystra',
-        config: { gateMode: cfg.gateMode, instagramHandle: cfg.instagramHandle, siteUrl: cfg.siteUrl, freePassUntil: (await freePassOn()) ? await freePassUntil() : 0, shopOpen: await shopOpen(false, pl), ...(await s2Public()), kakao: !!(cfg.kakaoKey && cfg.kakaoSecret) },
+        config: { gateMode: cfg.gateMode, instagramHandle: cfg.instagramHandle, siteUrl: cfg.siteUrl, freePassUntil: (await freePassOn()) ? await freePassUntil() : 0, shopOpen: await shopOpen(false, pl), ...(await s2Public()), kakao: !!(cfg.kakaoKey && cfg.kakaoSecret), google: !!(cfg.googleKey && cfg.googleSecret) },
         me: pl ? { ...meOf(pl), ...(await walletOf(pl)) } : { verified: false },
       });
     }
@@ -949,6 +956,7 @@ export function createHandler(cfg, { store, meter = null }) {
         shopOpen: await shopOpen(),
         ...(await s2Public()),
         kakao: !!(cfg.kakaoKey && cfg.kakaoSecret),
+        google: !!(cfg.googleKey && cfg.googleSecret),
       });
     }
 
@@ -965,57 +973,65 @@ export function createHandler(cfg, { store, meter = null }) {
       return json(200, { ...meOf(pl), ...wal });
     }
 
-    // 🔑 카카오 로그인 (2026-11-26): 폰이 POST 로 주소를 받아 그리로 이동 (지금 계정은 쿠키·폰 저장소 열쇠로 알아봄)
-    //   kk_ks 쿠키 = 서명한 { n, igsid(연결할 계정), mode } → 돌아왔을 때 state 의 n 과 맞아야 함 (같은 브라우저에서 시작한 것만)
-    if (p === '/api/auth/kakao/start' && m === 'POST') {
-      if (!cfg.kakaoKey || !cfg.kakaoSecret) return json(404, { error: 'kakao_off' });
-      if (!limitGuest(ip)) return json(429, { error: 'rate_limited' });
-      const b = await readJson(request);
-      const mode = b.mode === 'link' ? 'link' : 'login';
-      const pl = await getPlayer(request);
-      if (mode === 'link' && !pl) return json(401, { error: 'verify_required' });
-      const n = newId();
-      const now = Date.now();
-      setCookies.push(cookie('kk_ks', sign({ n, igsid: pl ? pl.igsid : null, mode, t: now }, cfg.sessionSecret), { maxAge: Math.floor(KAKAO_STATE_MS / 1000), secure: cfg.cookieSecure }));
-      const state = sign({ n, t: now }, cfg.sessionSecret);
-      return json(200, { url: kakaoAuthUrl({ key: cfg.kakaoKey, redirectUri: `${url.origin}/api/auth/kakao/callback`, state }) });
-    }
-    if (p === '/api/auth/kakao/callback' && m === 'GET') {
-      const back = (r) => {
-        setCookies.push(cookie('kk_ks', '', { maxAge: 0, secure: cfg.cookieSecure }));
-        const h = new Headers({ Location: `/?kakao=${r}`, 'Cache-Control': 'no-store' });
-        for (const c of setCookies) h.append('Set-Cookie', c);
-        return new Response(null, { status: 302, headers: h });
-      };
-      if (!cfg.kakaoKey || !cfg.kakaoSecret) return back('off');
-      if (url.searchParams.get('error')) return back('cancel');
-      const st = unsign(url.searchParams.get('state') || '', cfg.sessionSecret);
-      const ks = unsign(cookiesOf(request).kk_ks || '', cfg.sessionSecret);
-      if (!st || !ks || !st.n || st.n !== ks.n || Date.now() - st.t > KAKAO_STATE_MS) return back('expired');
-      let kid;
-      try {
-        kid = kakaoHash(await kakaoUserId({ key: cfg.kakaoKey, secret: cfg.kakaoSecret, redirectUri: `${url.origin}/api/auth/kakao/callback`, code: url.searchParams.get('code') || '' }), cfg.sessionSecret);
-      } catch (e) {
-        console.error('[kakao]', e && e.message);
-        return back('fail');
+    // 🔑 카카오·구글 로그인 (2026-11-26): 폰이 POST 로 주소를 받아 그리로 이동 (지금 계정은 쿠키·폰 저장소 열쇠로 알아봄)
+    //   kk_ks 쿠키 = 서명한 { n, igsid(연결할 계정), mode, pv } → 돌아왔을 때 state 의 n 과 맞아야 함 (같은 브라우저에서 시작한 것만)
+    const oa = /^\/api\/auth\/(kakao|google)\/(start|callback)$/.exec(p);
+    if (oa) {
+      const pv = oa[1];
+      const P = OAUTH[pv];
+      const key = cfg[pv + 'Key'];
+      const secret = cfg[pv + 'Secret'];
+      const redirectUri = `${url.origin}/api/auth/${pv}/callback`;
+      if (oa[2] === 'start' && m === 'POST') {
+        if (!key || !secret) return json(404, { error: pv + '_off' });
+        if (!limitGuest(ip)) return json(429, { error: 'rate_limited' });
+        const b = await readJson(request);
+        const mode = b.mode === 'link' ? 'link' : 'login';
+        const pl = await getPlayer(request);
+        if (mode === 'link' && !pl) return json(401, { error: 'verify_required' });
+        const n = newId();
+        const now = Date.now();
+        setCookies.push(cookie('kk_ks', sign({ n, igsid: pl ? pl.igsid : null, mode, pv, t: now }, cfg.sessionSecret), { maxAge: Math.floor(KAKAO_STATE_MS / 1000), secure: cfg.cookieSecure }));
+        const state = sign({ n, t: now }, cfg.sessionSecret);
+        return json(200, { url: P.authUrl({ key, redirectUri, state }) });
       }
-      const owner = await store.playerByKakao(kid);
-      const loginAs = (igsid) => setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
-      if (ks.mode === 'link') {
-        if (owner && owner !== ks.igsid) return back('taken');
-        if (!owner) await store.setKakao(ks.igsid, kid);
-        return back('linked');
+      if (oa[2] === 'callback' && m === 'GET') {
+        const back = (r) => {
+          setCookies.push(cookie('kk_ks', '', { maxAge: 0, secure: cfg.cookieSecure }));
+          const h = new Headers({ Location: `/?${pv}=${r}`, 'Cache-Control': 'no-store' });
+          for (const c of setCookies) h.append('Set-Cookie', c);
+          return new Response(null, { status: 302, headers: h });
+        };
+        if (!key || !secret) return back('off');
+        if (url.searchParams.get('error')) return back('cancel');
+        const st = unsign(url.searchParams.get('state') || '', cfg.sessionSecret);
+        const ks = unsign(cookiesOf(request).kk_ks || '', cfg.sessionSecret);
+        if (!st || !ks || !st.n || st.n !== ks.n || (ks.pv || 'kakao') !== pv || Date.now() - st.t > KAKAO_STATE_MS) return back('expired');
+        let kid;
+        try {
+          kid = P.hash(await P.userId({ key, secret, redirectUri, code: url.searchParams.get('code') || '' }), cfg.sessionSecret);
+        } catch (e) {
+          console.error('[' + pv + ']', e && e.message);
+          return back('fail');
+        }
+        const owner = await P.byId(kid);
+        const loginAs = (igsid) => setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
+        if (ks.mode === 'link') {
+          if (owner && owner !== ks.igsid) return back('taken');
+          if (!owner) await P.set(ks.igsid, kid);
+          return back('linked');
+        }
+        if (owner) {
+          loginAs(owner);
+          return back('login');
+        }
+        // 연결된 계정이 없음: 지금 이 폰 계정에 이 로그인이 없으면 연결해 줌
+        if (ks.igsid && !(await P.of(ks.igsid))) {
+          await P.set(ks.igsid, kid);
+          return back('linked');
+        }
+        return back('none');
       }
-      if (owner) {
-        loginAs(owner);
-        return back('login');
-      }
-      // 연결된 계정이 없음: 지금 이 폰 계정에 카카오가 없으면 연결해 줌
-      if (ks.igsid && !(await store.kakaoOf(ks.igsid))) {
-        await store.setKakao(ks.igsid, kid);
-        return back('linked');
-      }
-      return back('none');
     }
     if (p === '/api/logout' && m === 'POST') {
       setCookies.push(cookie(PLAYER_COOKIE, '', { maxAge: 0, secure: cfg.cookieSecure }));

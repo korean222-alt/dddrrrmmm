@@ -365,6 +365,18 @@ export class JsonStore {
     if (this.data.players[igsid]) this.data.players[igsid].kakao = kid;
     this._save();
   }
+  // 🔑 구글 로그인
+  playerByGoogle(gid) {
+    const p = Object.values(this.data.players).find((x) => x.google === gid && x.username);
+    return p ? p.igsid : null;
+  }
+  googleOf(igsid) {
+    return (this.data.players[igsid] && this.data.players[igsid].google) || null;
+  }
+  setGoogle(igsid, gid) {
+    if (this.data.players[igsid]) this.data.players[igsid].google = gid;
+    this._save();
+  }
   playersByIg(ig) {
     return Object.values(this.data.players)
       .filter((p) => p.ig === ig && p.username)
