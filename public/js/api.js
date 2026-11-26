@@ -168,6 +168,7 @@ function serverApi(boot = null) {
     logout: () => http('POST', '/api/logout'),
     // 🔑 카카오 로그인 (2026-11-26): 서버가 카카오 동의 화면 주소를 줌 → 그리로 이동
     kakaoStart: (mode) => http('POST', '/api/auth/kakao/start', { mode }),
+    googleStart: (mode) => http('POST', '/api/auth/google/start', { mode }),
     suggest: (kind, text, contact) => http('POST', '/api/suggestions', { kind, text, contact }),
     room: (body) => http('POST', '/api/rooms', body),
     ranked: (body) => http('POST', '/api/ranked', body),
