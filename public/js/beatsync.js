@@ -183,10 +183,55 @@ function bandFlux(samples, sr, start, dur) {
   return { low, high, all, loud, hopSec: hop / sr, n };
 }
 
+/**
+ * 마디마다 노래 세기 (하이라이트 찾기). 소리 크기 + 박 수(세게 튀는 소리) 를 같이 봄 →
+ *   0(조용한 구간) ~ 1(가장 센 구간). 2마디씩 고르게. 곡 전체가 비슷하면(차이 25% 안) 모두 0.5.
+ *   녹화 소리가 없는 마디는 null
+ */
+export function barEnergy(samples, sr, { firstBeat, bpm, bars }) {
+  const barSec = (60 / bpm) * 4;
+  const { low, high, loud, hopSec, n } = bandFlux(samples, sr, firstBeat, bars * barSec);
+  const raw = [];
+  for (let b = 0; b < bars; b++) {
+    const i0 = Math.floor((b * barSec) / hopSec);
+    const i1 = Math.min(n, Math.floor(((b + 1) * barSec) / hopSec));
+    if (i1 - i0 < (barSec / hopSec) * 0.6) {
+      raw.push(null);
+      continue;
+    }
+    let l = 0;
+    let f = 0;
+    for (let i = i0; i < i1; i++) {
+      l += loud[i];
+      f += low[i] + high[i];
+    }
+    raw.push({ l: l / (i1 - i0), f: f / (i1 - i0) });
+  }
+  const got = raw.filter(Boolean);
+  if (got.length < 2) return raw.map((x) => (x ? 0.5 : null));
+  const norm = (k) => {
+    const v = got.map((x) => x[k]).sort((a, b) => a - b);
+    const lo = v[Math.floor(v.length * 0.1)];
+    const hi = v[Math.min(v.length - 1, Math.floor(v.length * 0.9))];
+    return { lo, hi, flat: hi <= lo * 1.25 };
+  };
+  const L = norm('l');
+  const F = norm('f');
+  if (L.flat && F.flat) return raw.map((x) => (x ? 0.5 : null));
+  const at = (x, N) => (N.flat ? 0.5 : Math.max(0, Math.min(1, (x - N.lo) / (N.hi - N.lo || 1))));
+  const e = raw.map((x) => (x ? 0.6 * at(x.l, L) + 0.4 * at(x.f, F) : null));
+  // 옆 마디와 고르게 (한 마디만 튀는 건 하이라이트가 아님)
+  return e.map((x, i) => {
+    if (x == null) return null;
+    const nb = [e[i - 1], x, x, e[i + 1]].filter((y) => y != null);
+    return nb.reduce((a, b) => a + b, 0) / nb.length;
+  });
+}
+
 const DIFF_RULES = {
-  easy: { perBar: 4, grid: 4, chars: 'KSB', accent: 'B', beatBonus: 0.5 }, // 쉬움: 정박(4분)에만
-  normal: { perBar: 6, grid: 2, chars: 'KSHBJ', accent: 'X', beatBonus: 0.3 },
-  hard: { perBar: 9, grid: 1, chars: 'KSHBJ', accent: 'X', beatBonus: 0.2 },
+  easy: { perBar: 4, grid: 4, chars: 'KSB', accent: 'B', beatBonus: 0.5, peak: 0, calm: 1 }, // 쉬움: 정박(4분)에만
+  normal: { perBar: 6, grid: 2, chars: 'KSHBJ', accent: 'X', beatBonus: 0.3, peak: 2, calm: 2 },
+  hard: { perBar: 10, grid: 1, chars: 'KSHBJ', accent: 'X', beatBonus: 0.2, peak: 3, calm: 2 },
 };
 
 /**
@@ -240,8 +285,12 @@ export function songChart(samples, sr, { firstBeat, bpm, bars, diff = 'easy' }) 
     barLoud.push(sum / 16);
   }
   const midLoud = barLoud.slice().sort((a, b) => a - b)[Math.floor(barLoud.length / 2)] || 0;
+  // 하이라이트(센 구간)는 콩 더, 조용한 구간은 덜
+  const energy = barEnergy(samples, sr, { firstBeat, bpm, bars: covered });
   for (let b = 0; b < covered; b++) {
     if (barLoud[b] < midLoud * 0.12) continue;
+    const e = energy[b] ?? 0.5;
+    const perBar = rule.perBar + (e >= 0.62 ? rule.peak : e <= 0.3 ? -rule.calm : 0);
     const cands = [];
     for (let s = 0; s < 16; s += rule.grid) {
       const k = b * 16 + s;
@@ -260,7 +309,7 @@ export function songChart(samples, sr, { firstBeat, bpm, bars, diff = 'easy' }) 
     cands.sort((x, y) => y.score - x.score);
     let placed = 0;
     for (const c of cands) {
-      if (placed >= rule.perBar) break;
+      if (placed >= perBar) break;
       const prev = out[c.k - 1];
       const next = out[c.k + 1];
       if (fast && ((prev && prev !== '.') || (next && next !== '.'))) continue;

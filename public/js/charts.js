@@ -1737,7 +1737,7 @@ export function beatOpts(o = {}) {
  */
 export const BEAT_STYLES = [
   { id: 'levelup', name: '레벨업', desc: '점점 어려워짐' },
-  { id: 'steady', name: '비트', desc: '같은 난이도로 쭉' },
+  { id: 'steady', name: '비트', desc: '하이라이트는 더 세게' },
   { id: 'song', name: '노래 따라', desc: '노래 소리대로 (화면 녹화 필요)' },
 ];
 export const BEAT_DIFFS = [
@@ -1750,37 +1750,73 @@ export const beatStyleName = (style, diff) =>
     ? `${style === 'song' ? '노래 따라' : '비트'}(${(BEAT_DIFFS.find((x) => x.id === diff) || BEAT_DIFFS[0]).name})`
     : '레벨업';
 // 같은 엄지(킥·크래시·탐탐 / 스네어·하이햇)는 2칸 이상 띄움. fast(140 BPM 넘음)면 붙은 칸 없음
-const STEADY = {
-  easy: {
-    groove: { slow: ['K...S...K...S...', 'K...S...K...S...', 'K...S...K.K.S...'], fast: ['K...S...K...S...', 'K...S...K...S...', 'K...S...K.K.S...'] },
-    fill: { slow: ['K...S...K.K.S.S.', 'K...S...K...S.S.'], fast: ['K...S...K.K.S.S.', 'K...S...K...S.S.'] },
+//   slow(100 BPM 이하)는 16분 한 칸이 0.15초 넘게 길어서 8분만으론 너무 쉬움 → 엄지 번갈아 16분을 많이
+//   단계 0~5: 0 아주 쉬움 · 1 쉬움 · 2 쉬움+ · 3 보통 · 4 어려움 · 5 어려움 하이라이트
+const ST = [
+  {
+    groove: { slow: ['K...S...K...S...'], mid: ['K...S...K...S...'], fast: ['K...S...K...S...'] },
+    fill: { slow: ['K...S...K...S.S.'], mid: ['K...S...K...S.S.'], fast: ['K...S...K...S.S.'] },
   },
-  normal: {
-    groove: { slow: ['K.H.S.H.K.H.S.H.', 'K.H.S.H.K.K.S.H.', 'J.H.S.H.K.H.S.H.'], fast: ['K.H.S.H.K.H.S.H.', 'K.H.S.H.K.K.S.H.', 'J.H.S.H.K.H.S.H.'] },
-    fill: { slow: ['K.H.S.H.K.S.S.S.', 'K.H.S.H.T.T.S.S.'], fast: ['K.H.S.H.K.S.S.S.', 'K.H.S.H.T.T.S.S.'] },
+  {
+    groove: { slow: ['K...S...K.K.S...', 'K...S..K.K..S...', 'K.K.S...K...S...'], mid: ['K...S...K...S...', 'K...S...K...S...', 'K...S...K.K.S...'], fast: ['K...S...K...S...', 'K...S...K...S...', 'K...S...K.K.S...'] },
+    fill: { slow: ['K...S...K.S.S.S.', 'K...S...KSKS.S..'], mid: ['K...S...K.K.S.S.', 'K...S...K...S.S.'], fast: ['K...S...K.K.S.S.', 'K...S...K...S.S.'] },
   },
-  hard: {
+  {
+    groove: { slow: ['K.K.S..K.K..S.S.', 'K..KS.S.K.K.S..S', 'K.K.S.SK.K..S.S.'], mid: ['K.K.S...K.K.S...', 'K...S.K.K...S...', 'K.K.S...K..KS...'], fast: ['K.K.S...K.K.S...', 'K...S.K.K...S...', 'K.K.S...K...S.S.'] },
+    fill: { slow: ['K..KS.S.KSKSKSKS', 'K.K.S...SKSKSKS.'], mid: ['K.K.S...KSKS.S.S', 'K...S...KSKSKS..'], fast: ['K.K.S...K.S.S.S.', 'K...S...S.S.S.S.'] },
+  },
+  {
+    groove: { slow: ['K.HKS.H.K.HKS.H.', 'K.H.S.HK.KH.S.H.', 'J.HKS.H.K.H.S.HK'], mid: ['K.H.S.H.K.H.S.H.', 'K.H.S.H.K.K.S.H.', 'J.H.S.H.K.H.S.H.'], fast: ['K.H.S.H.K.H.S.H.', 'K.H.S.H.K.K.S.H.', 'J.H.S.H.K.H.S.H.'] },
+    fill: { slow: ['K.HKS.H.KSKSKSKS', 'K.H.S.HKS.T.SKS.'], mid: ['K.H.S.H.K.S.S.S.', 'K.H.S.H.T.T.S.S.'], fast: ['K.H.S.H.K.S.S.S.', 'K.H.S.H.T.T.S.S.'] },
+  },
+  {
     groove: {
-      slow: ['J.H.S.H.J.HKS.H.', 'J.H.S.H.K.HKS.H.', 'J.HKS.H.J.H.S.H.', 'X.H.S.H.K.HKS.H.', 'C.HKS.H.K.HKS.H.'],
+      slow: ['J.HKS.H.J.HKSKS.', 'J.HKS.HKS.HKS.H.', 'X.HKS.H.J.HKSKS.', 'J.SKS.SKS.SKSKS.', 'C.HKS.HKH.KSKS..'],
+      mid: ['J.H.S.H.J.HKS.H.', 'J.H.S.H.K.HKS.H.', 'J.HKS.H.J.H.S.H.', 'X.H.S.H.K.HKS.H.', 'C.HKS.H.K.HKS.H.'],
       fast: ['J.H.S.H.J.H.S.H.', 'J.H.S.H.K.H.S.H.', 'J.H.S.H.J.J.S.H.', 'X.H.S.H.K.H.S.H.', 'C.H.S.H.K.H.S.H.'],
     },
-    fill: { slow: ['J.H.S.H.KSK.Y.Y.', 'J.H.S...T.T.S.S.', 'K.S.T.S.KSK.B...'], fast: ['J.H.S.H.T.T.S.S.', 'J.H.S...Y...Y...', 'K.S.T.S.K.S.B...'] },
+    fill: { slow: ['KSKSKSKSKSK.B...', 'J.HKS.HKSKSTSTS.', 'KSKSTSTSKSK.B...'], mid: ['J.H.S.H.KSK.Y.Y.', 'J.H.S...T.T.S.S.', 'K.S.T.S.KSK.B...'], fast: ['J.H.S.H.T.T.S.S.', 'J.H.S...Y...Y...', 'K.S.T.S.K.S.B...'] },
   },
-};
-function steadyBeatBars(diff, rounds, bpm, rand) {
-  const sp = bpm > 140 ? 'fast' : 'slow';
-  const set = STEADY[diff] || STEADY.easy;
+  {
+    groove: {
+      slow: ['X.HKSKHKS.HKSKHK', 'C.SKS.SKSKSKS.SK', 'X.HKSKHKSKHKS.HK', 'B.SKSKS.B.SKSKS.'],
+      mid: ['X.HKS.H.J.HKSKS.', 'J.HKS.HKS.HKS.H.', 'X.HKS.HKH.KSKS..', 'B.HKS.H.J.HKSKS.'],
+      fast: ['X.H.S.H.J.J.S.H.', 'X.J.S.J.X.J.S.J.', 'B.H.S.H.B.H.S.H.', 'X.H.S.J.K.H.S.J.'],
+    },
+    fill: { slow: ['KSKSTSTSKSKSC.B.', 'C.KSKSKSTSTSKSC.'], mid: ['KSKSKSKSKSK.B...', 'J.HKS.HKSKSTSTS.'], fast: ['K.S.K.S.T.S.B.B.', 'X.S.K.S.T.S.B...'] },
+  },
+];
+const DIFF_TIER = { easy: 1, normal: 3, hard: 4 };
+/**
+ * 비트 채보. energy = 마디마다 노래 세기(0 조용 ~ 1 하이라이트, 화면 녹화가 있을 때만) →
+ *   4마디 묶음마다 세면 한 단계 위, 조용하면 한 단계 아래 (하이라이트 들어가기 직전 묶음은 끝 필인만 세게)
+ */
+function steadyBeatBars(diff, rounds, bpm, rand, energy = null) {
+  const sp = bpm > 140 ? 'fast' : bpm <= 100 ? 'slow' : 'mid';
+  const base = DIFF_TIER[diff] ?? 1;
   const pick = (list) => list[Math.floor(rand() * list.length) % list.length];
+  const tierOf = (r) => {
+    if (!energy) return base;
+    const e = energy.slice((r - 1) * ROUND_BARS, r * ROUND_BARS).filter((x) => x != null);
+    if (!e.length) return base;
+    const m = e.reduce((a, b) => a + b, 0) / e.length;
+    return Math.max(0, Math.min(ST.length - 1, base + (m >= 0.62 ? 1 : m <= 0.3 ? -1 : 0)));
+  };
   const out = [];
   for (let r = 1; r <= rounds; r++) {
+    const t = tierOf(r);
+    const set = ST[t];
     const a = pick(set.groove[sp]);
     const b = pick(set.groove[sp]);
-    out.push(a, b, a, pick(set.fill[sp]));
+    const ft = r < rounds ? Math.max(t, tierOf(r + 1)) : t;
+    out.push(a, b, a, pick(ST[ft].fill[sp]));
   }
   // 마디 경계에서 같은 엄지 연타가 생기면 앞 마디 마지막 칸을 비움
   for (let i = 1; i < out.length; i++) if (sameThumb(out[i - 1][STEPS_PER_BAR - 1], out[i][0])) out[i - 1] = out[i - 1].slice(0, -1) + '.';
   return out;
 }
+/** 시험용 */
+export const _steadyTiers = ST;
 
 /** 박자 맞추기 판 (게임 시간 = 카운트인 + 단계 수 × ROUND_BARS 마디) */
 export function makeBeatReel(o = {}) {
@@ -1789,7 +1825,8 @@ export function makeBeatReel(o = {}) {
   if (style === 'steady' || style === 'song') {
     // 노래 따라: 화면 녹화 소리로 만든 채보(o.bars, main 에서 만들어 넘김). 없으면 비트로
     const song = style === 'song' && Array.isArray(o.bars) && o.bars.length === rounds * ROUND_BARS;
-    const bars = song ? o.bars.slice() : steadyBeatBars(diff, rounds, bpm, rng(seed));
+    const energy = Array.isArray(o.energy) && o.energy.length ? o.energy : null;
+    const bars = song ? o.bars.slice() : steadyBeatBars(diff, rounds, bpm, rng(seed), energy);
     run.bars = bars;
     run.barMult = bars.map(() => 1);
     run.barRound = bars.map((_, i) => Math.floor(i / ROUND_BARS) + 1);
