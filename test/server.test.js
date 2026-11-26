@@ -7,7 +7,8 @@ import fs from 'node:fs';
 
 import { loadConfig } from '../server/config.js';
 import { createApp } from '../server/app.js';
-import { applyCoins, coinCap, COIN_FREE_DAY } from '../server/handler.js';
+import { applyCoins, coinCap, COIN_FREE_DAY, setNoPassword } from '../server/handler.js';
+setNoPassword(false); // 이 파일은 예전 팔로워 암호 동작을 시험 (2026-11-26 부터 사이트는 암호 없음 → test/nopass.test.js)
 import { sign } from '../server/session.js';
 import { getLevel, noteCount, pointsFor } from '../public/js/charts.js';
 

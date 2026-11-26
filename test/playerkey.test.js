@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import fs from 'node:fs';
-import { createHandler, setOldAsk } from '../server/handler.js';
+import { createHandler, setOldAsk, setNoPassword } from '../server/handler.js';
+setNoPassword(false); // 예전 팔로워 암호 동작 시험 (사이트는 11-26 부터 암호 없음)
 import { loadConfig } from '../server/config.js';
 import { JsonStore } from '../server/store.js';
 

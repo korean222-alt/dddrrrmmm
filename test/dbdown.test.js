@@ -1,7 +1,8 @@
 // 🧯 DB 가 막혔을 때(D1 하루 한도 등): 503 db_down 을 주고, 5분 동안은 DB 를 안 건드림
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { createHandler } from '../server/handler.js';
+import { createHandler, setNoPassword } from '../server/handler.js';
+setNoPassword(false); // 예전 팔로워 암호·잠금 동작 시험 (사이트는 2026-11-26 부터 암호 없음 → nopass.test.js)
 import { loadConfig } from '../server/config.js';
 
 test('DB 오류(한도 초과) → 503 db_down · 그 뒤엔 DB 안 건드리고 바로 db_down', async () => {

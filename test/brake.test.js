@@ -3,7 +3,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { D1Store, d1Local } from '../server/d1store.js';
-import { createHandler, USAGE_LIMITS } from '../server/handler.js';
+import { createHandler, USAGE_LIMITS, setNoPassword } from '../server/handler.js';
+setNoPassword(false); // 예전 팔로워 암호·잠금 동작 시험 (사이트는 2026-11-26 부터 암호 없음 → nopass.test.js)
 import { loadConfig } from '../server/config.js';
 
 async function setup(meter) {

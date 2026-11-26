@@ -6,6 +6,8 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { loadConfig } from '../server/config.js';
 import { createApp } from '../server/app.js';
+import { setNoPassword } from '../server/handler.js';
+setNoPassword(false); // 예전 팔로워 암호·잠금 동작 시험 (사이트는 2026-11-26 부터 암호 없음 → nopass.test.js)
 import { getLevel, noteCount, pointsFor } from '../public/js/charts.js';
 
 let server, base, tmp;

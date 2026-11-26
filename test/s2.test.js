@@ -220,11 +220,11 @@ for (const kind of KINDS) test(`[${kind}] 시즌 2 타일 랭킹: 열기 전엔 
   assert.equal(me.att.streak, 1);
 });
 
-test('타일 곡 잠금: 4번째 곡부터는 인증한 사람만 판 토큰', async () => {
+test('타일 곡: 암호를 없앤 뒤(11-26) 4번째 곡부터도 누구나 판 토큰', async () => {
   const { call } = await setup({ FREE_PASS_UNTIL: '0' });
   assert.equal((await call('/api/runs', { level: 't1' })).status, 200);
   const r = await call('/api/runs', { level: `t${TILE_SONGS[5].id}` });
-  assert.equal(r.status, 403);
+  assert.equal(r.status, 200);
   assert.equal((await call('/api/runs', { level: 't999' })).status, 400);
 });
 

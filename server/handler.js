@@ -162,6 +162,14 @@ const PLAYER_COOKIE = 'kk_player';
 // 🔑 같은 아이디·닉네임 예전 계정이 있으면 '암호로 이어가기' 묻기 (2026-11-25 만들고 같은 날 꺼 둠 — 암호 DM 을 못 줘서)
 export let OLD_ASK = false;
 export const setOldAsk = (on) => (OLD_ASK = !!on);
+// 🔓 팔로워 암호 없앰 (2026-11-26 사용자 '암호 들어간 건 다 없애자 — 팔로우 받고 DM 으로 사이트 링크만 줌')
+//   → 링크로 들어온 사람은 전부 이용 가능(4단계부터·무제한·멀티·건의하기·타일 곡). 랭킹은 닉네임·인스타 아이디 '이용 등록'만
+//   임시 인증(checked_at 음수)도 풀지 않음. 예전 계정 되찾기는 암호 대신 '되찾기 요청'(운영자 승인)·되찾기 코드로만
+export let NO_PASSWORD = true;
+/** 시험에서 예전(암호) 동작을 볼 때만 끔 */
+export const setNoPassword = (on) => (NO_PASSWORD = !!on);
+/** 예전 폰(옛 app.js)이 '임시 이용 기간'으로 읽게 보내는 아주 먼 날 */
+const FREE_FOREVER = Date.UTC(2099, 11, 31, 14, 59, 59);
 const playerSeen = new WeakMap(); // 요청마다 알아본 로그인 열쇠 (X-Player 돌려줄지)
 const TRANSFER_TTL_MS = 10 * 60 * 1000;
 /**
@@ -292,8 +300,9 @@ export function createHandler(cfg, { store, meter = null }) {
   //   설정은 인스턴스마다 1분 캐시 (DB 왕복 줄이기)
   let fpCache = { at: 0, until: 0 };
   /** 🆓 임시 이용 기간(freePassUntil)엔 4단계부터·무제한·멀티·건의하기를 인증 없이 바로 (2026-11-22 사용자 요청: 인증 창 때문에 릴스에 「쿵」 댓글·DM 이 쏟아짐) */
-  const openNow = async () => Date.now() < (await freePassUntil());
+  const openNow = async () => NO_PASSWORD || Date.now() < (await freePassUntil());
   async function freePassUntil(fresh = false) {
+    if (NO_PASSWORD) return FREE_FOREVER;
     const now = Date.now();
     if (fresh || now - fpCache.at > 60 * 1000) {
       const s = await store.getSetting('freePassUntil');
@@ -304,6 +313,7 @@ export function createHandler(cfg, { store, meter = null }) {
   const freePassOn = async () => Date.now() < (await freePassUntil());
   /** 기간이 끝났으면 임시 인증 풀기 (한 번 풀고 나면 설정을 0 으로 → 다음부턴 안 돎) */
   async function expireTempMaybe() {
+    if (NO_PASSWORD) return;
     const until = await freePassUntil();
     if (!until || Date.now() < until) return;
     try {
@@ -505,7 +515,7 @@ export function createHandler(cfg, { store, meter = null }) {
   const isConfirmed = (pl) => isVerified(pl) && !!pl.checkedAt;
   /** /api/me · /api/guest 응답 */
   const meOf = (pl) => ({
-    verified: false, guest: true, needsIg: !pl.ig, checked: isVerified(pl), confirmed: isConfirmed(pl), temp: isConfirmed(pl) && pl.checkedAt < 0,
+    verified: false, guest: true, needsIg: !pl.ig, checked: isVerified(pl), confirmed: isConfirmed(pl), temp: !NO_PASSWORD && isConfirmed(pl) && pl.checkedAt < 0,
     hidden: pl.hiddenAt ? { deleteAt: pl.hiddenAt + HIDE_KEEP_MS } : null,
     player: { username: pl.username, ig: pl.ig },
     kakao: !!pl.kakao,
@@ -1029,7 +1039,9 @@ export function createHandler(cfg, { store, meter = null }) {
         if (o) return json(409, { error: 'old_account', username: o.username });
       }
       const igsid = pl ? pl.igsid : 'g_' + newId().replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
-      const rec = await store.upsertPlayer(igsid, { username: name, ig });
+      let rec = await store.upsertPlayer(igsid, { username: name, ig });
+      // 🔓 암호를 없앤 뒤(11-26): 이용 등록·아이디 바꾸기 = 바로 인증 완료 (예전엔 아이디를 바꾸면 암호로 다시 인증)
+      if (NO_PASSWORD && rec && !rec.checkedAt && (await store.setChecked(igsid, true))) rec = await store.getPlayer(igsid);
       if (!pl) setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
       return json(200, meOf({ username: name, ig: (rec && rec.ig) || ig, checkedAt: rec && rec.checkedAt, hiddenAt: rec && rec.hiddenAt }));
     }
@@ -1050,11 +1062,13 @@ export function createHandler(cfg, { store, meter = null }) {
       const ig = body.ig ? cleanInstagram(body.ig) : null;
       if (body.ig && !ig) return json(400, { error: 'bad_ig' });
       if (!ig && !(pl && pl.ig)) return json(400, { error: 'bad_ig' });
-      const okPw = !!pw && samePassword(body.password, pw);
+      // 🔓 암호를 없앤 뒤(11-26)엔 예전 암호(DM 으로 많이 퍼짐)로 남의 예전 계정을 못 가져가게 암호를 안 봄
+      const okPw = !NO_PASSWORD && !!pw && samePassword(body.password, pw);
       // 🆓 임시 인증 기간: 암호가 없거나 틀려도 통과(임시). 단 예전 계정 되찾기는 남의 계정을 가져갈 수 있어서 진짜 암호가 있어야 함
       if (!okPw && (!free || restoreOnly)) {
         if (body.password) passFail(ip);
-        return json(403, { error: free ? 'need_password' : 'wrong_password' });
+        // 🔓 암호를 없앤 뒤(11-26): 예전 계정 되찾기는 '되찾기 요청'으로 (폰이 그 창을 엶)
+        return json(403, { error: NO_PASSWORD ? 'need_request' : free ? 'need_password' : 'wrong_password' });
       }
       // 🔑 암호 없이(임시 이용) 새로 시작하는데 같은 아이디·닉네임의 예전 계정이 있으면 → 폰이 '암호로 이어가기 / 새로 시작' (2026-11-25)
       // ⏸ 11-25 사용자: DM 이 막혀 암호 받을 길이 없어 '암호 요청 DM' 만 늘어남 → 끔(OLD_ASK). 임시 이용이 끝나면 암호 인증이 알아서 예전 계정에 붙음
@@ -1093,8 +1107,10 @@ export function createHandler(cfg, { store, meter = null }) {
         if (!pl) setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
       }
       // 암호로 인증 = 완료. 임시 인증이면 이미 완료된 사람은 그대로 둠 (임시로 내려가지 않게)
-      if (okPw) await store.setChecked(igsid, true);
-      else if (!(pl && pl.igsid === igsid && pl.checkedAt > 0)) await store.setChecked(igsid, 'temp');
+      //   🔓 암호를 없앤 뒤(11-26)엔 이용 등록 = 바로 완료 (임시 아님)
+      if (okPw || NO_PASSWORD) {
+        if (!(pl && pl.igsid === igsid && pl.checkedAt > 0)) await store.setChecked(igsid, true);
+      } else if (!(pl && pl.igsid === igsid && pl.checkedAt > 0)) await store.setChecked(igsid, 'temp');
       const rec = await store.getPlayer(igsid);
       // 랭킹에 올렸던 기록으로 깬 단계·별·다이아를 다시 채워 줌 (화면이 자기 기록과 합침)
       const bests = bestsFromScores(await store.scoresOf(igsid));

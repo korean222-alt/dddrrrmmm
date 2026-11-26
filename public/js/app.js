@@ -15870,7 +15870,8 @@ function todayQuests(day) {
 }
 
 /** 커뮤니티 퀘스트 기본값 (운영자가 admin 에서 숫자·달성을 바꿈) */
-const COMMUNITY_DEFAULT = [{ id: 'f2000', icon: '📸', title: '오케이스트라 인스타 팔로워 2,000명', goal: 2000, now: 0, reward: 1000, done: false }];
+//   2026-11-26 사용자: 팔로워 2천 명이 되면 모두에게 2천 코인
+const COMMUNITY_DEFAULT = [{ id: 'f2000', icon: '📸', title: '오케이스트라 인스타 팔로워 2,000명', goal: 2000, now: 0, reward: 2000, done: false }];
 
 /** admin 이 보낸 커뮤니티 퀘스트 목록 검사 */
 function cleanCommunity(list) {
@@ -19584,68 +19585,42 @@ const CONFIRM_WHAT = VERIFY_WHAT;
 const closedLocked = (id) => state.cfg.gateMode !== 'open' && isClosed(id) && !isConfirmed() && !freePass();
 /** 인스타 댓글에 쓸 키워드 (키티챗 자동 DM 키워드와 같아야 함) */
 const VERIFY_KEYWORD = '쿵';
-/** 🆓 암호 없이 임시 인증 기간 (인스타 DM 이 막혔을 때, 서버 설정 freePassUntil). 끝나면 팔로워 암호로 다시 인증 */
-// 서버 설정을 못 받았을 때(서버가 쉬는 중)는 폰에 기억한 값, 그것도 없으면 서버 기본값(11/26 23:59 KST)
-const FREE_PASS_DEFAULT = Date.UTC(2026, 10, 26, 14, 59, 59);
-const freePassUntilNow = () => state.cfg.freePassUntil ?? load('freePassUntil', null) ?? FREE_PASS_DEFAULT;
-const freePass = () => { const u = freePassUntilNow(); return !!(u && Date.now() < u); };
-const freePassDay = () => {
-  const d = new Date(freePassUntilNow());
-  return `${d.getMonth() + 1}월 ${d.getDate()}일`;
-};
+/** 🔓 팔로워 암호 없앰 (2026-11-26 사용자 '암호 들어간 건 다 없애자 — 팔로우 받고 DM 으로 사이트 링크만 줌')
+ *   링크로 들어온 사람은 전부 이용 (4단계부터·무제한·멀티·건의하기·타일 곡). 랭킹은 닉네임·인스타 아이디 '이용 등록'만 */
+const freePass = () => true;
 
-function openVerify(id, { pass = '', label = '', then = null, restore = false } = {}) {
-  state.verifyRestore = restore;
+function openVerify(id, { label = '', then = null, restore = false } = {}) {
+  // 예전 계정 되찾기는 암호 대신 '되찾기 요청'(운영자가 확인)으로 (11-26 암호 없앰)
+  if (restore) return openReq();
+  state.verifyRestore = false;
   state.verifyFresh = false;
   $('#verify-fresh').hidden = true;
   state.verifyFor = id ?? state.verifyFor ?? null;
-  // 인증하면 이어서 할 일 (멀티 창 열기·건의하기 등)
+  // 등록하면 이어서 할 일 (멀티 창 열기·건의하기 등)
   state.verifyThen = then;
   const lv = label ? { label } : id == null ? null : id === ENDLESS_ID ? { label: '💎 무제한 모드 · 그리그' } : levelEndlessBase(id) ? { label: `💎 ${levelEndlessBase(id).id}단계 무제한 · ${levelEndlessBase(id).name}` } : getLevel(id) ? { label: `${levelLabel(id)} · ${getLevel(id).composer} ${getLevel(id).name}` } : null;
   $('#verify-level').hidden = !lv;
   if (lv) $('#verify-level').textContent = lv.label;
-  const done = isConfirmed() && !restore;
-  const free = freePass() && !restore && !done;
-  // 임시 인증 기간이 끝나 다시 잠긴 사람
-  const tempOver = !done && !restore && !freePass() && !!load('wasTemp', false);
+  const done = isConfirmed();
   $('#verify-mascots').innerHTML = buddiesHTML('cheer', done ? 'cheer' : 'idle');
-  $('#verify-title').textContent = restore ? '예전 기록 되찾기' : done ? (state.me.temp && freePass() ? '이용 가능해요!' : '팔로워 인증 완료!') : freePass() ? '이용 등록' : '팔로워 인증';
-  $('#verify-desc').innerHTML = restore
-    ? `예전 주소(kongkong-drum.vercel.app)에서 <b>팔로워 인증</b>을 받았던 분은, 그때 쓴 <b>인스타 아이디</b>와 <b>팔로워 암호</b>를 넣으면 랭킹 닉네임·점수·깬 단계를 되찾아요.`
-    : done
-    ? state.me.temp && freePass()
-      ? `🎉 <b>${freePassDay()}</b>까지 전부 이용할 수 있어요. 그 뒤엔 팔로우 인증을 다시 받아야 해요.`
-      : `이미 인증됐어요 🎉 잠긴 단계와 💎 무제한 모드가 전부 열려 있어요.`
-    : free
-    ? `📢 인스타 DM 이 잠시 막혀서, <b>${freePassDay()}까지는</b> 닉네임·인스타 아이디만 적으면 전부 이용할 수 있어요!<br>그 뒤에는 <b>팔로우 인증을 다시 받아야</b> 해요.`
-    : tempOver
-    ? `이용 기간이 끝났어요. 「${VERIFY_KEYWORD}」 댓글을 달고 DM 으로 받은 <b>팔로워 암호</b>로 팔로우 인증을 다시 받으면 계속 쓸 수 있어요 (기록은 그대로).`
-    : `1~${FREE_UPTO}단계는 맛보기! <b>${VERIFY_WHAT()}</b>는 ${igWho()} 팔로워 인증을 받으면 전부 열려요.<br>랭킹에도 인증한 사람만 올라가요.`;
+  $('#verify-title').textContent = done ? '이용 등록 완료!' : '이용 등록';
+  $('#verify-desc').innerHTML = done
+    ? `등록됐어요 🎉 기록이 랭킹에 올라가요.`
+    : `<b>닉네임·인스타 아이디</b>만 적으면 끝! 기록이 랭킹에 올라가요.<br>새 곡·이벤트 소식은 ${atHandle()} 에서 알려 드려요.`;
   const step = (n, text) => `<li class="${done ? 'done' : ''}"><b>${done ? '✓' : n}</b><span>${text}</span></li>`;
-  $('#verify-steps').innerHTML = free
-    ? [step(1, '아래에 닉네임·인스타 아이디 적기'), step(2, `<b>시작하기</b> → ${freePassDay()}까지 전부 이용 가능`)].join('')
-    : [
-    step(1, `${atHandle()} <b>팔로우</b>하기`),
-    step(2, `아무 게시물·릴스에 <b>「${VERIFY_KEYWORD}」</b> 댓글 달기`),
-    step(3, `DM 이 오면 <b>버튼</b>을 눌러 <b>팔로워 암호</b> 받기`),
-    step(4, '아래에 암호를 적고 <b>인증하기</b>'),
-  ].join('');
-  $('#verify-pass-row').hidden = free;
-  $('#verify-submit').textContent = free ? '시작하기' : '인증하기';
+  $('#verify-steps').innerHTML = [step(1, '아래에 닉네임·인스타 아이디 적기'), step(2, '<b>시작하기</b> → 랭킹에 바로 올라가요')].join('');
+  $('#verify-submit').textContent = '시작하기';
   const url = handle() ? `https://www.instagram.com/${handle()}/` : 'https://www.instagram.com/';
-  $('#verify-acts').innerHTML = done ? '' : `<a class="btn btn-insta" href="${url}" target="_blank" rel="noopener">${icon('insta')} ${free ? '팔로우하러 가기' : '팔로우 · 댓글 달러 가기'}</a>`;
+  $('#verify-acts').innerHTML = done ? '' : `<a class="btn btn-insta" href="${url}" target="_blank" rel="noopener">${icon('insta')} 팔로우하러 가기</a>`;
   const me = state.me || {};
   const hasName = !!(me.guest && me.player && me.player.username);
   const hasIg = !!(hasName && me.player.ig && !me.hidden);
   $('#verify-form').hidden = done;
-  $('#verify-note').hidden = done || free;
-  // 되찾기: 닉네임은 '아이디를 대충 적었을 때' 같이 찾는 용도 (안 적어도 됨)
-  $('#verify-name-row').hidden = hasName && !restore;
-  $('#verify-ig-row').hidden = hasIg && !restore;
-  $('#verify-name-hint').textContent = restore ? '예전 랭킹 닉네임 · 아이디가 헷갈리면 같이 적어요' : '2~12자 · 랭킹에 보여요';
+  $('#verify-name-row').hidden = hasName;
+  $('#verify-ig-row').hidden = hasIg;
+  $('#verify-name-hint').textContent = '2~12자 · 랭킹에 보여요';
   $('#verify-name').value = hasName ? me.player.username : load('lastNick', '');
   $('#verify-ig').value = (me.player && me.player.ig) || load('lastIg', '');
-  if (pass) $('#verify-pass').value = pass;
   $('#verify-err').hidden = true;
   $('#verify-req').hidden = true;
   $('#a2hs-inapp').hidden = !isInApp();
@@ -19659,9 +19634,8 @@ async function submitVerify() {
   };
   $('#verify-err').hidden = true;
   $('#verify-req').hidden = true;
-  const body = { password: $('#verify-pass').value.trim() };
-  if (state.verifyRestore) body.restore = true;
-  if (!$('#verify-name-row').hidden && !(state.verifyRestore && !$('#verify-name').value.trim())) {
+  const body = {};
+  if (!$('#verify-name-row').hidden) {
     const name = $('#verify-name').value.trim();
     if ([...name].length < 2) return err('닉네임을 2자 이상으로 써 주세요.');
     if (!/^[\p{L}\p{N}_. ]+$/u.test(name)) return err('닉네임은 한글·영문·숫자·_ . 만 쓸 수 있어요.');
@@ -19676,10 +19650,7 @@ async function submitVerify() {
     body.ig = ig;
   }
   if (state.verifyFresh) body.fresh = true;
-  const free = freePass() && !state.verifyRestore;
-  if (free) delete body.password;
-  else if (!body.password) return err('DM 으로 받은 팔로워 암호를 적어 주세요.');
-  if (!(await reconnectServer({ force: true }))) return err('지금은 서버에 연결이 안 돼서 인증할 수 없어요. 잠시 후 다시 해 주세요.');
+  if (!(await reconnectServer({ force: true }))) return err('지금은 서버에 연결이 안 돼서 등록할 수 없어요. 잠시 후 다시 해 주세요.');
   const btn = $('#verify-submit');
   btn.disabled = true;
   try {
@@ -19688,16 +19659,12 @@ async function submitVerify() {
     if (bests && Object.keys(bests).length) save('bests', mergeBests(loadBests(), bests));
     if (body.name) save('lastNick', body.name);
     if (body.ig) save('lastIg', body.ig);
-    $('#verify-pass').value = '';
     closeModal('modal-verify');
     refreshTitle();
     refreshFollowChip();
     renderLevels();
-    save('wasTemp', !!me.temp);
-    if (me.temp) toast(`🎉 ${freePassDay()}까지 전부 이용할 수 있어요! 그 뒤엔 팔로우 인증을 다시 받아야 해요`, 4600);
-    else if (restored) toast(`📦 예전 기록을 되찾았어요! 「${restored.username}」 계정${restored.levels ? ` · ${restored.levels}개 단계` : ''} 그대로예요`, 4200);
-    else if (state.verifyRestore) toast('이 인스타 아이디로 된 예전 랭킹 기록은 없었어요. 인증은 완료!', 3600);
-    else toast(`🎉 팔로워 인증 완료! 잠긴 단계·💎 무제한·멀티·건의하기가 전부 열렸어요`, 3600);
+    if (restored) toast(`📦 예전 기록을 되찾았어요! 「${restored.username}」 계정${restored.levels ? ` · ${restored.levels}개 단계` : ''} 그대로예요`, 4200);
+    else toast(`🎉 이용 등록 완료! 이제 기록이 랭킹에 올라가요`, 3200);
     state.verifyRestore = false;
     submitRank();
     state.verifyFor = null;
@@ -19707,35 +19674,28 @@ async function submitVerify() {
   } catch (e) {
     const c = e.data && e.data.error;
     if (c === 'old_account') return showOldAccount(e.data.username);
-    if (state.verifyRestore && (c === 'no_old' || c === 'bad_name' || c === 'need_password')) $('#verify-req').hidden = false;
+    if (c === 'need_request' || c === 'no_old') $('#verify-req').hidden = false;
     err(
-      c === 'need_password' ? '예전 기록 되찾기는 팔로워 암호가 있어야 해요. 지금은 인스타 DM 이 막혀 있어서, 아래 「되찾기 요청」으로 보내 주세요.'
-        : c === 'wrong_password' ? '암호가 달라요. DM 속 암호를 다시 확인해 주세요. (암호는 매주 바뀌어요)'
-        : c === 'rate_limited' || e.status === 429 ? '너무 여러 번 틀렸어요. 10분 뒤에 다시 해 주세요.'
+      c === 'need_request' || c === 'no_old' ? '예전 기록은 아래 「되찾기 요청」으로 보내 주세요 — 운영자가 찾아 드려요.'
+        : c === 'rate_limited' || e.status === 429 ? '너무 여러 번 했어요. 10분 뒤에 다시 해 주세요.'
         : c === 'bad_ig' ? '인스타 아이디를 정확히 써 주세요.'
-        : c === 'no_old' || (c === 'bad_name' && state.verifyRestore)
-          ? '예전 기록을 못 찾았어요. 예전 랭킹 닉네임도 같이 적어 보세요. 그래도 안 되면 아래 「되찾기 요청」을 보내 주세요 — 운영자가 찾아 드려요.'
         : c === 'bad_name' ? '닉네임을 2~12자로 써 주세요.'
-        : c === 'password_off' ? '지금은 암호 인증을 쉬고 있어요. 아래 "아이디만 적고 신청하기"를 써 주세요.'
-        : '인증하지 못했어요. 다시 시도해 주세요.'
+        : '등록하지 못했어요. 다시 시도해 주세요.'
     );
   } finally {
     btn.disabled = false;
   }
 }
 
-// 🔑 같은 아이디·닉네임의 예전 계정이 있음 (2026-11-25): 팔로워 암호로 이어가기 / 새로 시작
+// 🔑 같은 아이디·닉네임의 예전 계정이 있음 (2026-11-25, 서버 OLD_ASK 꺼져 있음): 되찾기 요청 / 새로 시작 (11-26 암호 없앰)
 function showOldAccount(username) {
-  state.verifyRestore = true;
   state.verifyFresh = false;
-  $('#verify-pass-row').hidden = false;
   $('#verify-name-row').hidden = false;
   $('#verify-ig-row').hidden = false;
-  $('#verify-submit').textContent = '이어가기';
   $('#verify-fresh').hidden = false;
-  $('#verify-err').textContent = `「${username}」 예전 계정이 있어요! 팔로워 암호를 넣으면 기록·코인이 이어져요.`;
+  $('#verify-req').hidden = false;
+  $('#verify-err').textContent = `「${username}」 예전 계정이 있어요! 이어가려면 「되찾기 요청」을 보내 주세요.`;
   $('#verify-err').hidden = false;
-  $('#verify-pass').focus();
 }
 
 /** 단계 id → 칠 판 (숫자 = 일반 단계, 'endless' = 무제한 모드, 'e13' = 13단계 무제한, 'ch4' = 영상용 레벨업 챌린지 4단계까지) */
@@ -19768,7 +19728,7 @@ function progressLockText(id) {
     : `${h && h.prev ? h.prev : prevOpenId(id)}단계를 별 1개 이상으로 깨면 ${id}단계가 열려요`;
 }
 const LOCK_FROM_PREV = (id) => (id === ENDLESS_ID ? `${ENDLESS_FROM}단계 깨면 열림` : (unlockHint(id, loadBests()) || { short: `${prevOpenId(id)}단계 깨면 열림` }).short);
-const CLOSED_META = () => `<span class="lockline">${icon('lock')} 팔로워 암호</span>`;
+const CLOSED_META = () => `<span class="lockline">${icon('lock')} 이용 등록</span>`;
 
 // ---------------- 타이틀 ----------------
 function buildTitle() {
@@ -19865,15 +19825,9 @@ function refreshFollowChip() {
     el.classList.toggle('ok', !me.hidden && !!me.confirmed);
     el.textContent = me.hidden
       ? '⚠️ 팔로우 확인 안 됨'
-      : (!me.guest || me.needsIg || !me.confirmed) && freePass()
+      : !me.guest || me.needsIg || !me.confirmed
         ? `📝 이용 등록 · 랭킹 참여`
-        : !me.guest || me.needsIg
-        ? `📸 팔로워 인증 받기 · 랭킹 참여`
-        : me.confirmed && me.temp && freePass()
-          ? `✅ ${freePassDay()}까지 이용 가능`
-          : me.confirmed
-          ? `✅ @${me.player?.ig || ''} 팔로워 인증 완료`
-          : `📸 팔로워 인증 받기 · 랭킹 참여`;
+        : `✅ ${me.player?.username || ''} · 랭킹 참여 중`;
   }
 }
 
@@ -19881,10 +19835,6 @@ function refreshTitle() {
   refreshFollowChip();
   syncCoinAccount();
   refreshCoins();
-  // 🆓 임시 인증 기간 안내 (인스타 DM 막힘)
-  const fp = $('#free-pass-note');
-  fp.hidden = !(state.api && state.api.mode === 'server' && freePass());
-  if (!fp.hidden) fp.querySelector('span').innerHTML = `인스타 DM 이 잠시 막혀서 <b>${freePassDay()}까지는</b> 4단계부터·무제한·멀티 전부 이용할 수 있어요! 그 뒤엔 팔로우 인증을 다시 받아야 해요.`;
   // 멀티·건의하기는 팔로워 인증한 사람만 → 안 했으면 🔒
   const lockMark = followGated() ? '🔒 ' : '';
   $('.mode-multi b').innerHTML = `${icon('swords', true)} ${lockMark}멀티`;
@@ -21428,7 +21378,9 @@ async function transferTake() {
 //   첫 화면 맨 위 노란 버튼. '확인했어요' 누르면 이 기기에선 숨김. 12월이 끝나면 저절로 안 보임
 const MOVE_NOTICE_UNTIL = Date.parse('2027-01-01T00:00:00+09:00');
 function refreshMoveBtn() {
-  $('#btn-move').hidden = !!load('moveNoticeOk', false) || Date.now() > MOVE_NOTICE_UNTIL;
+  // 첫 화면 긴급 공지 버튼은 11-26 사용자 요청으로 뺌
+  const b = $('#btn-move');
+  if (b) b.hidden = !!load('moveNoticeOk', false) || Date.now() > MOVE_NOTICE_UNTIL;
 }
 function openMove() {
   openModal('modal-move');
@@ -21462,21 +21414,17 @@ async function sendReq() {
   nowIg = nowIg.replace(/^@+/, '');
   if (!nick && !oldIg) return err('예전 닉네임이나 예전 아이디 중 하나는 적어 주세요.');
   if (!/^[a-z0-9._]{1,30}$/.test(nowIg)) return err('지금 인스타 아이디를 정확히 적어 주세요. (영문·숫자·_ . 만)');
-  const password = $('#req-pass').value.trim();
-  if (!password && !freePass()) return err('팔로워 암호를 적어 주세요. (게시물에 「쿵」 댓글을 달면 DM 으로 와요)');
   if (!(await reconnectServer({ force: true }))) return err('지금은 서버에 연결이 안 돼요. 잠시 후 다시 해 주세요.');
   $('#req-send').disabled = true;
   try {
-    const r = await state.api.recoverRequest({ nick, oldIg, nowIg, password, memo: $('#req-memo').value.trim() });
+    const r = await state.api.recoverRequest({ nick, oldIg, nowIg, memo: $('#req-memo').value.trim() });
     save('recoverReq', { token: r.token, at: Date.now() });
-    $('#req-pass').value = '';
     $('#req-memo').value = '';
     openReq();
   } catch (e) {
     const c = e.data && e.data.error;
     err(
-      c === 'wrong_password' ? '암호가 달라요. 「쿵」 댓글 DM 속 암호를 다시 확인해 주세요.'
-        : c === 'rate_limited' || e.status === 429 ? '너무 여러 번 보냈어요. 10분 뒤에 다시 해 주세요.'
+      c === 'rate_limited' || e.status === 429 ? '너무 여러 번 보냈어요. 10분 뒤에 다시 해 주세요.'
         : c === 'bad_ig' ? '지금 인스타 아이디를 정확히 적어 주세요.'
         : '보내지 못했어요. 다시 해 주세요.'
     );
@@ -22380,7 +22328,7 @@ function openMaps() {
   }
   if (state.game) state.game.stop();
   $$('#maps-sort button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.sort === um.sort));
-  // ⚠ 11-27 에 좋아요 2개 이하 맵을 지운다는 안내 (그날이 지나면 숨김)
+  // ⚠ 11-27 에 좋아요 1개 이하 맵을 지운다는 안내 (그날이 지나면 숨김, 11-26 사용자 '2개 → 1개')
   $('#maps-warn').hidden = Date.now() >= Date.parse('2026-11-27T15:00:00Z');
   show('screen-maps');
   loadMaps();
@@ -25991,7 +25939,9 @@ function renderS2Q() {
     .map((c) => {
       const got = communityClaimed(c.id);
       const b = got ? '<button class="q-go got" disabled>받음 ✓</button>' : c.done ? `<button class="q-go ready" data-cq="${escapeHtml(c.id)}">받기 +${fmt(c.reward)}</button>` : `<button class="q-go" disabled>+${fmt(c.reward)}</button>`;
-      return `<div class="s2q-item"><span class="q-ico">${escapeHtml(c.icon)}</span><b>${escapeHtml(c.title)}</b>${b}<span><span class="q-bar"><i style="width:${c.done ? 100 : Math.min(100, Math.round((c.now / c.goal) * 100))}%"></i></span><span class="q-num">${c.done ? '달성!' : `${fmt(c.now)} / ${fmt(c.goal)}`}</span></span></div>`;
+      // 📸 팔로워 목표엔 「팔로우하러 가기」 (11-26 사용자 '내 인스타 넣어줘 눌리게')
+      const follow = /팔로/.test(c.title) && handle() ? `<a class="q-follow" href="https://www.instagram.com/${handle()}/" target="_blank" rel="noopener">${icon('insta')} 팔로우하러 가기 <small>@${escapeHtml(handle())}</small></a>` : '';
+      return `<div class="s2q-item ${follow ? 'has-follow' : ''}"><span class="q-ico">${escapeHtml(c.icon)}</span><b>${escapeHtml(c.title)}</b>${b}<span><span class="q-bar"><i style="width:${c.done ? 100 : Math.min(100, Math.round((c.now / c.goal) * 100))}%"></i></span><span class="q-num">${c.done ? '달성!' : `${fmt(c.now)} / ${fmt(c.goal)}`}</span></span>${follow}</div>`;
     })
     .join('');
   $('#s2q-foot').textContent = a.done ? '출석은 매일 밤 12시에 새로 시작해요 · 하루 빠지면 1일째부터' : '드럼이든 타일이든 한 판만 치면 출석! · 하루 빠지면 1일째부터';
@@ -27073,15 +27023,13 @@ async function boot() {
     } catch {}
   });
   if (params.get('screen') === 'levels') show('screen-levels');
-  // DM 속 링크(/?k=암호)로 들어옴 → 인증 창에 암호를 미리 채워서 염 (주소에선 지움)
+  // 예전 DM 속 링크(/?k=암호)로 들어옴 → 암호는 없앴으니(11-26) 주소에서만 지움
   if (params.get('k')) {
-    const k = params.get('k').slice(0, 40);
     try {
       const u = new URL(location.href);
       u.searchParams.delete('k');
       history.replaceState(null, '', u.pathname + u.search + u.hash);
     } catch {}
-    if (!isConfirmed()) setTimeout(() => openVerify(null, { pass: k }), 300);
   }
   // 친구가 보낸 1:1 도전장 링크로 들어옴
   if (params.get('vs')) {
