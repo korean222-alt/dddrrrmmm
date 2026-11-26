@@ -316,7 +316,10 @@ export class RoomClient {
     const linking = this.link && !this.link.open; // 연결 신호 주고받는 중엔 빨리
     // 🎲 랜덤 대결: 내 곡이 끝났으면 다음 곡 시작을 빨리 알아채게 (결과 화면에서 기다리는 중)
     const mf = this.me && this.me.final;
-    const rushWait = playing && this.room.pub === 'rush' && mf && mf.round === this.room.round;
+    // 🎵 3곡 합산도 마지막 곡 전이면 똑같이 (안 그러면 실시간 연결 중엔 묻는 간격이 길어서 다음 곡 시작 시각을 놓침)
+    const sm = this.room && this.room.sum;
+    const sumNext = sm && this.room.round - sm.setFrom < sm.songs.length - 1;
+    const rushWait = playing && (this.room.pub === 'rush' || sumNext) && mf && mf.round === this.room.round;
     const ms = rushWait ? ROOM_POLL_LOBBY_MS : playing ? (this.realtime ? ROOM_POLL_RT_MS : ROOM_POLL_PLAY_MS) : this.waiting ? ROOM_POLL_WAIT_MS : linking ? 1500 : lobbyPollMs(Date.now() - this._changedAt);
     this._timer = setTimeout(() => {
       if (typeof document !== 'undefined' && document.hidden) this._schedule();

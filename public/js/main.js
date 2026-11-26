@@ -712,17 +712,19 @@ async function startLevel(id, opts = {}) {
   $('#hud-lv').textContent = practice ? `🐢 연습 ${Math.round(practice * 100)}%` : lv.userMap ? '🎹 유저 맵' : lv.custom ? '🎵 내 노래' : lv.survival ? '⚔️ 서바이벌' : lv.challenge ? (lv.endless ? '무제한' : '챌린지') : lv.studioOnly ? '🎬 릴스용' : levelLabel(lv);
   $('#hud-name').textContent = lv.challenge ? `${lv.songName} · ${lv.composer}` : `${lv.name} · ${lv.composer}`;
   if (room && room.rush) $('#hud-lv').textContent = `🎲 ${room.round}곡째${rushRate > 1 ? ` · ⚡${rushRate.toFixed(2).replace(/0$/, '')}배` : ''}`;
+  const sum = room && room.sum ? room.sum : null; // 🎵 3곡 합산 (하트 없음, 점수는 지난 곡까지 더해서)
+  if (sum) $('#hud-lv').textContent = `🎵 ${sum.idx + 1}/${sum.n}곡`;
   $('#hud-score').textContent = '0';
   $('#hud-progress').style.width = '0%';
   closeModal('modal-continue');
   const st = state.studio;
-  renderLives(st.active || state.auto || practice || lv.custom ? null : MAX_LIVES);
+  renderLives(st.active || state.auto || practice || lv.custom || sum ? null : MAX_LIVES);
   const vs = room && room.ghost ? room.ghost : !room && !st.active && !practice && !lv.challenge && state.vs && state.vs.levelId === id ? state.vs : null;
   $('#hud-vs').hidden = !vs && !room;
   if (vs || room) {
     $('#vs-name').textContent = vs ? vs.name : (state.roomClient.realtime ? '⚡' : '') + roomOtherName();
-    $('#vs-me').textContent = '0';
-    $('#vs-op').textContent = '0';
+    $('#vs-me').textContent = fmt(sum ? sum.prevMe : 0);
+    $('#vs-op').textContent = fmt(sum ? sum.prevOp : 0);
     $('#vs-fill').style.width = '50%';
   }
   // 악기 샘플이 아직이면 잠깐 기다림 (최대 3초. 피아노가 안 되면 합성음, 오케스트라는 받는 대로 중간부터 합류)
@@ -848,11 +850,14 @@ async function startLevel(id, opts = {}) {
         // 상대가 끝냈으면(final) 지금 내 점수, 아니면 상대가 보낸 진행 위치 때의 내 점수
         const me = seq && o && !o.final && o.live && o.live.progress < h.progress ? myScoreAt(o.live.progress) : h.score;
         if (op !== last.op || me !== last.shown) {
-          $('#vs-me').textContent = fmt(me);
-          const ol = o && o.live && o.live.lives != null ? ` ♥${o.live.lives}` : '';
-          $('#vs-op').textContent = room.mode === 'team' ? `${fmt(op)} · 팀 ${fmt(h.score + op)}` : fmt(op) + ol;
-          const tot = me + op;
-          $('#vs-fill').style.width = (tot ? (me / tot) * 100 : 50).toFixed(1) + '%';
+          // 🎵 3곡 합산: 지난 곡 점수까지 더한 합계로
+          const meT = me + (sum ? sum.prevMe : 0);
+          const opT = op + (sum ? sum.prevOp : 0);
+          $('#vs-me').textContent = fmt(meT);
+          const ol = !sum && o && o.live && o.live.lives != null ? ` ♥${o.live.lives}` : '';
+          $('#vs-op').textContent = room.mode === 'team' ? `${fmt(op)} · 팀 ${fmt(h.score + op)}` : fmt(opT) + ol;
+          const tot = meT + opT;
+          $('#vs-fill').style.width = (tot ? (meT / tot) * 100 : 50).toFixed(1) + '%';
           last.shown = me;
         }
         last.op = op;
@@ -890,7 +895,8 @@ async function startLevel(id, opts = {}) {
       if (!state.studio.active && !res.auto && !res.practice) trackPlayEnd({ result: res.failed || res.died ? 'fail' : 'clear', score: res.score, stars: res.stars });
       if (room && room.ghost) res.room = { mode: 'versus', ghost: room.ghost, gid: room.gid };
       if (live && state.roomClient.active) {
-        res.room = { mode: room.mode, round: room.round, ranked: !!room.ranked, rush: !!room.rush };
+        res.room = { mode: room.mode, round: room.round, ranked: !!room.ranked, rush: !!room.rush, sum };
+        if (sum && roomUi.sum && roomUi.sum.setFrom === sum.setFrom) roomUi.sum.mine[sum.idx] = res.score;
         state.roomClient.send(
           { final: { score: res.score, stars: res.stars, grade: res.grade, failed: !!res.failed, maxCombo: res.maxCombo, accuracy: res.accuracy, died: !!(res.died || res.failed), survived: res.survived || 0, lv: res.roundReached || 0 } },
           true
@@ -900,13 +906,13 @@ async function startLevel(id, opts = {}) {
     },
     // 영상 찍기 땐 목숨 없음 (녹화 중에 멈추면 안 되니까). 멀티는 광고 이어하기 없이 그 자리에서 끝
     // 🐢 연습은 목숨 없이 끝까지
-    onDeath: st.active ? (lv.failReel ? studioFailDeath : null) : practice ? null : lv.userMap && um.from === 'list' && um.mode === 'hearts' ? umDeath : lv.custom ? null : room ? onRoomDeath : onDeath,
+    onDeath: st.active ? (lv.failReel ? studioFailDeath : null) : practice ? null : lv.userMap && um.from === 'list' && um.mode === 'hearts' ? umDeath : lv.custom || sum ? null : room ? onRoomDeath : onDeath,
   });
   if (live) {
     // 상대와 같은 시각에 시작: 남은 시간 카운트다운 (Game.start 가 0.35초 뒤에 첫 박을 놓음)
     const box = $('#studio-count');
     box.hidden = false;
-    $('#studio-count-msg').textContent = room.rush ? `🎲 ${room.round}곡째${rushSpeed(room.round) > 1 ? ` (⚡${Math.round(rushSpeed(room.round) * 100)}% 빠르기)` : ''}! ${roomOtherName()} 님과 대결` : room.ranked ? `🏆 ${roomOtherName()} 님과 랭킹전!` : room.mode === 'team' ? '🤝 팀전! 둘이 같이 깨 봐요' : `⚔️ ${roomOtherName()} 님과 대결!`;
+    $('#studio-count-msg').textContent = sum ? `🎵 ${sum.idx + 1}/${sum.n}곡! ${roomOtherName()} 님과 합산 대결 · 하트 없이 끝까지` : room.rush ? `🎲 ${room.round}곡째${rushSpeed(room.round) > 1 ? ` (⚡${Math.round(rushSpeed(room.round) * 100)}% 빠르기)` : ''}! ${roomOtherName()} 님과 대결` : room.ranked ? `🏆 ${roomOtherName()} 님과 랭킹전!` : room.mode === 'team' ? '🤝 팀전! 둘이 같이 깨 봐요' : `⚔️ ${roomOtherName()} 님과 대결!`;
     const g = state.game;
     // 기다리는 동안 무대(맵)를 그려 둠
     renderer.draw({ now: -1, notes: g.notes, approach: g.approach, beatDur: g.beat, combo: 0, score: 0, playing: false }, performance.now() / 1000);
@@ -5338,7 +5344,55 @@ function renderRoomResult() {
   if (!res || !res.room) return;
   if (res.room.ranked || res.room.ghost) renderRankedResult();
   else if (res.room.rush) renderRushResult();
+  else if (res.room.sum) renderSumResult();
   else renderFriendResult();
+}
+/** 🎵 결과 화면: 3곡 합산 (곡 사이엔 다음 곡 기다림, 3곡 끝나면 합계로 승패) */
+function renderSumResult() {
+  const c = state.roomClient;
+  const box = $('#res-room');
+  const res = state.lastResult;
+  const sm = res && res.room && res.room.sum;
+  if (!sm) return;
+  box.hidden = false;
+  const u = roomUi.sum && roomUi.sum.setFrom === sm.setFrom ? roomUi.sum : (roomUi.sum = { setFrom: sm.setFrom, mine: [], theirs: [] });
+  u.mine[sm.idx] = res.score;
+  const sameSet = c.active && c.room && c.room.sum && c.room.sum.setFrom === sm.setFrom;
+  const o = c.active ? c.other : null;
+  // 상대 곡별 점수: 서버에 쌓인 것 + 이번 곡은 실시간으로 받은 끝 점수
+  if (sameSet && o && o.sums) o.sums.forEach((v, i) => v != null && (u.theirs[i] = v));
+  if (sameSet && o && o.final && c.room.round === res.room.round) u.theirs[sm.idx] = o.final.score;
+  if (o && o.name) u.opName = o.name;
+  const name = escapeHtml(u.opName || '상대');
+  const total = (a) => a.reduce((t, v) => t + (v || 0), 0);
+  const last = sm.idx >= sm.n - 1;
+  const gone = !c.active || !o || (o.left && !(o.final && c.room.round === res.room.round));
+  const nextUp = sameSet && c.room.round > res.room.round;
+  const opDone = u.theirs[sm.idx] != null;
+  const rows = Array.from({ length: sm.n }, (_, i) =>
+    `<div class="room-row"><span><small>${i + 1}곡</small></span><span>${u.mine[i] == null ? '-' : fmt(u.mine[i])}</span><span>${u.theirs[i] == null ? '-' : fmt(u.theirs[i])}</span></div>`
+  ).join('');
+  const table = `<div class="room-row"><span></span><span>나</span><span>${name}</span></div>${rows}
+    <div class="room-row"><span><b>합계</b></span><span><b>${fmt(total(u.mine))}</b></span><span><b>${fmt(total(u.theirs))}</b></span></div>`;
+  const acts = '<div class="room-acts"><button class="btn btn-primary" data-action="room-again">한 판 더</button><button class="btn btn-ghost" data-action="room-leave">방 나가기</button></div>';
+  let head;
+  if (gone && !(last && opDone)) {
+    head = `<div class="room-word win">승리! 🎉</div><div class="room-why">${name} 님이 나갔어요</div>`;
+    box.innerHTML = head + table + acts;
+    return;
+  }
+  if (!opDone) {
+    const pct = o && o.live ? ` ${Math.round((o.live.progress || 0) * 100)}%` : '';
+    box.innerHTML = `<div class="room-word">${name} 님 아직 치는 중…${pct}</div><div class="room-why">${last ? '끝나면 합계로 승패가 나와요' : `둘 다 끝나면 ${sm.idx + 2}곡째가 이어져요`}</div>${table}`;
+    return;
+  }
+  if (!last) {
+    box.innerHTML = `<div class="room-word">${sm.idx + 1}곡 끝! ${nextUp ? `${sm.idx + 2}곡째 곧 시작해요…` : `${sm.idx + 2}곡째 준비 중…`}</div>${table}`;
+    return;
+  }
+  const r = roomOutcome('versus', total(u.mine), total(u.theirs)).result;
+  head = `<div class="room-word ${r}">${{ win: '승리! 🎉', lose: '아쉽게 패배…', draw: '무승부!' }[r]}</div><div class="room-why">3곡 합계로 승부</div>`;
+  box.innerHTML = head + table + acts;
 }
 /** 결과 화면: 랭킹전 결과 (승패 · 점수 변화) */
 function renderRankedResult() {
@@ -5540,6 +5594,17 @@ function renderFriendRoom(room) {
         startLevel(room.level, { room: { startAt, mode: 'versus', round: room.round, rush: true } });
         return;
       }
+      // 🎵 3곡 합산: 하트 없이 끝까지, 지난 곡 점수를 더해서 보여 줌
+      const sm = room.sum;
+      const idx = sm ? room.round - sm.setFrom : -1;
+      if (room.mode === 'versus' && sm && idx >= 0 && idx < sm.songs.length) {
+        if (!roomUi.sum || roomUi.sum.setFrom !== sm.setFrom) roomUi.sum = { setFrom: sm.setFrom, mine: [], theirs: [] };
+        const o = c.other;
+        if (o && o.sums) o.sums.forEach((v, i) => v != null && (roomUi.sum.theirs[i] = v));
+        const add = (a) => a.slice(0, idx).reduce((t, v) => t + (v || 0), 0);
+        startLevel(room.level, { room: { startAt, mode: 'versus', round: room.round, sum: { idx, n: sm.songs.length, setFrom: sm.setFrom, prevMe: add(roomUi.sum.mine), prevOp: add(roomUi.sum.theirs) } } });
+        return;
+      }
       startLevel(room.mode === 'versus' && room.endless ? levelSurvivalId(room.level) : room.level, { room: { startAt, mode: room.mode, round: room.round } });
       return;
     }
@@ -5581,14 +5646,20 @@ function renderFriendRoom(room) {
   $('#room-rule-note').hidden = !versus || tileRoom;
   $('#room-mode').hidden = pub || tileRoom;
   $('#room-part').hidden = tileRoom;
+  const rule = room.endless ? 'endless' : room.sum3 && !pub ? 'sum3' : 'score';
   $$('#room-rule [data-rule]').forEach((b) => {
-    const on = (b.dataset.rule === 'endless') === !!room.endless;
+    const on = b.dataset.rule === rule;
+    b.hidden = b.dataset.rule === 'sum3' && pub; // 🎵 3곡 합산은 친구 방만
     b.setAttribute('aria-pressed', String(on));
     b.disabled = !host && !on;
   });
-  $('#room-rule-note').textContent = room.endless
-    ? `💎 무제한: 곡이 끝나도 둘 다 살아 있으면 끝없이 빨라져요. 먼저 쓰러지면 져요${host ? '' : ' (방장이 골라요)'}`
-    : `🏆 점수 승부: 곡이 끝났을 때 점수가 높으면 이겨요. 먼저 쓰러지면 바로 져요${host ? '' : ' (방장이 골라요)'}`;
+  const by = host ? '' : ' (방장이 골라요)';
+  $('#room-rule-note').textContent =
+    rule === 'endless'
+      ? `💎 무제한: 곡이 끝나도 둘 다 살아 있으면 끝없이 빨라져요. 먼저 쓰러지면 져요${by}`
+      : rule === 'sum3'
+        ? `🎵 3곡 합산: 하트 없이 3곡을 끝까지 쳐요. 점수 합이 높으면 이겨요 (2·3곡은 비슷한 난이도로 무작위)${by}`
+        : `🏆 점수 승부: 곡이 끝났을 때 점수가 높으면 이겨요. 먼저 쓰러지면 바로 져요${by}`;
   $$('#room-mode [data-mode]').forEach((b) => {
     b.setAttribute('aria-pressed', String(b.dataset.mode === room.mode));
     b.disabled = !host && b.dataset.mode !== room.mode;
@@ -5643,7 +5714,9 @@ function renderFriendRoom(room) {
           ? '팀전: 둘의 점수를 합쳐요. 피아노 파트는 곧 나와요!'
           : room.endless
             ? '💎 무제한 서바이벌: 먼저 목숨을 다 쓰면 져요!'
-            : '개인전: 같은 곡을 동시에 치고 점수로 승부!';
+            : rule === 'sum3'
+              ? '🎵 3곡 합산: 같은 곡 3개를 이어서 · 합계로 승부!'
+              : '개인전: 같은 곡을 동시에 치고 점수로 승부!';
 }
 async function roomCreate() {
   const name = $('#room-name').value.trim();
@@ -7275,7 +7348,7 @@ function bindActions() {
     }
     const ruleBtn = e.target.closest('#room-rule [data-rule]');
     if (ruleBtn) {
-      if (state.roomClient.isHost) state.roomClient.send({ endless: ruleBtn.dataset.rule === 'endless' }, true);
+      if (state.roomClient.isHost) state.roomClient.send({ endless: ruleBtn.dataset.rule === 'endless', sum3: ruleBtn.dataset.rule === 'sum3' }, true);
       return;
     }
     const roomMode = e.target.closest('#room-mode [data-mode]');
