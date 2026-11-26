@@ -7,46 +7,59 @@ import fs from 'node:fs';
 import { createHandler } from '../server/handler.js';
 import { loadConfig } from '../server/config.js';
 import { JsonStore } from '../server/store.js';
-import { TILE_SONGS, tileLap, lapMirrors, tileTimes, tilesWithin, checkTileRun, tileSong, tileSlot, lapSpeed, lapStars, MAX_LAPS, gradeLaps, lapGrade, mapTileLap, mapTileMax } from '../public/js/tiles.js';
+import { TILE_SONGS, tileLap, tileCourse, buildCourse, MIN_TAP_SEC, tileTimes, tilesWithin, checkTileRun, tileSong, tileSlot, lapSpeed, lapStars, MAX_LAPS, gradeLaps, lapGrade, mapTileLap, mapTileMax } from '../public/js/tiles.js';
 import { cleanMap, autoDrums, melodyToBars } from '../public/js/usermap.js';
 import { todayQuests, applyS2, kstDay, prevDay, attReward, QUEST_POOL } from '../public/js/quests.js';
 import { kakaoHash } from '../server/kakao.js';
 import { getLevel } from '../public/js/charts.js';
 import { roomLevel, pickTileLevel } from '../server/rooms.js';
 
-test('타일 채보: 피아노 타일처럼 줄 단위 · 같은 줄 연속·겹침 없음 · 곡 하나 끝까지 · 첫 곡 뒤부터 빨라짐', () => {
+test('타일 채보: 줄 단위 · 같은 줄 연속·겹침 없음 · 곡 하나 끝까지 · 코인 파티 · 빨라져도 이웃 타일 0.2초 이상(아이폰)', () => {
   for (const s of TILE_SONGS) {
     const lap = tileLap(s.id);
     assert.ok(lap && lap.tiles.length >= 30, `${s.id} 타일 수`);
     assert.ok(lap.u >= 2 && lap.u <= 8, `${s.id} 한 줄 칸`);
-    const mir = lapMirrors(lap);
+    assert.ok(lap.notes.length >= lap.tiles.length, `${s.id} 노래 음 ⊇ 타일`);
+    const c = tileCourse(s.id);
     let prev = -1;
-    for (let k = 0; k < 3; k++) {
-      lap.tiles.forEach((t, i) => {
-        const lane = mir[k] ? 3 - t.lane : t.lane;
-        assert.ok(lane >= 0 && lane <= 3);
-        assert.notEqual(lane, prev, `${s.id} 바퀴 ${k} 타일 ${i}: 같은 줄 연속`);
-        prev = lane;
-        assert.ok(t.rows >= 1 && t.pts === t.rows && t.hold === t.rows >= 2);
-      });
-    }
-    // 같은 줄 타일끼리 안 겹침 (긴 타일 포함)
     const end = [-1, -1, -1, -1];
-    for (const t of lap.tiles) {
-      assert.ok(t.step >= end[t.lane] - 1e-9, `${s.id} 줄 겹침`);
-      end[t.lane] = t.step + t.rows * lap.u;
-    }
-    // 한 바퀴는 28초 이상 (짧은 곡을 같은 높이로 되풀이하지 않음), 타일 시각은 늘어나기만
-    assert.ok((lap.steps * 15) / lap.bpm >= 28 - 0.01, `${s.id} 바퀴 길이`);
+    let seenParty = false;
+    c.tiles.forEach((t, i) => {
+      assert.ok(t.lane >= 0 && t.lane <= 3);
+      assert.notEqual(t.lane, prev, `${s.id} 타일 ${i}: 같은 줄 연속`);
+      prev = t.lane;
+      // 같은 줄 타일끼리 안 겹침 (긴 타일 포함)
+      assert.ok(t.abs >= end[t.lane] - 1e-9, `${s.id} 줄 겹침`);
+      end[t.lane] = t.abs + t.rows * c.u;
+      if (t.coin) {
+        seenParty = true;
+        assert.equal(t.pts, 0);
+        assert.equal(t.rows, 1);
+      } else assert.ok(t.rows >= 1 && t.pts === t.rows && t.hold === t.rows >= 2);
+      if (i > 0) {
+        const p = c.tiles[i - 1];
+        // 📱 아이폰: 이웃 타일은 늘 0.2초 이상 · 긴 타일은 끝난 뒤 0.2초 이상 비움
+        assert.ok(t.t - p.t >= MIN_TAP_SEC - 1e-6, `${s.id} 타일 ${i} 간격 ${(t.t - p.t).toFixed(3)}`);
+        if (p.hold) assert.ok(t.t - (c.tempo.stepTime(p.abs + p.rows * c.u) - c.t0) >= MIN_TAP_SEC - 1e-6, `${s.id} 긴 타일 뒤 간격`);
+        assert.ok(t.abs - p.abs >= c.u - 1e-9, `${s.id} 한 줄에 하나`);
+      }
+    });
+    assert.ok(seenParty, `${s.id} 코인 파티`);
+    // 코인 파티는 첫 바퀴 바로 뒤
+    const firstCoin = c.tiles.findIndex((t) => t.coin);
+    assert.equal(firstCoin, c.lapEnd[0], `${s.id} 파티 자리`);
+    assert.equal(c.tiles[firstCoin - 1].k, 0);
+    assert.equal(c.tiles.filter((t) => t.coin).length > 8, true);
+    // 한 바퀴는 25초 이상 (짧은 곡을 같은 높이로 되풀이하지 않음), 타일 시각은 늘어나기만
+    assert.ok((lap.steps * 15) / lap.bpm >= 25, `${s.id} 바퀴 길이`);
     const { t: times } = tileTimes(s.id);
-    assert.equal(times.length, lap.tiles.length * MAX_LAPS);
+    assert.equal(times.length, c.lapEnd[MAX_LAPS - 1]);
     assert.equal(times[0], 0);
     for (let i = 1; i < times.length; i++) assert.ok(times[i] > times[i - 1]);
-    // 이웃 타일 사이 0.13초 이상 (첫 바퀴)
-    for (let i = 1; i < lap.tiles.length; i++) assert.ok(times[i] - times[i - 1] >= 0.129, `${s.id} 타일 간격`);
-    // 둘째 바퀴는 첫 바퀴보다 짧게 걸림
-    const n = lap.tiles.length;
-    assert.ok(times[2 * n - 1] - times[n] < times[n - 1] - times[0]);
+    // 둘째 바퀴는 첫 바퀴보다 짧게 걸림 (빨라짐)
+    const l0 = c.tiles.filter((t) => t.k === 0);
+    const l1 = c.tiles.filter((t) => t.k === 1);
+    assert.ok(l1.at(-1).t - l1[0].t < l0.at(-1).t - l0[0].t, `${s.id} 빨라짐`);
   }
   // 조각뿐이던 곡은 곡 전체 (징글벨 = 절 + 후렴)
   assert.equal(tileLap(3).bars, 32);
@@ -72,7 +85,8 @@ test('유저 맵 타일: 멜로디로 한 바퀴 · 최대 점수 2바퀴 · cle
   assert.equal(map.kind, 'tiles');
   const lap = mapTileLap(map);
   assert.ok(lap && lap.tiles.length === 13);
-  assert.equal(mapTileMax(map), lap.points * 2);
+  assert.equal(mapTileMax(map), buildCourse(lap, { laps: 2 }).points);
+  assert.ok(mapTileMax(map) > lap.points);
   assert.equal(cleanMap({ ...raw, melody: ['C5:16', '_:16', '_:16', 'C5:16'] }), null);
   assert.equal(cleanMap({ ...raw, kind: undefined }).kind, undefined);
 });

@@ -1149,8 +1149,10 @@ test('🏛 명예의 전당 API: 이번 시즌 단계·무제한 총합 · 시�
   const r = perfectRun(lv);
   assert.equal((await c('POST', '/api/scores', { runToken: run, level: lv, ...r })).status, 200);
   const h = (await c('GET', '/api/hall?board=stage')).json;
-  assert.equal(h.season.n, 1);
-  assert.ok(h.season.end > Date.now());
+  // 날짜에 따라 (시즌 1 은 2026-11-26 끝 → 그 뒤엔 시즌 2)
+  const { seasonAt, endedSeasons } = await import('../public/js/season.js');
+  assert.equal(h.season.n, seasonAt().n);
+  if (seasonAt().end) assert.ok(h.season.end > Date.now());
   assert.equal(h.board, 'stage');
   assert.ok(h.entries.some((e) => e.username === '전당후보' && e.me));
   assert.equal(h.me.username, '전당후보');
@@ -1158,8 +1160,8 @@ test('🏛 명예의 전당 API: 이번 시즌 단계·무제한 총합 · 시�
   const en = (await c('GET', '/api/hall?board=endless')).json;
   assert.equal(en.board, 'endless');
   assert.ok(en.entries.every((e) => e.score < 1_000_000_000));
-  // 아직 끝난 시즌이 없어 전당에 내 칸이 없음 → 사진 못 올림
-  assert.equal((await c('POST', '/api/hall/photo', { season: 1, board: 'stage', rank: 1, image: 'data:image/jpeg;base64,AAAA' })).status, 403);
+  // 아직 끝난 시즌이 없어 전당에 내 칸이 없음 → 사진 못 올림 (시즌 1 이 끝난 뒤엔 이 시험 사람이 1등일 수 있어 건너뜀)
+  if (!endedSeasons().length) assert.equal((await c('POST', '/api/hall/photo', { season: 1, board: 'stage', rank: 1, image: 'data:image/jpeg;base64,AAAA' })).status, 403);
   assert.equal((await c('POST', '/api/hall/photo', { season: 1, board: 'stage', rank: 1, image: 'javascript:1' })).status, 400);
   assert.equal((await client()('GET', '/api/admin/hall')).status, 401);
   assert.ok(Array.isArray((await client()('GET', '/api/admin/hall', null, adm)).json.hall));
