@@ -654,7 +654,9 @@ export class Renderer {
     const bph = ((bt % 1) + 1) % 1;
     const beat = st.playing && st.now >= 0 ? Math.pow(1 - bph, 3) : 0;
     const inBar = (((bt % 4) + 4) % 4);
-    this.scene.draw(ctx, L, this.theme, {
+    // 💡 조명 효과 끄기 (2026-11-26 건의 '조명이 과해서 눈이 아파요'): 빛줄기·번쩍임·입자 없이 배경만. 영상 찍기는 항상 켬
+    const noLights = this.noLights && !this.studio;
+    if (!noLights) this.scene.draw(ctx, L, this.theme, {
       rt,
       heat: this.heatS,
       beat,
@@ -669,7 +671,9 @@ export class Renderer {
       quality: q,
     });
     const live = this.live;
-    if (live) this._liveFlash(rt);
+    if (noLights) {
+      // 조명 없음: 줄 번쩍임도 안 그림
+    } else if (live) this._liveFlash(rt);
     else if (!lite) this._drawLaneFlash(rt);
     ctx.save();
     // 치는 화면은 판정선·콩이 꼼짝 않게 (2026-11-22 '칠 때마다 쿵·짝이 움직여서 탈락' 신고). 흔들림은 영상 찍기에서만
@@ -694,7 +698,7 @@ export class Renderer {
     else this._drawNotes(st);
     if (live) this._liveBursts(rt);
     else this._drawBursts(rt);
-    if (q >= 1) this._drawSparks(rt);
+    if (q >= 1 && !noLights) this._drawSparks(rt);
     this._drawCoins(rt);
     this._drawJudges(rt); // 세트도 기본 드럼 화면처럼 줄마다 판정선 위에 작게 (11-22 사용자 '가운데·아래 다 가리거나 안 보임')
     this._drawRollCount(st, rt);

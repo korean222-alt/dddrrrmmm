@@ -8331,7 +8331,9 @@ class Renderer {
     const bph = ((bt % 1) + 1) % 1;
     const beat = st.playing && st.now >= 0 ? Math.pow(1 - bph, 3) : 0;
     const inBar = (((bt % 4) + 4) % 4);
-    this.scene.draw(ctx, L, this.theme, {
+    // 💡 조명 효과 끄기 (2026-11-26 건의 '조명이 과해서 눈이 아파요'): 빛줄기·번쩍임·입자 없이 배경만. 영상 찍기는 항상 켬
+    const noLights = this.noLights && !this.studio;
+    if (!noLights) this.scene.draw(ctx, L, this.theme, {
       rt,
       heat: this.heatS,
       beat,
@@ -8346,7 +8348,9 @@ class Renderer {
       quality: q,
     });
     const live = this.live;
-    if (live) this._liveFlash(rt);
+    if (noLights) {
+      // 조명 없음: 줄 번쩍임도 안 그림
+    } else if (live) this._liveFlash(rt);
     else if (!lite) this._drawLaneFlash(rt);
     ctx.save();
     // 치는 화면은 판정선·콩이 꼼짝 않게 (2026-11-22 '칠 때마다 쿵·짝이 움직여서 탈락' 신고). 흔들림은 영상 찍기에서만
@@ -8371,7 +8375,7 @@ class Renderer {
     else this._drawNotes(st);
     if (live) this._liveBursts(rt);
     else this._drawBursts(rt);
-    if (q >= 1) this._drawSparks(rt);
+    if (q >= 1 && !noLights) this._drawSparks(rt);
     this._drawCoins(rt);
     this._drawJudges(rt); // 세트도 기본 드럼 화면처럼 줄마다 판정선 위에 작게 (11-22 사용자 '가운데·아래 다 가리거나 안 보임')
     this._drawRollCount(st, rt);
@@ -16545,6 +16549,12 @@ const __m_news = (() => {
 //   짧게: 하루에 한 덩어리(같은 날 소식은 합침), 한 줄씩 2~5줄. 유저가 몰라도 되는 것(내부 구조·자잘한 수정·로딩 안내 등)은 안 씀
 
 const NEWS = [
+  {
+    id: '2026-11-26a',
+    date: '11월 26일',
+    title: '💡 조명 효과 끄기',
+    items: ['설정에 <b>조명 효과 끄기</b>가 생겼어요 — 빛줄기·번쩍임이 눈부실 때 켜 보세요'],
+  },
   // s2: true 를 붙이면 시즌 2 를 켠 폰에만 보임 (지금 시즌 2 소식은 없음 — 11-26 사용자 요청으로 뺌)
   {
     id: '2026-11-25d',
@@ -19412,6 +19422,7 @@ const audio = new AudioEngine();
 const renderer = new Renderer($('#game-canvas'));
 // 자동 화질: 이 기기에서 버벅여서 내려갔던 단계를 기억해 다음 판부터 그대로
 renderer.quality = Math.max(0, Math.min(2, Number(load('gfxQ', 2)) || 0));
+renderer.noLights = !!load('noLights', false);
 renderer.onQualityDrop = (q) => {
   save('gfxQ', q);
   if (q === 0) state.suggestLite = true;
@@ -21279,6 +21290,7 @@ function openSettings() {
   $('#set-vibrate').checked = !!s.vibrate;
   $('#set-lite').checked = !!s.lite;
   $('#set-touchshow').checked = !!load('touchShow', false);
+  $('#set-nolights').checked = !!load('noLights', false);
   $$('#set-band button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.band === (s.band || 'orch')));
   $$('#set-tview button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tview === tileView())));
   refreshKakao();
@@ -22012,6 +22024,11 @@ function bindSettings() {
   $('#set-touchshow').addEventListener('input', (e) => {
     save('touchShow', e.target.checked);
     renderer.touchShow = e.target.checked;
+  });
+  // 💡 조명 효과 끄기 (2026-11-26 건의)
+  $('#set-nolights').addEventListener('input', (e) => {
+    save('noLights', e.target.checked);
+    renderer.noLights = e.target.checked;
   });
   $('#set-band').addEventListener('click', async (e) => {
     const b = e.target.closest('[data-band]');
