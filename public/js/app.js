@@ -4876,7 +4876,7 @@ function seasonReward(rank) {
 /** boards = { stage: [{igsid, rank}], endless: [...] } → [{ igsid, coins, board, rank }] 사람마다 가장 큰 것 하나 */
 function seasonRewards(boards) {
   const best = new Map();
-  for (const board of ['stage', 'endless']) {
+  for (const board of ['stage', 'endless', 'tiles']) {
     for (const r of boards[board] || []) {
       const coins = seasonReward(r.rank);
       if (!coins || !r.igsid) continue;
@@ -13937,7 +13937,8 @@ function coinTotal() {
   const sending = load('coinSending', null);
   const pend = queue().reduce((a, x) => a + int(x.n), 0) + int(load('coinFree', 0));
   const inFlight = sending ? (sending.runs || []).reduce((a, x) => a + int(x.n), 0) + int(sending.free) + int(sending.init) : 0;
-  return int(load('coinSrv', 0)) + pend + inFlight + (load('coinInit', false) ? 0 : local);
+  // 🎁 시즌 2 출석·퀘스트로 받기 누른 것 (서버가 아직 안 받음, s2claims.js)
+  return int(load('coinSrv', 0)) + pend + inFlight + int(load('s2Bonus', 0)) + (load('coinInit', false) ? 0 : local);
 }
 
 /** 판 하나 끝: n 코인 (tok = 그 판의 서버 판 토큰, 없으면 null) */
@@ -14013,8 +14014,10 @@ const SEASONS = [
   { n: 1, end: Date.UTC(2026, 10, 26, 14, 59, 59, 999) },
   { n: 2, end: null },
 ];
-const HALL_BOARDS = ['stage', 'endless'];
-const BOARD_LABEL = { stage: '🎵 단계 총합', endless: '💎 무제한 총합' };
+const HALL_BOARDS = ['stage', 'endless', 'tiles'];
+const BOARD_LABEL = { stage: '🎵 단계 총합', endless: '💎 무제한 총합', tiles: '🎹 타일 총합' };
+/** 그 시즌의 명예의 전당 판: 시즌 1 = 드럼(단계·무제한), 시즌 2 부터 = 🎹 피아노 타일 총합 (드럼은 랭킹 없음, 2026-11-26 사용자) */
+const hallBoardsOf = (n) => (Number(n) === 1 ? ['stage', 'endless'] : ['tiles']);
 /** 프로필 사진 (data URL) 최대 길이 — 160px 정사각 JPEG 면 보통 10~20KB */
 const HALL_IMAGE_MAX = 60000;
 
@@ -14046,7 +14049,7 @@ function seasonLeftText(t = Date.now()) {
 const cleanHallImage = (v) =>
   typeof v === 'string' && v.length <= HALL_IMAGE_MAX && /^data:image\/(jpeg|webp|png);base64,[A-Za-z0-9+/=]+$/.test(v) ? v : null;
 
-return { SEASONS, HALL_BOARDS, BOARD_LABEL, HALL_IMAGE_MAX, seasonAt, endedSeasons, seasonLeftText, cleanHallImage };
+return { SEASONS, HALL_BOARDS, BOARD_LABEL, hallBoardsOf, HALL_IMAGE_MAX, seasonAt, endedSeasons, seasonLeftText, cleanHallImage };
 })();
 
 // ---- offrec.js ----
@@ -15725,6 +15728,294 @@ const hasOpenPlay = () => !!play;
 return { takeTrack, initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay };
 })();
 
+// ---- quests.js ----
+const __m_quests = (() => {
+// 🎁 시즌 2 출석 · 퀘스트 (2026-11-26) — 브라우저와 서버가 같이 씀
+//   출석: 그날 한 판 이상 치면 (드럼이든 타일이든). 연속 일수마다 50·60·70·80·90·100·150, 8일째부터 150
+//   오늘의 퀘스트: 날마다 3개 (날짜로 정해짐, 모두 같음) + 다 깨면 보너스. 진행은 폰이 세고, 받기는 서버가 하루 한 번씩만
+//   커뮤니티 퀘스트: 운영자가 admin 에서 숫자(예: 인스타 팔로워 수)를 적고 달성 처리 → 모두가 한 번 받음
+//   ⚠ 새 요청 없음: 폰이 받기 누른 걸 모아 두었다가 다음 판 시작·점수 요청(코인과 같이)에 얹어 보냄. 지갑 s2 칸(JSON)에 받은 것 적음
+
+const ATT_REWARD = [50, 60, 70, 80, 90, 100, 150];
+const attReward = (streak) => ATT_REWARD[Math.min(ATT_REWARD.length, Math.max(1, streak)) - 1];
+
+/** 퀘스트 종류: kind = 폰이 세는 것 */
+const QUEST_POOL = [
+  { id: 'tplay3', icon: '🎹', text: '타일 3판 치기', kind: 'tplays', goal: 3, reward: 50, easy: true },
+  { id: 'drum1', icon: '🥁', text: '드럼 한 곡 끝까지', kind: 'dclear', goal: 1, reward: 50, easy: true },
+  { id: 'ttile200', icon: '🎵', text: '타일 200개 치기', kind: 'ttiles', goal: 200, reward: 80 },
+  { id: 'ttile500', icon: '🎵', text: '타일 500개 치기', kind: 'ttiles', goal: 500, reward: 120 },
+  { id: 'tstar2', icon: '⭐', text: '타일 곡에서 별 2개', kind: 'tstar', goal: 2, reward: 100 },
+  { id: 'tcombo60', icon: '🔥', text: '타일 60연속', kind: 'tcombo', goal: 60, reward: 80 },
+  { id: 'tsongs3', icon: '🎶', text: '서로 다른 타일 곡 3개', kind: 'tsongs', goal: 3, reward: 80 },
+  { id: 'dchal', icon: '🔥', text: '오늘의 드럼 챌린지 성공', kind: 'dchal', goal: 1, reward: 100 },
+];
+/** 오늘 퀘스트 3개 다 깨면 */
+const QUEST_ALL = { id: 'all', icon: '🎁', text: '오늘 퀘스트 모두 완료', reward: 100 };
+
+/** 한국 날짜 'YYYY-MM-DD' */
+const kstDay = (now = Date.now()) => new Date(now + 9 * 3600 * 1000).toISOString().slice(0, 10);
+const prevDay = (day) => new Date(Date.parse(day + 'T00:00:00Z') - 86400000).toISOString().slice(0, 10);
+
+function hash(s) {
+  let h = 2166136261;
+  for (const ch of s) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+  return h;
+}
+
+/** 그날 퀘스트 3개 (쉬운 것 1개 + 나머지 2개, 같은 종류 겹치지 않게) */
+function todayQuests(day) {
+  const h = hash('q:' + day);
+  const easy = QUEST_POOL.filter((q) => q.easy);
+  const rest = QUEST_POOL.filter((q) => !q.easy);
+  const out = [easy[h % easy.length]];
+  let k = h >>> 3;
+  while (out.length < 3) {
+    const q = rest[k % rest.length];
+    k = Math.imul(k, 1103515245) + 12345 >>> 0;
+    if (!out.some((x) => x.kind === q.kind)) out.push(q);
+  }
+  return out;
+}
+
+/** 커뮤니티 퀘스트 기본값 (운영자가 admin 에서 숫자·달성을 바꿈) */
+const COMMUNITY_DEFAULT = [{ id: 'f2000', icon: '📸', title: '오케이스트라 인스타 팔로워 2,000명', goal: 2000, now: 0, reward: 1000, done: false }];
+
+/** admin 이 보낸 커뮤니티 퀘스트 목록 검사 */
+function cleanCommunity(list) {
+  if (!Array.isArray(list)) return null;
+  const out = [];
+  for (const q of list.slice(0, 6)) {
+    if (!q || typeof q !== 'object') continue;
+    const id = String(q.id || '').replace(/[^a-z0-9_-]/gi, '').slice(0, 20);
+    const title = String(q.title || '').replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 40);
+    if (!id || !title) continue;
+    const num = (v, max) => (Number.isFinite(Number(v)) ? Math.max(0, Math.min(max, Math.floor(Number(v)))) : 0);
+    out.push({ id, icon: String(q.icon || '🎯').slice(0, 4), title, goal: Math.max(1, num(q.goal, 1e9)), now: num(q.now, 1e9), reward: num(q.reward, 50000), done: !!q.done });
+  }
+  return out;
+}
+
+/** 지갑 s2 칸 기본값 */
+const s2Of = (w) => ({ ad: '', as: 0, qd: '', qc: [], cq: [], ...((w && w.s2) || {}) });
+
+/**
+ * 받기 요청 처리 (서버): w = 지갑, req = { att: 'YYYY-MM-DD', q: [퀘스트 id], cq: [커뮤니티 id] }
+ *   → { wallet, changed, out: { att?: { day, streak, reward }, q: [받은 id], cq: [받은 id], gave } }
+ *   폰이 보낸 날짜는 오늘·어제만 받음 (자정 넘어 보낸 어제 것), 같은 날 두 번은 안 줌
+ */
+function applyS2(w0, req, community = [], now = Date.now()) {
+  const w = { coins: 0, ...(w0 || {}) };
+  const s = s2Of(w);
+  const today = kstDay(now);
+  const yday = prevDay(today);
+  const out = { q: [], cq: [], gave: 0 };
+  let changed = false;
+  const give = (n) => {
+    w.coins = (w.coins || 0) + n;
+    out.gave += n;
+    changed = true;
+  };
+  if (req && (req.att === today || req.att === yday) && s.ad < req.att) {
+    const streak = s.ad === prevDay(req.att) ? (s.as || 0) + 1 : 1;
+    const reward = attReward(streak);
+    s.ad = req.att;
+    s.as = streak;
+    give(reward);
+    out.att = { day: req.att, streak, reward };
+  }
+  if (req && Array.isArray(req.q) && req.q.length) {
+    const day = typeof req.qd === 'string' && (req.qd === today || req.qd === yday) ? req.qd : today;
+    if (s.qd !== day) {
+      if (s.qd > day) return finish();
+      s.qd = day;
+      s.qc = [];
+    }
+    const list = todayQuests(day);
+    for (const id of req.q.slice(0, 6)) {
+      if (s.qc.includes(id)) continue;
+      const q = list.find((x) => x.id === id);
+      if (q) {
+        s.qc.push(id);
+        give(q.reward);
+        out.q.push(id);
+      } else if (id === QUEST_ALL.id && list.every((x) => s.qc.includes(x.id))) {
+        s.qc.push(id);
+        give(QUEST_ALL.reward);
+        out.q.push(id);
+      }
+    }
+  }
+  if (req && Array.isArray(req.cq)) {
+    for (const id of req.cq.slice(0, 6)) {
+      const c = community.find((x) => x.id === id);
+      if (!c || !c.done || s.cq.includes(id)) continue;
+      s.cq.push(id);
+      give(c.reward);
+      out.cq.push(id);
+    }
+  }
+  return finish();
+  function finish() {
+    w.s2 = s;
+    return { wallet: w, changed, out };
+  }
+}
+
+return { ATT_REWARD, attReward, QUEST_POOL, QUEST_ALL, kstDay, prevDay, todayQuests, COMMUNITY_DEFAULT, cleanCommunity, s2Of, applyS2 };
+})();
+
+// ---- s2claims.js ----
+const __m_s2claims = (() => {
+// 🎁 시즌 2 출석·퀘스트 — 폰 쪽 (진행 세기 · 받기 모아 두기)
+//   계정(서버 지갑)이면: 받기 누른 것을 모아 두었다가 다음 판 시작·점수 요청에 얹어 보냄(api.js withCoins) → 서버가 하루 한 번씩만 줌
+//     화면 잔액엔 보내기 전부터 더해서 보여 줌(s2Bonus, coins.js coinTotal 이 더함) → 서버 답이 오면 서버 잔액으로
+//   계정이 없으면: 폰 코인(coins)에 바로 (인증하면 그때 한 번 올라감)
+const { load, save } = __m_storage;
+const { kstDay, todayQuests, QUEST_ALL, attReward } = __m_quests;
+
+const int = (v) => (Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
+
+/** 오늘 진행 (날짜가 바뀌면 새로) */
+function prog(now = Date.now()) {
+  const day = kstDay(now);
+  let p = load('s2q', null);
+  if (!p || p.day !== day) p = { day, tplays: 0, dclear: 0, ttiles: 0, tstar: 0, tcombo: 0, tsongs: [], dchal: 0, claimed: [] };
+  return p;
+}
+const saveProg = (p) => save('s2q', p);
+
+/** 타일 한 판 끝 */
+function noteTilePlay(r, now = Date.now()) {
+  const p = prog(now);
+  p.tplays++;
+  p.ttiles += int(r.tiles);
+  p.tstar = Math.max(p.tstar, int(r.stars));
+  p.tcombo = Math.max(p.tcombo, int(r.maxCombo));
+  if (!p.tsongs.includes(r.songId)) p.tsongs.push(r.songId);
+  saveProg(p);
+}
+/** 드럼 한 곡 끝까지 · 오늘의 챌린지 성공 */
+function noteDrum({ cleared = false, challenge = false } = {}, now = Date.now()) {
+  const p = prog(now);
+  if (cleared) p.dclear++;
+  if (challenge) p.dchal = 1;
+  saveProg(p);
+}
+
+/** 화면에 보일 오늘 퀘스트 [{ ...q, now, done, claimed }] + 모두 완료 칸 */
+function questView(now = Date.now()) {
+  const p = prog(now);
+  const val = (q) => (q.kind === 'tsongs' ? p.tsongs.length : int(p[q.kind]));
+  const list = todayQuests(p.day).map((q) => {
+    const v = Math.min(q.goal, val(q));
+    return { ...q, now: v, done: v >= q.goal, claimed: p.claimed.includes(q.id) };
+  });
+  const all = { ...QUEST_ALL, now: list.filter((q) => q.claimed).length, goal: list.length, done: list.every((q) => q.claimed), claimed: p.claimed.includes(QUEST_ALL.id) };
+  return { day: p.day, list, all, left: list.filter((q) => q.done && !q.claimed).length + (all.done && !all.claimed ? 1 : 0) };
+}
+
+function pend() {
+  const x = load('s2Pend', null);
+  return x && typeof x === 'object' ? { att: x.att || null, qd: x.qd || null, q: Array.isArray(x.q) ? x.q : [], cq: Array.isArray(x.cq) ? x.cq : [] } : { att: null, qd: null, q: [], cq: [] };
+}
+function addBonus(n) {
+  save('s2Bonus', int(load('s2Bonus', 0)) + int(n));
+}
+
+/** 퀘스트 받기 → 받은 코인 (못 받으면 0) */
+function claimQuest(id, account, now = Date.now()) {
+  const v = questView(now);
+  const q = id === QUEST_ALL.id ? v.all : v.list.find((x) => x.id === id);
+  if (!q || !q.done || q.claimed) return 0;
+  const p = prog(now);
+  p.claimed.push(id);
+  saveProg(p);
+  if (account) {
+    const x = pend();
+    if (x.qd && x.qd !== v.day) x.q = [];
+    x.qd = v.day;
+    x.q.push(id);
+    save('s2Pend', x);
+    addBonus(q.reward);
+  } else save('coins', int(load('coins', 0)) + q.reward);
+  return q.reward;
+}
+
+/** 커뮤니티 퀘스트 받기 */
+function claimCommunity(c, account) {
+  const got = load('s2Comm', []) || [];
+  if (!c || !c.done || got.includes(c.id)) return 0;
+  got.push(c.id);
+  save('s2Comm', got);
+  if (account) {
+    const x = pend();
+    x.cq.push(c.id);
+    save('s2Pend', x);
+    addBonus(c.reward);
+  } else save('coins', int(load('coins', 0)) + c.reward);
+  return c.reward;
+}
+const communityClaimed = (id) => (load('s2Comm', []) || []).includes(id);
+
+/** 출석 보기: { today(출석했나), streak(오늘까지 이어진 일수), next(오늘 받을/받은 코인), week[7] } */
+function attView(now = Date.now()) {
+  const a = load('s2Att', null) || { day: '', streak: 0 };
+  const today = kstDay(now);
+  const yday = kstDay(now - 86400000);
+  const done = a.day === today;
+  const alive = done || a.day === yday;
+  const streak = done ? a.streak : alive ? a.streak : 0;
+  const nextStreak = done ? a.streak : streak + 1;
+  const pos = ((nextStreak - 1) % 7) + 1; // 7칸 중 오늘 자리
+  return { done, streak, todayReward: attReward(nextStreak), pos, week: Array.from({ length: 7 }, (_, i) => ({ n: i + 1, coins: attReward(nextStreak - pos + i + 1), on: i + 1 < pos || (done && i + 1 === pos), today: i + 1 === pos })) };
+}
+
+/** 한 판을 쳤음 → 오늘 첫 판이면 출석 (돌려줌: { streak, reward } 또는 null) */
+function noteAttendance(account, now = Date.now()) {
+  const v = attView(now);
+  if (v.done) return null;
+  const today = kstDay(now);
+  const streak = v.streak + 1;
+  const reward = attReward(streak);
+  save('s2Att', { day: today, streak });
+  if (account) {
+    const x = pend();
+    x.att = today;
+    save('s2Pend', x);
+    addBonus(reward);
+  } else save('coins', int(load('coins', 0)) + reward);
+  return { streak, reward };
+}
+
+/** 요청에 얹을 것 (없으면 undefined) */
+function takeS2() {
+  if (load('s2Sending', null)) return undefined;
+  const x = pend();
+  if (!x.att && !x.q.length && !x.cq.length) return undefined;
+  save('s2Sending', { ...x, bonus: int(load('s2Bonus', 0)) });
+  save('s2Pend', null);
+  return x;
+}
+
+/** 응답: data.s2 가 있으면 서버가 처리함 (준 것만 잔액에 들어감 → 미리 보여 준 것은 뺌). 없으면 다시 줄에 */
+function s2Result(data) {
+  const s = load('s2Sending', null);
+  if (!s) return;
+  save('s2Sending', null);
+  if (data && data.s2 && typeof data.s2 === 'object') {
+    save('s2Bonus', Math.max(0, int(load('s2Bonus', 0)) - int(s.bonus)));
+    // 서버가 센 연속 출석일 (다른 폰에서도 쳤을 수 있음)
+    if (data.s2.att && data.s2.att.streak) save('s2Att', { day: data.s2.att.day, streak: data.s2.att.streak });
+    return;
+  }
+  const x = pend();
+  save('s2Pend', { att: x.att || s.att, qd: x.qd || s.qd, q: [...new Set([...(s.q || []), ...x.q])], cq: [...new Set([...(s.cq || []), ...x.cq])] });
+}
+
+return { noteTilePlay, noteDrum, questView, claimQuest, claimCommunity, communityClaimed, attView, noteAttendance, takeS2, s2Result };
+})();
+
 // ---- api.js ----
 const __m_api = (() => {
 // 서버 통신. 서버가 없으면(정적 호스팅/로컬 파일) 브라우저 안 가짜 API로 동작합니다.
@@ -15736,6 +16027,7 @@ const { gradeFor } = __m_charts;
 const { takeTrack } = __m_track;
 const { takeCoins, coinsResult } = __m_coins;
 const { takeOffline, offlineResult, takeLost, lostResult } = __m_offrec;
+const { takeS2, s2Result } = __m_s2claims;
 const { seasonAt } = __m_season;
 
 async function http(method, url, body) {
@@ -15767,19 +16059,24 @@ async function http(method, url, body) {
 }
 
 // 📴 서버 없을 때 친 최고 기록(offrec.js)도 같이 얹음
+// 🎁 시즌 2 출석·퀘스트 받기(s2claims.js)도 코인처럼 얹음 (서버가 지갑에 같이 적음)
 function withCoins(send) {
   const coins = takeCoins();
   const offline = takeOffline();
   const lost = takeLost();
-  return send(coins, offline, lost).then(
+  const s2 = takeS2();
+  const c = s2 ? { ...(coins || {}), s2 } : coins;
+  return send(c, offline, lost).then(
     (r) => {
-      if (coins) coinsResult(r);
+      if (coins || s2) coinsResult(r);
+      if (s2) s2Result(r);
       if (offline) offlineResult(r);
       if (lost) lostResult(r);
       return r;
     },
     (e) => {
-      if (coins) coinsResult(e && e.data);
+      if (coins || s2) coinsResult(e && e.data);
+      if (s2) s2Result(e && e.data);
       if (offline) offlineResult(e && e.data);
       if (lost) lostResult(e && e.data);
       throw e;
@@ -15864,7 +16161,7 @@ function serverApi(boot = null) {
       const key = 'hall:' + board;
       const hit = lbCache.get(key);
       if (hit && Date.now() - hit.at < LB_CACHE_MS) return hit.p;
-      const p = http('GET', `/api/hall?board=${board === 'endless' ? 'endless' : 'stage'}`);
+      const p = http('GET', `/api/hall?board=${board === 'endless' ? 'endless' : board === 'tiles' ? 'tiles' : 'stage'}`);
       lbCache.set(key, { at: Date.now(), p });
       p.catch(() => lbCache.delete(key));
       return p;
@@ -15889,6 +16186,8 @@ function serverApi(boot = null) {
     poll: (id) => http('GET', `/api/poll?id=${encodeURIComponent(id)}`),
     vote: (id, choice) => http('POST', '/api/poll', { id, choice }),
     logout: () => http('POST', '/api/logout'),
+    // 🔑 카카오 로그인 (2026-11-26): 서버가 카카오 동의 화면 주소를 줌 → 그리로 이동
+    kakaoStart: (mode) => http('POST', '/api/auth/kakao/start', { mode }),
     suggest: (kind, text, contact) => http('POST', '/api/suggestions', { kind, text, contact }),
     room: (body) => http('POST', '/api/rooms', body),
     ranked: (body) => http('POST', '/api/ranked', body),
@@ -16153,6 +16452,19 @@ const __m_news = (() => {
 //   짧게: 하루에 한 덩어리(같은 날 소식은 합침), 한 줄씩 2~5줄. 유저가 몰라도 되는 것(내부 구조·자잘한 수정·로딩 안내 등)은 안 씀
 
 const NEWS = [
+  // s2: true = 시즌 2 를 켠 폰에만 보임 (운영자가 admin 에서 열기 전엔 미리보기 기기만)
+  {
+    id: '2026-11-27s2',
+    s2: true,
+    date: '11월 27일',
+    title: '🎹 시즌 2 시작! 피아노 타일 · 출석 · 퀘스트',
+    items: [
+      '<b>🎹 피아노 타일</b>이 시즌 2 정식 모드로! 명곡 18곡 · 바퀴마다 빨라져요 (★ → ★★ → ★★★ → 👑) · <b>시즌 2 랭킹</b>은 타일로',
+      '⚙ 설정에서 <b>클래식 타일</b> / 멀리서 내려오는 <b>원근 타일</b> 보기를 골라요',
+      '<b>📅 출석 체크</b> — 하루 한 판이면 코인, 7일째 150 · <b>🎯 오늘의 퀘스트</b> 3개 + 다 깨면 보너스 · <b>📣 다 같이 퀘스트</b>',
+      '첫 화면이 새로워졌어요 · <b>🥁 드럼</b>은 랭킹 없이 편하게 · 🔒 시즌 3 은 비밀!',
+    ],
+  },
   {
     id: '2026-11-25d',
     date: '11월 25일',
@@ -16278,8 +16590,10 @@ const NEWS = [
 ];
 
 const LATEST_NEWS = NEWS[0].id;
+/** 이 폰에 보일 소식 (시즌 2 소식은 시즌 2 를 켠 폰만) */
+const newsFor = (s2) => NEWS.filter((n) => !n.s2 || s2);
 
-return { NEWS, LATEST_NEWS };
+return { NEWS, LATEST_NEWS, newsFor };
 })();
 
 // ---- room.js ----
@@ -16877,6 +17191,1363 @@ async function makeReelCover({ lv, title, sub, bottom, deco = null }) {
 return { splitTitle, makeReelCover };
 })();
 
+// ---- tiles.js ----
+const __m_tiles = (() => {
+// 🎹 시즌 2 피아노 타일 (2026-11-26, 투표에서 'A 타일'이 이김) — 브라우저와 서버가 같이 씀
+//   곡 = 드럼 단계 곡(퍼블릭 도메인)의 멜로디. 타일 하나 = 8분음표 칸 하나(더 빠른 음은 그 타일을 누르면 같이 울림)
+//   한 바퀴(lap) 돌 때마다 빨라짐: ★ → ★★ → ★★★ → 👑(그 뒤 바퀴마다) — 하트 3개(놓침·빈 줄 누름에 하나씩), 바퀴를 돌면 하나 회복
+//   점수 = 친 타일 수. 랭킹 = 곡마다(scores 칸 3000+곡 번호) + 시즌 타일 총합(명예의 전당 'tiles')
+//   판정 글자 없음: 아래쪽에 온 타일을 누르기만 하면 됨 (빠를수록 그 시간이 짧아짐)
+//   ⚠ 서버는 tileTimes 로 '그 시간 안에 칠 수 있는 타일 수'를 넘는 점수를 막음 → 이 파일을 바꾸면 이미 올라간 기록과 기준이 달라짐
+
+const { parseMelody, STEPS_PER_BAR, COUNT_IN_BARS, getLevel, TempoMap, CRASH } = __m_charts;
+
+/** 곡 목록 (쉬운 것부터). bpm = 타일용 빠르기 (느린 곡은 조금 빠르게: 첫 바퀴 초당 타일 1.5~2개쯤) */
+const TILE_SONGS = [
+  { id: 1, bpm: 128, diff: 1 },
+  { id: 2, bpm: 118, diff: 1 },
+  { id: 3, bpm: 128, diff: 1 },
+  { id: 4, bpm: 138, diff: 1 },
+  { id: 5, bpm: 146, diff: 2 },
+  { id: 6, bpm: 113, diff: 2 },
+  { id: 11, bpm: 108, diff: 2 },
+  { id: 12, bpm: 128, diff: 2 },
+  { id: 7, bpm: 112, diff: 3 },
+  { id: 17, bpm: 132, diff: 3 },
+  { id: 9, bpm: 110, diff: 3 },
+  { id: 8, bpm: 108, diff: 3 },
+  { id: 16, bpm: 120, diff: 4 },
+  { id: 10, bpm: 108, diff: 4 },
+  { id: 13, bpm: 112, diff: 4 },
+  { id: 18, bpm: 144, diff: 4 },
+  { id: 14, bpm: 132, diff: 5 },
+  { id: 15, bpm: 144, diff: 5 },
+];
+const TILE_DIFF = ['', '쉬움', '보통', '어려움', '지옥', '지옥+'];
+/** 처음 몇 곡은 누구나 (나머지는 드럼 4단계부터처럼 팔로워 인증) */
+const TILE_FREE = 3;
+/** 랭킹 저장 칸: scores.level = 3000 + 곡 번호 */
+const TILE_SLOT0 = 3000;
+const TILE_SLOT_MAX = 3999;
+/** 한 바퀴는 적어도 이만큼 (짧은 멜로디는 되풀이) */
+const LAP_MIN_SEC = 22;
+/** 타일 사이 최소 칸 (16분 칸, 2 = 8분음표) */
+const TILE_MIN_GAP = 2;
+/** 이 바퀴까지 돌면 끝 (그 전에 사람은 못 버팀) */
+const MAX_LAPS = 16;
+const TILE_HEARTS = 3;
+/** 박 단위 창: 이만큼 앞이면 누를 수 있음 / 가장 먼저 와야 할 타일은 이만큼 앞부터 / 이만큼 지나면 놓침 */
+const READY_B = 1.25;
+const NEXT_B = 3;
+const GONE_B = 0.5;
+const GONE_MIN_SEC = 0.15;
+
+/** 바퀴 k(0부터)의 빠르기 배수: 1 → 1.2 → 1.4 → 바퀴마다 +0.12 */
+function lapSpeed(k) {
+  return k <= 0 ? 1 : k === 1 ? 1.2 : 1.4 + 0.12 * (k - 2);
+}
+/** 바퀴 수 → 별(1~3) · 왕관(4바퀴부터 1개씩) */
+function lapStars(laps) {
+  return { stars: Math.min(3, Math.max(0, laps)), crowns: Math.max(0, laps - 3) };
+}
+
+const tileId = (songId) => `t${songId}`;
+/** 't3' → 곡 정보 { id, bpm, diff, order(1부터), level } (아니면 null) */
+function tileSong(id) {
+  const m = /^t(\d{1,3})$/.exec(String(id || ''));
+  if (!m) return null;
+  const i = TILE_SONGS.findIndex((s) => s.id === Number(m[1]));
+  if (i < 0) return null;
+  const level = getLevel(TILE_SONGS[i].id);
+  if (!level) return null;
+  return { ...TILE_SONGS[i], order: i + 1, level, key: tileId(TILE_SONGS[i].id) };
+}
+const tileSlot = (songId) => TILE_SLOT0 + Number(songId);
+const isTileSlot = (slot) => slot > TILE_SLOT0 && slot <= TILE_SLOT_MAX;
+const tileClosed = (song) => !!song && song.order > TILE_FREE;
+
+const _laps = new Map();
+/**
+ * 한 바퀴 타일 [{ step, beat, notes:[{ d, midi, len }], midi, bar }] + 바퀴 정보 (곡마다 기억)
+ *   step = 바퀴 안 16분 칸, d = 타일 첫 음에서 몇 칸 뒤에 울리는지
+ */
+function tileLap(songId) {
+  if (_laps.has(songId)) return _laps.get(songId);
+  const s = TILE_SONGS.find((x) => x.id === songId);
+  const level = getLevel(songId);
+  if (!s || !level || !level.song || !level.song.melody) return null;
+  const bars = level.song.melody.length;
+  const reps = Math.max(1, Math.ceil(LAP_MIN_SEC / ((bars * 240) / s.bpm)));
+  const notes = parseMelody(level.song.melody);
+  const tiles = [];
+  for (let r = 0; r < reps; r++) {
+    let last = -99;
+    for (const n of notes) {
+      const step = (r * bars + n.bar) * STEPS_PER_BAR + n.step;
+      const cur = tiles[tiles.length - 1];
+      if (cur && step - last < TILE_MIN_GAP) cur.notes.push({ d: step - cur.step, midi: n.midi, len: n.len });
+      else {
+        tiles.push({ step, beat: step / 4, bar: r * bars + n.bar, s: n.step, midi: n.midi, len: n.len, notes: [{ d: 0, midi: n.midi, len: n.len }] });
+        last = step;
+      }
+    }
+  }
+  const lanes = tileLanes(tiles.map((t) => t.midi));
+  tiles.forEach((t, i) => (t.lane = lanes[i]));
+  const lap = { songId, bpm: s.bpm, bars: bars * reps, reps, beats: bars * reps * 4, tiles };
+  _laps.set(songId, lap);
+  return lap;
+}
+
+/** 4줄: 올라가면 오른쪽, 내려가면 왼쪽(크게 뛰면 두 칸), 같은 음은 옆 줄. 같은 줄 연속 없음 */
+function tileLanes(midis) {
+  const out = [];
+  if (!midis.length) return out;
+  const avg = midis.reduce((a, x) => a + x, 0) / midis.length;
+  let prev = -1;
+  midis.forEach((m, i) => {
+    let L;
+    if (prev < 0) L = m >= avg ? 2 : 1;
+    else {
+      const d = m - midis[i - 1];
+      const step = Math.abs(d) >= 5 ? 2 : 1;
+      if (d > 0) L = prev + step <= 3 ? prev + step : prev - 1 - (i % 2);
+      else if (d < 0) L = prev - step >= 0 ? prev - step : prev + 1 + (i % 2);
+      else L = prev === 0 ? 1 : prev === 3 ? 2 : prev + (i % 2 ? 1 : -1);
+      L = Math.max(0, Math.min(3, L));
+      if (L === prev) L = prev === 0 ? 1 : prev - 1;
+    }
+    out.push(L);
+    prev = L;
+  });
+  return out;
+}
+
+/** 바퀴 k 의 줄 뒤집기: 홀수 바퀴는 좌우 반대 (지루하지 않게) — 바퀴 경계에서 같은 줄이 이어지면 반대로 */
+function lapMirrors(lap, n = MAX_LAPS) {
+  const out = [];
+  const first = lap.tiles[0].lane;
+  const last = lap.tiles[lap.tiles.length - 1].lane;
+  for (let k = 0; k < n; k++) {
+    let m = k % 2 === 1;
+    if (k > 0) {
+      const prevLast = out[k - 1] ? 3 - last : last;
+      if ((m ? 3 - first : first) === prevLast) m = !m;
+    }
+    out.push(m);
+  }
+  return out;
+}
+
+/** 곡 시각 (카운트인 첫 박 = 0): 카운트인 한 마디는 첫 바퀴 빠르기. 바퀴 k 마디 = 타일 빠르기 × lapSpeed(k) */
+function tileTempo(songId) {
+  const lap = tileLap(songId);
+  if (!lap) return null;
+  return new TempoMap((bar) => lap.bpm * lapSpeed(Math.floor(Math.max(0, bar - COUNT_IN_BARS) / lap.bars)));
+}
+
+const _times = new Map();
+/** 모든 바퀴 타일 시각(초, 정렬) — 서버가 '이 시간 안에 칠 수 있는 타일 수'를 셈 */
+function tileTimes(songId) {
+  if (_times.has(songId)) return _times.get(songId);
+  const lap = tileLap(songId);
+  if (!lap) return null;
+  const tempo = tileTempo(songId);
+  const out = [];
+  for (let k = 0; k < MAX_LAPS; k++) for (const t of lap.tiles) out.push(tempo.stepTime(COUNT_IN_BARS * STEPS_PER_BAR + k * lap.bars * STEPS_PER_BAR + t.step));
+  _times.set(songId, out);
+  return out;
+}
+
+/** 판 시작부터 sec 초 안에 지나간(칠 수 있었던) 타일 수 — 여유 slack 초 */
+function tilesWithin(songId, sec, slack = 4) {
+  const times = tileTimes(songId);
+  if (!times) return 0;
+  let lo = 0;
+  let hi = times.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (times[mid] <= sec + slack) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
+/** 소리 엔진용 단계 (멜로디는 내가 침, 반주는 피아노 왼손만, 바퀴마다 빨라짐) */
+function tileLevel(songId) {
+  const lap = tileLap(songId);
+  const base = getLevel(songId);
+  if (!lap || !base) return null;
+  const dots = '.'.repeat(STEPS_PER_BAR);
+  const one = Array.from({ length: lap.reps }, () => base.song.melody).flat();
+  const melody = Array.from({ length: MAX_LAPS }, () => one).flat();
+  const prog0 = base.song.prog || ['C'];
+  const prog = Array.from({ length: base.song.melody.length }, (_, i) => prog0[i % prog0.length]);
+  const song = { ...base.song, melody, prog, pianoLH: true, bass: dots, chord: dots, hat: dots, bells: undefined, glock: undefined, choir: undefined, audio: undefined, epic: false, low: undefined };
+  return { ...base, bpm: lap.bpm, song, tapMelody: true, pianoOnly: true, lanes: [CRASH], bars: melody.map(() => dots), tempo: tileTempo(songId), tiles: true };
+}
+
+/**
+ * 점수 검증 (서버): body { tiles, laps, maxCombo }, 판 토큰 시작부터 지난 초 elapsed
+ *   → { ok, tiles, laps, maxCombo } | { ok:false, error }
+ */
+function checkTileRun(songId, body, elapsedSec) {
+  const lap = tileLap(songId);
+  if (!lap) return { ok: false, error: 'bad_level' };
+  const tiles = body.tiles;
+  const laps = body.laps;
+  if (!Number.isInteger(tiles) || tiles < 0 || tiles > lap.tiles.length * MAX_LAPS) return { ok: false, error: 'bad_score' };
+  if (!Number.isInteger(laps) || laps < 0 || laps > MAX_LAPS) return { ok: false, error: 'bad_score' };
+  if (elapsedSec > 3 * 3600) return { ok: false, error: 'run_expired' };
+  // 그 시간 안에 지나갈 수 있는 타일보다 많이 칠 순 없음
+  if (tiles > tilesWithin(songId, elapsedSec)) return { ok: false, error: 'too_fast' };
+  // 바퀴 수: 다 돈 바퀴의 타일 수(놓친 건 하트 3개 + 바퀴마다 회복분까지만)보다 적게 칠 순 없음
+  const per = lap.tiles.length;
+  if (laps > 0 && tiles < laps * per - TILE_HEARTS * (laps + 1)) return { ok: false, error: 'bad_score' };
+  if (tiles > (laps + 1) * per) return { ok: false, error: 'bad_score' };
+  const maxCombo = Number.isInteger(body.maxCombo) ? Math.max(0, Math.min(body.maxCombo, tiles)) : 0;
+  return { ok: true, tiles, laps, maxCombo };
+}
+
+/** 랭킹 표의 grade 칸에 바퀴 수를 적음 ('L5') */
+const lapGrade = (laps) => `L${Math.max(0, Math.min(MAX_LAPS, laps | 0))}`;
+const gradeLaps = (g) => {
+  const m = /^L(\d+)$/.exec(String(g || ''));
+  return m ? Number(m[1]) : 0;
+};
+
+return { TILE_SONGS, TILE_DIFF, TILE_FREE, TILE_SLOT0, TILE_SLOT_MAX, LAP_MIN_SEC, TILE_MIN_GAP, MAX_LAPS, TILE_HEARTS, READY_B, NEXT_B, GONE_B, GONE_MIN_SEC, lapSpeed, lapStars, tileId, tileSong, tileSlot, isTileSlot, tileClosed, tileLap, tileLanes, lapMirrors, tileTempo, tileTimes, tilesWithin, tileLevel, checkTileRun, lapGrade, gradeLaps };
+})();
+
+// ---- tilegame.js ----
+const __m_tilegame = (() => {
+// 🎹 시즌 2 피아노 타일 게임 (2026-11-26)
+//   보기 두 가지 (설정 「타일 보기」, 판정은 똑같음 — 랭킹 같이 씀):
+//     'tile' : 클래식 — 밝은 바닥에 검은 타일 4줄이 내려옴
+//     'road' : 원근 — 건반 모드처럼 어두운 무대의 길 위로 멀리서부터 빛 타일이 다가오고, 아래 건반 4개를 누름 (더 멀리까지 보임)
+//   규칙: 아래쪽에 온 타일(판정선 READY_B 박 앞부터, 가장 먼저 칠 타일은 NEXT_B 박 앞부터)을 그 줄에서 누르면 됨 — 판정 글자 없음
+//         놓침(화면 밖으로 지나감)·빈 줄 누름 = 하트 하나, 바퀴를 돌면 하트 하나 회복, 하트 0 이면 끝
+//   🖐 터치 씹힘 대비 (CLAUDE.md 터치 씹힘 1~4차):
+//     · touchstart 로 받고, pointerdown 도 받아서 같은 자리(24px)·80ms 안이면 한 번만 (폰마다 한쪽만 올 때가 있어서)
+//     · touchmove 로는 절대 새 터치를 만들지 않음 (가짜 터치의 원인이었음)
+//     · 방금 친 줄을 0.12초 안에 또 누른 '튕김'은 무시 (그 줄에 칠 타일이 있으면 그대로 침 — 이득 없음)
+//     · 하트를 잃은 뒤 0.35초는 빈 줄 누름으로 또 깎지 않음 (한 번의 실수가 줄줄이 깎이지 않게)
+
+const { STEPS_PER_BAR, COUNT_IN_BARS, pianoHarmony } = __m_charts;
+const { SongPlayer } = __m_audio;
+const { tileLap, tileLevel, lapMirrors, lapSpeed, lapStars, MAX_LAPS, TILE_HEARTS, READY_B, NEXT_B, GONE_B, GONE_MIN_SEC } = __m_tiles;
+
+const FONT = "Jua, 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif";
+const font = (px) => `${Math.round(px)}px ${FONT}`;
+const ease = (k) => 1 - Math.pow(1 - Math.max(0, Math.min(1, k)), 3);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+/** 원근 보기 줄 색 (왼쪽부터 하늘·파랑·보라·분홍) */
+const ROAD_HUE = [188, 222, 270, 318];
+const BOUNCE_SEC = 0.12;
+const GRACE_SEC = 0.35;
+
+class TileGame {
+  /**
+   * @param {{ audio, canvas, songId:number, view?:'tile'|'road', offsetMs?:number, onEnd:(r)=>void, onLap?:(laps:number)=>void }} o
+   */
+  constructor({ audio, canvas, songId, view = 'tile', offsetMs = 0, onEnd, onLap }) {
+    this.audio = audio;
+    this.canvas = canvas;
+    this.g = canvas.getContext('2d');
+    this.songId = songId;
+    this.view = view === 'road' ? 'road' : 'tile';
+    this.offset = (offsetMs || 0) / 1000;
+    this.onEnd = onEnd;
+    this.onLap = onLap;
+    this.lap = tileLap(songId);
+    this.level = tileLevel(songId);
+    this.tempo = this.level.tempo;
+    this.per = this.lap.tiles.length;
+    const mir = lapMirrors(this.lap);
+    this.tiles = [];
+    for (let k = 0; k < MAX_LAPS; k++) {
+      for (const t of this.lap.tiles) {
+        const abs = COUNT_IN_BARS * STEPS_PER_BAR + k * this.lap.bars * STEPS_PER_BAR + t.step;
+        this.tiles.push({ k, beat: abs / 4, t: this.tempo.stepTime(abs), lane: mir[k] ? 3 - t.lane : t.lane, notes: t.notes, midi: t.midi, bar: t.bar, s: t.s, len: t.len, absBar: Math.floor(abs / STEPS_PER_BAR) });
+      }
+    }
+    // 타일 높이(박): 같은 줄 다음 타일과 안 겹치게
+    let min = Infinity;
+    const last = [null, null, null, null];
+    for (const t of this.tiles.slice(0, this.per * 2)) {
+      if (last[t.lane] != null) min = Math.min(min, t.beat - last[t.lane]);
+      last[t.lane] = t.beat;
+    }
+    this.tileB = clamp((isFinite(min) ? min : 1) * 0.88, 0.45, 0.95);
+    this.lapBeat0 = COUNT_IN_BARS * 4;
+    this.hearts = TILE_HEARTS;
+    this.score = 0;
+    this.shown = 0;
+    this.combo = 0;
+    this.maxCombo = 0;
+    this.missed = 0;
+    this.wrong = 0;
+    this.lapsDone = 0;
+    this.head = 0;
+    this.lastHit = [-9, -9, -9, -9];
+    this.lastHurt = -9;
+    this.press = new Float32Array(4);
+    this.fx = { rings: [], parts: [], bad: [], lap: [], hurt: [], notes: [] };
+    this.recent = [];
+    this.state = 'ready';
+    this.taps = 0;
+    this._onTouch = (e) => this._touch(e);
+    this._onPointer = (e) => this._pointer(e);
+    this._noop = (e) => {
+      if (e.cancelable) e.preventDefault();
+    };
+  }
+
+  // ---------- 시작·멈춤 ----------
+  start() {
+    this.audio.ensure();
+    this.resize();
+    const c = this.canvas;
+    c.addEventListener('touchstart', this._onTouch, { passive: false });
+    // 아이폰: 꾹 누르면 뜨는 돋보기·글자 고르기 막기 (touchmove 로는 아무것도 안 함)
+    for (const ev of ['touchmove', 'touchend', 'touchcancel']) c.addEventListener(ev, this._noop, { passive: false });
+    c.addEventListener('pointerdown', this._onPointer);
+    this._play(this.audio.ctx.currentTime + 0.35);
+  }
+
+  _play(startTime) {
+    this.startTime = startTime;
+    this.player = new SongPlayer(this.audio, this.level, startTime);
+    this.player.start();
+    this.state = 'playing';
+    this.lastFrame = performance.now();
+    const loop = () => {
+      if (this.state !== 'playing' && this.state !== 'dying') return;
+      this._tick();
+      this.raf = requestAnimationFrame(loop);
+    };
+    cancelAnimationFrame(this.raf);
+    this.raf = requestAnimationFrame(loop);
+  }
+
+  _halt(fade = 0.08) {
+    cancelAnimationFrame(this.raf);
+    if (this.player) this.player.stop(fade);
+    this.player = null;
+  }
+
+  pause() {
+    if (this.state !== 'playing') return false;
+    this.pausedAt = this.now();
+    this._halt();
+    this.state = 'paused';
+    this.press.fill(0);
+    this._draw(this.pausedAt, 0);
+    return true;
+  }
+
+  /** 이어 하기: 1.8초 앞에서 다시 흘러 3·2·1 뒤 멈춘 자리 (그 사이 지나간 타일은 이미 처리됨) */
+  resume() {
+    if (this.state !== 'paused') return;
+    this.audio.ensure();
+    this.resumeAt = this.pausedAt;
+    this._play(this.audio.ctx.currentTime + 1.8 - this.pausedAt);
+  }
+
+  stop() {
+    this._halt();
+    if (this.state !== 'ended') this.state = 'stopped';
+    const c = this.canvas;
+    c.removeEventListener('touchstart', this._onTouch);
+    for (const ev of ['touchmove', 'touchend', 'touchcancel']) c.removeEventListener(ev, this._noop);
+    c.removeEventListener('pointerdown', this._onPointer);
+  }
+
+  resize() {
+    const c = this.canvas;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    this.W = c.clientWidth || window.innerWidth;
+    this.H = c.clientHeight || window.innerHeight;
+    c.width = Math.round(this.W * dpr);
+    c.height = Math.round(this.H * dpr);
+    this.g.setTransform(dpr, 0, 0, dpr, 0, 0);
+    this._bg = null;
+    this._layout();
+    if (this.state === 'paused') this._draw(this.pausedAt, 0);
+  }
+
+  _layout() {
+    const { W, H } = this;
+    this.hudH = Math.max(84, H * 0.13);
+    if (this.view === 'tile') {
+      this.laneW = W / 4;
+      this.judgeY = H * 0.8;
+      this.ppb = clamp((H * 0.2) / this.tileB, H * 0.2, H * 0.36);
+      this.tileH = this.tileB * this.ppb;
+      this.lookB = (this.judgeY + this.tileH) / this.ppb + 0.3;
+      return;
+    }
+    // 원근: 길(판정선까지) + 아래 건반 4개
+    this.kbH = Math.max(70, H * 0.13);
+    this.judgeY = H - this.kbH - Math.max(8, H * 0.015);
+    this.side = Math.max(8, W * 0.04);
+    this.keyW = (W - this.side * 2) / 4;
+    this.VB = 4.6;
+    this.lookB = this.VB;
+    this.FAR = 3.4;
+    this.sFar = 1 / (1 + this.FAR);
+    this.topY = this.hudH + 8;
+    this.horizonY = (this.topY - this.judgeY * this.sFar) / (1 - this.sFar);
+    this.cx = W / 2;
+  }
+
+  /** 지금 곡 시각 (귀에 들리는 소리 기준) */
+  now(perfMs = performance.now()) {
+    return this.audio.heardTime(perfMs) - this.startTime - this.offset;
+  }
+
+  // ---------- 원근 ----------
+  _s(d) {
+    return 1 / (1 + Math.max(-0.35, (d / this.VB) * this.FAR));
+  }
+  _py(s) {
+    return this.horizonY + (this.judgeY - this.horizonY) * s;
+  }
+  _sx(s) {
+    return 1 - (1 - s) * 0.55;
+  }
+  _px(x, s) {
+    return this.cx + (x - this.cx) * this._sx(s);
+  }
+  _trap(g, xa, xb, sa, sb) {
+    g.beginPath();
+    g.moveTo(this._px(xa, sa), this._py(sa));
+    g.lineTo(this._px(xb, sa), this._py(sa));
+    g.lineTo(this._px(xb, sb), this._py(sb));
+    g.lineTo(this._px(xa, sb), this._py(sb));
+    g.closePath();
+  }
+  _laneX0(l) {
+    return this.view === 'tile' ? l * this.laneW : this.side + l * this.keyW;
+  }
+  _laneMid(l) {
+    return this.view === 'tile' ? (l + 0.5) * this.laneW : this.side + (l + 0.5) * this.keyW;
+  }
+
+  // ---------- 입력 ----------
+  _touch(e) {
+    if (e.cancelable) e.preventDefault();
+    for (const t of e.changedTouches) {
+      try {
+        this._press(t.clientX, t.clientY, e.timeStamp);
+      } catch {}
+    }
+  }
+  _pointer(e) {
+    if (e.cancelable) e.preventDefault();
+    this._press(e.clientX, e.clientY, e.timeStamp);
+  }
+
+  _laneAt(x, y) {
+    if (y < this.hudH * 0.85) return -1;
+    if (this.view === 'tile') return clamp(Math.floor(x / this.laneW), 0, 3);
+    // 길 위를 누르면 그 높이에서 타일이 보이는 자리 → 건반 자리로 되돌려 읽음
+    if (y < this.judgeY) {
+      const k = this._sx(clamp((y - this.horizonY) / (this.judgeY - this.horizonY), this.sFar, 1));
+      x = this.cx + (x - this.cx) / k;
+    }
+    return clamp(Math.floor((x - this.side) / this.keyW), 0, 3);
+  }
+
+  _press(cx, cy, ts) {
+    if (this.state !== 'playing') return;
+    const r = this.canvas.getBoundingClientRect();
+    const sx = r.width ? this.W / r.width : 1;
+    const sy = r.height ? this.H / r.height : 1;
+    const x = (cx - r.left) * sx;
+    const y = (cy - r.top) * sy;
+    const pn = performance.now();
+    // touchstart 와 pointerdown 이 같은 손가락으로 둘 다 오면 한 번만
+    this.recent = this.recent.filter((p) => pn - p.at < 120);
+    if (this.recent.some((p) => pn - p.at < 80 && Math.hypot(p.x - x, p.y - y) < 24)) return;
+    this.recent.push({ x, y, at: pn });
+    const lane = this._laneAt(x, y);
+    if (lane < 0) return;
+    const tms = ts > 0 && Math.abs(pn - ts) < 300 ? ts : pn;
+    const t = this.now(tms);
+    const b = this.tempo.beatAt(t);
+    this.taps++;
+    this.press[lane] = 1;
+    // 이 줄에서 칠 타일: 판정선 READY_B 박 앞까지 / 가장 먼저 칠 타일이면 NEXT_B 박 앞까지
+    let first = null;
+    let pick = null;
+    for (let i = this.head; i < this.tiles.length; i++) {
+      const tl = this.tiles[i];
+      if (tl.beat - b > NEXT_B) break;
+      if (tl.hit || tl.miss) continue;
+      if (!first) first = tl;
+      if (tl.lane !== lane) continue;
+      if (tl.beat - b <= READY_B || tl === first) pick = tl;
+      break;
+    }
+    if (pick) this._hit(pick, t, x, y);
+    else this._wrong(lane, t, x, y);
+  }
+
+  _hit(tl, t, x, y) {
+    tl.hit = true;
+    tl.hitAt = t;
+    this.score++;
+    this.combo++;
+    this.maxCombo = Math.max(this.maxCombo, this.combo);
+    this.lastHit[tl.lane] = t;
+    this.comboAt = t;
+    this._sound(tl);
+    const cx = this._laneMid(tl.lane);
+    const cy = this.view === 'tile' ? Math.min(this.judgeY - this.tileH * 0.5, Math.max(this.hudH + 20, this.judgeY - (tl.beat - this.tempo.beatAt(t)) * this.ppb - this.tileH * 0.5)) : this.judgeY;
+    const col = this.view === 'tile' ? '#ffc35c' : `hsl(${ROAD_HUE[tl.lane]},95%,72%)`;
+    this.fx.rings.push({ x: cx, y: cy, at: t, color: col });
+    for (let i = 0; i < 7; i++) {
+      const a = -Math.PI * (0.12 + 0.76 * Math.random());
+      const v = 120 + Math.random() * 130;
+      this.fx.parts.push({ x: cx, y: cy, vx: Math.cos(a) * v, vy: Math.sin(a) * v, at: t, life: 0.4 + Math.random() * 0.25, color: col, s: 2 + Math.random() * 2.4 });
+    }
+    if (this.combo % 50 === 0) this.fx.lap.push({ at: t, kind: 'combo', v: this.combo });
+  }
+
+  _wrong(lane, t, x, y) {
+    // 튕김: 방금 이 줄을 쳤음 → 그냥 넘어감 (칠 타일이 있었으면 위에서 이미 쳤음)
+    if (t - this.lastHit[lane] < BOUNCE_SEC) return;
+    this.fx.bad.push({ lane, at: t, x, y });
+    if (t - this.lastHurt < GRACE_SEC) return;
+    this.wrong++;
+    this.combo = 0;
+    this._hurt(t, lane);
+  }
+
+  _miss(tl, t) {
+    tl.miss = true;
+    tl.missAt = t;
+    this.missed++;
+    this.combo = 0;
+    this._hurt(t, tl.lane, tl);
+  }
+
+  _hurt(t, lane, tl = null) {
+    this.hearts--;
+    this.lastHurt = t;
+    this.fx.hurt.push({ at: t, lane, heart: this.hearts });
+    try {
+      this.audio.pianoOr('lead', this.audio.ctx.currentTime, 40, 0.25, this.audio.sfxBus, 0.5);
+    } catch {}
+    if (this.hearts <= 0) this._die(t, tl);
+  }
+
+  _die(t, tl) {
+    this.state = 'dying';
+    this.diedAt = t;
+    this.diedPerf = performance.now();
+    this.failTile = tl;
+    if (this.player) this.player.stop(0.3);
+    this.player = null;
+    try {
+      this.audio.aww();
+    } catch {}
+  }
+
+  _sound(tl) {
+    const a = this.audio;
+    const rt = a.ctx.currentTime;
+    const sd = this.tempo.barLen(tl.absBar) / STEPS_PER_BAR;
+    try {
+      for (const n of tl.notes) {
+        const dur = clamp(n.len * sd * 0.95, 0.14, 1.6);
+        if (a.piano) a.pianoNote(rt + n.d * sd, n.midi, dur, n.d ? 0.78 : 0.95, a.sfxBus);
+        else a.lead(rt + n.d * sd, n.midi, dur, a.sfxBus);
+      }
+      const dur0 = clamp(tl.len * sd * 0.95, 0.2, 1.6);
+      for (const h of pianoHarmony(this.level.song, tl.bar, tl.s, tl.midi, tl.len >= 4)) a.pianoOr('lead', rt, h, dur0, a.sfxBus, 0.45);
+    } catch {}
+  }
+
+  result() {
+    const { stars, crowns } = lapStars(this.lapsDone);
+    return {
+      songId: this.songId,
+      tiles: this.score,
+      laps: this.lapsDone,
+      stars,
+      crowns,
+      maxCombo: this.maxCombo,
+      missed: this.missed,
+      wrong: this.wrong,
+      per: this.per,
+      complete: this.lapsDone >= MAX_LAPS,
+      topSpeed: lapSpeed(Math.max(0, Math.min(MAX_LAPS - 1, this.lapsDone))),
+      view: this.view,
+    };
+  }
+
+  // ---------- 매 화면 ----------
+  _goneB(tl) {
+    return Math.max(GONE_B, (GONE_MIN_SEC * this.tempo.bpm(tl.absBar)) / 60);
+  }
+
+  _tick() {
+    const pn = performance.now();
+    const dt = Math.min(0.05, (pn - this.lastFrame) / 1000);
+    this.lastFrame = pn;
+    const t = this.now(pn);
+    if (this.state === 'dying') {
+      this._draw(this.diedAt, dt, true);
+      if (pn - this.diedPerf > 1300) this._finish();
+      return;
+    }
+    const b = this.tempo.beatAt(t);
+    // 지나간 타일 = 놓침 (바로 전 화면까지의 시각으로 — 폰이 버벅인 뒤 밀린 터치가 먼저 처리되게)
+    const bPrev = this._bPrev ?? b;
+    this._bPrev = b;
+    for (let i = this.head; i < this.tiles.length && this.state === 'playing'; i++) {
+      const tl = this.tiles[i];
+      if (bPrev - tl.beat <= this._goneB(tl)) break;
+      if (!tl.hit && !tl.miss) this._miss(tl, t);
+    }
+    while (this.head < this.tiles.length && (this.tiles[this.head].hit || this.tiles[this.head].miss)) this.head++;
+    // 바퀴 다 돎 → 별, 하트 회복
+    while (this.state === 'playing' && this.head >= (this.lapsDone + 1) * this.per) {
+      this.lapsDone++;
+      if (this.hearts < TILE_HEARTS) {
+        this.hearts++;
+        this.fx.hurt.push({ at: t, heal: true, heart: this.hearts - 1 });
+      }
+      this.fx.lap.push({ at: t, kind: 'lap', v: this.lapsDone });
+      try {
+        if (this.lapsDone <= 3) this.audio.fanfare();
+        else this.audio.sfxFile('combo', 0.6);
+      } catch {}
+      if (this.onLap) this.onLap(this.lapsDone);
+      if (this.lapsDone >= MAX_LAPS) {
+        this.state = 'dying';
+        this.diedAt = t;
+        this.diedPerf = performance.now();
+        this.complete = true;
+        if (this.player) this.player.stop(0.4);
+        this.player = null;
+      }
+    }
+    this._draw(t, dt);
+  }
+
+  _finish() {
+    this.stop();
+    this.state = 'ended';
+    if (this.onEnd) this.onEnd(this.result());
+  }
+
+  _draw(t, dt = 0, frozen = false) {
+    this.bNow = this.tempo.beatAt(t);
+    this.shown += (this.score - this.shown) * Math.min(1, dt * 14);
+    if (Math.abs(this.score - this.shown) < 0.5) this.shown = this.score;
+    for (let i = 0; i < 4; i++) this.press[i] = Math.max(0, this.press[i] - dt * 6);
+    const g = this.g;
+    g.save();
+    // 하트를 잃으면 화면이 살짝 흔들림
+    const hurt = this.fx.hurt.filter((h) => !h.heal).at(-1);
+    const hk = hurt ? 1 - (t - hurt.at) / 0.3 : 0;
+    if (hk > 0 && !frozen) g.translate(Math.sin(t * 90) * 5 * hk, 0);
+    if (this.view === 'road') this._drawRoad(g, t, frozen);
+    else this._drawTiles(g, t, frozen);
+    this._drawFx(g, t);
+    this._drawHud(g, t, frozen);
+    this._drawCount(g, t);
+    this._drawLapFx(g, t);
+    if (frozen) this._drawDying(g, t);
+    g.restore();
+    const old = t - 1.6;
+    for (const k of Object.keys(this.fx)) this.fx[k] = this.fx[k].filter((f) => f.at > old);
+  }
+
+  // ======== 클래식 타일 ========
+  _tileBg(g) {
+    const { W, H, judgeY } = this;
+    if (!this._bg) {
+      const bg = g.createLinearGradient(0, 0, 0, H);
+      bg.addColorStop(0, '#fffaf2');
+      bg.addColorStop(0.55, '#fdf1f5');
+      bg.addColorStop(1, '#f0e9ff');
+      const zone = g.createLinearGradient(0, judgeY - READY_B * this.ppb, 0, H);
+      zone.addColorStop(0, 'rgba(255,190,110,0)');
+      zone.addColorStop(0.55, 'rgba(255,190,110,0.12)');
+      zone.addColorStop(1, 'rgba(255,160,150,0.22)');
+      const line = g.createLinearGradient(0, 0, W, 0);
+      line.addColorStop(0, 'rgba(255,196,92,0)');
+      line.addColorStop(0.18, '#ffc45c');
+      line.addColorStop(0.82, '#ff8fb8');
+      line.addColorStop(1, 'rgba(255,143,184,0)');
+      const div = g.createLinearGradient(0, 0, 0, H);
+      div.addColorStop(0, 'rgba(150,120,190,0)');
+      div.addColorStop(0.5, 'rgba(150,120,190,0.16)');
+      div.addColorStop(1, 'rgba(150,120,190,0.28)');
+      this._bg = { bg, zone, line, div };
+    }
+    return this._bg;
+  }
+
+  _drawTiles(g, t, frozen) {
+    const { W, H, laneW, judgeY, ppb, tileH } = this;
+    const C = this._tileBg(g);
+    g.fillStyle = C.bg;
+    g.fillRect(0, 0, W, H);
+    for (let i = 0; i < 7; i++) {
+      const r = (0.08 + (i % 4) * 0.035) * W;
+      const x = ((i * 0.293 + 0.11) % 1) * W + Math.sin(t * 0.5 + i) * 12;
+      const span = H + r * 2;
+      const y = H + r - ((t * (14 + (i % 3) * 7) + i * 211) % span);
+      const gr = g.createRadialGradient(x, y, 0, x, y, r);
+      const hue = i % 2 ? '255,186,140' : '196,160,255';
+      gr.addColorStop(0, `rgba(${hue},0.2)`);
+      gr.addColorStop(1, `rgba(${hue},0)`);
+      g.fillStyle = gr;
+      g.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+    g.fillStyle = C.zone;
+    g.fillRect(0, judgeY - READY_B * ppb, W, H - judgeY + READY_B * ppb);
+    for (let i = 0; i < 4; i++) {
+      const a = this.press[i];
+      if (a < 0.01) continue;
+      const gr = g.createLinearGradient(0, judgeY - H * 0.4, 0, H);
+      gr.addColorStop(0, 'rgba(255,200,120,0)');
+      gr.addColorStop(1, `rgba(255,180,120,${0.4 * a})`);
+      g.fillStyle = gr;
+      g.fillRect(i * laneW, judgeY - H * 0.4, laneW, H * 0.4 + H - judgeY);
+    }
+    for (const b of this.fx.bad) {
+      const a = 1 - ease((t - b.at) / 0.45);
+      if (a <= 0) continue;
+      g.fillStyle = `rgba(255,77,109,${0.32 * a})`;
+      rr(g, b.lane * laneW + 3, judgeY - READY_B * ppb, laneW - 6, H - judgeY + READY_B * ppb - 4, 14);
+      g.fill();
+    }
+    g.fillStyle = C.div;
+    for (let i = 1; i < 4; i++) g.fillRect(Math.round(i * laneW) - 0.5, 0, 1, H);
+    const gap = 4;
+    const h = tileH - gap;
+    const first = this._firstOpen();
+    for (let i = Math.max(0, this.head - 8); i < this.tiles.length; i++) {
+      const tl = this.tiles[i];
+      const d = tl.beat - this.bNow;
+      if (d > this.lookB) break;
+      const yB = judgeY - d * ppb;
+      if (yB - h > H + 10) continue;
+      if (tl.hit && t - tl.hitAt > 0.3) continue;
+      if (tl.miss && t - tl.missAt > 0.7 && tl !== this.failTile) continue;
+      this._tile(g, tl, tl.lane * laneW + 3, yB - h, laneW - 6, h, t, tl === first);
+    }
+    g.fillStyle = 'rgba(255,190,110,0.16)';
+    g.fillRect(0, judgeY - 5, W, 10);
+    g.fillStyle = C.line;
+    g.fillRect(0, judgeY - 1.5, W, 3);
+  }
+
+  _firstOpen() {
+    for (let i = this.head; i < this.tiles.length; i++) {
+      const tl = this.tiles[i];
+      if (!tl.hit && !tl.miss) return tl;
+    }
+    return null;
+  }
+
+  _tile(g, tl, x, y, w, h, t, isFirst) {
+    const r = Math.min(12, w * 0.14);
+    if (tl.miss) {
+      const blink = tl === this.failTile ? 0.55 + 0.45 * Math.sin(t * 22) : 1 - ease((t - tl.missAt) / 0.7);
+      g.globalAlpha = Math.max(0, blink);
+      g.fillStyle = '#ff4d6d';
+      rr(g, x, y, w, h, r);
+      g.fill();
+      g.globalAlpha = 1;
+      return;
+    }
+    if (tl.hit) {
+      const k = ease((t - tl.hitAt) / 0.3);
+      const sx = -w * 0.06 * k;
+      const sy = -h * 0.06 * k;
+      g.globalAlpha = 1 - k;
+      const gr = g.createLinearGradient(0, y, 0, y + h);
+      gr.addColorStop(0, '#fff7e0');
+      gr.addColorStop(1, '#ffc35c');
+      g.fillStyle = gr;
+      rr(g, x + sx, y + sy, w - sx * 2, h - sy * 2, r);
+      g.fill();
+      g.globalAlpha = 1;
+      return;
+    }
+    g.fillStyle = 'rgba(40,20,60,0.16)';
+    rr(g, x + 2, y + 5, w, h, r);
+    g.fill();
+    const gr = g.createLinearGradient(x, y, x + w, y + h);
+    gr.addColorStop(0, '#3d3854');
+    gr.addColorStop(0.5, '#1d1a2a');
+    gr.addColorStop(1, '#0c0a12');
+    g.fillStyle = gr;
+    rr(g, x, y, w, h, r);
+    g.fill();
+    g.save();
+    rr(g, x, y, w, h, r);
+    g.clip();
+    const gl = g.createLinearGradient(0, y, 0, y + h * 0.5);
+    gl.addColorStop(0, 'rgba(255,255,255,0.2)');
+    gl.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = gl;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.lineTo(x + w, y);
+    g.lineTo(x + w, y + h * 0.22);
+    g.lineTo(x, y + h * 0.42);
+    g.closePath();
+    g.fill();
+    g.fillStyle = '#ffc35c';
+    g.fillRect(x, y + h - 3, w, 3);
+    g.restore();
+    // 가장 먼저 칠 타일: 금빛 테두리가 살짝 숨 쉼
+    if (isFirst) {
+      g.strokeStyle = `rgba(255,200,110,${0.45 + 0.35 * Math.sin(t * 9)})`;
+      g.lineWidth = 2.5;
+      rr(g, x + 1, y + 1, w - 2, h - 2, r);
+      g.stroke();
+    }
+    const cx = x + w / 2;
+    const cy = y + h * 0.6;
+    const s = Math.min(7, w * 0.07);
+    g.fillStyle = 'rgba(255,205,120,0.85)';
+    g.beginPath();
+    g.moveTo(cx, cy - s);
+    g.lineTo(cx + s, cy);
+    g.lineTo(cx, cy + s);
+    g.lineTo(cx - s, cy);
+    g.closePath();
+    g.fill();
+  }
+
+  // ======== 원근 (건반처럼) ========
+  _roadBg(g) {
+    const { W, H, judgeY } = this;
+    if (!this._bg) {
+      const bg = g.createLinearGradient(0, 0, 0, H);
+      bg.addColorStop(0, '#070918');
+      bg.addColorStop(0.55, '#140f38');
+      bg.addColorStop(1, '#231350');
+      const road = g.createLinearGradient(0, this.topY, 0, judgeY);
+      road.addColorStop(0, 'rgba(30,24,80,0.3)');
+      road.addColorStop(1, 'rgba(44,32,110,0.8)');
+      const line = g.createLinearGradient(this.side, 0, W - this.side, 0);
+      line.addColorStop(0, `hsl(${ROAD_HUE[0]},95%,70%)`);
+      line.addColorStop(0.5, `hsl(${ROAD_HUE[2]},95%,72%)`);
+      line.addColorStop(1, `hsl(${ROAD_HUE[3]},95%,72%)`);
+      this._bg = { bg, road, line };
+    }
+    return this._bg;
+  }
+
+  _drawRoad(g, t, frozen) {
+    const { W, H, judgeY, side, keyW } = this;
+    const C = this._roadBg(g);
+    g.fillStyle = C.bg;
+    g.fillRect(0, 0, W, H);
+    for (const sd of [0, 1]) {
+      const sw = Math.sin(t * 0.45 + sd * 2) * W * 0.08;
+      const x0 = sd ? W * 0.84 : W * 0.16;
+      const gr = g.createLinearGradient(0, 0, 0, judgeY);
+      gr.addColorStop(0, sd ? 'rgba(255,140,220,0.16)' : 'rgba(110,200,255,0.16)');
+      gr.addColorStop(1, 'rgba(140,120,255,0)');
+      g.fillStyle = gr;
+      g.beginPath();
+      g.moveTo(x0 - 12, 0);
+      g.lineTo(x0 + 12, 0);
+      g.lineTo(x0 + sw + W * 0.2, judgeY);
+      g.lineTo(x0 + sw - W * 0.2, judgeY);
+      g.closePath();
+      g.fill();
+    }
+    for (let i = 0; i < 24; i++) {
+      const x = ((i * 0.618 + 0.05) % 1) * W;
+      const span = judgeY - this.hudH;
+      const y = this.hudH + ((((i * 0.377 + 0.1) % 1) * span - t * (6 + (i % 4) * 3) + 4000) % span);
+      const a = 0.15 + 0.35 * (0.5 + 0.5 * Math.sin(t * (1.5 + (i % 5) * 0.4) + i));
+      g.fillStyle = `rgba(220,225,255,${a})`;
+      g.fillRect(x, y, 1.6, 1.6);
+    }
+    const x0 = side;
+    const x1 = W - side;
+    const sF = this.sFar;
+    this._trap(g, x0, x1, sF, 1);
+    g.fillStyle = C.road;
+    g.fill();
+    // 누를 수 있는 곳 (판정선 READY_B 박 앞까지) 살짝 밝게
+    const sR = this._s(READY_B);
+    this._trap(g, x0, x1, sR, 1);
+    g.fillStyle = 'rgba(160,140,255,0.1)';
+    g.fill();
+    for (let l = 1; l < 4; l++) {
+      const x = side + l * keyW;
+      g.strokeStyle = 'rgba(255,255,255,0.08)';
+      g.lineWidth = 1;
+      g.beginPath();
+      g.moveTo(this._px(x, sF), this._py(sF));
+      g.lineTo(x, judgeY);
+      g.stroke();
+    }
+    for (let k = Math.ceil(this.bNow); k < this.bNow + this.VB; k++) {
+      const d = k - this.bNow;
+      const s = this._s(d);
+      const y = this._py(s);
+      g.fillStyle = `rgba(200,190,255,${(k % 4 === 0 ? 0.16 : 0.06) * Math.min(1, (this.VB - d) / 0.8)})`;
+      g.fillRect(this._px(x0, s), y, this._px(x1, s) - this._px(x0, s), Math.max(1, 2 * s));
+    }
+    for (const [x, hue] of [
+      [x0, ROAD_HUE[0]],
+      [x1, ROAD_HUE[3]],
+    ]) {
+      g.strokeStyle = `hsla(${hue},95%,70%,0.8)`;
+      g.lineWidth = 2;
+      g.beginPath();
+      g.moveTo(this._px(x, sF), this._py(sF));
+      g.lineTo(x, judgeY);
+      g.stroke();
+    }
+    // 누른 줄 빛 기둥
+    for (let l = 0; l < 4; l++) {
+      const a = this.press[l];
+      if (a < 0.01) continue;
+      const sTop = this._s(this.VB * 0.5);
+      const gr = g.createLinearGradient(0, this._py(sTop), 0, judgeY);
+      gr.addColorStop(0, `hsla(${ROAD_HUE[l]},95%,65%,0)`);
+      gr.addColorStop(1, `hsla(${ROAD_HUE[l]},95%,65%,${0.45 * a})`);
+      this._trap(g, side + l * keyW, side + (l + 1) * keyW, sTop, 1);
+      g.fillStyle = gr;
+      g.fill();
+    }
+    for (const bd of this.fx.bad) {
+      const a = 1 - ease((t - bd.at) / 0.45);
+      if (a <= 0) continue;
+      this._trap(g, side + bd.lane * keyW, side + (bd.lane + 1) * keyW, sR, 1);
+      g.fillStyle = `rgba(255,77,109,${0.35 * a})`;
+      g.fill();
+    }
+    // 다가오는 빛 타일
+    g.save();
+    g.beginPath();
+    g.rect(0, this.hudH, W, judgeY - this.hudH);
+    g.clip();
+    const first = this._firstOpen();
+    for (let i = Math.max(0, this.head - 8); i < this.tiles.length; i++) {
+      const tl = this.tiles[i];
+      let dH = tl.beat - this.bNow;
+      if (dH > this.VB) break;
+      if (tl.hit && t - tl.hitAt > 0.25) continue;
+      if (tl.miss && t - tl.missAt > 0.5 && tl !== this.failTile) continue;
+      if (dH < -0.6) continue;
+      const dT = Math.min(this.VB, dH + Math.min(0.55, this.tileB * 0.7)); // 짧은 판 (긴 막대면 꾹 누르는 음처럼 보여서)
+      if (tl.hit) dH = Math.max(0, dH);
+      if (dT <= dH) continue;
+      const pad = keyW * 0.08;
+      const xa = side + tl.lane * keyW + pad;
+      const xb = side + (tl.lane + 1) * keyW - pad;
+      const sH = this._s(dH);
+      const sT = this._s(dT);
+      const far = Math.min(1, (this.VB - dH) / 0.7);
+      const hue = ROAD_HUE[tl.lane];
+      let alpha = far;
+      if (tl.hit) alpha *= 1 - ease((t - tl.hitAt) / 0.25);
+      if (tl.miss) alpha *= tl === this.failTile ? 0.6 + 0.4 * Math.sin(t * 22) : 1 - ease((t - tl.missAt) / 0.5);
+      g.globalAlpha = Math.max(0, alpha);
+      const yT = this._py(sT);
+      const yH = this._py(sH);
+      // 바깥 빛
+      this._trap(g, xa - 5, xb + 5, sT, sH);
+      g.fillStyle = tl.miss ? 'rgba(255,77,109,0.3)' : `hsla(${hue},95%,62%,0.22)`;
+      g.fill();
+      const gr = g.createLinearGradient(0, yT, 0, yH);
+      if (tl.miss) {
+        gr.addColorStop(0, '#a3203a');
+        gr.addColorStop(1, '#ff4d6d');
+      } else if (tl.hit) {
+        gr.addColorStop(0, '#fff3d6');
+        gr.addColorStop(1, '#ffffff');
+      } else {
+        gr.addColorStop(0, `hsla(${hue},80%,40%,0.9)`);
+        gr.addColorStop(1, `hsl(${hue},95%,70%)`);
+      }
+      this._trap(g, xa, xb, sT, sH);
+      g.fillStyle = gr;
+      g.fill();
+      const mw = (xb - xa) * 0.12;
+      const mx = (xa + xb) / 2;
+      this._trap(g, mx - mw, mx + mw, sT, sH);
+      g.fillStyle = 'rgba(255,255,255,0.28)';
+      g.fill();
+      g.fillStyle = 'rgba(255,255,255,0.95)';
+      g.fillRect(this._px(xa, sH) + 1, yH - Math.max(2, 4 * sH), this._px(xb, sH) - this._px(xa, sH) - 2, Math.max(1.5, 3.5 * sH));
+      if (tl === first && !tl.hit && !tl.miss) {
+        this._trap(g, xa, xb, sT, sH);
+        g.strokeStyle = `rgba(255,255,255,${0.35 + 0.3 * Math.sin(t * 9)})`;
+        g.lineWidth = 2;
+        g.stroke();
+      }
+      g.globalAlpha = 1;
+    }
+    g.restore();
+    // 판정선 + 건반 4개
+    g.fillStyle = 'rgba(180,160,255,0.22)';
+    g.fillRect(side, judgeY - 6, W - side * 2, 6);
+    g.fillStyle = C.line;
+    g.fillRect(side, judgeY - 2.5, W - side * 2, 2.5);
+    this._keys(g);
+  }
+
+  _keys(g) {
+    const { side, keyW, judgeY, H } = this;
+    const top = judgeY + 2;
+    const kh = H - top - 6;
+    g.fillStyle = '#0b0a12';
+    rr(g, side - 5, top - 3, keyW * 4 + 10, kh + 8, 12);
+    g.fill();
+    for (let l = 0; l < 4; l++) {
+      const p = this.press[l];
+      const x = side + l * keyW + 2;
+      const w = keyW - 4;
+      const dy = 3 * p;
+      g.fillStyle = '#bdb8cb';
+      rr(g, x, top + 4, w, kh - 4, 9);
+      g.fill();
+      const gr = g.createLinearGradient(0, top + dy, 0, top + dy + kh - 6);
+      gr.addColorStop(0, '#dcd8e6');
+      gr.addColorStop(0.15, '#fbfaff');
+      gr.addColorStop(1, '#ecebf4');
+      g.fillStyle = gr;
+      rr(g, x, top + dy, w, kh - 6, 9);
+      g.fill();
+      if (p > 0.02) {
+        const tg = g.createLinearGradient(0, top, 0, top + kh);
+        tg.addColorStop(0, `hsla(${ROAD_HUE[l]},95%,65%,${0.75 * p})`);
+        tg.addColorStop(1, `hsla(${ROAD_HUE[l]},95%,80%,${0.2 * p})`);
+        g.fillStyle = tg;
+        rr(g, x, top + dy, w, kh - 6, 9);
+        g.fill();
+      }
+      g.fillStyle = `hsl(${ROAD_HUE[l]},90%,62%)`;
+      rr(g, x + w * 0.3, top + dy + kh - 18, w * 0.4, 5, 2.5);
+      g.fill();
+    }
+    g.fillStyle = '#9e1430';
+    g.fillRect(side - 1, top - 2, keyW * 4 + 2, 3);
+  }
+
+  // ======== 위 정보 줄 ========
+  _drawHud(g, t, frozen) {
+    const { W, hudH } = this;
+    const road = this.view === 'road';
+    const bg = g.createLinearGradient(0, 0, 0, hudH);
+    if (road) {
+      bg.addColorStop(0, 'rgba(7,9,24,0.96)');
+      bg.addColorStop(1, 'rgba(7,9,24,0)');
+    } else {
+      bg.addColorStop(0, 'rgba(255,250,242,0.95)');
+      bg.addColorStop(1, 'rgba(255,250,242,0)');
+    }
+    g.fillStyle = bg;
+    g.fillRect(0, 0, W, hudH);
+    const ink = road ? '#ffffff' : '#3b2a4a';
+    const outline = road ? 'rgba(7,9,24,0.9)' : '#fffaf2';
+    // 바퀴 진행 줄 (끝에 별)
+    const lapIdx = Math.min(MAX_LAPS - 1, this.lapsDone);
+    const lb0 = this.lapBeat0 + lapIdx * this.lap.beats;
+    const p = clamp((this.bNow - lb0) / this.lap.beats, 0, 1);
+    const px0 = 64;
+    const px1 = W - 64;
+    g.fillStyle = road ? 'rgba(255,255,255,0.12)' : 'rgba(59,42,74,0.1)';
+    rr(g, px0, 10, px1 - px0, 7, 3.5);
+    g.fill();
+    const pg = g.createLinearGradient(px0, 0, px1, 0);
+    pg.addColorStop(0, '#ffc45c');
+    pg.addColorStop(1, '#ff6fae');
+    g.fillStyle = pg;
+    rr(g, px0, 10, Math.max(7, (px1 - px0) * p), 7, 3.5);
+    g.fill();
+    // 하트
+    const hs = Math.min(22, W * 0.055);
+    for (let i = 0; i < TILE_HEARTS; i++) {
+      const on = i < this.hearts;
+      const ev = this.fx.hurt.filter((h) => h.heart === i).at(-1);
+      let s = 1;
+      if (ev) {
+        const k = (t - ev.at) / 0.45;
+        if (k >= 0 && k < 1) s = ev.heal ? 1 + 0.5 * (1 - ease(k)) : 1 + 0.35 * Math.sin(k * Math.PI);
+      }
+      heart(g, 16 + i * (hs + 6) + hs / 2, 30 + hs / 2, hs * s, on ? '#ff4d6d' : road ? 'rgba(255,255,255,0.18)' : 'rgba(59,42,74,0.15)');
+    }
+    // 빠르기
+    const sp = lapSpeed(lapIdx);
+    if (sp > 1.001) {
+      g.font = font(Math.min(15, W * 0.038));
+      g.textAlign = 'left';
+      g.textBaseline = 'top';
+      g.fillStyle = road ? '#ffd36b' : '#ff7a2e';
+      g.fillText(`⚡ ×${sp.toFixed(2)}`, 16, 34 + hs);
+    }
+    // 점수 (친 타일 수)
+    const sTxt = Math.round(this.shown).toLocaleString();
+    const pop = this.comboAt != null ? 1 + 0.08 * (1 - ease((t - this.comboAt) / 0.15)) : 1;
+    g.save();
+    g.translate(W / 2, 24);
+    g.scale(pop, pop);
+    g.font = font(Math.min(50, W * 0.125));
+    g.textAlign = 'center';
+    g.textBaseline = 'top';
+    g.lineJoin = 'round';
+    g.lineWidth = 6;
+    g.strokeStyle = outline;
+    g.strokeText(sTxt, 0, 0);
+    g.fillStyle = ink;
+    g.fillText(sTxt, 0, 0);
+    g.restore();
+    // 별 3개 + 왕관
+    const { stars, crowns } = lapStars(this.lapsDone);
+    const sy = 24 + Math.min(54, W * 0.135);
+    const ss = Math.min(15, W * 0.038);
+    for (let i = 0; i < 3; i++) star(g, W / 2 + (i - 1) * (ss * 2.3), sy + ss, ss, i < stars ? '#ffc23d' : road ? 'rgba(255,255,255,0.16)' : 'rgba(59,42,74,0.14)', i < stars ? '#e08a00' : null);
+    if (crowns > 0) {
+      g.font = font(ss * 1.3);
+      g.textAlign = 'left';
+      g.textBaseline = 'middle';
+      g.fillStyle = road ? '#ffd36b' : '#c77a00';
+      g.fillText(`👑${crowns > 1 ? '×' + crowns : ''}`, W / 2 + ss * 3.7, sy + ss);
+    }
+    if (this.combo >= 10) {
+      g.font = font(Math.min(16, W * 0.04));
+      g.textAlign = 'center';
+      g.textBaseline = 'top';
+      g.fillStyle = road ? 'rgba(255,255,255,0.75)' : 'rgba(59,42,74,0.6)';
+      g.fillText(`${this.combo} 연속`, W / 2, sy + ss * 2.4);
+    }
+  }
+
+  // ======== 효과 ========
+  _drawFx(g, t) {
+    for (const r of this.fx.rings) {
+      const k = (t - r.at) / 0.38;
+      if (k < 0 || k > 1) continue;
+      const e = ease(k);
+      g.globalAlpha = (1 - e) * 0.85;
+      g.strokeStyle = r.color;
+      g.lineWidth = 4 * (1 - e) + 1;
+      const R = (this.view === 'tile' ? this.laneW : this.keyW) * 0.3 * (0.5 + e * 1.1);
+      g.beginPath();
+      g.ellipse(r.x, r.y, R, R * (this.view === 'tile' ? 0.8 : 0.42), 0, 0, Math.PI * 2);
+      g.stroke();
+    }
+    for (const p of this.fx.parts) {
+      const d = t - p.at;
+      if (d < 0 || d > p.life) continue;
+      const k = d / p.life;
+      g.globalAlpha = (1 - ease(k)) * 0.9;
+      g.fillStyle = p.color;
+      g.beginPath();
+      g.arc(p.x + p.vx * d, p.y + p.vy * d + 160 * d * d, p.s * (1 - k * 0.4), 0, Math.PI * 2);
+      g.fill();
+    }
+    g.globalAlpha = 1;
+    // 하트를 잃음: 화면 가장자리 빨갛게
+    const hurt = this.fx.hurt.filter((h) => !h.heal).at(-1);
+    if (hurt) {
+      const a = 1 - ease((t - hurt.at) / 0.5);
+      if (a > 0) {
+        const { W, H } = this;
+        const gr = g.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
+        gr.addColorStop(0, 'rgba(255,40,80,0)');
+        gr.addColorStop(1, `rgba(255,40,80,${0.42 * a})`);
+        g.fillStyle = gr;
+        g.fillRect(0, 0, W, H);
+      }
+    }
+  }
+
+  /** 바퀴를 돎: 별 · SPEED UP / 50연속 */
+  _drawLapFx(g, t) {
+    const { W, H } = this;
+    for (const f of this.fx.lap) {
+      const k = (t - f.at) / 1.4;
+      if (k < 0 || k > 1) continue;
+      const a = k < 0.15 ? k / 0.15 : k > 0.7 ? (1 - k) / 0.3 : 1;
+      const cy = H * 0.36;
+      g.save();
+      g.globalAlpha = a;
+      if (f.kind === 'combo') {
+        g.font = font(Math.min(34, W * 0.085));
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.lineJoin = 'round';
+        g.lineWidth = 6;
+        g.strokeStyle = this.view === 'road' ? 'rgba(7,9,24,0.9)' : '#fff';
+        g.strokeText(`${f.v} 연속!`, W / 2, cy + 60 - k * 30);
+        g.fillStyle = '#ff5fa2';
+        g.fillText(`${f.v} 연속!`, W / 2, cy + 60 - k * 30);
+        g.restore();
+        continue;
+      }
+      const s = 0.7 + 0.45 * ease(k / 0.25);
+      g.translate(W / 2, cy);
+      g.scale(s, s);
+      const { stars, crowns } = lapStars(f.v);
+      const big = Math.min(46, W * 0.115);
+      if (crowns > 0) {
+        g.font = font(big * 1.5);
+        g.textAlign = 'center';
+        g.textBaseline = 'middle';
+        g.fillText('👑', 0, -big * 0.2);
+      } else {
+        for (let i = 0; i < 3; i++) star(g, (i - 1) * big * 1.25, -big * 0.2 - (i === 1 ? big * 0.25 : 0), big * 0.55, i < stars ? '#ffc23d' : 'rgba(255,255,255,0.3)', i < stars ? '#e08a00' : null);
+      }
+      g.font = font(Math.min(28, W * 0.07));
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.lineJoin = 'round';
+      g.lineWidth = 6;
+      const msg = f.v >= MAX_LAPS ? '완주!' : `SPEED UP ×${lapSpeed(f.v).toFixed(2)}`;
+      g.strokeStyle = this.view === 'road' ? 'rgba(7,9,24,0.9)' : '#fff';
+      g.strokeText(msg, 0, big * 0.95);
+      const gr = g.createLinearGradient(-100, 0, 100, 0);
+      gr.addColorStop(0, '#ff9a3d');
+      gr.addColorStop(1, '#ff4fa0');
+      g.fillStyle = gr;
+      g.fillText(msg, 0, big * 0.95);
+      g.restore();
+      // 반짝이 (처음 한 번만 만들어 둠)
+      if (!f.sp) {
+        f.sp = Array.from({ length: 22 }, () => ({ a: Math.random() * Math.PI * 2, v: 120 + Math.random() * 220, s: 2 + Math.random() * 3, c: Math.random() < 0.5 ? '#ffd36b' : '#ff8fc4' }));
+      }
+      for (const p of f.sp) {
+        const d = (t - f.at) * 0.9;
+        g.globalAlpha = Math.max(0, 1 - k * 1.3);
+        g.fillStyle = p.c;
+        g.beginPath();
+        g.arc(W / 2 + Math.cos(p.a) * p.v * d, cy + Math.sin(p.a) * p.v * d + 120 * d * d, p.s, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.globalAlpha = 1;
+    }
+  }
+
+  _drawDying(g, t) {
+    const { W, H } = this;
+    const k = clamp((performance.now() - this.diedPerf) / 600, 0, 1);
+    g.fillStyle = this.complete ? `rgba(255,250,240,${0.25 * k})` : `rgba(30,10,30,${0.35 * k})`;
+    g.fillRect(0, 0, W, H);
+    g.save();
+    g.globalAlpha = k;
+    g.font = font(Math.min(40, W * 0.1));
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.lineJoin = 'round';
+    g.lineWidth = 7;
+    const msg = this.complete ? '👑 완주!' : '아쉬워요!';
+    g.strokeStyle = this.view === 'road' || !this.complete ? 'rgba(10,8,20,0.85)' : '#fff';
+    g.strokeText(msg, W / 2, H * 0.45);
+    g.fillStyle = this.complete ? '#ffc23d' : '#ffffff';
+    g.fillText(msg, W / 2, H * 0.45);
+    g.restore();
+  }
+
+  /** 3 · 2 · 1 (처음과 이어 하기) */
+  _drawCount(g, t) {
+    const beat = 60 / this.tempo.bpm(0);
+    const first = this.resumeAt != null ? this.resumeAt : this.tiles.length ? this.tiles[0].t : 0;
+    const left = first - t;
+    if (left <= 0.05 || left > beat * 3.2 + (this.resumeAt != null ? 0.6 : 0)) {
+      if (left <= 0.05) this.resumeAt = null;
+      return;
+    }
+    const k = Math.min(3, Math.ceil((left / (beat * 3)) * 3 - 0.001));
+    const frac = (left / (beat * 3)) * 3 - (k - 1);
+    const s = 0.85 + 0.25 * ease((1 - frac) * 3);
+    const cx = this.W / 2;
+    const cy = this.H * 0.42;
+    const R = Math.min(this.W, this.H) * 0.13;
+    g.save();
+    g.globalAlpha = Math.min(1, frac * 2.5);
+    g.fillStyle = 'rgba(255,255,255,0.94)';
+    g.strokeStyle = '#3b2a4a';
+    g.lineWidth = 4;
+    g.beginPath();
+    g.arc(cx, cy, R * s, 0, Math.PI * 2);
+    g.fill();
+    g.stroke();
+    g.strokeStyle = '#ff8a4c';
+    g.lineWidth = 6;
+    g.lineCap = 'round';
+    g.beginPath();
+    g.arc(cx, cy, R * s - 9, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0.001, frac % 1 || 1));
+    g.stroke();
+    g.fillStyle = '#3b2a4a';
+    g.font = font(R * 1.2 * s);
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillText(String(k), cx, cy + R * 0.06);
+    g.restore();
+  }
+
+  /** 화면 한 장 (시작 전 미리보기·일시정지 뒤 배경) */
+  drawIdle(t = -2) {
+    this.resize();
+    this.startTime = 0;
+    this._draw(t, 0);
+  }
+}
+
+// ---------- 그리기 도우미 ----------
+function rr(g, x, y, w, h, r) {
+  r = Math.max(0, Math.min(r, w / 2, h / 2));
+  g.beginPath();
+  g.moveTo(x + r, y);
+  g.arcTo(x + w, y, x + w, y + h, r);
+  g.arcTo(x + w, y + h, x, y + h, r);
+  g.arcTo(x, y + h, x, y, r);
+  g.arcTo(x, y, x + w, y, r);
+  g.closePath();
+}
+function heart(g, cx, cy, s, color) {
+  g.save();
+  g.translate(cx, cy);
+  g.scale(s / 24, s / 24);
+  g.beginPath();
+  g.moveTo(0, 8);
+  g.bezierCurveTo(-14, -1, -10, -14, 0, -6);
+  g.bezierCurveTo(10, -14, 14, -1, 0, 8);
+  g.closePath();
+  g.fillStyle = color;
+  g.fill();
+  g.restore();
+}
+function star(g, cx, cy, r, color, edge) {
+  g.beginPath();
+  for (let i = 0; i < 10; i++) {
+    const a = -Math.PI / 2 + (i * Math.PI) / 5;
+    const rad = i % 2 ? r * 0.45 : r;
+    g.lineTo(cx + Math.cos(a) * rad, cy + Math.sin(a) * rad);
+  }
+  g.closePath();
+  g.fillStyle = color;
+  g.fill();
+  if (edge) {
+    g.strokeStyle = edge;
+    g.lineWidth = 1.5;
+    g.stroke();
+  }
+}
+
+return { TileGame };
+})();
+
 // ---- sharecard.js ----
 const __m_sharecard = (() => {
 // 결과 공유 카드 (인스타 스토리 1080x1920)
@@ -17230,11 +18901,14 @@ const { initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay } = __m_track;
 const { CONFIG } = __m_config;
 const { buddyUrl, loadBuddies } = __m_buddies;
 const { groupStarting, THEMES, SHOP_KITS } = __m_themes;
-const { NEWS, LATEST_NEWS } = __m_news;
+const { newsFor } = __m_news;
 const { RoomClient, roomOutcome, survivalOutcome } = __m_room;
 const { makeReelCover } = __m_cover;
 const { detectBeat, monoOf, songChart } = __m_beatsync;
-const { seasonLeftText, BOARD_LABEL } = __m_season;
+const { seasonLeftText, BOARD_LABEL, seasonAt } = __m_season;
+const { TILE_SONGS, TILE_DIFF, tileSong, tileId, tileClosed, lapStars } = __m_tiles;
+const { TileGame } = __m_tilegame;
+const { noteTilePlay, noteDrum, questView, claimQuest, claimCommunity, communityClaimed, attView, noteAttendance } = __m_s2claims;
 const { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder, resetOldLevel18, photoSave, photoLoad, photoDelete } = __m_storage;
 
 resetOldLevel18(); // 18번 = 엘리제를 위하여 (그 전 찬송가 기록 지움)
@@ -17288,6 +18962,13 @@ const state = {
 
 // ---------------- 유틸 ----------------
 function show(screenId) {
+  // 🎹 시즌 2 를 켠 폰은 첫 화면이 새 화면
+  if (screenId === 'screen-title' && s2On()) {
+    screenId = 'screen-home2';
+    try {
+      refreshHome2();
+    } catch {}
+  }
   // 곡 도중 다른 화면으로 나가면 '중간에 나감'으로 기록
   if (screenId !== 'screen-game' && hasOpenPlay()) trackPlayEnd({ result: 'quit' });
   $$('.screen').forEach((s) => s.classList.toggle('active', s.id === screenId));
@@ -17621,9 +19302,8 @@ const CLOSED_META = () => `<span class="lockline">${icon('lock')} 팔로워 암�
 
 // ---------------- 타이틀 ----------------
 function buildTitle() {
-  const scene = $('#title-scene');
   const timers = {};
-  scene.querySelectorAll('.buddy').forEach((el) => {
+  $$('#title-scene .buddy, #title-scene2 .buddy').forEach((el) => {
     const who = el.classList.contains('buddy-kong') ? 'kong' : 'jjak';
     el.querySelector('.b-drum').src = buddyUrl('drum_' + who);
     const ch = el.querySelector('.b-char');
@@ -17692,6 +19372,7 @@ function showDailyResult(res) {
   if (String(res.levelId) !== String(lv.id)) return;
   const rec = load('daily', null);
   if (missionDone(mission, res)) {
+    if (s2On()) noteDrum({ challenge: true });
     const { rec: next, isNew } = markDone(rec);
     if (isNew) save('daily', next);
     box.innerHTML = `🔥 오늘의 챌린지 성공!${next.streak > 1 ? ` <b>${next.streak}일 연속</b>` : ''}<small>내일 또 새 미션이 나와요</small>`;
@@ -17746,6 +19427,9 @@ function refreshTitle() {
   } else {
     foot.innerHTML = handle() ? `만든 곳 <a href="https://instagram.com/${handle()}" target="_blank" rel="noopener">${atHandle()}</a> · 새 곡 소식은 인스타에서!` : '모두 아는 명곡에 맞춰 드럼을 쳐 보세요!';
   }
+  applyS2Mode();
+  refreshHome2();
+  refreshKakao();
 }
 
 // ---------------- 레벨 목록 ----------------
@@ -18569,6 +20253,12 @@ function showResult(res) {
   $('#res-new').hidden = !best.isNew;
   showResCoins(res);
   showDailyResult(res);
+  // 🎁 시즌 2: 드럼 한 곡 끝까지(퀘스트) · 오늘 첫 판이면 출석
+  if (s2On() && !quiet && !res.room) {
+    noteDrum({ cleared: !res.failed && !res.stopped });
+    const att = noteAttendance(isConfirmed());
+    if (att) setTimeout(() => toast(`📅 출석 ${att.streak}일째! 🪙 +${att.reward}`, 3000), 1200);
+  }
   const badge = $('#res-badge');
   badge.hidden = !res.fullCombo;
   badge.textContent = res.counts.perfect === res.total && !res.counts.wrong ? 'ALL PERFECT' : 'FULL COMBO';
@@ -18784,6 +20474,8 @@ function openIncomingVs(ch) {
 
 /** 랭킹에 내 점수 올리기. 끝까지 친 판은 결과가 뜨면 알아서 올라가요 (닉네임이 있을 때) */
 async function submitRank(r = state.lastResult) {
+  // 🎹 시즌 2: 드럼은 랭킹 없이 (2026-11-26 사용자) — 기록은 폰에, 코인은 다음 요청에 얹혀 감
+  if (s2On()) return;
   // 무제한 모드는 목숨이 다해 끝나도 올림 (최소 Lv.1 은 깨야). 영상용 챌린지(ch4 등)는 안 올림
   // 무제한(그리그·단계별)은 곡마다 따로 랭킹
   const endless = !!r && (r.levelId === ENDLESS_ID || !!levelEndlessBase(r.levelId));
@@ -19167,6 +20859,8 @@ function openSettings() {
   $('#set-lite').checked = !!s.lite;
   $('#set-touchshow').checked = !!load('touchShow', false);
   $$('#set-band button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.band === (s.band || 'orch')));
+  $$('#set-tview button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tview === tileView())));
+  refreshKakao();
   updateSettingLabels();
   renderDeco();
   $('#settings-account').innerHTML = state.me.guest
@@ -19439,6 +21133,7 @@ const getCoins = () => coinTotal();
 function refreshCoins() {
   const el = $('#coin-num');
   if (el) el.textContent = fmt(getCoins());
+  $$('.coin-num2').forEach((x) => (x.textContent = fmt(getCoins())));
 }
 /** 이 판에서 번 코인: PERFECT 2 · GREAT·GOOD·연타 1 (자동 연주·영상 찍기는 0) · 🎹 유저 맵은 PERFECT 1 만 */
 function runCoins(g) {
@@ -22996,20 +24691,23 @@ async function a2hsInstall() {
 }
 
 // ---------------- 업데이트 소식 · 건의하기 ----------------
+const visibleNews = () => newsFor(s2On());
 function refreshNewsDot() {
-  const seen = load('newsSeen', '') === LATEST_NEWS;
+  const seen = load('newsSeen', '') === visibleNews()[0].id;
   $('#news-dot').hidden = seen;
   $('#gear-dot').hidden = seen; // 업데이트 버튼이 설정 안으로 가서 톱니에도 빨간 점 (2026-11-24)
+  if ($('#gear-dot2')) $('#gear-dot2').hidden = seen;
 }
 function openNews() {
   const seen = load('newsSeen', '');
+  const NEWS = visibleNews();
   const seenIdx = NEWS.findIndex((n) => n.id === seen);
   $('#news-list').innerHTML = NEWS.map(
     (n, i) => `<article class="news-item ${seenIdx < 0 ? (i === 0 ? 'new' : '') : i < seenIdx ? 'new' : ''}">
       <h4>${n.title} <small>${n.date}</small>${(seenIdx < 0 ? i === 0 : i < seenIdx) ? '<em>NEW</em>' : ''}</h4>
       <ul>${n.items.map((t) => `<li>${t}</li>`).join('')}</ul></article>`
   ).join('');
-  save('newsSeen', LATEST_NEWS);
+  save('newsSeen', NEWS[0].id);
   refreshNewsDot();
   openModal('modal-news');
 }
@@ -23281,6 +24979,374 @@ document.addEventListener('visibilitychange', () => {
   if (document.hidden) p2Pause();
 });
 
+// ======================= 🎹 시즌 2 (2026-11-26) =======================
+//   일반 유저는 운영자가 admin 에서 「시즌 2 열기」를 누르기 전엔 지금 화면 그대로.
+//   미리보기: /?s2=okay 로 들어온 기기만 (?s2=off 로 끔). 화면 어디에도 링크 없음
+//   켜지면: 새 첫 화면(screen-home2) · 게임 시작 → 🎹 피아노 타일(시즌 2 랭킹) / 🥁 드럼(랭킹 없음) / 🔒 시즌 3 · 출석·퀘스트 · 카카오 로그인
+function s2On() {
+  if (load('s2Preview', false)) return true;
+  if (state.cfg.s2Open != null) return !!state.cfg.s2Open;
+  return !!load('s2OpenSeen', false);
+}
+function applyS2Mode() {
+  document.documentElement.classList.toggle('s2', s2On());
+}
+const tileView = () => (load('tileView', 'tile') === 'road' ? 'road' : 'tile');
+const tileBests = () => load('tileBest', {}) || {};
+const tileLocked = (song) => state.cfg.gateMode !== 'open' && tileClosed(song) && !isConfirmed() && !freePass();
+const tp = { song: TILE_SONGS[0].id, game: null, runToken: null, last: null };
+
+function refreshHome2() {
+  if (!s2On()) return;
+  $$('.coin-num2').forEach((el) => (el.textContent = fmt(getCoins())));
+  const gd = $('#gear-dot');
+  if (gd) $('#gear-dot2').hidden = gd.hidden;
+  const sn = seasonAt();
+  $('#s2-start-sub').textContent = sn.n >= 2 && sn.end ? seasonLeftText().replace(/^🏆 /, '🎹 ') : '🎹 시즌 2 랭킹 진행 중';
+  // 출석
+  const a = attView();
+  $('#s2-att-title').textContent = a.done ? `출석 ${a.streak}일째` : '출석 체크';
+  $('#s2-att-sub').textContent = a.done ? '오늘 출석 완료 ✓' : `한 판 치면 +${a.todayReward}`;
+  // 퀘스트
+  const q = questView();
+  const got = q.list.filter((x) => x.claimed).length;
+  $('#s2-q-title').textContent = `퀘스트 ${got}/${q.list.length}`;
+  const nextQ = q.list.find((x) => !x.done);
+  $('#s2-q-sub').textContent = q.left ? `받을 보상 ${q.left}개!` : nextQ ? `${nextQ.text} ${nextQ.now}/${nextQ.goal}` : q.all.claimed ? '오늘 다 했어요 ✓' : '';
+  $('#s2-q-dot').hidden = !q.left;
+  // 다 같이 퀘스트 (운영자가 숫자를 올림)
+  const comm = (state.cfg.s2Community || []).find((c) => !communityClaimed(c.id));
+  const cb = $('#s2-comm');
+  cb.hidden = !comm;
+  if (comm) {
+    const pct = Math.min(100, Math.round((comm.now / comm.goal) * 100));
+    cb.innerHTML = `<span class="c-ico">${escapeHtml(comm.icon)}</span><b>${escapeHtml(comm.title)}</b><em>${comm.done ? `달성! 받기 +${fmt(comm.reward)}` : `${fmt(comm.now)} / ${fmt(comm.goal)}`}</em><span class="c-bar"><i style="width:${comm.done ? 100 : pct}%"></i></span>`;
+  }
+  const foot = $('#title-foot2');
+  foot.innerHTML = state.me.guest ? `<b>${escapeHtml(state.me.player?.username || '')}</b> 님, 오늘도 좋은 하루!` : handle() ? `만든 곳 <a href="https://instagram.com/${handle()}" target="_blank" rel="noopener">${atHandle()}</a>` : '';
+}
+
+// ----- 게임 시작 → 고르기 -----
+function openModes() {
+  const best = tileBests();
+  const n = Object.values(best).filter((b) => b && b.laps >= 1).length;
+  $('#mb-tiles-sub').textContent = n ? `★ 받은 곡 ${n}/${TILE_SONGS.length} · 바퀴마다 빨라져요` : '명곡을 타일로 · 바퀴마다 빨라져요';
+  openModal('modal-modes');
+}
+
+// ----- 🎹 타일 곡 고르기 -----
+function renderTiles() {
+  const best = tileBests();
+  const v = tileView();
+  $$('#tl-view button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tview === v)));
+  const sn = seasonAt();
+  $('#tl-live-sub').textContent = sn.n >= 2 && sn.end ? seasonLeftText().replace(/^🏆 /, '') : '';
+  $('#tl-list').innerHTML = TILE_SONGS.map((t) => {
+    const song = tileSong(tileId(t.id));
+    const lv = song.level;
+    const b = best[t.id];
+    const lock = tileLocked(song);
+    const { stars, crowns } = lapStars(b ? b.laps : 0);
+    const starTxt = [0, 1, 2].map((i) => (i < stars ? '★' : '<span class="off">★</span>')).join('') + (crowns ? ` 👑${crowns > 1 ? '×' + crowns : ''}` : '');
+    const meta = lock ? `<span class="lockline">${icon('lock')} 팔로워 인증</span>` : b ? `<span class="tl-stars">${starTxt}</span><span>${fmt(b.tiles)} 타일</span>` : `<span class="tl-stars">${starTxt}</span><span>NEW</span>`;
+    return `<button class="tl-card d${t.diff} ${lock ? 'locked' : ''}" data-tsong="${t.id}">
+      <span class="tl-num">${song.order}</span>
+      <span class="tl-info"><h4>${escapeHtml(lv.name)} <small>${escapeHtml(lv.composer)}</small></h4><span class="tl-diff">${TILE_DIFF[t.diff]}</span></span>
+      <span class="tl-meta">${meta}</span>
+    </button>`;
+  }).join('');
+}
+function openTiles() {
+  closeModal('modal-modes');
+  renderTiles();
+  show('screen-tiles');
+}
+function setTileView(v) {
+  save('tileView', v === 'road' ? 'road' : 'tile');
+  $$('[data-tview]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tview === tileView())));
+}
+
+// ----- 🎹 타일 치기 -----
+function tpStage() {
+  const st = $('#tp-stage');
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const w = Math.min(vw, Math.round(vh * 0.62));
+  st.style.width = w + 'px';
+  st.style.left = Math.round((vw - w) / 2) + 'px';
+  $('#screen-tplay').classList.toggle('road', tileView() === 'road');
+}
+window.addEventListener('resize', () => {
+  if (!$('#screen-tplay').classList.contains('active')) return;
+  tpStage();
+  if (tp.game) tp.game.resize();
+});
+function tpLayers(id) {
+  for (const x of ['tp-paused', 'tp-over']) $('#' + x).hidden = x !== id;
+}
+function stopTile() {
+  if (tp.game) tp.game.stop();
+  tp.game = null;
+}
+async function tilePlay(songId = tp.song) {
+  const song = tileSong(tileId(songId));
+  if (!song) return;
+  if (tileLocked(song)) return openVerify(null);
+  tp.song = songId;
+  stopTile();
+  show('screen-tplay');
+  tpLayers(null);
+  tpStage();
+  audio.ensure();
+  await audio.unlock();
+  await Promise.race([audio.loadPiano(), new Promise((r) => setTimeout(r, 3000))]);
+  // 랭킹에 올릴 수 있는 사람만 판 토큰 (요청 아끼기). 시즌 2 를 열기 전엔 서버가 기록을 안 올림(미리보기)
+  tp.runToken = null;
+  if (state.api && state.api.mode === 'server' && isConfirmed()) {
+    try {
+      tp.runToken = (await state.api.startRun(tileId(songId))).runToken;
+    } catch (e) {
+      if (e && e.status === 403) {
+        show('screen-tiles');
+        return openVerify(null);
+      }
+    }
+  }
+  if (!$('#screen-tplay').classList.contains('active')) return;
+  tpStage();
+  const g = new TileGame({ audio, canvas: $('#tp-canvas'), songId, view: tileView(), offsetMs: state.settings.offsetMs || 0, onEnd: (r) => tileEnd(r) });
+  if (isLocalDev()) window.__tg = g; // 내 컴퓨터에서 시험할 때만
+  tp.game = g;
+  trackPlayStart(tileId(songId));
+  g.start();
+}
+function tilePause() {
+  if (tp.game && tp.game.pause()) tpLayers('tp-paused');
+}
+async function tileEnd(r) {
+  tp.game = null;
+  tp.last = r;
+  try {
+    trackPlayEnd({ result: r.complete ? 'clear' : 'fail', score: r.tiles, stars: r.stars });
+  } catch {}
+  const song = tileSong(tileId(r.songId));
+  // 🪙 타일 하나 = 1코인 · 퀘스트 진행 · 출석
+  if (r.tiles > 0) addRunCoins(r.tiles, tp.runToken && !String(tp.runToken).startsWith('mock.') ? tp.runToken : null);
+  noteTilePlay(r);
+  const att = noteAttendance(isConfirmed());
+  // 내 최고 기록 (폰)
+  const bests = tileBests();
+  const old = bests[r.songId];
+  const isNew = r.tiles > 0 && (!old || r.tiles > old.tiles);
+  if (isNew || (old && r.laps > old.laps)) {
+    bests[r.songId] = { tiles: Math.max(r.tiles, old ? old.tiles : 0), laps: Math.max(r.laps, old ? old.laps : 0), at: Date.now() };
+    save('tileBest', bests);
+  }
+  // 결과 카드
+  $('#tp-res-song').textContent = `${song.order}. ${song.level.name} · ${song.level.composer}`;
+  const st = $('#tp-res-stars');
+  st.innerHTML = [0, 1, 2].map(() => '<span>★</span>').join('') + (r.crowns ? `<span class="crown">👑${r.crowns > 1 ? '×' + r.crowns : ''}</span>` : '');
+  $('#tp-res-new').hidden = !isNew;
+  $('#tp-res-rank').hidden = true;
+  $('#tp-res-stats').innerHTML = `<div><b>${r.laps}</b><small>바퀴</small></div><div><b>${r.maxCombo}</b><small>최대 연속</small></div><div><b>×${r.topSpeed.toFixed(2)}</b><small>최고 빠르기</small></div>`;
+  const gifts = [];
+  if (r.tiles > 0) gifts.push(`🪙 +${fmt(r.tiles)}`);
+  if (att) gifts.push(`📅 출석 ${att.streak}일째 +${att.reward}`);
+  $('#tp-res-gift').hidden = !gifts.length;
+  $('#tp-res-gift').innerHTML = gifts.join(' · ');
+  tpLayers('tp-over');
+  refreshCoins();
+  // 점수 숫자 올라가기 + 별 하나씩
+  const el = $('#tp-res-score');
+  const t0 = performance.now();
+  const step = () => {
+    const k = Math.min(1, (performance.now() - t0) / 900);
+    el.textContent = fmt(Math.round(r.tiles * (1 - Math.pow(1 - k, 3))));
+    if (k < 1 && !$('#tp-over').hidden) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+  [...st.children].forEach((x, i) => {
+    if (i < r.stars || x.classList.contains('crown'))
+      setTimeout(() => {
+        x.classList.add('on');
+        try {
+          audio.pianoOr('lead', audio.ctx.currentTime, 72 + i * 4, 0.4, audio.sfxBus, 0.6);
+        } catch {}
+      }, 500 + i * 260);
+  });
+  if (r.complete || r.stars >= 3) setTimeout(() => audio.sfxFile('cheer', 0.6), 1400);
+  // 🏆 시즌 2 랭킹에 올리기
+  const rk = $('#tp-res-rank');
+  const say = (html) => {
+    if (tp.last !== r) return;
+    rk.innerHTML = html;
+    rk.hidden = false;
+  };
+  if (!state.api || state.api.mode !== 'server') {
+    if (r.tiles > 0) say('📴 서버가 쉬는 중 · 기록은 이 폰에 남아요');
+    return;
+  }
+  if (!isConfirmed()) {
+    if (r.tiles > 0) say('🏆 랭킹에 올리려면 <button class="link" data-action="rank-join">이용 등록</button>');
+    return;
+  }
+  if (!tp.runToken || r.tiles <= 0) return;
+  try {
+    const out = await state.api.submitScore({ runToken: tp.runToken, level: tileId(r.songId), tiles: r.tiles, laps: r.laps, maxCombo: r.maxCombo, missed: r.missed, wrong: r.wrong });
+    tp.runToken = null;
+    refreshCoins();
+    if (out.preview) say('👀 미리보기 · 시즌 2 가 열리면 랭킹에 올라가요');
+    else if (out.improved && out.rank) say(`🏆 시즌 2 랭킹 <b>${out.rank}위</b>!`);
+    else if (out.improved) say(out.over ? '🏆 랭킹에 올라갔어요 · 200위 밖' : '🏆 랭킹에 올라갔어요!');
+    else say(`내 최고 기록 ${fmt(out.best)} 타일 그대로예요`);
+  } catch (e) {
+    if (e && e.status === 409) return;
+    say('랭킹에 못 올렸어요. 다음 판에 다시 해 볼게요');
+  }
+}
+
+// ----- 🏆 시즌 2 랭킹 -----
+const sr = { tab: 'total', song: TILE_SONGS[0].id, from: 'screen-tiles' };
+function openS2Rank(tab, songId) {
+  if (tab) sr.tab = tab;
+  if (songId) sr.song = songId;
+  const act = $$('.screen.active')[0];
+  if (act && act.id !== 'screen-s2rank') sr.from = act.id === 'screen-tplay' ? 'screen-tiles' : act.id;
+  closeModal('modal-modes');
+  show('screen-s2rank');
+  renderS2Rank();
+}
+async function renderS2Rank() {
+  $$('#sr-tabs [data-srtab]').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.srtab === sr.tab)));
+  const songs = $('#sr-songs');
+  songs.hidden = sr.tab !== 'song';
+  if (sr.tab === 'song') {
+    songs.innerHTML = TILE_SONGS.map((t) => `<button data-srsong="${t.id}" aria-pressed="${t.id === sr.song}">${escapeHtml(getLevel(t.id).name)}</button>`).join('');
+    const on = songs.querySelector('[aria-pressed="true"]');
+    if (on) on.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }
+  const list = $('#sr-list');
+  if (!state.api || state.api.mode !== 'server') {
+    list.innerHTML = '<p class="sr-empty">서버에 연결되면 순위가 보여요</p>';
+    return;
+  }
+  list.innerHTML = '<p class="sr-empty">불러오는 중…</p>';
+  const want = `${sr.tab}:${sr.song}`;
+  try {
+    const d = sr.tab === 'total' ? await state.api.hall('tiles') : await state.api.leaderboard(tileId(sr.song));
+    if (`${sr.tab}:${sr.song}` !== want || !$('#screen-s2rank').classList.contains('active')) return;
+    const medal = (n) => (n === 1 ? '🥇' : n === 2 ? '🥈' : n === 3 ? '🥉' : n);
+    const row = (e, mine = false) => {
+      const sub = sr.tab === 'total' ? `${e.n || 0}곡` : (() => {
+        const { stars, crowns } = lapStars(e.laps || 0);
+        return `${'★'.repeat(stars)}${crowns ? ' 👑' + (crowns > 1 ? '×' + crowns : '') : ''}`;
+      })();
+      return `<div class="sr-row ${e.me || mine ? 'me' : ''} ${e.rank <= 3 ? 'top' + e.rank : ''}"><span class="r">${e.rank ? medal(e.rank) : '-'}</span><span class="n">${escapeHtml(e.username || '')}</span><span class="s">${fmt(e.score)}<small>${sub}</small></span></div>`;
+    };
+    const entries = d.entries || [];
+    let html = entries.length ? entries.map((e) => row(e)).join('') : `<p class="sr-empty">${s2On() && !state.cfg.s2Open ? '👀 미리보기 · 시즌 2 가 열리면 여기에 순위가 떠요' : '아직 기록 없음'}</p>`;
+    if (d.me && !entries.some((e) => e.me)) html += `<div class="sr-mine">${row({ ...d.me, username: state.me.player?.username || '나', rank: d.me.rank || (d.me.cap ? `${d.me.cap}+` : null) }, true)}</div>`;
+    list.innerHTML = html;
+  } catch {
+    list.innerHTML = '<p class="sr-empty">순위를 못 불러왔어요. 잠시 뒤에 다시 해 주세요</p>';
+  }
+}
+
+// ----- 🎁 출석 · 퀘스트 -----
+function renderS2Q() {
+  const a = attView();
+  $('#s2q-att-note').innerHTML = a.done ? `오늘 출석 완료! <b>${a.streak}일 연속</b> 🔥` : `오늘 드럼이나 타일을 <b>한 판</b> 치면 출석 <b>+${a.todayReward}</b>🪙`;
+  $('#s2q-week').innerHTML = a.week.map((d) => `<div class="s2q-day ${d.on ? 'on' : ''} ${d.today ? 'today' : ''} ${d.n === 7 ? 'day7' : ''}"><span>${d.n}일</span><b>${d.n === 7 ? '🎁' : '🪙'}</b><span>${d.coins}</span></div>`).join('');
+  const q = questView();
+  const btn = (x, id) => (x.claimed ? '<button class="q-go got" disabled>받음 ✓</button>' : x.done ? `<button class="q-go ready" data-q="${id}">받기 +${x.reward}</button>` : `<button class="q-go" disabled>+${x.reward}</button>`);
+  $('#s2q-list').innerHTML =
+    q.list.map((x) => `<div class="s2q-item"><span class="q-ico">${x.icon}</span><b>${escapeHtml(x.text)}</b>${btn(x, x.id)}<span><span class="q-bar"><i style="width:${Math.round((x.now / x.goal) * 100)}%"></i></span><span class="q-num">${fmt(x.now)} / ${fmt(x.goal)}</span></span></div>`).join('') +
+    `<div class="s2q-item all"><span class="q-ico">${q.all.icon}</span><b>${q.all.text}</b>${btn(q.all, q.all.id)}<span><span class="q-bar"><i style="width:${Math.round((q.all.now / q.all.goal) * 100)}%"></i></span><span class="q-num">${q.all.now} / ${q.all.goal}</span></span></div>`;
+  const comm = state.cfg.s2Community || [];
+  $('#s2q-comm-wrap').hidden = !comm.length;
+  $('#s2q-comm').innerHTML = comm
+    .map((c) => {
+      const got = communityClaimed(c.id);
+      const b = got ? '<button class="q-go got" disabled>받음 ✓</button>' : c.done ? `<button class="q-go ready" data-cq="${escapeHtml(c.id)}">받기 +${fmt(c.reward)}</button>` : `<button class="q-go" disabled>+${fmt(c.reward)}</button>`;
+      return `<div class="s2q-item"><span class="q-ico">${escapeHtml(c.icon)}</span><b>${escapeHtml(c.title)}</b>${b}<span><span class="q-bar"><i style="width:${c.done ? 100 : Math.min(100, Math.round((c.now / c.goal) * 100))}%"></i></span><span class="q-num">${c.done ? '달성!' : `${fmt(c.now)} / ${fmt(c.goal)}`}</span></span></div>`;
+    })
+    .join('');
+  $('#s2q-foot').textContent = '퀘스트는 매일 밤 12시에 새로 바뀌어요';
+}
+function openS2Q() {
+  renderS2Q();
+  openModal('modal-s2q');
+}
+document.addEventListener('click', (e) => {
+  const t = e.target.closest && e.target.closest('[data-q],[data-cq],[data-tsong],[data-tview],[data-srtab],[data-srsong]');
+  if (!t) return;
+  if (t.dataset.q) {
+    const n = claimQuest(t.dataset.q, isConfirmed());
+    if (n) {
+      audio.sfxFile('gift', 0.7);
+      toast(`🪙 +${fmt(n)} 받았어요!`);
+    }
+    renderS2Q();
+    refreshCoins();
+    refreshHome2();
+  } else if (t.dataset.cq) {
+    const c = (state.cfg.s2Community || []).find((x) => x.id === t.dataset.cq);
+    const n = claimCommunity(c, isConfirmed());
+    if (n) {
+      audio.sfxFile('gift', 0.7);
+      toast(`🎉 다 같이 해냈어요! 🪙 +${fmt(n)}`);
+    }
+    renderS2Q();
+    refreshCoins();
+    refreshHome2();
+  } else if (t.dataset.tsong) tilePlay(Number(t.dataset.tsong));
+  else if (t.dataset.tview) setTileView(t.dataset.tview);
+  else if (t.dataset.srtab) {
+    sr.tab = t.dataset.srtab;
+    renderS2Rank();
+  } else if (t.dataset.srsong) {
+    sr.song = Number(t.dataset.srsong);
+    renderS2Rank();
+  }
+});
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) tilePause();
+});
+
+// ----- 🔑 카카오 로그인 -----
+const kakaoOn = () => !!state.cfg.kakao && s2On() && state.api && state.api.mode === 'server';
+function refreshKakao() {
+  const box = $('#kakao-box');
+  if (!box) return;
+  box.hidden = !kakaoOn();
+  const vk = $('#verify-kakao');
+  if (vk) vk.hidden = !kakaoOn();
+  if (box.hidden) return;
+  const linked = !!(state.me && state.me.kakao);
+  box.classList.toggle('on', linked);
+  $('#kakao-note').textContent = linked ? '✅ 카카오가 연결돼 있어요. 다른 브라우저·앱에서도 「카카오로 로그인」으로 이 계정에 들어와요.' : state.me.guest ? '카카오를 연결해 두면 다른 브라우저·앱(인스타 안·사파리·홈 화면)에서도 카카오로 같은 계정(기록·코인)에 들어와요.' : '예전에 카카오를 연결한 계정이 있으면 카카오로 바로 들어와요.';
+  const b = $('#kakao-btn');
+  b.hidden = linked;
+  b.dataset.action = state.me.guest ? 'kakao-link' : 'kakao-login';
+  b.textContent = state.me.guest ? '카카오 연결하기' : '카카오로 로그인';
+}
+async function kakaoGo(mode) {
+  if (!kakaoOn()) return;
+  try {
+    const r = await state.api.kakaoStart(mode);
+    if (r && r.url) location.href = r.url;
+  } catch (e) {
+    toast(e && e.status === 401 ? '먼저 이용 등록을 해 주세요' : '카카오 로그인을 시작하지 못했어요');
+  }
+}
+const KAKAO_MSG = {
+  login: '🔑 카카오로 로그인했어요!',
+  linked: '🔑 카카오를 연결했어요! 다른 브라우저에서도 카카오로 들어올 수 있어요',
+  taken: '이 카카오는 다른 계정에 연결돼 있어요',
+  none: '이 카카오에 연결된 계정이 없어요 · 이용 등록 뒤 설정에서 연결해 주세요',
+  cancel: '카카오 로그인을 취소했어요',
+};
+
 const ACTIONS = {
   'room-open': () => openRoom(),
   'room-close': () => closeModal('modal-room'),
@@ -23339,6 +25405,43 @@ const ACTIONS = {
   'suggest-open': openSuggest,
   'maps-open': () => openMaps(),
   'p2-open': () => openP2(),
+  // 🎹 시즌 2
+  's2-modes': () => openModes(),
+  'close-modes': () => closeModal('modal-modes'),
+  's2-tiles': () => openTiles(),
+  's2-drum': () => {
+    closeModal('modal-modes');
+    renderLevels();
+    show('screen-levels');
+  },
+  's2-s3': () => toast('🔒 시즌 3은 아직 비밀이에요 · 곧 공개할게요!', 2600),
+  's2-quests': () => openS2Q(),
+  'close-s2q': () => closeModal('modal-s2q'),
+  's2-more': () => openModal('modal-more'),
+  'close-more': () => closeModal('modal-more'),
+  's2-rank': () => openS2Rank(),
+  's2rank-back': () => (sr.from === 'screen-tiles' ? (renderTiles(), show('screen-tiles')) : show(sr.from === 'screen-home2' ? 'screen-title' : sr.from || 'screen-title')),
+  's2-hall': () => openRank('hall-stage'),
+  'tp-pause': () => tilePause(),
+  'tp-resume': () => {
+    tpLayers(null);
+    if (tp.game) tp.game.resume();
+  },
+  'tp-again': () => tilePlay(tp.song),
+  'tp-exit': () => {
+    stopTile();
+    tpLayers(null);
+    renderTiles();
+    show('screen-tiles');
+  },
+  'tp-list': () => {
+    tpLayers(null);
+    renderTiles();
+    show('screen-tiles');
+  },
+  'tp-rank': () => openS2Rank('song', tp.song),
+  'kakao-link': () => kakaoGo('link'),
+  'kakao-login': () => kakaoGo('login'),
   'p2-play': (el) => p2Play(el.dataset.style),
   'p2-go': () => {
     p2.turned = true;
@@ -23748,6 +25851,8 @@ function bindActions() {
       e.preventDefault();
       // 이어하기 창이 막 뜬 직후에는 버튼 입력 무시 (이미 누르고 있던 손가락이 버튼을 치는 것 방지)
       if (a.closest('#modal-continue') && performance.now() - contOpenedAt < CONT_GUARD_MS) return;
+      // 🎹 시즌 2 '더보기'·'고르기' 창에서 다른 곳으로 가면 창은 닫음
+      if (a.closest('#modal-more') && a.dataset.action !== 'close-more') closeModal('modal-more');
       ACTIONS[a.dataset.action](a);
     }
   });
@@ -24061,9 +26166,10 @@ async function boot() {
   });
   try {
     const sc = await state.api.config();
-    for (const k of ['gateMode', 'instagramHandle', 'siteUrl', 'freePassUntil', 'shopOpen']) {
+    for (const k of ['gateMode', 'instagramHandle', 'siteUrl', 'freePassUntil', 'shopOpen', 's2Open', 's2Community', 'kakao']) {
       if (sc[k] !== undefined && sc[k] !== '' && sc[k] !== null) state.cfg[k] = sc[k];
     }
+    if (sc.s2Open !== undefined) save('s2OpenSeen', !!sc.s2Open);
     if (sc.freePassUntil !== undefined) save('freePassUntil', Number(sc.freePassUntil) || 0);
   } catch {}
   const g = devParam('gate');
@@ -24082,6 +26188,7 @@ async function boot() {
   refreshNewsDot();
   refreshMoveBtn();
   checkReq();
+  if (s2On() && $('#screen-title').classList.contains('active')) show('screen-title');
   // 서버가 늦게 깨서 서버 없는 모드로 시작했으면 몇 초 뒤 한 번 더 붙어 봄
   if (state.api.mode !== 'server' && !serverResting()) setTimeout(() => reconnectServer({ force: true }), 4000);
   // 옛 주소에서 넘어옴 (/?t=123456): 그쪽 기록·로그인을 자동으로 가져옴
@@ -24121,6 +26228,29 @@ async function boot() {
       history.replaceState(null, '', u.pathname + u.search + u.hash);
     } catch {}
     setTimeout(() => toast(touchShow === 'show' ? '🖐 터치 표시를 켰어요 · 치면서 화면 녹화해 주세요' : '🖐 터치 표시를 껐어요', 3000), 300);
+  }
+  // 🎹 시즌 2 미리보기 (운영자 전용): /?s2=okay 면 이 기기에서만 시즌 2 화면, ?s2=off 면 끔 (admin 에서 열면 모두에게)
+  const s2p = params.get('s2');
+  if (s2p === 'okay' || s2p === 'off') {
+    save('s2Preview', s2p === 'okay');
+    try {
+      const u = new URL(location.href);
+      u.searchParams.delete('s2');
+      history.replaceState(null, '', u.pathname + u.search + u.hash);
+    } catch {}
+    applyS2Mode();
+    if ($('#screen-title').classList.contains('active') || $('#screen-home2').classList.contains('active')) show('screen-title');
+    setTimeout(() => toast(s2p === 'okay' ? '🎹 시즌 2 미리보기를 켰어요 (이 기기만)' : '시즌 2 미리보기를 껐어요', 2600), 300);
+  }
+  // 🔑 카카오 로그인에서 돌아옴 (/?kakao=결과)
+  const kk = params.get('kakao');
+  if (kk) {
+    try {
+      const u = new URL(location.href);
+      u.searchParams.delete('kakao');
+      history.replaceState(null, '', u.pathname + u.search + u.hash);
+    } catch {}
+    setTimeout(() => toast(KAKAO_MSG[kk] || '카카오 로그인이 안 됐어요. 다시 해 주세요', 3400), 500);
   }
   // 🛒 운영자 시험: /?shoptest=okay 면 이 기기에서만 상점 물건을 전부 써 봄 (산 것으로 안 침, 서버 안 감), ?shoptest=off 면 끔
   const shopTest = params.get('shoptest');

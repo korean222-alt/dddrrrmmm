@@ -8,8 +8,10 @@ export const SEASONS = [
   { n: 1, end: Date.UTC(2026, 10, 26, 14, 59, 59, 999) },
   { n: 2, end: null },
 ];
-export const HALL_BOARDS = ['stage', 'endless'];
-export const BOARD_LABEL = { stage: '🎵 단계 총합', endless: '💎 무제한 총합' };
+export const HALL_BOARDS = ['stage', 'endless', 'tiles'];
+export const BOARD_LABEL = { stage: '🎵 단계 총합', endless: '💎 무제한 총합', tiles: '🎹 타일 총합' };
+/** 그 시즌의 명예의 전당 판: 시즌 1 = 드럼(단계·무제한), 시즌 2 부터 = 🎹 피아노 타일 총합 (드럼은 랭킹 없음, 2026-11-26 사용자) */
+export const hallBoardsOf = (n) => (Number(n) === 1 ? ['stage', 'endless'] : ['tiles']);
 /** 프로필 사진 (data URL) 최대 길이 — 160px 정사각 JPEG 면 보통 10~20KB */
 export const HALL_IMAGE_MAX = 60000;
 

@@ -7,6 +7,7 @@ import { gradeFor } from './charts.js';
 import { takeTrack } from './track.js';
 import { takeCoins, coinsResult } from './coins.js';
 import { takeOffline, offlineResult, takeLost, lostResult } from './offrec.js';
+import { takeS2, s2Result } from './s2claims.js';
 import { seasonAt } from './season.js';
 
 async function http(method, url, body) {
@@ -38,19 +39,24 @@ async function http(method, url, body) {
 }
 
 // 📴 서버 없을 때 친 최고 기록(offrec.js)도 같이 얹음
+// 🎁 시즌 2 출석·퀘스트 받기(s2claims.js)도 코인처럼 얹음 (서버가 지갑에 같이 적음)
 function withCoins(send) {
   const coins = takeCoins();
   const offline = takeOffline();
   const lost = takeLost();
-  return send(coins, offline, lost).then(
+  const s2 = takeS2();
+  const c = s2 ? { ...(coins || {}), s2 } : coins;
+  return send(c, offline, lost).then(
     (r) => {
-      if (coins) coinsResult(r);
+      if (coins || s2) coinsResult(r);
+      if (s2) s2Result(r);
       if (offline) offlineResult(r);
       if (lost) lostResult(r);
       return r;
     },
     (e) => {
-      if (coins) coinsResult(e && e.data);
+      if (coins || s2) coinsResult(e && e.data);
+      if (s2) s2Result(e && e.data);
       if (offline) offlineResult(e && e.data);
       if (lost) lostResult(e && e.data);
       throw e;
@@ -135,7 +141,7 @@ function serverApi(boot = null) {
       const key = 'hall:' + board;
       const hit = lbCache.get(key);
       if (hit && Date.now() - hit.at < LB_CACHE_MS) return hit.p;
-      const p = http('GET', `/api/hall?board=${board === 'endless' ? 'endless' : 'stage'}`);
+      const p = http('GET', `/api/hall?board=${board === 'endless' ? 'endless' : board === 'tiles' ? 'tiles' : 'stage'}`);
       lbCache.set(key, { at: Date.now(), p });
       p.catch(() => lbCache.delete(key));
       return p;
@@ -160,6 +166,8 @@ function serverApi(boot = null) {
     poll: (id) => http('GET', `/api/poll?id=${encodeURIComponent(id)}`),
     vote: (id, choice) => http('POST', '/api/poll', { id, choice }),
     logout: () => http('POST', '/api/logout'),
+    // 🔑 카카오 로그인 (2026-11-26): 서버가 카카오 동의 화면 주소를 줌 → 그리로 이동
+    kakaoStart: (mode) => http('POST', '/api/auth/kakao/start', { mode }),
     suggest: (kind, text, contact) => http('POST', '/api/suggestions', { kind, text, contact }),
     room: (body) => http('POST', '/api/rooms', body),
     ranked: (body) => http('POST', '/api/ranked', body),

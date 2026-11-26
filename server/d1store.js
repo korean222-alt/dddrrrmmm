@@ -31,8 +31,8 @@ const val = (v) => (v === undefined ? null : v === true ? 1 : v === false ? 0 : 
  *     (players·scores·maps 등은 11-21 미리 복사 때 이미 보통 표로 만들어져 그대로 둠 — 바꾸려면 다시 써야 해서 쓰기 한도를 또 씀)
  */
 export const D1_SCHEMA = [
-  `CREATE TABLE IF NOT EXISTS wallet (igsid TEXT PRIMARY KEY, coins INTEGER NOT NULL DEFAULT 0, t INTEGER NOT NULL DEFAULT 0, tn INTEGER NOT NULL DEFAULT 0, fday TEXT, fn INTEGER NOT NULL DEFAULT 0, init INTEGER NOT NULL DEFAULT 0, owned TEXT, gift TEXT) WITHOUT ROWID`,
-  `CREATE TABLE IF NOT EXISTS players (igsid TEXT PRIMARY KEY, username TEXT, follow_verified_at INTEGER, ig TEXT, created_at INTEGER, checked_at INTEGER, hidden_at INTEGER)`,
+  `CREATE TABLE IF NOT EXISTS wallet (igsid TEXT PRIMARY KEY, coins INTEGER NOT NULL DEFAULT 0, t INTEGER NOT NULL DEFAULT 0, tn INTEGER NOT NULL DEFAULT 0, fday TEXT, fn INTEGER NOT NULL DEFAULT 0, init INTEGER NOT NULL DEFAULT 0, owned TEXT, gift TEXT, s2 TEXT) WITHOUT ROWID`,
+  `CREATE TABLE IF NOT EXISTS players (igsid TEXT PRIMARY KEY, username TEXT, follow_verified_at INTEGER, ig TEXT, created_at INTEGER, checked_at INTEGER, hidden_at INTEGER, kakao TEXT)`,
   `CREATE TABLE IF NOT EXISTS scores (igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, grade TEXT, max_combo INTEGER, at INTEGER NOT NULL, chk TEXT, PRIMARY KEY (igsid, level))`,
   `CREATE INDEX IF NOT EXISTS scores_rank ON scores (level, score DESC, at)`,
   `CREATE TABLE IF NOT EXISTS level_tries (igsid TEXT NOT NULL, level INTEGER NOT NULL, starts INTEGER NOT NULL DEFAULT 0, clears INTEGER NOT NULL DEFAULT 0, last_at INTEGER, PRIMARY KEY (igsid, level)) WITHOUT ROWID`,
@@ -83,6 +83,10 @@ export const D1_ALTERS = [
   'ALTER TABLE wallet ADD COLUMN owned TEXT',
   // 🎁 운영자 코인 알림 · 💬 명예의 전당 한마디 (2026-11-22)
   'ALTER TABLE wallet ADD COLUMN gift TEXT',
+  // 🎁 시즌 2 출석·퀘스트 받은 것 (2026-11-26)
+  'ALTER TABLE wallet ADD COLUMN s2 TEXT',
+  // 🔑 카카오 로그인: 카카오 회원번호의 해시 (2026-11-26)
+  'ALTER TABLE players ADD COLUMN kakao TEXT',
   'ALTER TABLE hall ADD COLUMN msg TEXT',
   // 📊 통계 표본 무게 (2026-11-22 저녁) — 표를 그날 만들었다면 열이 없을 수 있음
   'ALTER TABLE sessions_t ADD COLUMN w INTEGER NOT NULL DEFAULT 1',
@@ -90,6 +94,12 @@ export const D1_ALTERS = [
 ];
 // ⚠ 2026-11-22 밤: 운영 D1 에 wallet.owned·sessions_t.w 가 없었음 (열 추가가 오류를 그냥 넘겨서, 한도 초과 때 실패해도 '했음' 표시가 됨)
 //   → 표마다 있는 열을 한 번에 읽고(쿼리 1번) 없는 열만 추가, 추가가 실패하면 '했음' 표시를 안 함 (다음 요청에 다시)
+
+/** 열을 다 넣은 뒤에 만드는 색인 (예전 표엔 열이 나중에 붙으므로 D1_SCHEMA 에 두면 init 이 통째로 실패함) */
+export const D1_AFTER = [
+  // 🔑 카카오 로그인으로 계정 찾기 (2026-11-26, 연결한 사람만 색인에 들어감)
+  `CREATE INDEX IF NOT EXISTS players_kakao ON players (kakao) WHERE kakao IS NOT NULL`,
+];
 
 /** Neon 에서 이미 끝난 옛 기록 옮기기들 — D1 은 그 뒤 데이터를 받으므로 '했음' 으로만 표시 */
 const DONE_MIGRATIONS = [
@@ -103,7 +113,7 @@ const DONE_MIGRATIONS = [
 
 const D1_FLAG = (() => {
   let h = 2166136261;
-  for (const ch of D1_SCHEMA.join('\n') + '|' + D1_ALTERS.join(';') + '|' + DONE_MIGRATIONS.join(',')) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
+  for (const ch of D1_SCHEMA.join('\n') + '|' + D1_ALTERS.join(';') + '|' + D1_AFTER.join(';') + '|' + DONE_MIGRATIONS.join(',')) h = Math.imul(h ^ ch.charCodeAt(0), 16777619) >>> 0;
   return 'd1schema:' + h.toString(36);
 })();
 
@@ -187,6 +197,7 @@ export class D1Store extends PgStore {
     const now = String(Date.now());
     await this.batch(D1_SCHEMA.map((s) => [s]));
     await this.addMissingColumns();
+    await this.batch(D1_AFTER.map((x) => [x]));
     await this.batch([
       [`INSERT INTO settings (key, value) VALUES ${[...DONE_MIGRATIONS, D1_FLAG].map((_, i) => `($${i + 1}, '${now}')`).join(', ')} ON CONFLICT (key) DO NOTHING`, [...DONE_MIGRATIONS, D1_FLAG]],
     ]);
@@ -380,7 +391,7 @@ export class D1Store extends PgStore {
       `SELECT p.igsid, p.username, p.ig, p.created_at, p.checked_at, p.hidden_at,
          COALESCE(t.total, 0) AS total, COALESCE(t.levels, 0) AS levels, t.top, t.endless
        FROM players p LEFT JOIN (
-         SELECT igsid, SUM(CASE WHEN level > 0 THEN score ELSE 0 END) AS total, SUM(CASE WHEN level > 0 THEN 1 ELSE 0 END) AS levels,
+         SELECT igsid, SUM(CASE WHEN level > 0 AND level < 3000 THEN score ELSE 0 END) AS total, SUM(CASE WHEN level > 0 AND level < 3000 THEN 1 ELSE 0 END) AS levels,
            MAX(CASE WHEN level > 0 AND level <= ${LAST_LEVEL_ID} THEN level END) AS top, MAX(CASE WHEN level = 0 THEN score END) AS endless
          FROM scores GROUP BY igsid) t ON t.igsid = p.igsid
        WHERE p.username IS NOT NULL
@@ -411,7 +422,7 @@ export class D1Store extends PgStore {
   /** 사람별 점수 합계 { igsid: { total, levels, top, endless } } — 점수 표를 한 번 훑음 (admin 이 30분 기억) */
   async playerTotals() {
     const rows = await this.q(
-      `SELECT igsid, SUM(CASE WHEN level > 0 THEN score ELSE 0 END) AS total, SUM(CASE WHEN level > 0 THEN 1 ELSE 0 END) AS levels,
+      `SELECT igsid, SUM(CASE WHEN level > 0 AND level < 3000 THEN score ELSE 0 END) AS total, SUM(CASE WHEN level > 0 AND level < 3000 THEN 1 ELSE 0 END) AS levels,
          MAX(CASE WHEN level > 0 AND level <= ${LAST_LEVEL_ID} THEN level END) AS top, MAX(CASE WHEN level = 0 THEN score END) AS endless
        FROM scores GROUP BY igsid`,
       []

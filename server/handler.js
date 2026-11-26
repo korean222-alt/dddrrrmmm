@@ -9,9 +9,12 @@ import { buildStats } from './stats.js';
 import { findSuspects, suspectReport } from './suspect.js';
 import { createRoomHandler } from './rooms.js';
 import { createRankedHandler } from './ranked.js';
+import { kakaoAuthUrl, kakaoUserId, kakaoHash, KAKAO_STATE_MS } from './kakao.js';
 import { cleanMap, mapDifficulty, mapLevel } from '../public/js/usermap.js';
 import { buyItem, cleanOwned, legacyRefund, seasonRewards } from '../public/js/shop.js';
-import { seasonAt, endedSeasons, HALL_BOARDS, cleanHallImage, SEASONS } from '../public/js/season.js';
+import { seasonAt, endedSeasons, HALL_BOARDS, hallBoardsOf, cleanHallImage, SEASONS } from '../public/js/season.js';
+import { tileSong, tileSlot, tileClosed, checkTileRun, lapGrade, gradeLaps, TILE_SONGS } from '../public/js/tiles.js';
+import { applyS2, cleanCommunity, COMMUNITY_DEFAULT, s2Of } from '../public/js/quests.js';
 import { LEVELS, LAST_LEVEL_ID, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur, ENDLESS_ID, ROUND_BARS, roundBpm, pointsFor, levelEndlessBase, LEVEL_ENDLESS_STEP, needsVerify, isClosed, diamondsFor } from '../public/js/charts.js';
 
 // 무제한 모드 랭킹은 저장소의 level 칸에 '깬 단계 × 1,000,000,000 + 점수' 한 숫자로 저장 (단계가 먼저, 같으면 점수)
@@ -49,7 +52,7 @@ const kstDay = (now) => new Date(now + 9 * 3600 * 1000).toISOString().slice(0, 1
 /** 한 판 토큰으로 받을 수 있는 최대 코인 */
 export function coinCap(l, ageMs) {
   const byTime = Math.floor(Math.max(0, ageMs) / 1000) * 30 + 60; // PERFECT 2개 × 초당 15타 넘게는 못 침
-  if (endlessMode(l)) return byTime;
+  if (endlessMode(l) || tileSong(l)) return byTime; // 무제한·🎹 타일(바퀴마다 계속)은 시간으로만
   const level = getLevel(l);
   if (!level) return 0;
   let notes = 0;
@@ -321,14 +324,14 @@ export function createHandler(cfg, { store, meter = null }) {
       const flag = `hall:done:${n}`;
       if (!(await store.getSetting(flag))) {
         const boards = {};
-        for (const board of HALL_BOARDS) {
+        for (const board of hallBoardsOf(n)) {
           const top = await store.seasonBoard(n, board, 100);
           boards[board] = top.rows;
           await store.hallInsert(top.rows.filter((r) => r.rank <= 3).map((r) => ({ ...r, season: n, board })));
         }
         // 🏆 시즌 보상 (2026-11-22): 위 100명에게 코인 + 다음 접속 때 팝업(1·2·3등은 한마디·사진 칸). 다른 인스턴스와 겹쳐도 한 번만(claimSetting)
         if (await store.claimSetting(`reward:done:${n}`, String(now))) {
-          const BN = { stage: '🎵 단계 총합', endless: '💎 무제한 총합' };
+          const BN = { stage: '🎵 단계 총합', endless: '💎 무제한 총합', tiles: '🎹 타일 총합' };
           const list = seasonRewards(boards).map((r) => ({
             igsid: r.igsid,
             coins: r.coins,
@@ -505,15 +508,25 @@ export function createHandler(cfg, { store, meter = null }) {
     verified: false, guest: true, needsIg: !pl.ig, checked: isVerified(pl), confirmed: isConfirmed(pl), temp: isConfirmed(pl) && pl.checkedAt < 0,
     hidden: pl.hiddenAt ? { deleteAt: pl.hiddenAt + HIDE_KEEP_MS } : null,
     player: { username: pl.username, ig: pl.ig },
+    kakao: !!pl.kakao,
   });
 
   /** 🪙 요청에 얹혀 온 코인 받기 → 잔액(계정 없거나 인증 전이면 null = 폰이 다시 보냄) */
   async function takeCoins(pl, c) {
     if (!pl || !c || typeof c !== 'object' || !isConfirmed(pl)) return null;
     const w0 = await store.getWallet(pl.igsid);
-    const { wallet, changed, rest } = applyCoins(w0, c, cfg.sessionSecret);
+    let { wallet, changed, rest } = applyCoins(w0, c, cfg.sessionSecret);
+    // 🎁 시즌 2 출석·퀘스트 받기 (폰이 코인과 같이 얹어 보냄, 하루 한 번씩만) — 지갑 쓰기는 같은 한 줄
+    let s2out = null;
+    if (c.s2 && typeof c.s2 === 'object') {
+      const r = applyS2(wallet, c.s2, (await s2Load()).community);
+      wallet = r.wallet;
+      changed = changed || r.changed;
+      s2out = r.out;
+    }
     if (changed) await store.putWallet(pl.igsid, wallet);
     const out = { coins: wallet.coins };
+    if (s2out) out.s2 = s2out;
     if (rest > 0) out.coinRest = rest;
     // 🧯 D1 쓰기가 많은 날(브레이크 1단계~)엔 폰이 다시 10분에 한 번 모아 보내게 (2026-11-23)
     if (brake() >= 1) out.coinSlow = 1;
@@ -588,7 +601,27 @@ export function createHandler(cfg, { store, meter = null }) {
       await store.giveCoins(pl.igsid, refund, gift);
       w = { ...w, coins: (w.coins || 0) + refund, owned: keep, gift };
     }
-    return { coins: w.coins, owned: cleanOwned(w.owned), ...(w.gift ? { gift: giftOut(w.gift) } : {}) };
+    const s2 = s2Of(w);
+    return { coins: w.coins, owned: cleanOwned(w.owned), ...(w.gift ? { gift: giftOut(w.gift) } : {}), ...(s2.ad ? { att: { day: s2.ad, streak: s2.as } } : {}) };
+  };
+  // 🎹 시즌 2 (2026-11-26): 운영자가 admin 에서 열기 전엔 미리보기(?s2=okay 기기)만 — 그동안 타일 기록은 랭킹에 안 올림
+  //   커뮤니티 퀘스트(팔로워 2천 등)는 admin 에서 숫자·달성 처리. 인스턴스마다 1분 기억
+  let s2Cache = { at: 0, open: false, community: COMMUNITY_DEFAULT };
+  async function s2Load(fresh = false) {
+    const now = Date.now();
+    if (fresh || now - s2Cache.at > 60 * 1000) {
+      let community = COMMUNITY_DEFAULT;
+      try {
+        const raw = await store.getSetting('s2Community');
+        if (raw) community = cleanCommunity(JSON.parse(raw)) || COMMUNITY_DEFAULT;
+      } catch {}
+      s2Cache = { at: now, open: (await store.getSetting('s2Open')) === 'open', community };
+    }
+    return s2Cache;
+  }
+  const s2Public = async () => {
+    const c = await s2Load();
+    return { s2Open: c.open, s2Community: c.community };
   };
   /** 🛒 상점 열림 (2026-11-24 사용자 '상점 오픈' → 기본 열림, admin 에서 닫으면 'closed'). 인스턴스마다 1분 기억 */
   let shopCache = { at: 0, open: true, only: [] };
@@ -831,7 +864,7 @@ export function createHandler(cfg, { store, meter = null }) {
       // 쿠키가 날아간 폰: 헤더로 왔으면 쿠키를 다시 줌
       if (c !== raw && request._setCookies) request._setCookies.push(cookie(PLAYER_COOKIE, raw, { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
     }
-    return rec && rec.username ? { igsid: rec.igsid, username: rec.username, ig: rec.ig || null, hiddenAt: rec.hiddenAt || null, checkedAt: rec.checkedAt || null } : null;
+    return rec && rec.username ? { igsid: rec.igsid, username: rec.username, ig: rec.ig || null, hiddenAt: rec.hiddenAt || null, checkedAt: rec.checkedAt || null, kakao: !!rec.kakao } : null;
   }
 
   // ------------------- API -------------------
@@ -892,7 +925,7 @@ export function createHandler(cfg, { store, meter = null }) {
       return json(200, {
         ok: true,
         app: 'okaystra',
-        config: { gateMode: cfg.gateMode, instagramHandle: cfg.instagramHandle, siteUrl: cfg.siteUrl, freePassUntil: (await freePassOn()) ? await freePassUntil() : 0, shopOpen: await shopOpen(false, pl) },
+        config: { gateMode: cfg.gateMode, instagramHandle: cfg.instagramHandle, siteUrl: cfg.siteUrl, freePassUntil: (await freePassOn()) ? await freePassUntil() : 0, shopOpen: await shopOpen(false, pl), ...(await s2Public()), kakao: !!(cfg.kakaoKey && cfg.kakaoSecret) },
         me: pl ? { ...meOf(pl), ...(await walletOf(pl)) } : { verified: false },
       });
     }
@@ -904,6 +937,8 @@ export function createHandler(cfg, { store, meter = null }) {
         siteUrl: cfg.siteUrl,
         freePassUntil: (await freePassOn()) ? await freePassUntil() : 0,
         shopOpen: await shopOpen(),
+        ...(await s2Public()),
+        kakao: !!(cfg.kakaoKey && cfg.kakaoSecret),
       });
     }
 
@@ -920,6 +955,58 @@ export function createHandler(cfg, { store, meter = null }) {
       return json(200, { ...meOf(pl), ...wal });
     }
 
+    // 🔑 카카오 로그인 (2026-11-26): 폰이 POST 로 주소를 받아 그리로 이동 (지금 계정은 쿠키·폰 저장소 열쇠로 알아봄)
+    //   kk_ks 쿠키 = 서명한 { n, igsid(연결할 계정), mode } → 돌아왔을 때 state 의 n 과 맞아야 함 (같은 브라우저에서 시작한 것만)
+    if (p === '/api/auth/kakao/start' && m === 'POST') {
+      if (!cfg.kakaoKey || !cfg.kakaoSecret) return json(404, { error: 'kakao_off' });
+      if (!limitGuest(ip)) return json(429, { error: 'rate_limited' });
+      const b = await readJson(request);
+      const mode = b.mode === 'link' ? 'link' : 'login';
+      const pl = await getPlayer(request);
+      if (mode === 'link' && !pl) return json(401, { error: 'verify_required' });
+      const n = newId();
+      const now = Date.now();
+      setCookies.push(cookie('kk_ks', sign({ n, igsid: pl ? pl.igsid : null, mode, t: now }, cfg.sessionSecret), { maxAge: Math.floor(KAKAO_STATE_MS / 1000), secure: cfg.cookieSecure }));
+      const state = sign({ n, t: now }, cfg.sessionSecret);
+      return json(200, { url: kakaoAuthUrl({ key: cfg.kakaoKey, redirectUri: `${url.origin}/api/auth/kakao/callback`, state }) });
+    }
+    if (p === '/api/auth/kakao/callback' && m === 'GET') {
+      const back = (r) => {
+        setCookies.push(cookie('kk_ks', '', { maxAge: 0, secure: cfg.cookieSecure }));
+        const h = new Headers({ Location: `/?kakao=${r}`, 'Cache-Control': 'no-store' });
+        for (const c of setCookies) h.append('Set-Cookie', c);
+        return new Response(null, { status: 302, headers: h });
+      };
+      if (!cfg.kakaoKey || !cfg.kakaoSecret) return back('off');
+      if (url.searchParams.get('error')) return back('cancel');
+      const st = unsign(url.searchParams.get('state') || '', cfg.sessionSecret);
+      const ks = unsign(cookiesOf(request).kk_ks || '', cfg.sessionSecret);
+      if (!st || !ks || !st.n || st.n !== ks.n || Date.now() - st.t > KAKAO_STATE_MS) return back('expired');
+      let kid;
+      try {
+        kid = kakaoHash(await kakaoUserId({ key: cfg.kakaoKey, secret: cfg.kakaoSecret, redirectUri: `${url.origin}/api/auth/kakao/callback`, code: url.searchParams.get('code') || '' }), cfg.sessionSecret);
+      } catch (e) {
+        console.error('[kakao]', e && e.message);
+        return back('fail');
+      }
+      const owner = await store.playerByKakao(kid);
+      const loginAs = (igsid) => setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
+      if (ks.mode === 'link') {
+        if (owner && owner !== ks.igsid) return back('taken');
+        if (!owner) await store.setKakao(ks.igsid, kid);
+        return back('linked');
+      }
+      if (owner) {
+        loginAs(owner);
+        return back('login');
+      }
+      // 연결된 계정이 없음: 지금 이 폰 계정에 카카오가 없으면 연결해 줌
+      if (ks.igsid && !(await store.kakaoOf(ks.igsid))) {
+        await store.setKakao(ks.igsid, kid);
+        return back('linked');
+      }
+      return back('none');
+    }
     if (p === '/api/logout' && m === 'POST') {
       setCookies.push(cookie(PLAYER_COOKIE, '', { maxAge: 0, secure: cfg.cookieSecure }));
       return json(200, { ok: true });
@@ -1448,6 +1535,22 @@ export function createHandler(cfg, { store, meter = null }) {
         const until = await freePassUntil(true);
         return json(200, { until, on: Date.now() < until });
       }
+      // 🎹 시즌 2 열기 (열기 전엔 미리보기 기기만) · 커뮤니티 퀘스트(팔로워 수 등)
+      if (p === '/api/admin/s2' && m === 'GET') {
+        const c = await s2Load(true);
+        return json(200, { open: c.open, community: c.community });
+      }
+      if (p === '/api/admin/s2' && m === 'POST') {
+        const b = await readJson(request);
+        if (typeof b.open === 'boolean') await store.setSetting('s2Open', b.open ? 'open' : 'closed');
+        if (b.community !== undefined) {
+          const list = cleanCommunity(b.community);
+          if (!list) return json(400, { error: 'bad_community' });
+          await store.setSetting('s2Community', JSON.stringify(list));
+        }
+        const c = await s2Load(true);
+        return json(200, { open: c.open, community: c.community });
+      }
       // 🛒 상점 열기·닫기 (닫혀 있으면 구경만)
       if (p === '/api/admin/shop' && m === 'GET') return json(200, { open: await shopOpen(true) });
       if (p === '/api/admin/shop' && m === 'POST') {
@@ -1484,6 +1587,16 @@ export function createHandler(cfg, { store, meter = null }) {
       const body = await readJson(request);
       // 이용 통계가 얹혀 왔으면 같이 저장 (따로 /api/track 요청 안 해도 되게)
       if (body.track && limitTrack(ip)) await saveTrack(request, body.track, setCookies).catch(() => {});
+      // 🎹 시즌 2 피아노 타일: 처음 TILE_FREE 곡은 누구나, 나머지는 드럼 4단계부터처럼 팔로워 인증
+      const tile = tileSong(body.level);
+      if (tile) {
+        const tpl = await getPlayer(request);
+        if (cfg.gateMode !== 'open' && tileClosed(tile) && !isConfirmed(tpl) && !(await openNow())) return json(403, { error: isVerified(tpl) ? 'confirm_pending' : 'confirm_required' });
+        const runToken = sign({ l: tile.key, t: Date.now(), n: newId() }, cfg.sessionSecret);
+        notePre(tpl, body);
+        const coins = body.coins ? await takeCoins(tpl, body.coins) : null;
+        return json(200, { runToken, ...(coins || {}) });
+      }
       const level = endlessMode(body.level) || getLevel(body.level);
       if (!level) return json(400, { error: 'bad_level' });
       // 4단계부터와 무제한(그리그·단계별)은 팔로워 인증(암호 또는 운영자 확인)한 사람만
@@ -1546,6 +1659,30 @@ export function createHandler(cfg, { store, meter = null }) {
       const lost = body.lost && !offline ? await takeLost(pl, body.lost) : null;
       // 코인·서버 없을 때 기록을 받았으면 오류 응답에도 실음 (폰이 두 번 안 보내게)
       const wc = (o) => ({ ...o, ...(coins || {}), ...(offline ? { offline } : {}), ...(lost ? { lost } : {}) });
+      const tile = tileSong(body.level);
+      if (tile) {
+        const run = unsign(body.runToken, cfg.sessionSecret);
+        if (!run || run.l !== tile.key) return json(400, wc({ error: 'bad_run' }));
+        const v = checkTileRun(tile.id, body, (Date.now() - run.t) / 1000);
+        if (!v.ok) return json(400, wc({ error: v.error }));
+        // 시즌 2 를 열기 전(운영자 미리보기)엔 랭킹에 안 올림
+        if (!(await s2Load()).open) return json(200, wc({ preview: true, next: nextTokens([tile.key]) }));
+        if (await store.runUsed(run.n)) return json(409, wc({ error: 'run_used' }));
+        await ensureHall();
+        const slot = tileSlot(tile.id);
+        // 핵 의심 확인용: 실제 걸린 시간 · 빈 줄 누름 · 놓침 (JSON 글자로 — D1 은 객체를 못 받음)
+        const chk = JSON.stringify({ ms: Math.max(0, Date.now() - run.t), tile: 1, w: Number.isInteger(body.wrong) ? Math.max(0, Math.min(9999, body.wrong)) : undefined, mi: Number.isInteger(body.missed) ? Math.max(0, Math.min(9999, body.missed)) : undefined });
+        const out = await store.recordScore(pl.igsid, slot, { score: v.tiles, grade: lapGrade(v.laps), maxCombo: v.maxCombo, chk });
+        if (out && out.improved) await store.useRun(run.n, Date.now() + 2 * 24 * 3600 * 1000);
+        const sn = seasonAt().n;
+        if (sn > 1) await store.recordSeasonScore(sn, pl.igsid, slot, v.tiles);
+        if (out && out.improved) {
+          await hallBump(pl.igsid, 'tiles');
+          boardChanged(slot, pl.igsid);
+        }
+        const mine = out && out.improved && brake() < 2 ? await store.rankOf(slot, pl.igsid) : null;
+        return json(200, wc({ improved: !!(out && out.improved), best: out ? out.best : v.tiles, rank: mine ? mine.rank : null, over: !!(mine && mine.over), busy: !!(out && out.improved) && !mine, kept: !(out && out.improved), next: nextTokens([tile.key]) }));
+      }
       const em = endlessMode(body.level);
       if (em) {
         const e = validateEndless(body, cfg);
@@ -1580,7 +1717,8 @@ export function createHandler(cfg, { store, meter = null }) {
 
     // 🏛 명예의 전당: 이번 시즌 총합 랭킹(단계·무제한) + 끝난 시즌 1·2·3등(사진 포함)
     if (p === '/api/hall' && m === 'GET') {
-      const board = url.searchParams.get('board') === 'endless' ? 'endless' : 'stage';
+      const bq = url.searchParams.get('board');
+      const board = bq === 'endless' ? 'endless' : bq === 'tiles' ? 'tiles' : 'stage';
       await ensureHall();
       const pl = await getPlayer(request);
       const season = seasonAt();
@@ -1673,6 +1811,17 @@ export function createHandler(cfg, { store, meter = null }) {
       return json(200, { level: 'total', levels: LAST_LEVEL_ID, entries, me: mine ? { rank: mine.rank, score: mine.score, levels: mine.n, cap: mine.cap || null } : null });
     }
 
+    // 🎹 타일 곡 랭킹 (?level=t3): 친 타일 수 + 돈 바퀴(별·왕관)
+    const lbTile = p === '/api/leaderboard' && m === 'GET' ? tileSong(url.searchParams.get('level')) : null;
+    if (lbTile) {
+      const slot = tileSlot(lbTile.id);
+      const pl = await getPlayer(request);
+      const lb = await boardOf(slot);
+      const entries = lb.rows.map((r) => ({ rank: r.rank, username: r.username, score: r.score, laps: gradeLaps(r.grade), me: pl ? r.igsid === pl.igsid : false }));
+      const inTop = pl && lb.rows.find((r) => r.igsid === pl.igsid);
+      const mine = inTop ? { rank: inTop.rank, score: inTop.score } : pl && brake() < 1 ? await myRank(slot, pl.igsid) : null;
+      return json(200, { level: lbTile.key, entries, me: mine ? { rank: mine.rank, over: !!mine.over, score: mine.score } : null });
+    }
     const lbEndless = p === '/api/leaderboard' && m === 'GET' ? endlessMode(url.searchParams.get('level')) : null;
     if (lbEndless) {
       const pl = await getPlayer(request);

@@ -123,6 +123,23 @@
           <p class="muted" style="margin:6px 0">닫혀 있으면 구경·미리보기만 되고 못 사요.</p>
           <div style="display:flex;gap:8px"><button type="button" id="shop-open">열기</button><button type="button" class="ghost" id="shop-close" style="color:var(--bad)">닫기</button></div>
         </div>
+        <div class="card" id="s2-card">
+          <div class="head"><b>🎹 시즌 2</b><span class="muted" id="s2-state"></span></div>
+          <p class="muted" style="margin:6px 0">열기 전엔 미리보기(<b>/?s2=okay</b> 로 들어온 기기)만 새 화면이 보이고, 타일 기록은 랭킹에 안 올라가요. <b>열기</b>를 누르면 모두에게 새 첫 화면·피아노 타일 랭킹·출석·퀘스트가 열리고 드럼은 랭킹 없이 바뀌어요 (서버마다 1분 안에).</p>
+          <div style="display:flex;gap:8px"><button type="button" id="s2-open">시즌 2 열기</button><button type="button" class="ghost" id="s2-close" style="color:var(--bad)">닫기</button></div>
+          <p class="muted" style="margin:10px 0 4px">📣 다 같이 퀘스트 — 숫자(예: 지금 인스타 팔로워 수)를 적어 두면 모두의 첫 화면 막대가 차요. <b>달성</b>에 체크하면 누구나 한 번 보상을 받아요.</p>
+          <div style="display:grid;gap:6px">
+            <input id="s2c-title" maxlength="40" placeholder="제목 (예: 오케이스트라 인스타 팔로워 2,000명)" />
+            <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+              <label class="muted">지금 <input id="s2c-now" type="number" min="0" style="width:90px" /></label>
+              <label class="muted">목표 <input id="s2c-goal" type="number" min="1" style="width:90px" /></label>
+              <label class="muted">보상 <input id="s2c-reward" type="number" min="0" style="width:80px" /></label>
+              <label class="muted"><input id="s2c-done" type="checkbox" /> 달성</label>
+              <button type="button" id="s2c-save">저장</button>
+            </div>
+          </div>
+          <div class="msg" id="s2-msg"></div>
+        </div>
         <div class="card" id="free-card">
           <div class="head"><b>🆓 암호 없이 임시 인증</b><span class="muted" id="free-state"></span></div>
           <p class="muted" style="margin:6px 0">인스타 DM 이 막혔을 때용. 이 날짜까지는 닉네임·인스타 아이디만으로 <b>임시 인증</b>돼요. 날짜가 지나거나 '끄기'를 누르면 <b>임시 인증한 사람만 풀려서</b> 팔로워 암호로 다시 인증해야 해요.</p>
@@ -422,6 +439,29 @@
     }
     $('#shop-open').addEventListener('click', async () => { if (confirm('상점을 열까요? 바로 살 수 있게 돼요 (서버마다 1분 안에 반영)')) { await call('POST', '/api/admin/shop', { open: true }); loadShop(); } });
     $('#shop-close').addEventListener('click', async () => { await call('POST', '/api/admin/shop', { open: false }); loadShop(); });
+    // 🎹 시즌 2 열기 · 다 같이 퀘스트
+    let s2Comm = [];
+    async function loadS2() {
+      const r = await call('GET', '/api/admin/s2');
+      if (r.status !== 200) return;
+      $('#s2-state').textContent = r.data.open ? '🟢 열림 (모두에게)' : '🔒 닫힘 (미리보기 기기만)';
+      s2Comm = r.data.community || [];
+      const c = s2Comm[0] || {};
+      $('#s2c-title').value = c.title || '';
+      $('#s2c-now').value = c.now ?? 0;
+      $('#s2c-goal').value = c.goal ?? 2000;
+      $('#s2c-reward').value = c.reward ?? 1000;
+      $('#s2c-done').checked = !!c.done;
+    }
+    $('#s2-open').addEventListener('click', async () => { if (confirm('시즌 2 를 모두에게 열까요? 첫 화면이 새 화면으로 바뀌고 드럼 랭킹이 사라져요')) { await call('POST', '/api/admin/s2', { open: true }); loadS2(); } });
+    $('#s2-close').addEventListener('click', async () => { if (confirm('시즌 2 를 닫을까요? (다시 미리보기 기기만)')) { await call('POST', '/api/admin/s2', { open: false }); loadS2(); } });
+    $('#s2c-save').addEventListener('click', async () => {
+      const c0 = s2Comm[0] || { id: 'f2000', icon: '📸' };
+      const c = { ...c0, title: $('#s2c-title').value.trim() || c0.title, now: Number($('#s2c-now').value) || 0, goal: Number($('#s2c-goal').value) || 1, reward: Number($('#s2c-reward').value) || 0, done: $('#s2c-done').checked };
+      const r = await call('POST', '/api/admin/s2', { community: [c, ...s2Comm.slice(1)] });
+      $('#s2-msg').textContent = r.status === 200 ? '저장했어요 (폰엔 1분 안에)' : '저장 실패';
+      loadS2();
+    });
     async function loadFreePass() {
       const r = await call('GET', '/api/admin/free-pass');
       if (r.status !== 200) return;
@@ -515,10 +555,12 @@
         $('#fp-card').hidden = playersView === 'old';
         $('#free-card').hidden = playersView === 'old';
         $('#shop-card').hidden = playersView === 'old';
+        $('#s2-card').hidden = playersView === 'old';
         loadPlayers();
         loadFollowPass();
         loadFreePass();
         loadShop();
+        loadS2();
       }
     });
 

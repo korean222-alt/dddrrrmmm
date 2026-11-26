@@ -25,5 +25,8 @@ export function makeConfig(env = {}) {
     trustProxy: bool(env.TRUST_PROXY, prod),
     // 점수 검증: 실제 곡 길이의 몇 % 이상 지나야 제출 가능한지
     minRunRatio: env.MIN_RUN_RATIO !== undefined ? Number(env.MIN_RUN_RATIO) : 0.9,
+    // 🔑 카카오 로그인 (2026-11-26): developers.kakao.com 앱의 REST API 키 · Client Secret. 둘 다 있어야 켜짐 (Cloudflare 비밀값)
+    kakaoKey: env.KAKAO_REST_KEY || '',
+    kakaoSecret: env.KAKAO_SECRET || '',
   };
 }

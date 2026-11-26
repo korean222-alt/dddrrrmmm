@@ -3,6 +3,10 @@
 //   시각(ms)은 BIGINT 라서 드라이버가 문자열/BigInt 로 줄 수 있어 Number() 로 바꿔 씀
 
 import { LAST_LEVEL_ID } from '../public/js/charts.js';
+import { TILE_SLOT0, TILE_SLOT_MAX } from '../public/js/tiles.js';
+
+/** 시즌 총합 판마다 더하는 기록 (stage = 드럼 단계, endless = 무제한, tiles = 🎹 피아노 타일 곡들) */
+export const boardWhere = (board) => (board === 'endless' ? 's.level <= 0' : board === 'tiles' ? `s.level > ${TILE_SLOT0} AND s.level <= ${TILE_SLOT_MAX}` : `s.level > 0 AND s.level <= ${LAST_LEVEL_ID}`);
 
 /** 🛒 wallet.owned (JSON 글자) → 배열 */
 const parseOwned = (v) => {
@@ -33,6 +37,8 @@ const SCHEMA = [
   `ALTER TABLE wallet ADD COLUMN IF NOT EXISTS owned TEXT`,
   // gift = 🎁 운영자가 준 코인 알림 JSON { coins, note, hall:{season,board,rank}, at } — 폰이 확인하면 비움 (2026-11-22)
   `ALTER TABLE wallet ADD COLUMN IF NOT EXISTS gift TEXT`,
+  // s2 = 🎁 시즌 2 출석·퀘스트 받은 것 JSON { ad 출석한 날, as 연속 일수, qd·qc 그날 받은 퀘스트, cq 받은 커뮤니티 퀘스트 } (2026-11-26)
+  `ALTER TABLE wallet ADD COLUMN IF NOT EXISTS s2 TEXT`,
   `CREATE TABLE IF NOT EXISTS players (igsid TEXT PRIMARY KEY, username TEXT, follow_verified_at BIGINT)`,
   // ig = 인스타 아이디(랭킹 참여 때 받음), checked_at = 운영자가 팔로우를 확인한 시각
   `ALTER TABLE players ADD COLUMN IF NOT EXISTS ig TEXT`,
@@ -40,6 +46,9 @@ const SCHEMA = [
   `ALTER TABLE players ADD COLUMN IF NOT EXISTS checked_at BIGINT`,
   // hidden_at = 운영자가 '팔로우 확인 안 됨'으로 랭킹에서 내린 시각. HIDE_KEEP_MS 뒤 자동 삭제
   `ALTER TABLE players ADD COLUMN IF NOT EXISTS hidden_at BIGINT`,
+  // kakao = 🔑 카카오 회원번호의 해시 (2026-11-26 카카오 로그인, 연결한 사람만)
+  `ALTER TABLE players ADD COLUMN IF NOT EXISTS kakao TEXT`,
+  `CREATE INDEX IF NOT EXISTS players_kakao ON players (kakao) WHERE kakao IS NOT NULL`,
   `CREATE TABLE IF NOT EXISTS scores (
      igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, grade TEXT, max_combo INTEGER,
      at BIGINT NOT NULL, PRIMARY KEY (igsid, level))`,
@@ -359,8 +368,8 @@ END $$`);
 
   // ----- 🪙 코인 지갑 -----
   async getWallet(igsid) {
-    const r = await this.one('SELECT coins, t, tn, fday, fn, init, owned, gift FROM wallet WHERE igsid = $1', [igsid]);
-    return r ? { coins: num(r.coins), t: num(r.t), tn: num(r.tn) || 0, fday: r.fday || '', fn: num(r.fn), init: num(r.init), owned: parseOwned(r.owned), gift: parseGift(r.gift) } : null;
+    const r = await this.one('SELECT coins, t, tn, fday, fn, init, owned, gift, s2 FROM wallet WHERE igsid = $1', [igsid]);
+    return r ? { coins: num(r.coins), t: num(r.t), tn: num(r.tn) || 0, fday: r.fday || '', fn: num(r.fn), init: num(r.init), owned: parseOwned(r.owned), gift: parseGift(r.gift), s2: parseGift(r.s2) } : null;
   }
   /** 🎁 운영자가 코인 주기: 잔액에 바로 더하고(한 줄, 덮어쓰기 없이) 알림(gift)을 적음 */
   async giveCoins(igsid, coins, gift) {
@@ -391,16 +400,16 @@ END $$`);
   }
   async putWallet(igsid, w) {
     await this.q(
-      `INSERT INTO wallet (igsid, coins, t, tn, fday, fn, init, owned) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-       ON CONFLICT (igsid) DO UPDATE SET coins = EXCLUDED.coins, t = EXCLUDED.t, tn = EXCLUDED.tn, fday = EXCLUDED.fday, fn = EXCLUDED.fn, init = EXCLUDED.init, owned = EXCLUDED.owned`,
-      [igsid, w.coins, w.t, w.tn || 0, w.fday, w.fn, w.init, w.owned && w.owned.length ? JSON.stringify(w.owned) : null]
+      `INSERT INTO wallet (igsid, coins, t, tn, fday, fn, init, owned, s2) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+       ON CONFLICT (igsid) DO UPDATE SET coins = EXCLUDED.coins, t = EXCLUDED.t, tn = EXCLUDED.tn, fday = EXCLUDED.fday, fn = EXCLUDED.fn, init = EXCLUDED.init, owned = EXCLUDED.owned, s2 = COALESCE(EXCLUDED.s2, wallet.s2)`,
+      [igsid, w.coins, w.t || 0, w.tn || 0, w.fday || '', w.fn || 0, w.init || 0, w.owned && w.owned.length ? JSON.stringify(w.owned) : null, w.s2 ? JSON.stringify(w.s2) : null]
     );
   }
 
   // ----- players -----
   async getPlayer(igsid) {
     const r = await this.one('SELECT * FROM players WHERE igsid = $1', [igsid]);
-    return r ? { igsid: r.igsid, username: r.username, ig: r.ig || null, hiddenAt: num(r.hidden_at) ?? null, checkedAt: num(r.checked_at) ?? null } : null;
+    return r ? { igsid: r.igsid, username: r.username, ig: r.ig || null, hiddenAt: num(r.hidden_at) ?? null, checkedAt: num(r.checked_at) ?? null, kakao: !!r.kakao } : null;
   }
   async upsertPlayer(igsid, patch) {
     // 인스타 아이디가 바뀌면 운영자가 팔로우를 다시 확인해야 함 (checked_at 비움)
@@ -419,7 +428,7 @@ END $$`);
   async listPlayers(limit = 1_000_000) {
     const rows = await this.q(
       `SELECT p.igsid, p.username, p.ig, p.created_at, p.checked_at, p.hidden_at,
-         COALESCE(SUM(s.score) FILTER (WHERE s.level > 0), 0) AS total, COUNT(s.level) FILTER (WHERE s.level > 0) AS levels,
+         COALESCE(SUM(s.score) FILTER (WHERE s.level > 0 AND s.level < 3000), 0) AS total, COUNT(s.level) FILTER (WHERE s.level > 0 AND s.level < 3000) AS levels,
          MAX(s.level) FILTER (WHERE s.level > 0 AND s.level <= $2) AS top,
          MAX(s.score) FILTER (WHERE s.level = 0) AS endless
        FROM players p LEFT JOIN scores s ON s.igsid = p.igsid WHERE p.username IS NOT NULL
@@ -559,7 +568,7 @@ END $$`);
     const src = Number(season) === 1 ? 'scores' : `(SELECT igsid, level, score, at FROM season_scores WHERE season = ${Math.floor(Number(season)) || 0})`;
     const sum = board === 'endless' ? 'SUM(s.score % 1000000000)' : 'SUM(s.score)';
     const rounds = board === 'endless' ? 'SUM(s.score / 1000000000)' : '0';
-    const where = board === 'endless' ? 's.level <= 0' : `s.level > 0 AND s.level <= ${LAST_LEVEL_ID}`;
+    const where = boardWhere(board);
     // 사람별로 먼저 모은 뒤 players 와 합침 (D1 읽는 줄 줄이기, 2026-11-22)
     return `SELECT x.*, ROW_NUMBER() OVER (ORDER BY x.score DESC, x.at ASC) AS rank FROM (
         SELECT t.igsid, p.username, t.score, t.n, t.rounds, t.at FROM (
@@ -572,7 +581,7 @@ END $$`);
   async seasonMine(season, board, igsid) {
     const sum = board === 'endless' ? 'SUM(s.score % 1000000000)' : 'SUM(s.score)';
     const rounds = board === 'endless' ? 'SUM(s.score / 1000000000)' : '0';
-    const where = board === 'endless' ? 's.level <= 0' : `s.level > 0 AND s.level <= ${LAST_LEVEL_ID}`;
+    const where = boardWhere(board);
     const r =
       Number(season) === 1
         ? await this.one(`SELECT ${sum} AS score, COUNT(*) AS n, ${rounds} AS rounds, MAX(s.at) AS at FROM scores s WHERE s.igsid = $1 AND ${where}`, [igsid])
@@ -641,6 +650,18 @@ END $$`);
     return rows.length > 0;
   }
 
+  // ----- 🔑 카카오 로그인 (2026-11-26) -----
+  async playerByKakao(kid) {
+    const r = await this.one('SELECT igsid FROM players WHERE kakao = $1 AND username IS NOT NULL LIMIT 1', [kid]);
+    return r ? r.igsid : null;
+  }
+  async kakaoOf(igsid) {
+    const r = await this.one('SELECT kakao FROM players WHERE igsid = $1', [igsid]);
+    return r ? r.kakao || null : null;
+  }
+  async setKakao(igsid, kid) {
+    await this.q('UPDATE players SET kakao = $2 WHERE igsid = $1', [igsid, kid]);
+  }
   /** 이 인스타 아이디로 된 참여자들 (기록 되찾기용): 점수 많은 순 → 오래된 순 */
   async playersByIg(ig) {
     const rows = await this.q(

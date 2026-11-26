@@ -102,7 +102,7 @@ export function seasonReward(rank) {
 /** boards = { stage: [{igsid, rank}], endless: [...] } → [{ igsid, coins, board, rank }] 사람마다 가장 큰 것 하나 */
 export function seasonRewards(boards) {
   const best = new Map();
-  for (const board of ['stage', 'endless']) {
+  for (const board of ['stage', 'endless', 'tiles']) {
     for (const r of boards[board] || []) {
       const coins = seasonReward(r.rank);
       if (!coins || !r.igsid) continue;

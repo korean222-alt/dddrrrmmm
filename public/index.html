@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=4241a9ea42" />
+  <link rel="stylesheet" href="css/style.css?v=f9f3fb25f7" />
 </head>
 <body>
   <div id="app">
@@ -66,6 +66,108 @@
         <button class="link" data-action="dismiss-inapp">닫기</button>
       </div>
       <footer class="title-foot" id="title-foot"></footer>
+    </section>
+
+    <!-- 🎹 시즌 2 첫 화면 (2026-11-26) — 일반 유저는 운영자가 admin 에서 열기 전엔 안 보임 (미리보기: /?s2=okay 기기만) -->
+    <section id="screen-home2" class="screen s2home" aria-label="시작 화면">
+      <div class="title-top s2-top">
+        <div class="title-left">
+          <button class="icon-btn gear-btn" data-action="settings" aria-label="설정"><img src="assets/gear.png" alt="" width="40" height="40" /><i class="dot" id="gear-dot2" hidden></i></button>
+          <button class="coin-chip" data-action="shop-open" aria-label="상점"><i class="coin-ico"></i><b class="coin-num2">0</b><span class="coin-shop">🛒</span></button>
+        </div>
+        <button class="icon-btn" data-action="s2-rank" aria-label="랭킹"><span data-icon="trophy"></span></button>
+      </div>
+      <div class="s2-hero">
+        <span class="s2-badge"><i></i>SEASON 2</span>
+        <h1 class="logo"><span class="logo-ok">OK</span>AYSTRA<small>오케이스트라 · 피아노 &amp; 드럼</small></h1>
+        <div class="scene buddies s2-buddies" id="title-scene2">
+          <button class="buddy buddy-kong" data-lane="0" aria-label="쿵콩이"><img class="b-drum" alt="" /><img class="b-char" alt="" /><span class="b-bubble"></span></button>
+          <button class="buddy buddy-jjak" data-lane="1" aria-label="짝콩이"><img class="b-drum" alt="" /><img class="b-char" alt="" /><span class="b-bubble"></span></button>
+        </div>
+      </div>
+      <div class="s2-actions">
+        <button class="s2-start" data-action="s2-modes"><span class="s2-start-shine"></span><b>게임 시작</b><small id="s2-start-sub">🎹 시즌 2 랭킹 진행 중</small></button>
+        <div class="s2-daily">
+          <button class="s2-mini s2-att" data-action="s2-quests" id="s2-att-card"><span class="s2-mini-ico">📅</span><b id="s2-att-title">출석</b><small id="s2-att-sub"></small><i class="dot" id="s2-att-dot" hidden></i></button>
+          <button class="s2-mini s2-q" data-action="s2-quests" id="s2-q-card"><span class="s2-mini-ico">🎯</span><b id="s2-q-title">퀘스트</b><small id="s2-q-sub"></small><i class="dot" id="s2-q-dot" hidden></i></button>
+        </div>
+        <button class="s2-comm" data-action="s2-quests" id="s2-comm" hidden></button>
+        <div class="s2-row">
+          <button class="s2-icon" data-action="shop-open"><span>🛒</span><small>상점</small></button>
+          <button class="s2-icon" data-action="room-open"><span>⚔️</span><small>멀티</small></button>
+          <button class="s2-icon" data-action="maps-open"><span>🎹</span><small>유저 맵</small></button>
+          <button class="s2-icon" data-action="s2-more"><span>✨</span><small>더보기</small></button>
+        </div>
+      </div>
+      <footer class="title-foot" id="title-foot2"></footer>
+    </section>
+
+    <!-- 🎹 시즌 2 피아노 타일: 곡 고르기 -->
+    <section id="screen-tiles" class="screen" aria-label="피아노 타일">
+      <header class="bar">
+        <button class="icon-btn" data-action="home" aria-label="뒤로"><span data-icon="back"></span></button>
+        <h2>🎹 피아노 타일</h2>
+        <button class="icon-btn" data-action="s2-rank" aria-label="랭킹"><span data-icon="trophy"></span></button>
+      </header>
+      <div class="tl-wrap">
+        <div class="tl-live"><span class="live-dot"></span><b>시즌 2 랭킹 진행 중</b><small id="tl-live-sub"></small></div>
+        <div class="seg seg-sm tl-view" id="tl-view">
+          <button data-tview="tile" aria-pressed="true"><b>클래식 타일</b><small>검은 타일 4줄</small></button>
+          <button data-tview="road" aria-pressed="false"><b>원근 타일</b><small>멀리서 내려오는 게 보여요</small></button>
+        </div>
+        <div class="tl-list" id="tl-list"></div>
+        <p class="levels-foot">한 바퀴 돌 때마다 빨라져요 · ★ 1바퀴 · ★★ 2바퀴 · ★★★ 3바퀴 · 👑 그 뒤로<br>하트 3개 — 놓치거나 빈 줄을 누르면 하나씩, 한 바퀴 돌면 하나 회복</p>
+      </div>
+    </section>
+
+    <!-- 🎹 시즌 2 피아노 타일: 치는 화면 -->
+    <section id="screen-tplay" class="screen" aria-label="피아노 타일 치기">
+      <div class="tp-stage" id="tp-stage">
+        <canvas id="tp-canvas"></canvas>
+        <button class="tp-pause" data-action="tp-pause" aria-label="일시정지"><i></i><i></i></button>
+        <div class="p2-layer" id="tp-paused" hidden>
+          <div class="p2-sheet">
+            <h3>일시정지</h3>
+            <button class="btn btn-primary" data-action="tp-resume">계속하기</button>
+            <button class="btn btn-ghost" data-action="tp-again">처음부터</button>
+            <button class="btn btn-ghost" data-action="tp-exit">나가기</button>
+          </div>
+        </div>
+        <div class="p2-layer tp-over" id="tp-over" hidden>
+          <div class="tp-res">
+            <div class="tp-res-song" id="tp-res-song"></div>
+            <div class="tp-res-stars" id="tp-res-stars"></div>
+            <div class="tp-res-score"><span id="tp-res-score">0</span><small>타일</small></div>
+            <div class="tp-res-new" id="tp-res-new" hidden>최고 기록!</div>
+            <div class="tp-res-rank" id="tp-res-rank" hidden></div>
+            <div class="tp-res-stats" id="tp-res-stats"></div>
+            <div class="tp-res-gift" id="tp-res-gift" hidden></div>
+            <div class="tp-res-btns">
+              <button class="btn btn-ghost" data-action="tp-list">곡 목록</button>
+              <button class="btn btn-primary" data-action="tp-again">다시 하기</button>
+            </div>
+            <button class="link" data-action="tp-rank">🏆 이 곡 랭킹 보기</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 🏆 시즌 2 랭킹 -->
+    <section id="screen-s2rank" class="screen" aria-label="시즌 2 랭킹">
+      <header class="bar">
+        <button class="icon-btn" data-action="s2rank-back" aria-label="뒤로"><span data-icon="back"></span></button>
+        <h2>🏆 시즌 2 랭킹</h2>
+        <span class="bar-spacer"></span>
+      </header>
+      <div class="sr-wrap">
+        <div class="tabs sr-tabs" id="sr-tabs" role="tablist">
+          <button role="tab" data-srtab="total" aria-selected="true">🎹 타일 총합</button>
+          <button role="tab" data-srtab="song" aria-selected="false">🎵 곡별</button>
+        </div>
+        <div class="sr-songs" id="sr-songs" hidden></div>
+        <div class="sr-list" id="sr-list"></div>
+        <button class="btn btn-ghost btn-sm sr-hall" data-action="s2-hall">🏛 시즌 1 명예의 전당</button>
+      </div>
     </section>
 
     <!-- 🛒 상점 (2026-11-24 사용자: 따로 된 화면으로) -->
@@ -748,6 +850,7 @@
         <button class="btn btn-ghost btn-sm" data-action="req-open" id="verify-req" hidden>되찾기 요청 보내기 (운영자가 찾아 드려요)</button>
         <button class="btn btn-primary" type="submit" id="verify-submit">인증하기</button>
         <button class="btn btn-ghost btn-sm" type="button" id="verify-fresh" hidden>새로 시작할래요</button>
+        <button class="btn btn-kakao btn-sm" type="button" data-action="kakao-login" id="verify-kakao" hidden>카카오로 내 계정 찾기</button>
       </form>
       <p class="verify-time" id="verify-note"><span data-icon="key" data-e></span> 암호를 맞게 적으면 <b>바로 인증 완료</b>! 잠긴 단계와 <span data-icon="gem" data-e></span> 무제한 모드가 전부 열려요. 암호는 매주 바뀌어요.</p>
       <details class="a2hs" id="verify-a2hs">
@@ -800,6 +903,55 @@
     </div>
   </div>
 
+  <!-- 🎹 시즌 2: 게임 시작 → 고르기 -->
+  <div class="modal s2-modes-modal" id="modal-modes" hidden>
+    <div class="sheet s2-modes">
+      <button class="icon-btn close" data-action="close-modes" aria-label="닫기"><span data-icon="close"></span></button>
+      <h3>무엇을 칠까요?</h3>
+      <button class="mode-big mb-tiles" data-action="s2-tiles">
+        <span class="mb-art mb-art-tiles"><i></i><i></i><i></i><i></i></span>
+        <span class="mb-txt"><span class="mb-live"><i></i>시즌 2 랭킹 중</span><b>피아노 타일</b><small id="mb-tiles-sub">명곡을 타일로 · 바퀴마다 빨라져요</small></span>
+      </button>
+      <button class="mode-big mb-drum" data-action="s2-drum">
+        <span class="mb-art mb-art-drum"><img alt="" src="assets/mascot/kong_idle.webp" /></span>
+        <span class="mb-txt"><span class="mb-tag">자유 연주</span><b>드럼</b><small>엄지로 쿵! 짝! · 랭킹 없이 편하게</small></span>
+      </button>
+      <button class="mode-big mb-s3" data-action="s2-s3">
+        <span class="mb-art mb-art-s3"><i>?</i></span>
+        <span class="mb-txt"><span class="mb-tag mb-tag-lock">🔒 미공개</span><b>시즌 3</b><small>준비 중이에요</small></span>
+      </button>
+    </div>
+  </div>
+
+  <!-- 🎁 시즌 2: 출석 · 퀘스트 -->
+  <div class="modal" id="modal-s2q" hidden>
+    <div class="sheet s2q">
+      <button class="icon-btn close" data-action="close-s2q" aria-label="닫기"><span data-icon="close"></span></button>
+      <h3>📅 출석 체크</h3>
+      <p class="s2q-att-note" id="s2q-att-note"></p>
+      <div class="s2q-week" id="s2q-week"></div>
+      <h3>🎯 오늘의 퀘스트</h3>
+      <div class="s2q-list" id="s2q-list"></div>
+      <div class="s2q-comm-wrap" id="s2q-comm-wrap" hidden>
+        <h3>📣 다 같이 퀘스트</h3>
+        <div class="s2q-list" id="s2q-comm"></div>
+      </div>
+      <p class="muted small" id="s2q-foot"></p>
+    </div>
+  </div>
+
+  <!-- ✨ 시즌 2: 더보기 -->
+  <div class="modal" id="modal-more" hidden>
+    <div class="sheet s2-more">
+      <button class="icon-btn close" data-action="close-more" aria-label="닫기"><span data-icon="close"></span></button>
+      <h3>더보기</h3>
+      <button class="btn btn-ghost" data-action="mysong-open">🎵 최신곡으로 치기</button>
+      <button class="btn btn-ghost" data-action="studio">🎬 영상 찍기</button>
+      <button class="btn btn-ghost" data-action="news-open">📢 업데이트 소식</button>
+      <button class="btn btn-ghost" data-action="suggest-open">💬 건의하기</button>
+    </div>
+  </div>
+
   <div class="modal" id="modal-settings" hidden>
     <div class="sheet">
       <button class="icon-btn close" data-action="close-settings" aria-label="닫기"><span data-icon="close"></span></button>
@@ -820,11 +972,22 @@
           <button data-band="piano" aria-pressed="false"><b>피아노만</b><small>가볍게 (데이터 절약)</small></button>
         </div>
       </div>
+      <div class="field s2-only" id="set-tview-wrap"><span>🎹 피아노 타일 보기</span>
+        <div class="seg seg-sm" id="set-tview">
+          <button data-tview="tile" aria-pressed="true"><b>클래식 타일</b><small>검은 타일 4줄</small></button>
+          <button data-tview="road" aria-pressed="false"><b>원근 타일</b><small>건반처럼 멀리서 내려옴</small></button>
+        </div>
+      </div>
       <button class="btn btn-ghost btn-sm deco-go" data-action="shop-open">🛒 꾸미기는 상점에서</button>
       <label class="field check"><input type="checkbox" id="set-lite" /><span>저사양 모드 <small class="muted">렉이 걸리면 켜 보세요 (효과를 줄여요)</small></span></label>
       <label class="field check"><input type="checkbox" id="set-vibrate" /><span>진동 (안드로이드)</span></label>
       <label class="field check"><input type="checkbox" id="set-touchshow" /><span>터치 표시 <small class="muted">누른 자리에 동그라미와 판정이 보여요</small></span></label>
       <div class="account" id="settings-account"></div>
+      <div class="kakao-box" id="kakao-box" hidden>
+        <h4>🔑 카카오 로그인</h4>
+        <p class="muted small" id="kakao-note">카카오를 연결해 두면 다른 브라우저·앱에서도 카카오로 같은 계정(기록·코인)에 들어와요.</p>
+        <button class="btn btn-kakao btn-sm" data-action="kakao-link" id="kakao-btn">카카오 연결하기</button>
+      </div>
       <div class="transfer" id="transfer-box">
         <h4><span data-icon="phone" data-e></span> 다른 폰으로 옮기기</h4>
         <p class="muted small">폰을 바꾸거나 인스타 앱에서 사파리·크롬으로 옮길 때 (운영자에게 받은 되찾기 코드도 아래에 넣으면 돼요). 깬 단계·별·다이아에 랭킹 닉네임·팔로워 인증까지 같이 옮겨져요.</p>
@@ -1112,6 +1275,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=668bdde987" defer></script>
+  <script src="js/app.js?v=b30917032e" defer></script>
 </body>
 </html>

@@ -11,6 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { shiftOldLevelKey, LAST_LEVEL_ID } from '../public/js/charts.js';
+import { isTileSlot } from '../public/js/tiles.js';
 import { DECK_RESET_BEFORE, ELISE_FROM } from './pgstore.js';
 
 // 이용 통계는 1년 보관
@@ -119,7 +120,8 @@ export class JsonStore {
   }
   putWallet(igsid, w) {
     const gift = this.data.wallet[igsid] ? this.data.wallet[igsid].gift || null : null;
-    this.data.wallet[igsid] = { coins: w.coins, t: w.t, tn: w.tn || 0, fday: w.fday, fn: w.fn, init: w.init, owned: Array.isArray(w.owned) ? [...w.owned] : [], gift };
+    const s2 = w.s2 ? JSON.parse(JSON.stringify(w.s2)) : this.data.wallet[igsid] ? this.data.wallet[igsid].s2 || null : null;
+    this.data.wallet[igsid] = { coins: w.coins, t: w.t, tn: w.tn || 0, fday: w.fday, fn: w.fn, init: w.init, owned: Array.isArray(w.owned) ? [...w.owned] : [], gift, s2 };
     this._save();
   }
   giveCoins(igsid, coins, gift) {
@@ -284,7 +286,7 @@ export class JsonStore {
   }
   _seasonAll(season, board) {
     const rows = [];
-    const want = (lv) => (board === 'endless' ? lv <= 0 : lv > 0 && lv <= LAST_LEVEL_ID);
+    const want = (lv) => (board === 'endless' ? lv <= 0 : board === 'tiles' ? isTileSlot(lv) : lv > 0 && lv <= LAST_LEVEL_ID);
     for (const p of Object.values(this.data.players)) {
       if (!p.username || p.hiddenAt || !p.checkedAt) continue;
       const src = Number(season) === 1 ? p.bests || {} : this.data.seasonScores[`${season}|${p.igsid}`] || {};
@@ -351,6 +353,18 @@ export class JsonStore {
     return true;
   }
 
+  // 🔑 카카오 로그인
+  playerByKakao(kid) {
+    const p = Object.values(this.data.players).find((x) => x.kakao === kid && x.username);
+    return p ? p.igsid : null;
+  }
+  kakaoOf(igsid) {
+    return (this.data.players[igsid] && this.data.players[igsid].kakao) || null;
+  }
+  setKakao(igsid, kid) {
+    if (this.data.players[igsid]) this.data.players[igsid].kakao = kid;
+    this._save();
+  }
   playersByIg(ig) {
     return Object.values(this.data.players)
       .filter((p) => p.ig === ig && p.username)

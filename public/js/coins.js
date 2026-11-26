@@ -46,7 +46,8 @@ export function coinTotal() {
   const sending = load('coinSending', null);
   const pend = queue().reduce((a, x) => a + int(x.n), 0) + int(load('coinFree', 0));
   const inFlight = sending ? (sending.runs || []).reduce((a, x) => a + int(x.n), 0) + int(sending.free) + int(sending.init) : 0;
-  return int(load('coinSrv', 0)) + pend + inFlight + (load('coinInit', false) ? 0 : local);
+  // 🎁 시즌 2 출석·퀘스트로 받기 누른 것 (서버가 아직 안 받음, s2claims.js)
+  return int(load('coinSrv', 0)) + pend + inFlight + int(load('s2Bonus', 0)) + (load('coinInit', false) ? 0 : local);
 }
 
 /** 판 하나 끝: n 코인 (tok = 그 판의 서버 판 토큰, 없으면 null) */

@@ -29,7 +29,7 @@ export const TABLES = [
     only: "key NOT LIKE 'd1:%' AND key NOT LIKE 'd1schema:%' AND key NOT LIKE 'set:cache:%'",
   },
   {
-    name: 'players', cols: { igsid: 't', username: 't', follow_verified_at: 'i', ig: 't', created_at: 'i', checked_at: 'i', hidden_at: 'i' }, pk: ['igsid'],
+    name: 'players', cols: { igsid: 't', username: 't', follow_verified_at: 'i', ig: 't', created_at: 'i', checked_at: 'i', hidden_at: 'i', kakao: 't' }, pk: ['igsid'],
     ts: 'COALESCE(created_at, 0) >= $S OR ABS(COALESCE(checked_at, 0)) >= $S OR COALESCE(hidden_at, 0) >= $S',
     merge: `username = COALESCE(players.username, excluded.username), ig = COALESCE(players.ig, excluded.ig),
       created_at = COALESCE(players.created_at, excluded.created_at), checked_at = COALESCE(players.checked_at, excluded.checked_at)`,
