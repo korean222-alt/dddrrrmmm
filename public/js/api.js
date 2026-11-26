@@ -109,7 +109,10 @@ function serverApi(boot = null) {
     // 이용 통계는 따로 안 보내고 이 요청들에 얹어 보냄 (요청 수 아끼기)
     // 🪙 코인도 얹어 보냄 (coins.js). 응답에 잔액이 오면 받은 것, 아니면 다음에 다시
     // 🎟 점수를 올리면 서버가 '같은 단계·다음 단계' 판 토큰을 미리 줌 → 깬 뒤 바로 다시·다음 판은 /api/runs 요청 없이 (Worker 요청 아끼기)
-    startRun: (level) => {
+    // 판 토큰을 받을 때마다 +1 (타일이 지난 토큰을 다시 쓸 때 '그 뒤 다른 토큰을 안 받았나' 확인용 — 코인은 토큰 시각 순서로만 받음)
+    runSeq: 0,
+    startRun(level) {
+      this.runSeq++;
       const k = String(level);
       const pre = nextTok[k];
       nextTok = {}; // 하나 쓰면 나머지는 버림 (코인은 판 순서대로만 받음)

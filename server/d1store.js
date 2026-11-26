@@ -355,7 +355,8 @@ export class D1Store extends PgStore {
     };
     // 예전 표: 시간 순 표가 시작되기 전 기간만 (표마다 따로). 표 전체를 읽으므로 legacy:false 면 건너뜀
     if (from < cutS || from < cutP) {
-      if (!legacy) out.legacySkipped = true;
+      // 시간 순 표가 아직 비었으면(처음·시험) 예전 표가 유일한 통계라 그대로 읽음
+      if (!legacy && Number.isFinite(cutS) && Number.isFinite(cutP)) out.legacySkipped = true;
       else {
         if (from < cutS) {
           const t = Math.min(to, cutS);

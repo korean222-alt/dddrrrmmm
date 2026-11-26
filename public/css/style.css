@@ -1624,3 +1624,14 @@ html.s2 #app:has(#screen-home2.active)::after { display: none; }
 #screen-tiles .tl-filter button { background: rgba(255, 255, 255, 0.14); color: #fff; border-color: rgba(255, 255, 255, 0.35); }
 #screen-tiles .tl-filter button[aria-pressed='true'] { background: #fff; color: #3a2090; }
 #screen-tiles .tl-foot { color: rgba(255, 255, 255, 0.8); }
+
+/* ⚙️🏆 3D 설정·랭킹 버튼 (2026-11-27 사용자 '설정이랑 랭킹 버튼도 예쁘게, 렌더링해서' — ElevenLabs 렌더 assets/ui/gear3d·trophy3d.webp) */
+.btn3d, .icon-btn.btn3d, .icon-btn.gear-btn.btn3d { position: relative; flex: none; width: 50px; height: 50px; padding: 0; border-radius: 50%; display: grid; place-items: center; overflow: visible;
+  background: radial-gradient(circle at 50% 28%, #ffffff 0%, #f3eeff 55%, #d8ccfb 100%); border: 3px solid #fff; box-shadow: 0 4px 0 rgba(27, 18, 64, 0.45), 0 8px 16px rgba(20, 10, 60, 0.28); }
+.btn3d img, .icon-btn.btn3d img, .icon-btn.gear-btn.btn3d img { width: 46px; height: 46px; display: block; filter: drop-shadow(0 2px 2px rgba(40, 20, 90, 0.35)); transform: translateY(-1px) scale(1.14); transition: transform 0.18s; }
+.btn3d:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(27, 18, 64, 0.45); }
+.btn3d[data-action='settings']:active img { transform: rotate(50deg) scale(1.05); }
+.btn3d[data-action='ranking'] img, .btn3d[data-action='s2-rank'] img { animation: trophybob 2.8s ease-in-out infinite; }
+@keyframes trophybob { 0%, 100% { transform: translateY(-1px) scale(1.14) rotate(0deg); } 50% { transform: translateY(-3px) scale(1.17) rotate(-5deg); } }
+.btn3d .dot { top: -3px; right: -3px; }
+html.lite .btn3d img { animation: none; filter: none; }

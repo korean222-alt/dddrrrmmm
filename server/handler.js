@@ -253,7 +253,8 @@ class HttpError extends Error {
 //   세는 건 인스턴스마다 하다가 몇 분·요청 몇 번마다 합침 → 덜 세질 수 있어서 단계를 낮게 잡음. Actions 스크립트가 읽는 건 안 셈
 export const USAGE_LIMITS = { r: 5_000_000, w: 100_000, q: 100_000 };
 export const BRAKE_AT = [0.4, 0.6, 0.8];
-const USAGE_FLUSH_MS = 3 * 60 * 1000;
+// 2026-11-27 무료 한도 점검: 3분·요청 50번 → 5분·요청 100번 (usage_day 쓰기가 하루 2천 줄 넘던 것 줄임)
+const USAGE_FLUSH_MS = 5 * 60 * 1000;
 const TRACK_REST_MS = 60 * 60 * 1000;
 const utcDay = (t) => new Date(t).toISOString().slice(0, 10);
 
@@ -392,6 +393,13 @@ export function createHandler(cfg, { store, meter = null }) {
     if (shared) await Promise.resolve().then(() => store.setSetting('cache:' + key, JSON.stringify({ exp: now + ttl, at: now, v }))).catch(() => {});
     return v;
   }
+  /** 같이 쓰는 기억 버리기 (메모리 + settings 한 줄 — 쓰기 1) */
+  async function forget(key) {
+    memo.delete(key);
+    try {
+      await store.setSetting('cache:' + key, '');
+    } catch {}
+  }
   // 참여자가 바뀌면(이름·인증·숨김·삭제·합치기) 이 인스턴스의 랭킹 기억만 버림 (메모리, D1 안 씀)
   for (const fn of ['upsertPlayer', 'setChecked', 'setHidden', 'deletePlayer', 'expireTempChecks', 'moveScores']) {
     const orig = store[fn];
@@ -399,6 +407,8 @@ export function createHandler(cfg, { store, meter = null }) {
     store[fn] = async function (...a) {
       const r = await orig.apply(this, a);
       for (const k of memo.keys()) if (k.startsWith('lb:') || k.startsWith('rank:')) memo.delete(k);
+      // admin 참여자 목록 기억도 버림 (settings 한 줄 쓰기 — 가입·인증 때만이라 하루 백여 줄)
+      await forget('admin:plist');
       return r;
     };
     store[fn]._forgets = true;
@@ -481,8 +491,10 @@ export function createHandler(cfg, { store, meter = null }) {
   async function adminPlayers() {
     if (typeof store.playerTotals !== 'function') return store.listPlayers();
     // 점수 합계는 기록 표 전체를 훑음 → 브레이크 1단계부터는 기억해 둔 것만 (없으면 0 으로)
-    const totalsOf = () => (brake() >= 1 && !memo.has('admin:totals') ? Promise.resolve({}) : cached('admin:totals', ttlOf(30 * 60_000), () => store.playerTotals(), { shared: false }));
-    const [list, totals] = await Promise.all([store.listPlayers(1_000_000, { totals: false }), totalsOf()]);
+    //   2026-11-27: 서버(인스턴스)마다 따로 기억해서 admin 을 열 때마다 기록 표 전체(2.7만 줄)를 또 읽었음 → settings 한 줄에 3시간 같이 씀
+    const totalsOf = () => (brake() >= 1 && !memo.has('admin:totals') ? Promise.resolve({}) : cached('admin:totals', ttlOf(3 * 3600_000), () => store.playerTotals()));
+    //   참여자 표도 10분 같이 씀 (2026-11-27: admin 을 열 때마다 6~7천 줄) — admin 에서 뭘 바꾸면 바로 버림
+    const [list, totals] = await Promise.all([cached('admin:plist', 10 * 60_000, () => store.listPlayers(1_000_000, { totals: false })), totalsOf()]);
     return list.map((p) => ({ ...p, ...(totals[p.igsid] || { total: 0, levels: 0, top: 0, endless: null }) }));
   }
 
@@ -726,7 +738,7 @@ export function createHandler(cfg, { store, meter = null }) {
     if (tryBuf.size && (now - tryAt >= USAGE_FLUSH_MS || tryBuf.size >= 100 || !meter)) await flushTries();
     if (!meter || typeof store.usageAdd !== 'function') return;
     const day = utcDay(now);
-    const big = meter.q >= 50 || meter.r >= 20000 || meter.w >= 200;
+    const big = meter.q >= 100 || meter.r >= 20000 || meter.w >= 300;
     if (usage.day === day && !big && now - usageAt < USAGE_FLUSH_MS) return;
     usageAt = now;
     const add = { r: meter.r, w: meter.w, q: meter.q };
@@ -1365,7 +1377,8 @@ export function createHandler(cfg, { store, meter = null }) {
       if (!isAdmin(request)) return json(401, { error: 'admin_required' });
       // 바꾸는 요청이면 캐시해 둔 참여자 목록·기록은 버림
       if (m !== 'GET') {
-        memo.delete('admin:totals');
+        await forget('admin:totals');
+        await forget('admin:plist');
         memo.delete('admin:scores');
         // 참여자를 내리거나 지우면 명예의 전당 캐시도 다시 계산 (안 그러면 6시간 동안 그대로 보임)
         if (p.startsWith('/api/admin/players/'))
@@ -1384,13 +1397,15 @@ export function createHandler(cfg, { store, meter = null }) {
         const todayStart = Math.floor((now + tzMin * 60000) / dayMs) * dayMs - tzMin * 60000;
         const from = todayStart - (days - 1) * dayMs;
         // 10분 기억 (통계 표는 크고 계속 늘어남). D1 은 시간 순 표라 기간만 읽고, 그 전 기간(예전 표 전체)은 한도 여유 있을 때만
+        //   2026-11-27 무료 한도 점검: 예전 표(시간 순 표 전, 5만 줄+ 통째로 읽음)는 ?legacy=1 일 때만 · 결과는 여러 서버가 30분 같이 씀
         const fresh = url.searchParams.get('fresh') === '1';
-        const key = `admin:stats:${days}`;
-        if (fresh) memo.delete(key);
-        const out = await cached(key, 10 * 60_000, async () => {
-          const raw = await store.statsRaw(from, now + 1, { legacy: brake() < 1 });
+        const legacy = url.searchParams.get('legacy') === '1' && brake() < 1;
+        const key = `admin:stats:${days}${legacy ? ':l' : ''}`;
+        if (fresh) await forget(key);
+        const out = await cached(key, 30 * 60_000, async () => {
+          const raw = await store.statsRaw(from, now + 1, { legacy });
           return { days, ...buildStats(raw, { from, to: now, tzMin }), legacySkipped: !!raw.legacySkipped, at: now };
-        }, { shared: false });
+        });
         return json(200, out);
       }
       // 🏛 명예의 전당 사진 보기·지우기 (이상한 사진이면)
@@ -1431,7 +1446,7 @@ export function createHandler(cfg, { store, meter = null }) {
       // 랭킹 참여자 (인스타 아이디로 팔로우 확인 → 안 했으면 삭제)
       if (p === '/api/admin/players' && m === 'GET') {
         // 5분 캐시 (참여자 목록은 기록 전체를 읽어서 무거움). admin 에서 뭘 바꾸면 비움
-        if (url.searchParams.get('fresh') === '1') memo.delete('admin:totals');
+        if (url.searchParams.get('fresh') === '1') await Promise.all([forget('admin:totals'), forget('admin:plist')]);
         await store.purgeHidden();
         if (store.cleanup) await store.cleanup();
         const players = await adminPlayers();

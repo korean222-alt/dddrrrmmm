@@ -6405,7 +6405,13 @@ async function tilePlay(songId = tp.song, { room = null, map = null } = {}) {
   tp.runToken = null;
   if (song && !room && state.api && state.api.mode === 'server' && isConfirmed()) {
     try {
-      tp.runToken = (await state.api.startRun(tileId(songId))).runToken;
+      // 🎟 기록을 못 넘어 안 올린 판의 토큰을 그대로 다시 씀 (같은 곡 · 그 뒤 다른 판 토큰을 안 받았을 때 · 30분 안) → 서버 요청 없음
+      const k = tp.keep;
+      if (k && k.song === songId && k.seq === state.api.runSeq && Date.now() - k.at < 30 * 60_000) tp.runToken = k.tok;
+      else {
+        tp.runToken = (await state.api.startRun(tileId(songId))).runToken;
+        tp.keep = { song: songId, tok: tp.runToken, seq: state.api.runSeq, at: Date.now(), sentAt: Date.now(), held: 0 };
+      }
     } catch (e) {
       if (e && e.status === 403) {
         show('screen-tiles');
@@ -6533,15 +6539,34 @@ async function tileEnd(r) {
     return;
   }
   if (!tp.runToken || r.tiles <= 0) return;
+  // 📉 서버에 올라간 내 최고 기록을 못 넘은 판은 바로 안 보냄 (Worker 요청 아끼기, 2026-11-27 무료 한도 점검)
+  //   토큰은 다음 판에 그대로 쓰고, 코인은 5분 또는 5판마다 한 번 몰아서 보냄 (코인이 너무 오래 폰에만 있지 않게)
+  const srv = load('tileSrvBest', {}) || {};
+  const known = srv[r.songId];
+  const k = tp.keep && tp.keep.tok === tp.runToken ? tp.keep : null;
+  if (known != null && r.tiles <= known && k) {
+    k.held++;
+    if (k.held < 5 && Date.now() - k.sentAt < 5 * 60_000) {
+      say(`내 최고 기록 ${fmt(known)}점 그대로예요`);
+      tp.runToken = null;
+      return;
+    }
+  }
   try {
     const out = await state.api.submitScore({ runToken: tp.runToken, level: tileId(r.songId), tiles: r.tiles, laps: r.laps, maxCombo: r.maxCombo, missed: r.missed, wrong: r.wrong });
     tp.runToken = null;
+    tp.keep = null; // 다음 판은 서버가 준 다음 판 토큰으로
+    if (out && Number.isFinite(out.best) && !out.preview) {
+      srv[r.songId] = Math.max(out.best, srv[r.songId] || 0);
+      save('tileSrvBest', srv);
+    }
     refreshCoins();
     if (out.preview) say('👀 미리보기 · 시즌 2 가 열리면 랭킹에 올라가요');
     else if (out.improved && out.rank) say(`🏆 시즌 2 랭킹 <b>${out.rank}위</b>!`);
     else if (out.improved) say(out.over ? '🏆 랭킹에 올라갔어요 · 200위 밖' : '🏆 랭킹에 올라갔어요!');
     else say(`내 최고 기록 ${fmt(out.best)}점 그대로예요`);
   } catch (e) {
+    tp.keep = null;
     if (e && e.status === 409) return;
     say('랭킹에 못 올렸어요. 다음 판에 다시 해 볼게요');
   }

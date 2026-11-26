@@ -244,7 +244,7 @@
         (d.refs.map((x) => `<tr><td>${esc(x.name)}</td><td>${fmtN(x.sessions)}</td></tr>`).join('') || '<tr><td class="empty">-</td></tr>') +
         '<tr><th>기기</th><th>접속</th></tr>' +
         d.devices.map((x) => `<tr><td>${esc(devName[x.name] || x.name)}</td><td>${fmtN(x.sessions)}</td></tr>`).join('');
-      $('#stats-note').textContent = `방문자 = 브라우저(기기) 기준 익명 번호 · 이용 시간 = 화면을 보며 만진 시간만 (1분 넘게 안 만지면 제외) · 날짜는 한국시간 기준 · ${new Date(d.at || Date.now()).toLocaleTimeString('ko-KR')} 기준 (10분마다 새로)${d.legacySkipped ? ' · ⚠ 오늘 D1 사용량이 많아서 예전 통계 표(시간 순 표 전 기간)는 빼고 셈' : ''}${d.sampled ? ' · 📊 사람이 많은 시간엔 방문자 일부만 적고 배로 셈(어림값)' : ''}`;
+      $('#stats-note').textContent = `방문자 = 브라우저(기기) 기준 익명 번호 · 이용 시간 = 화면을 보며 만진 시간만 (1분 넘게 안 만지면 제외) · 날짜는 한국시간 기준 · ${new Date(d.at || Date.now()).toLocaleTimeString('ko-KR')} 기준 (30분마다 새로)${d.legacySkipped ? ' · ⚠ D1 한도 아끼려고 11월 22일 오전 전 예전 통계는 빼고 셈' : ''}${d.sampled ? ' · 📊 사람이 많은 시간엔 방문자 일부만 적고 배로 셈(어림값)' : ''}`;
     }
 
     $('#ranges').addEventListener('click', (e) => {
