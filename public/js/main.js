@@ -32,7 +32,7 @@ import { groupStarting, THEMES, SHOP_KITS } from './themes.js';
 import { newsFor } from './news.js';
 import { RoomClient, roomOutcome, survivalOutcome } from './room.js';
 import { makeReelCover } from './cover.js';
-import { detectBeat, monoOf, songChart } from './beatsync.js';
+import { barEnergy, detectBeat, monoOf, songChart } from './beatsync.js';
 import { seasonLeftText, BOARD_LABEL, seasonAt } from './season.js';
 import { TILE_SONGS, TILE_DIFF, tileSong, tileId, tileClosed, lapStars, tileLap } from './tiles.js';
 import { TileGame } from './tilegame.js';
@@ -406,7 +406,7 @@ function playable(id) {
   if (typeof id === 'string' && /^ch\d+$/.test(id)) return makeEndless({ rounds: Number(id.slice(2)) });
   if (id === BEAT_ID) {
     const o = load('beatReel', null) || {};
-    return withSync(makeBeatReel({ ...o, bars: songBars(beatOpts(o)) }));
+    return withSync(makeBeatReel({ ...o, bars: songBars(beatOpts(o)), energy: beatEnergy(beatOpts(o)) }));
   }
   if (isQuizId(id)) return makeQuizLevel(id);
   if (id === MY_ID) return my.level;
@@ -4603,9 +4603,28 @@ function songBars(o) {
   songCache = { key, bars: r.bars, covered: r.covered };
   return r.bars;
 }
+/** 🥁 비트: 화면 녹화가 있으면 마디마다 노래 세기 → 하이라이트는 더 어렵게 */
+let energyCache = null;
+function beatEnergy(o) {
+  if (o.style !== 'steady' || sync.firstBeat == null) return null;
+  const buf = audio.trackBuffer(sync.url);
+  if (!buf) return null;
+  const first = syncChartStart();
+  const key = [sync.url, first, o.bpm, o.rounds].join('|');
+  if (energyCache && energyCache.key === key) return energyCache.e;
+  const e = barEnergy(monoOf(buf), buf.sampleRate, { firstBeat: first, bpm: o.bpm, bars: o.rounds * ROUND_BARS });
+  energyCache = { key, e };
+  return e;
+}
 /** 노래 따라 안내 한 줄 */
 function songInfoText() {
   const o = beatSaved();
+  if (o.style === 'steady') {
+    const e = beatEnergy(o);
+    if (!e) return '';
+    const peak = e.filter((x) => x != null && x >= 0.62).length;
+    return peak ? `비트: 화면 녹화에서 센 구간(하이라이트) ${peak}마디를 찾아 더 어렵게, 조용한 구간은 쉽게 만들었어요` : '비트: 녹화한 구간이 처음부터 끝까지 비슷한 세기라 같은 난이도로 쭉 가요';
+  }
   if (o.style !== 'song') return '';
   if (sync.firstBeat == null) return '노래 따라는 위에서 화면 녹화 영상을 넣고 박자를 찾아야 만들어져요 (그 전엔 비트로 쳐요)';
   songBars(o);
