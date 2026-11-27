@@ -88,6 +88,8 @@ export const D1_ALTERS = [
   // 🔑 카카오 로그인: 카카오 회원번호의 해시 (2026-11-26)
   'ALTER TABLE players ADD COLUMN kakao TEXT',
   'ALTER TABLE players ADD COLUMN google TEXT',
+  // 🙂 프로필 이미지 id (2026-11-27)
+  'ALTER TABLE players ADD COLUMN av TEXT',
   'ALTER TABLE hall ADD COLUMN msg TEXT',
   // 📊 통계 표본 무게 (2026-11-22 저녁) — 표를 그날 만들었다면 열이 없을 수 있음
   'ALTER TABLE sessions_t ADD COLUMN w INTEGER NOT NULL DEFAULT 1',

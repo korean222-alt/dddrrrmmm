@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=5fb70d1cd5" />
+  <link rel="stylesheet" href="css/style.css?v=cdc6f31010" />
 </head>
 <body>
   <div id="app">
@@ -66,6 +66,13 @@
 
     <!-- 🎹 시즌 2 첫 화면 (2026-11-26) — 일반 유저는 운영자가 admin 에서 열기 전엔 안 보임 (미리보기: /?s2=okay 기기만) -->
     <section id="screen-home2" class="screen s2home" aria-label="시작 화면">
+      <!-- 🌙 은은한 배경 장식 (2026-11-27 사용자 '배경이 심심해, 화려한 건 말고'): 작은 별 · 오선 · 떠오르는 음표 · 바닥 건반 그림자 -->
+      <div class="h2-deco" aria-hidden="true">
+        <i class="h2-stars"></i><i class="h2-stars s2"></i>
+        <svg class="h2-staff" viewBox="0 0 400 120" preserveAspectRatio="none"><g fill="none" stroke="currentColor" stroke-width="1"><path d="M-20 40 C80 10 160 70 260 40 S380 20 440 45"/><path d="M-20 52 C80 22 160 82 260 52 S380 32 440 57"/><path d="M-20 64 C80 34 160 94 260 64 S380 44 440 69"/><path d="M-20 76 C80 46 160 106 260 76 S380 56 440 81"/><path d="M-20 88 C80 58 160 118 260 88 S380 68 440 93"/></g></svg>
+        <span class="h2-notes"><i>♪</i><i>♫</i><i>♩</i><i>♪</i><i>♬</i><i>♩</i></span>
+        <i class="h2-keys"></i>
+      </div>
       <!-- 🎹 시즌 2 첫 화면 — 2026-11-27 사용자 '깔끔하게, 버튼 눌러야 보이게' → 로고·캐릭터 + 게임 시작 + 멀티·유저 맵만. 출석·퀘스트·오늘의 노래는 아래 탭 「이벤트」 -->
       <div class="h2-top">
         <button class="h2-avatar btn3d" data-action="settings" aria-label="설정"><img src="assets/ui/gear3d.webp" alt="" width="46" height="46" /><i class="dot" id="gear-dot2" hidden></i></button>
@@ -944,12 +951,24 @@
         <p class="login-guest-note" id="login-guest-note">게스트는 <b>코인·기록이 저장되지 않고</b> <b>랭킹에도 못 올라가요</b></p>
       </div>
       <form id="login-name-form" class="stack" hidden>
-        <h3>닉네임 정하기</h3>
-        <p class="muted">로그인했어요! 랭킹에 보일 닉네임만 정하면 끝.</p>
+        <h3>프로필 만들기</h3>
+        <p class="muted">로그인했어요! 랭킹에 보일 프로필을 정해요.</p>
+        <div class="field"><span>프로필 이미지</span><div class="av-grid" id="login-av"></div></div>
         <label class="field"><span>닉네임 <small class="muted">2~12자</small></span><input type="text" id="login-name" maxlength="12" autocomplete="nickname" placeholder="예: 쿵짝왕" /></label>
+        <label class="field"><span>인스타 아이디 <small class="muted">선택</small></span><input type="text" id="login-ig" maxlength="40" autocomplete="off" autocapitalize="none" spellcheck="false" placeholder="@ 없이 아이디" /></label>
         <p class="join-err small" id="login-err" hidden></p>
         <button class="btn btn-primary" type="submit">시작하기</button>
       </form>
+    </div>
+  </div>
+
+  <!-- 🙂 프로필 이미지 바꾸기 (2026-11-27) -->
+  <div class="modal" id="modal-avatar" hidden>
+    <div class="sheet">
+      <button class="icon-btn close" data-action="close-avatar" aria-label="닫기"><span data-icon="close"></span></button>
+      <h3>프로필 이미지</h3>
+      <p class="muted small">랭킹에 닉네임과 같이 보여요</p>
+      <div class="av-grid" id="avatar-grid"></div>
     </div>
   </div>
 
@@ -1359,6 +1378,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=c7bfcbb8f2" defer></script>
+  <script src="js/app.js?v=209f98ba2a" defer></script>
 </body>
 </html>

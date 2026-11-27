@@ -104,7 +104,8 @@ function serverApi(boot = null) {
       }
       return http('GET', '/api/me');
     },
-    guest: (name, ig) => http('POST', '/api/guest', { name, ig }),
+    guest: (name, ig, av) => http('POST', '/api/guest', { name, ig, av }),
+    avatar: (av) => http('POST', '/api/avatar', { av }),
     verifyPassword: (body) => http('POST', '/api/verify/password', body),
     // 이용 통계는 따로 안 보내고 이 요청들에 얹어 보냄 (요청 수 아끼기)
     // 🪙 코인도 얹어 보냄 (coins.js). 응답에 잔액이 오면 받은 것, 아니면 다음에 다시
@@ -246,8 +247,13 @@ function mockApi(cfg) {
       const p = getPlayer();
       return p ? { verified: !p.guest, guest: !!p.guest, player: p } : { verified: false };
     },
-    async guest(name, ig) {
-      const p = { username: String(name).trim(), ig, guest: true };
+    async avatar(av) {
+      const p = { ...(getPlayer() || {}), av };
+      save('mockPlayer', p);
+      return { verified: false, guest: true, player: p };
+    },
+    async guest(name, ig, av) {
+      const p = { username: String(name).trim(), ig, av, guest: true };
       save('mockPlayer', p);
       return { verified: false, guest: true, player: p };
     },

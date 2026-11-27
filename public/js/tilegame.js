@@ -44,6 +44,39 @@ const GREAT_SEC = [-0.15, 0.17];
 /** 🎯 PERFECT 자리 (줄): 타일 아래 끝이 판정선을 이만큼 지난 때가 한가운데 (2026-11-27 사용자 '선 중간에 맞춰 누르는데 PERFECT 가 안 떠, 좀만 내려')
  *   = 타일이 판정선에 걸쳐 있을 때. 소리(그 음)는 그대로 아래 끝이 선에 닿을 때 */
 const PERFECT_ROWS = 0.3;
+
+/**
+ * 🎨 판정 글자 색 = 스킨 컨셉 (2026-11-27 사용자 '세트 스킨들은 PERFECT 도 컨셉에 맞게 색 바뀌게, 라이브 세트는 최대한 비슷하게')
+ *   → { perfect·great·good: 그라데이션 색, stroke: 테두리, shadow, glass: 유리 조각 물(r,g,b), gloss, italic, fx, combo, comboFill }
+ *   🎤 라이브 = 리듬게임 라이브 무대 느낌: 기울인 글씨 + 핑크→노랑→하늘→보라 파스텔, 하얀 빛 테두리, 빛줄기, 가운데 「COMBO」 숫자
+ *   (특정 게임 이름·로고·그림은 안 베낌 — 장르에서 흔한 모양만)
+ */
+export function judgeTheme(key, palette) {
+  const base = { perfect: ['#d98bff', '#ff8fcf', '#ffb07a'], great: ['#7fe6ff', '#6aa6ff', '#8f86ff'], good: ['#8ff0c8', '#5ccfb4', '#4fb7d8'], stroke: '#ffffff', shadow: 'rgba(170,70,200,0.45)', glass: '255,220,250', gloss: 0.45, italic: false, fx: 'glass', combo: 'x', comboFill: '#ffffff' };
+  switch (key) {
+    case 'live':
+      return { ...base, perfect: ['#ff6fd8', '#ffb3e6', '#ffe86b', '#8ff6ff', '#b58cff'], great: ['#ff9fe3', '#ff6fc8', '#ff9fe3'], good: ['#9fe8ff', '#5cc8ff', '#9fe8ff'], shadow: 'rgba(255,150,240,0.95)', gloss: 0.55, italic: true, fx: 'streak', combo: 'live' };
+    case 's1':
+      return { ...base, perfect: ['#fff6c8', '#ffd54a', '#e09a12', '#ffe680'], great: ['#c9d4ff', '#8fa2ff', '#5c6fe0'], good: ['#b8c2e8', '#8a97c8', '#6a76a8'], stroke: '#1b2560', shadow: 'rgba(20,28,90,0.55)', glass: '255,214,90', gloss: 0.6, comboFill: '#ffe27a' };
+    case 'gold':
+      return { ...base, perfect: ['#ffe680', '#ffb300', '#e07a00', '#ffd04a'], great: ['#ffe39a', '#f2b23a', '#d98a10'], shadow: 'rgba(150,90,0,0.6)', glass: '255,210,90', gloss: 0.6, comboFill: '#fff3c4' };
+    case 'flame':
+    case 'fire':
+      return { ...base, perfect: ['#ffe27a', '#ff9a1f', '#ff4a2e'], great: ['#ffd27a', '#ff8a3a', '#ff6a4a'], shadow: 'rgba(200,60,0,0.5)', glass: '255,150,60' };
+    case 'ice':
+      return { ...base, perfect: ['#bff3ff', '#3ec8ff', '#4f7bff'], great: ['#9fe6ff', '#5cb8ff', '#7f9cff'], shadow: 'rgba(30,90,200,0.55)', glass: '150,230,255', gloss: 0.6 };
+    case 'heart':
+      return { ...base, perfect: ['#ffb3d9', '#ff5fa2', '#e86bff'], great: ['#ffc2e0', '#ff8fc8', '#f2a0ff'], shadow: 'rgba(220,40,130,0.45)', glass: '255,140,200' };
+    case 'cyber':
+      return { ...base, perfect: ['#00f0ff', '#c6ff00', '#ff2bd6'], great: ['#00f0ff', '#8c5cff'], good: ['#00ff9c', '#00b0c0'], stroke: '#0b0f2a', shadow: 'rgba(0,240,255,0.7)', glass: '0,240,255', italic: true, comboFill: '#b8fcff' };
+    case 'galaxy':
+      return { ...base, perfect: ['#5cffc8', '#4fd8ff', '#b26bff', '#ff7ad9'], great: ['#9fb0ff', '#b26bff'], shadow: 'rgba(110,60,220,0.55)', glass: '180,120,255' };
+    default:
+      // 색 콩(사탕·네온·바다·불꽃): 그 스킨의 색 셋으로
+      if (palette && key !== 'mono' && palette.length >= 3) return { ...base, perfect: [palette[0][0], palette[1][0], palette[2][0]] };
+      return base;
+  }
+}
 /** 👆 타일 아래 끝보다 이만큼(줄) 아래를 눌러도 그 타일 (손가락이 닿는 사이 타일이 내려옴) — 더 밑은 빈 칸 */
 const TAP_BELOW = 0.3;
 /** 🪙 떨어지는 코인 (드럼처럼) 수명 */
@@ -1349,8 +1382,10 @@ export class TileGame {
     const k = (t - j.at) / life;
     if (k < 0 || k > 1) return;
     const { W, H } = this;
-    const px = Math.min(46, W * 0.115);
-    const y = Math.max(76, H * 0.105) + Math.min(56, W * 0.135) + px * 0.9;
+    const th = judgeTheme(this.skin.key, this.skin.palette);
+    // 2026-11-27 사용자 'PERFECT 글씨 너무 커' → 예전(46·W×0.115)의 3/4쯤
+    const px = Math.min(34, W * 0.084);
+    const y = Math.max(76, H * 0.105) + Math.min(56, W * 0.135) + px * 1.1;
     const a = k > 0.7 ? (1 - k) / 0.3 : 1;
     const k1 = clamp(k / 0.16, 0, 1);
     const s = (per ? 1 : 0.85) * (k1 < 1 ? 0.6 + 0.5 * ease(k1) - 0.1 * Math.max(0, k1 - 0.6) / 0.4 : 1 + 0.02 * (k - 0.16));
@@ -1358,12 +1393,37 @@ export class TileGame {
     g.globalAlpha = a;
     g.translate(W / 2, y);
     g.scale(s, s);
+    if (th.italic) g.transform(1, 0, -0.2, 1, 0, 0); // 기울인 글씨 (라이브 세트·사이버)
     g.font = disp(px);
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     const tw = g.measureText(j.word).width;
-    // 유리 조각 (판정마다 모양이 조금씩 다름): 글자 뒤에서 살짝 퍼짐
-    if (per) {
+    if (per && th.fx === 'streak') {
+      // 🎤 라이브: 글자 뒤로 하얀 빛줄기가 가로로 스치고, 작은 마름모 반짝이
+      const sk = ease(clamp(k / 0.35, 0, 1));
+      const len = tw * (0.7 + 0.6 * sk);
+      const lg = g.createLinearGradient(-len, 0, len, 0);
+      lg.addColorStop(0, 'rgba(255,255,255,0)');
+      lg.addColorStop(0.5, `rgba(255,255,255,${0.75 * (1 - k)})`);
+      lg.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = lg;
+      g.fillRect(-len, -px * 0.07, len * 2, px * 0.14);
+      for (const [dx, dy, r] of [[-0.62, -0.62, 0.16], [0.58, 0.5, 0.12], [0.66, -0.7, 0.09]]) {
+        const rr = px * r * (0.6 + 0.6 * Math.sin(Math.PI * clamp(k * 1.6, 0, 1)));
+        g.save();
+        g.translate(tw * dx, px * dy);
+        g.fillStyle = '#ffffff';
+        g.beginPath();
+        g.moveTo(0, -rr * 1.6);
+        g.lineTo(rr * 0.5, 0);
+        g.lineTo(0, rr * 1.6);
+        g.lineTo(-rr * 0.5, 0);
+        g.closePath();
+        g.fill();
+        g.restore();
+      }
+    } else if (per) {
+      // 유리 조각 (판정마다 모양이 조금씩 다름): 글자 뒤에서 살짝 퍼짐 — 스킨 색으로 물듦
       let seed = Math.floor(j.at * 977) % 233280 || 7;
       const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
       const spread = ease(k / 0.5);
@@ -1385,68 +1445,93 @@ export class TileGame {
         g.closePath();
         const sgr = g.createLinearGradient(-sz, -sz * 0.4, sz, sz * 0.4);
         sgr.addColorStop(0, 'rgba(255,255,255,0.42)');
-        sgr.addColorStop(1, 'rgba(255,220,250,0.08)');
+        sgr.addColorStop(1, `rgba(${th.glass},0.14)`);
         g.fillStyle = sgr;
         g.fill();
         g.strokeStyle = 'rgba(255,255,255,0.85)';
-        g.lineWidth = 1.6;
+        g.lineWidth = 1.4;
         g.lineJoin = 'round';
         g.stroke();
         g.restore();
       }
     }
-    const gr = g.createLinearGradient(-tw / 2, 0, tw / 2, 0);
-    const cs = per ? ['#d98bff', '#ff8fcf', '#ffb07a'] : j.word === 'GREAT' ? ['#7fe6ff', '#6aa6ff', '#8f86ff'] : ['#8ff0c8', '#5ccfb4', '#4fb7d8'];
-    gr.addColorStop(0, cs[0]);
-    gr.addColorStop(0.5, cs[1]);
-    gr.addColorStop(1, cs[2]);
+    const gr = g.createLinearGradient(-tw / 2, -px * 0.3, tw / 2, px * 0.3);
+    const cs = per ? th.perfect : j.word === 'GREAT' ? th.great : th.good;
+    cs.forEach((c, i) => gr.addColorStop(i / (cs.length - 1), c));
     g.lineJoin = 'round';
-    g.shadowColor = per ? 'rgba(170,70,200,0.45)' : 'rgba(40,60,160,0.35)';
-    g.shadowBlur = 10;
-    g.shadowOffsetY = 2;
-    g.lineWidth = px * 0.14;
-    g.strokeStyle = '#ffffff';
+    g.shadowColor = per ? th.shadow : 'rgba(40,60,160,0.35)';
+    g.shadowBlur = per && th.fx === 'streak' ? 14 : 10;
+    g.shadowOffsetY = th.fx === 'streak' ? 0 : 2;
+    g.lineWidth = px * 0.15;
+    g.strokeStyle = th.stroke;
     g.strokeText(j.word, 0, 0);
     g.shadowColor = 'transparent';
     g.fillStyle = gr;
     g.fillText(j.word, 0, 0);
     // 윗면 광택
     const hg = g.createLinearGradient(0, -px * 0.45, 0, px * 0.1);
-    hg.addColorStop(0, 'rgba(255,255,255,0.45)');
+    hg.addColorStop(0, `rgba(255,255,255,${th.gloss})`);
     hg.addColorStop(1, 'rgba(255,255,255,0)');
     g.fillStyle = hg;
     g.fillText(j.word, 0, 0);
     if (!per) {
       // 빨라요 / 늦어요 (왜 PERFECT 가 아닌지)
-      g.font = font(px * 0.42);
+      g.font = font(px * 0.44);
       g.shadowColor = 'rgba(30,20,80,0.4)';
       g.shadowBlur = 4;
       g.fillStyle = '#ffffff';
-      g.fillText(j.late ? '늦어요' : '빨라요', 0, px * 0.85);
+      g.fillText(j.late ? '늦어요' : '빨라요', 0, px * 0.88);
       g.shadowColor = 'transparent';
     }
     g.restore();
-    // ×연속: 글자 오른쪽 아래에 하얀 숫자
-    if (j.n >= 2) {
-      const ck = clamp(k / 0.14, 0, 1);
-      const cs2 = 0.7 + 0.3 * ease(ck) + 0.12 * Math.sin(ck * Math.PI);
-      g.save();
-      g.globalAlpha = a;
-      g.translate(W / 2 + (tw * s) * 0.22, y + px * 0.92);
+    if (j.n < 2) return;
+    const ck = clamp(k / 0.14, 0, 1);
+    const cs2 = 0.7 + 0.3 * ease(ck) + 0.12 * Math.sin(ck * Math.PI);
+    g.save();
+    g.globalAlpha = a;
+    if (th.combo === 'live') {
+      // 🎤 라이브: 판정 글자 밑에 「COMBO」 + 큰 기울인 숫자 (파스텔 그라데이션 · 하얀 빛)
+      g.translate(W / 2, y + px * 1.35);
       g.scale(cs2, cs2);
-      g.textAlign = 'left';
+      g.transform(1, 0, -0.2, 1, 0, 0);
+      g.textAlign = 'center';
       g.textBaseline = 'middle';
-      g.shadowColor = 'rgba(150,60,190,0.45)';
-      g.shadowBlur = 8;
-      g.shadowOffsetY = 2;
+      g.font = disp(px * 0.36, 600);
+      g.shadowColor = 'rgba(255,255,255,0.9)';
+      g.shadowBlur = 6;
       g.fillStyle = '#ffffff';
-      g.font = disp(px * 0.5, 600);
-      g.fillText('×', 0, px * 0.04);
-      const xw = g.measureText('×').width;
-      g.font = disp(px * 0.82);
-      g.fillText(String(j.n), xw + px * 0.06, 0);
+      g.fillText('C O M B O', 0, -px * 0.02);
+      g.font = disp(px * 1.05);
+      const nw = g.measureText(String(j.n)).width;
+      const ng = g.createLinearGradient(-nw / 2, 0, nw / 2, 0);
+      th.perfect.forEach((c, i) => ng.addColorStop(i / (th.perfect.length - 1), c));
+      g.shadowColor = th.shadow;
+      g.shadowBlur = 12;
+      g.lineWidth = px * 0.13;
+      g.strokeStyle = '#ffffff';
+      g.lineJoin = 'round';
+      g.strokeText(String(j.n), 0, px * 0.72);
+      g.shadowColor = 'transparent';
+      g.fillStyle = ng;
+      g.fillText(String(j.n), 0, px * 0.72);
       g.restore();
+      return;
     }
+    // ×연속: 글자 오른쪽 아래에 숫자 (스킨 색 그림자)
+    g.translate(W / 2 + (tw * s) * 0.22, y + px * 0.95);
+    g.scale(cs2, cs2);
+    g.textAlign = 'left';
+    g.textBaseline = 'middle';
+    g.shadowColor = th.shadow;
+    g.shadowBlur = 8;
+    g.shadowOffsetY = 2;
+    g.fillStyle = th.comboFill;
+    g.font = disp(px * 0.5, 600);
+    g.fillText('×', 0, px * 0.04);
+    const xw = g.measureText('×').width;
+    g.font = disp(px * 0.82);
+    g.fillText(String(j.n), xw + px * 0.06, 0);
+    g.restore();
   }
 
   /** ⚔️ 대결: 나 vs 상대 막대 */

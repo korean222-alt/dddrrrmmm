@@ -51,6 +51,8 @@ const SCHEMA = [
   `CREATE INDEX IF NOT EXISTS players_kakao ON players (kakao) WHERE kakao IS NOT NULL`,
   // google = 🔑 구글 계정 번호의 해시 (2026-11-26 구글 로그인)
   `ALTER TABLE players ADD COLUMN IF NOT EXISTS google TEXT`,
+  // av = 🙂 프로필 이미지 id (2026-11-27, public/js/avatars.js)
+  `ALTER TABLE players ADD COLUMN IF NOT EXISTS av TEXT`,
   `CREATE INDEX IF NOT EXISTS players_google ON players (google) WHERE google IS NOT NULL`,
   `CREATE TABLE IF NOT EXISTS scores (
      igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, grade TEXT, max_combo INTEGER,
@@ -412,17 +414,17 @@ END $$`);
   // ----- players -----
   async getPlayer(igsid) {
     const r = await this.one('SELECT * FROM players WHERE igsid = $1', [igsid]);
-    return r ? { igsid: r.igsid, username: r.username, ig: r.ig || null, hiddenAt: num(r.hidden_at) ?? null, checkedAt: num(r.checked_at) ?? null, kakao: !!r.kakao, google: !!r.google, createdAt: num(r.created_at) ?? null } : null;
+    return r ? { igsid: r.igsid, username: r.username, ig: r.ig || null, hiddenAt: num(r.hidden_at) ?? null, checkedAt: num(r.checked_at) ?? null, kakao: !!r.kakao, google: !!r.google, av: r.av || null, createdAt: num(r.created_at) ?? null } : null;
   }
   async upsertPlayer(igsid, patch) {
     // 인스타 아이디가 바뀌면 운영자가 팔로우를 다시 확인해야 함 (checked_at 비움)
     await this.q(
-      `INSERT INTO players (igsid, username, ig, created_at) VALUES ($1, $2, $3, $4)
-       ON CONFLICT (igsid) DO UPDATE SET username = COALESCE(EXCLUDED.username, players.username),
+      `INSERT INTO players (igsid, username, ig, created_at, av) VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT (igsid) DO UPDATE SET username = COALESCE(EXCLUDED.username, players.username), av = COALESCE(EXCLUDED.av, players.av),
          checked_at = CASE WHEN EXCLUDED.ig IS NOT NULL AND (EXCLUDED.ig IS DISTINCT FROM players.ig OR players.hidden_at IS NOT NULL) THEN NULL ELSE players.checked_at END,
          hidden_at = CASE WHEN EXCLUDED.ig IS NOT NULL THEN NULL ELSE players.hidden_at END,
          ig = COALESCE(EXCLUDED.ig, players.ig)`,
-      [igsid, patch.username ?? null, patch.ig ?? null, Date.now()]
+      [igsid, patch.username ?? null, patch.ig ?? null, Date.now(), patch.av ?? null]
     );
     return this.getPlayer(igsid);
   }
@@ -510,7 +512,7 @@ END $$`);
   }
   async leaderboard(level, limit = 50) {
     const rows = await this.q(
-      `SELECT s.igsid, p.username, s.score, s.grade, s.at FROM scores s JOIN players p ON p.igsid = s.igsid
+      `SELECT s.igsid, p.username, p.av, s.score, s.grade, s.at FROM scores s JOIN players p ON p.igsid = s.igsid
        WHERE s.level = $1 AND p.username IS NOT NULL AND p.hidden_at IS NULL AND p.checked_at IS NOT NULL ORDER BY s.score DESC, s.at ASC LIMIT $2`,
       [level, limit]
     );

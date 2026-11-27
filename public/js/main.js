@@ -34,6 +34,7 @@ import { RoomClient, roomOutcome, survivalOutcome } from './room.js';
 import { makeReelCover } from './cover.js';
 import { barEnergy, detectBeat, monoOf, songChart } from './beatsync.js';
 import { seasonLeftText, BOARD_LABEL, seasonAt } from './season.js';
+import { AVATARS, avatarHtml, cleanAvatar } from './avatars.js';
 import { TILE_SONGS, TILE_DIFF, tileSong, tileId, tileClosed, lapStars, tileLap, mapTileLap, MAP_TILE_LAPS } from './tiles.js';
 import { TileGame } from './tilegame.js';
 import { noteTilePlay, noteDrum, questView, claimQuest, claimCommunity, communityClaimed, attView, noteAttendance } from './s2claims.js';
@@ -1988,7 +1989,7 @@ function openSettings() {
   updateSettingLabels();
   renderDeco();
   $('#settings-account').innerHTML = state.me.guest
-    ? `랭킹 닉네임: <b>${escapeHtml(state.me.player?.username)}</b> · <button class="link" data-action="logout">닉네임 지우기</button>`
+    ? `<button class="av-pick-btn" data-action="avatar-open" aria-label="프로필 이미지 바꾸기">${avatarHtml(state.me.player?.av, state.me.player?.username, 'av-md')}<i>✎</i></button><span>랭킹 닉네임: <b>${escapeHtml(state.me.player?.username)}</b> · <button class="link" data-action="logout">닉네임 지우기</button></span>`
     : `랭킹은 팔로워 인증을 받은 사람만 올라가요 · <button class="link" data-action="rank-join">팔로워 인증 받기</button>`;
   $('#transfer-code').hidden = true;
   openModal('modal-settings');
@@ -6297,7 +6298,7 @@ function renderHomeToday() {
       ${tileCoverHtml(hot, i, true)}
       <span class="h2-today-info">
         <b>${escapeHtml(song.level.name)}</b>
-        <small>${escapeHtml(song.level.composer)} · ${TILE_DIFF[hot.diff]}</small>
+        <small>${escapeHtml(song.level.composer)} ${diffBadge(hot.diff, true)}</small>
         <span class="h2-today-score"><em>최고</em><strong>${b ? fmt(b.tiles) : 0}</strong></span>
         <span class="h2-today-stars">${tileStarsHtml(st.stars, st.gems)}</span>
       </span>
@@ -6343,6 +6344,22 @@ const GEM_EMPTY_SVG = '<svg viewBox="0 0 24 24" class="gem-i empty" aria-hidden=
 function tileStarsHtml(stars, gems) {
   return `<span class="t-stars">${[0, 1, 2].map((i) => `<i class="${i < stars ? 'on' : ''}">★</i>`).join('')}</span>${stars >= 3 ? `<span class="t-gems">${[0, 1, 2].map((i) => (i < gems ? GEM_SVG : GEM_EMPTY_SVG)).join('')}</span>` : ''}`;
 }
+/**
+ * 🏷 난이도 뱃지 (2026-11-27 사용자 '난이도 표시를 멋지게'): 아이콘 + 글자 + 칸(1~5), 난이도마다 색·빛
+ *   쉬움 새싹 · 보통 별 · 어려움 불꽃 · 지옥 해골 · 지옥+ 뿔 달린 해골(무지개 테두리가 돎)
+ */
+const DIFF_ICO = [
+  '',
+  '<path d="M12 21v-8M12 13c0-4 2.5-7 7-7 0 4.5-3 7-7 7zM12 15c0-3-2-5.5-6-5.5 0 3.5 2.5 5.5 6 5.5z" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>',
+  '<path d="M12 2.8l2.7 6 6.5.6-4.9 4.3 1.5 6.4L12 16.8 6.2 20.1l1.5-6.4L2.8 9.4l6.5-.6z" fill="currentColor"/>',
+  '<path d="M12 2c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 1.5-4.5 3-6 0 2 1 3 2 3 0-3-1-6 1-9z" fill="currentColor"/><path d="M12 13c1.5 1.5 3 2.5 3 4.5a3 3 0 0 1-6 0c0-1.5 1-2.5 3-4.5z" fill="rgba(255,255,255,0.55)"/>',
+  '<path d="M12 2.5c-4.7 0-8 3.2-8 7.6 0 2.6 1.2 4.4 3 5.4V19a1.5 1.5 0 0 0 1.5 1.5H10v-2h1.2v2h1.6v-2H14v2h1.5A1.5 1.5 0 0 0 17 19v-3.5c1.8-1 3-2.8 3-5.4 0-4.4-3.3-7.6-8-7.6z" fill="currentColor"/><circle cx="8.8" cy="10.8" r="2.1" fill="#3a0010"/><circle cx="15.2" cy="10.8" r="2.1" fill="#3a0010"/><path d="M12 13.2l-1.2 2.2h2.4z" fill="#3a0010"/>',
+  '<path d="M3 2.5c.5 3 1.8 4.8 3.8 5.6M21 2.5c-.5 3-1.8 4.8-3.8 5.6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/><path d="M12 5c-4.4 0-7.5 3-7.5 7.1 0 2.4 1.1 4.1 2.8 5V20a1.3 1.3 0 0 0 1.3 1.3h1.5v-1.8h1.2v1.8h1.4v-1.8h1.2v1.8h1.5a1.3 1.3 0 0 0 1.3-1.3v-2.9c1.7-.9 2.8-2.6 2.8-5C19.5 8 16.4 5 12 5z" fill="currentColor"/><path d="M7.2 11.2l3.3 1.4-.4 1.2-2.2-.3zM16.8 11.2l-3.3 1.4.4 1.2 2.2-.3z" fill="#ff2e5f"/><path d="M12 14.6l-1 1.8h2z" fill="#2a0030"/>',
+];
+function diffBadge(d, mini = false) {
+  const pips = mini ? '' : `<span class="db-pips">${[1, 2, 3, 4, 5].map((k) => `<i class="${k <= d ? 'on' : ''}"></i>`).join('')}</span>`;
+  return `<em class="diff-badge d${d}${mini ? ' mini' : ''}"><svg viewBox="0 0 24 24" aria-hidden="true">${DIFF_ICO[d] || ''}</svg><b>${TILE_DIFF[d]}</b>${pips}</em>`;
+}
 /** 곡 표지: 곡마다 색이 다른 그라데이션 + 내려오는 타일 무늬 + 음표 */
 const TILE_HUES = [28, 340, 200, 265, 150, 12, 300, 185, 45, 230, 320, 95, 255, 5, 170, 280, 210, 355];
 function tileCoverHtml(t, i, big = false) {
@@ -6375,7 +6392,7 @@ function renderTiles() {
       <span class="tl-hero-fall"><i></i><i></i><i></i><i></i><i></i><i></i></span>
       <span class="tl-hero-tag"><span class="live-dot"></span>오늘의 노래 · 시즌 2 랭킹 중</span>
       <b class="tl-hero-name">${escapeHtml(hs.level.name)}</b>
-      <small class="tl-hero-sub">${escapeHtml(hs.level.composer)} · ${TILE_DIFF[hot.diff]}${hb ? ` · 내 최고 ${fmt(hb.tiles)}` : ''}</small>
+      <small class="tl-hero-sub">${escapeHtml(hs.level.composer)} ${diffBadge(hot.diff, true)}${hb ? ` · 내 최고 ${fmt(hb.tiles)}` : ''}</small>
       <span class="tl-hero-stars">${tileStarsHtml(hst.stars, hst.gems)}</span>
       <span class="tl-hero-play"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>플레이</span>
     </button>`;
@@ -6394,7 +6411,7 @@ function renderTiles() {
       <span class="tl-no">${i + 1}</span>
       ${tileCoverHtml(t, i)}
       <span class="tl-info"><b>${escapeHtml(lv.name)}${tag}</b><small>${escapeHtml(lv.composer)}</small>${tileStarsHtml(st, gems)}${b ? `<span class="tl-best">최고 ${fmt(b.tiles)}</span>` : ''}</span>
-      <em class="tl-ribbon">${TILE_DIFF[t.diff]}</em>
+      ${diffBadge(t.diff)}
       <button class="tl-go" data-tplay="${t.id}" aria-label="${escapeHtml(lv.name)} 시작">${lock ? icon('lock') : '플레이'}</button>
     </div>`;
     })
@@ -6761,11 +6778,11 @@ async function renderS2Rank() {
         const { stars, gems } = lapStars(e.laps || 0);
         return e.laps ? tileStarsHtml(stars, gems) : '';
       })();
-      return `<div class="sr-row ${e.me || mine ? 'me' : ''} ${e.rank <= 3 ? 'top' + e.rank : ''}"><span class="r">${e.rank ? medal(e.rank) : '-'}</span><span class="n">${escapeHtml(e.username || '')}</span><span class="s">${fmt(e.score)}<small>${sub}</small></span></div>`;
+      return `<div class="sr-row ${e.me || mine ? 'me' : ''} ${e.rank <= 3 ? 'top' + e.rank : ''}"><span class="r">${e.rank ? medal(e.rank) : '-'}</span>${avatarHtml(e.av, e.username, 'av-sm')}<span class="n">${escapeHtml(e.username || '')}</span><span class="s">${fmt(e.score)}<small>${sub}</small></span></div>`;
     };
     const entries = d.entries || [];
     let html = entries.length ? entries.map((e) => row(e)).join('') : `<p class="sr-empty">${s2On() && !state.cfg.s2Open ? '👀 미리보기 · 시즌 2 가 열리면 여기에 순위가 떠요' : '아직 기록 없음'}</p>`;
-    if (d.me && !entries.some((e) => e.me)) html += `<div class="sr-mine">${row({ ...d.me, username: state.me.player?.username || '나', rank: d.me.rank || (d.me.cap ? `${d.me.cap}+` : null) }, true)}</div>`;
+    if (d.me && !entries.some((e) => e.me)) html += `<div class="sr-mine">${row({ ...d.me, username: state.me.player?.username || '나', av: state.me.player?.av, rank: d.me.rank || (d.me.cap ? `${d.me.cap}+` : null) }, true)}</div>`;
     list.innerHTML = html;
   } catch {
     list.innerHTML = '<p class="sr-empty">순위를 못 불러왔어요. 잠시 뒤에 다시 해 주세요</p>';
@@ -7064,11 +7081,19 @@ function askLogin() {
   state.loginAskedRank = true;
   openLogin({ rank: true });
 }
+/** 🙂 프로필 고르기 칸 (첫 가입 창·프로필 창이 같이 씀) */
+function avatarGridHtml(cur) {
+  return AVATARS.map((a) => `<button type="button" class="av-opt ${a.id === cur ? 'on' : ''}" data-av="${a.id}" aria-label="프로필 ${a.id}" aria-pressed="${a.id === cur}">${avatarHtml(a.id, '', 'av-lg')}</button>`).join('');
+}
+let loginAv = 'kong';
 function openLoginName() {
-  $('#login-mascots').innerHTML = buddiesHTML('cheer', 'cheer');
+  $('#login-mascots').innerHTML = '';
   $('#login-choose').hidden = true;
   $('#login-name-form').hidden = false;
   $('#login-err').hidden = true;
+  loginAv = load('lastAv', null) || AVATARS[Math.floor(Math.random() * 8)].id;
+  $('#login-av').innerHTML = avatarGridHtml(loginAv);
+  $('#login-ig').value = load('lastIg', '');
   $('#login-name').value = load('lastNick', '');
   openModal('modal-login');
   setTimeout(() => $('#login-name').focus(), 50);
@@ -7081,9 +7106,17 @@ async function submitLoginName() {
   };
   if ([...name].length < 2) return err('닉네임을 2자 이상으로 써 주세요.');
   if (!/^[\p{L}\p{N}_. ]+$/u.test(name)) return err('닉네임은 한글·영문·숫자·_ . 만 쓸 수 있어요.');
+  // 인스타 아이디 (선택): @ 나 주소를 붙여 넣어도 아이디만
+  let ig = $('#login-ig').value.trim().toLowerCase();
+  const im = ig.match(/instagram\.com\/([^/?#\s]+)/);
+  if (im) ig = im[1];
+  ig = ig.replace(/^@+/, '');
+  if (ig && !/^[a-z0-9._]{1,30}$/.test(ig)) return err('인스타 아이디는 영문·숫자·_ . 만 돼요 (안 적어도 돼요)');
   try {
-    state.me = await state.api.guest(name);
+    state.me = await state.api.guest(name, ig || undefined, loginAv);
     save('lastNick', name);
+    save('lastAv', loginAv);
+    if (ig) save('lastIg', ig);
     closeModal('modal-login');
     refreshTitle();
     refreshKakao();
@@ -7096,6 +7129,24 @@ async function submitLoginName() {
       return toast('로그인 시간이 지났어요 · 카카오로 다시 로그인해 주세요', 3000);
     }
     err('지금은 등록이 안 돼요. 잠시 뒤 다시 해 주세요.');
+  }
+}
+/** 🙂 프로필 이미지 바꾸기 창 (설정에서) */
+function openAvatar() {
+  $('#avatar-grid').innerHTML = avatarGridHtml(state.me.player?.av);
+  openModal('modal-avatar');
+}
+async function pickAvatar(id) {
+  if (!cleanAvatar(id) || id === state.me.player?.av) return closeModal('modal-avatar');
+  try {
+    const me = await state.api.avatar(id);
+    state.me = { ...state.me, ...me, player: { ...(state.me.player || {}), ...(me.player || {}), av: id } };
+    save('lastAv', id);
+    closeModal('modal-avatar');
+    if (!$('#modal-settings').hidden) openSettings();
+    toast('🙂 프로필을 바꿨어요', 1800);
+  } catch {
+    toast('지금은 못 바꿔요. 잠시 뒤에 다시 해 주세요', 2200);
   }
 }
 /** 시작 화면의 '🔑 카카오 로그인' 버튼 */
@@ -7252,6 +7303,8 @@ const ACTIONS = {
   },
   'kakao-link': () => kakaoGo('link'),
   'kakao-login': () => kakaoGo('login'),
+  'avatar-open': () => openAvatar(),
+  'close-avatar': () => closeModal('modal-avatar'),
   'google-link': () => oauthGo('google', 'link'),
   'google-login': () => oauthGo('google', 'login'),
   'p2-play': (el) => p2Play(el.dataset.style),
@@ -7575,6 +7628,20 @@ function bindActions() {
   $('#login-name-form').addEventListener('submit', (e) => {
     e.preventDefault();
     submitLoginName();
+  });
+  // 🙂 프로필 고르기: 첫 가입 창은 표시만 바꿈(가입 때 같이 보냄), 설정의 프로필 창은 바로 저장
+  $('#login-av').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-av]');
+    if (!b) return;
+    loginAv = b.dataset.av;
+    $$('#login-av .av-opt').forEach((x) => {
+      x.classList.toggle('on', x === b);
+      x.setAttribute('aria-pressed', String(x === b));
+    });
+  });
+  $('#avatar-grid').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-av]');
+    if (b) pickAvatar(b.dataset.av);
   });
   $('#join-form').addEventListener('submit', (e) => {
     e.preventDefault();
