@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=3ac7eecea4" />
+  <link rel="stylesheet" href="css/style.css?v=e40d7315cd" />
 </head>
 <body>
   <div id="app">
@@ -184,6 +184,8 @@
     <section id="screen-tplay" class="screen" aria-label="피아노 타일 치기">
       <div class="tp-stage" id="tp-stage">
         <canvas id="tp-canvas"></canvas>
+        <div class="studio-count" id="tp-count" hidden><b id="tp-count-num">3</b><span id="tp-count-msg"></span></div>
+        <button class="studio-stop tp-reel-stop" data-action="studio-stop" aria-label="녹화 그만"><span data-icon="close"></span></button>
         <button class="tp-pause" data-action="tp-pause" aria-label="일시정지"><i></i><i></i></button>
         <div class="p2-layer" id="tp-paused" hidden>
           <div class="p2-sheet">
@@ -588,6 +590,13 @@
       <div class="studio">
         <p class="studio-lead">릴스용 화면(9:16)으로 플레이 장면을 찍어요. 위아래에 문구가 들어가고, 버튼 같은 건 안 나와요.</p>
         <div class="studio-block">
+          <h4>게임</h4>
+          <div class="seg" id="studio-game">
+            <button data-sgame="drum" aria-pressed="true"><b>🥁 드럼</b><small>엄지로 쿵·짝</small></button>
+            <button data-sgame="tile" aria-pressed="false"><b>🎹 피아노 타일</b><small>내려오는 타일 치기</small></button>
+          </div>
+        </div>
+        <div class="studio-block" id="studio-format-block">
           <h4>형식</h4>
           <div class="seg seg3" id="studio-format">
             <button data-format="play" aria-pressed="true"><b>🥁 그냥 치기</b><small>실패 없이 노래 끝까지</small></button>
@@ -600,6 +609,7 @@
         <div class="studio-block">
           <h4>단계</h4>
           <div class="chips" id="studio-levels"></div>
+          <label class="field quiz-len" id="tile-laps-wrap" hidden><span>길이</span><select id="tile-laps"><option value="1">1바퀴 · 별 3개까지</option><option value="2">2바퀴 · 다이아 1개까지</option><option value="4">끝까지 · 다이아 3개 (점점 빨라짐)</option></select></label>
         </div>
         <!-- 운영자 전용 (/?thumb=okay 기기에서만): 유행곡 BPM 에 맞춘 레벨업 챌린지. 노래는 안 넣음 -->
         <div class="studio-block beat-block" id="beat-block" hidden>
@@ -1354,6 +1364,7 @@
       <button class="icon-btn close" data-action="close-shopitem" aria-label="닫기"><span data-icon="close"></span></button>
       <div class="shopitem-head"><em class="rar" id="shopitem-rar"></em><h3 id="shopitem-name"></h3></div>
       <p class="muted shopitem-desc" id="shopitem-desc"></p>
+      <div class="shopitem-view" id="shopitem-view" hidden><button data-shopview="drum" aria-pressed="true">🥁 드럼으로 보기</button><button data-shopview="tile" aria-pressed="false">🎹 타일로 보기</button></div>
       <canvas id="shopitem-cv"></canvas>
       <canvas id="shopitem-kit" hidden></canvas>
       <button class="btn btn-primary" id="shopitem-buy"></button>
@@ -1431,6 +1442,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=a1c2cea177" defer></script>
+  <script src="js/app.js?v=50da9deadb" defer></script>
 </body>
 </html>

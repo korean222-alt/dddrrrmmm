@@ -6,6 +6,8 @@ import { Renderer, applyNoteColors, LANE } from './render.js';
 import { buildKit } from './kit3d.js';
 import { THEMES, SHOP_KITS } from './themes.js';
 import { LEVELS, LAST_LEVEL_ID, levelLanes, buildNotes, tempoOf, COUNT_IN_BARS } from './charts.js';
+import { TileGame } from './tilegame.js';
+import { TILE_SONGS } from './tiles.js';
 
 let cur = null; // { r, raf, cv }
 
@@ -40,7 +42,22 @@ function samplePhoto() {
 export function stopShopPreview() {
   if (!cur) return;
   cancelAnimationFrame(cur.raf);
+  if (cur.tg) cur.tg.stop();
   cur = null;
+}
+
+/** 🎹 타일로 미리보기 (2026-11-27): 진짜 타일 판을 소리 없이 저절로 침, 한 바퀴 끝나면 처음부터 다시 */
+export function startTileShopPreview(cv, { skin, audio }) {
+  stopShopPreview();
+  const me = {};
+  cur = me;
+  const run = () => {
+    if (cur !== me) return;
+    const g = new TileGame({ audio, canvas: cv, songId: TILE_SONGS[0].id, skin, auto: true, mute: true, maxLaps: 1, onEnd: () => setTimeout(run, 400) });
+    me.tg = g;
+    g.start();
+  };
+  run();
 }
 
 /**

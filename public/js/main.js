@@ -11,7 +11,7 @@ import {
 import { todayMission, missionDone, streakView, markDone } from './daily.js';
 import { PianoPreview, P2_SONGS } from './piano2.js';
 import { DECO_THEMES, NOTE_FREE, SHOP_ITEMS, RARITY, RARITY_NAME, priceOf, gemPriceOf, legacyRefund, LIMITED, onSale } from './shop.js';
-import { startShopPreview, stopShopPreview, drawKitCloseup } from './shoppreview.js';
+import { startShopPreview, startTileShopPreview, stopShopPreview, drawKitCloseup } from './shoppreview.js';
 import { separateVocals, resample } from './vocalsep.js';
 import { transcribeSong } from './songmap.js';
 import { instrumentNotes } from './instnotes.js';
@@ -2577,6 +2577,8 @@ function openShop(focus) {
 }
 // 👀 미리보기 팝업: 실제 게임 화면. 고른 것만 바꾸고 나머지는 지금 꾸미기 그대로
 var shopPrevId = null;
+// 🎹 미리보기를 드럼 / 타일로 (2026-11-27 사용자 '스킨 살 때 미리보기 타일도, 둘이 선택할 수 있게') — 타일은 콩 스킨·세트만 바뀜
+var shopView = 'drum';
 function previewShop(id) {
   const [type, key] = id.split(':');
   const basic = isBasicId(id);
@@ -2618,6 +2620,16 @@ function previewShop(id) {
   const kc = $('#shopitem-kit');
   kc.hidden = type !== 'kit';
   if (type === 'kit') requestAnimationFrame(() => drawKitCloseup(kc, key));
+  const canTile = type === 'notes' || type === 'ui';
+  $('#shopitem-view').hidden = !canTile;
+  const tileView = canTile && shopView === 'tile';
+  $$('#shopitem-view [data-shopview]').forEach((x) => x.setAttribute('aria-pressed', String(x.dataset.shopview === (tileView ? 'tile' : 'drum'))));
+  if (tileView) {
+    applyDeco();
+    audio.ensure();
+    startTileShopPreview($('#shopitem-cv'), { skin: tileSkin(pick), audio });
+    return;
+  }
   startShopPreview($('#shopitem-cv'), { ...pick, photo: pick.bg === 'photo' ? renderer.bgPhoto : null }).catch(() => {});
 }
 function closeShopPreview() {
@@ -4528,7 +4540,10 @@ const STUDIO_TEXT = {
   beatSteady: { top: '이 노래 엄지로 쳐봐', bottom: '프로필 링크에서 직접 쳐보기' },
   quiz: { top: '이 노래 제목 맞혀봐!', bottom: '정답은 영상 끝에 · 댓글로 먼저!' },
   fail: { top: '이 정도는 쉽지 ㅋㅋ', bottom: '이거 깰 수 있는 사람?' },
+  tile: { top: '이 속도 버틸 수 있음?', bottom: '프로필 링크에서 직접 쳐보기' },
 };
+/** 🎹 영상 찍기를 피아노 타일로 (2026-11-27 사용자 '타일로 릴스 찍고 싶어') */
+const isTileStudio = () => state.studio.game === 'tile';
 const isQuizFormat = () => state.studio.format === 'quiz';
 /** 💀 실패 영상: 잘 치다가 일부러 MISS 를 줄줄이 → 하트가 다 떨어져 끝 → 도발 문구 */
 const isFailFormat = () => state.studio.format === 'fail';
@@ -4542,6 +4557,7 @@ function failLevel(lv) {
 const studioPlayId = () => (isQuizFormat() && typeof state.studio.level === 'number' ? quizId(state.studio.level, state.studio.quizBars ?? 8) : state.studio.level);
 const STUDIO_CHALLENGES = [4, 7];
 function studioDefaults(id) {
+  if (isTileStudio()) return STUDIO_TEXT.tile;
   if (isQuizFormat()) return STUDIO_TEXT.quiz;
   if (isFailFormat()) return STUDIO_TEXT.fail;
   if (id === BEAT_ID) {
@@ -4555,7 +4571,7 @@ function pickStudioLevel(id) {
   const top = $('#studio-top');
   const bottom = $('#studio-bottom');
   // 기본 문구 그대로였으면 새 기본 문구로 바꿔 줌 (직접 쓴 문구는 그대로)
-  const all = [STUDIO_TEXT.level, STUDIO_TEXT.beat, STUDIO_TEXT.beatSteady, { top: '드롭에서 엄지 터짐 주의', bottom: '빌드업 끝까지 따라와 봐' }, { top: '이 노래 엄지로 드럼 커버', bottom: '프로필 링크에서 직접 쳐보기' }, STUDIO_TEXT.quiz, STUDIO_TEXT.fail, ...STUDIO_CHALLENGES.map(STUDIO_TEXT.challenge)];
+  const all = [STUDIO_TEXT.level, STUDIO_TEXT.tile, STUDIO_TEXT.beat, STUDIO_TEXT.beatSteady, { top: '드롭에서 엄지 터짐 주의', bottom: '빌드업 끝까지 따라와 봐' }, { top: '이 노래 엄지로 드럼 커버', bottom: '프로필 링크에서 직접 쳐보기' }, STUDIO_TEXT.quiz, STUDIO_TEXT.fail, ...STUDIO_CHALLENGES.map(STUDIO_TEXT.challenge)];
   const after = studioDefaults(id);
   if (!top.value.trim() || all.some((d) => d.top === top.value.trim())) top.value = after.top;
   if (!bottom.value.trim() || all.some((d) => d.bottom === bottom.value.trim())) bottom.value = after.bottom;
@@ -4600,6 +4616,23 @@ function fillQuizBars() {
 /** 형식(그냥 치기 / 노래 맞히기)에 맞는 곡 버튼들 */
 function renderStudioLevels() {
   const st = state.studio;
+  const tile = isTileStudio();
+  $$('#studio-game button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.sgame === (tile ? 'tile' : 'drum'))));
+  $('#screen-studio .studio').classList.toggle('tile-on', tile);
+  $('#tile-laps-wrap').hidden = !tile;
+  if (tile) {
+    if (!TILE_SONGS.some((t) => t.id === st.tileSong)) st.tileSong = TILE_SONGS[0].id;
+    $('#tile-laps').value = String([1, 2, 4].includes(st.tileLaps) ? st.tileLaps : 1);
+    $('#studio-levels').innerHTML = TILE_SONGS.map((t, i) => {
+      const lv = getLevel(t.id);
+      return lv ? `<button data-studio-tile="${t.id}" aria-pressed="${t.id === st.tileSong}">${i + 1}. ${escapeHtml(lv.name)} · ${TILE_DIFF[t.diff]}</button>` : '';
+    }).join('');
+    $('#quiz-len').hidden = true;
+    $('#fail-len').hidden = true;
+    $('#studio-top-label').textContent = '위 (훅)';
+    $('#studio-bottom-label').textContent = '아래 (유도)';
+    return;
+  }
   $$('#studio-format button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.format === (st.format || 'play')));
   if (isQuizFormat() || isFailFormat()) {
     $('#studio-levels').innerHTML = LEVELS.map((l) => `<button data-studio-level="${l.id}" aria-pressed="${l.id === st.level}">${levelLabel(l)} · ${l.name}</button>`).join('');
@@ -4613,6 +4646,22 @@ function renderStudioLevels() {
       LEVELS.map((l) => `<button data-studio-level="${l.id}" aria-pressed="${l.id === st.level}">${l.id}. ${l.name}</button>`).join('');
   }
   fillQuizBars();
+}
+/** 🥁 드럼 / 🎹 타일 바꾸기: 기본 문구 그대로였으면 그 게임 기본 문구로 */
+function pickStudioGame(game) {
+  const st = state.studio;
+  st.game = game === 'tile' ? 'tile' : 'drum';
+  if (st.game === 'tile') {
+    const top = $('#studio-top');
+    const bottom = $('#studio-bottom');
+    const all = [STUDIO_TEXT.level, STUDIO_TEXT.quiz, STUDIO_TEXT.fail, STUDIO_TEXT.beat, STUDIO_TEXT.beatSteady, ...STUDIO_CHALLENGES.map(STUDIO_TEXT.challenge)];
+    if (!top.value.trim() || all.some((d) => d.top === top.value.trim())) top.value = STUDIO_TEXT.tile.top;
+    if (!bottom.value.trim() || all.some((d) => d.bottom === bottom.value.trim())) bottom.value = STUDIO_TEXT.tile.bottom;
+    renderStudioLevels();
+  } else {
+    renderStudioLevels();
+    pickStudioLevel(st.level);
+  }
 }
 function pickStudioFormat(f) {
   const st = state.studio;
@@ -4644,6 +4693,10 @@ function openStudio() {
   const st = state.studio;
   st.active = false;
   $('#screen-game').classList.remove('studio-mode');
+  if ($('#screen-tplay').classList.contains('reel')) {
+    stopTile();
+    $('#screen-tplay').classList.remove('reel');
+  }
   if (isQuizFormat() && (typeof st.level !== 'number' || !getLevel(st.level))) st.level = 2;
   if (isFailFormat() && (typeof st.level !== 'number' || !getLevel(st.level))) st.level = getLevel(9) ? 9 : 2;
   renderStudioLevels();
@@ -5193,7 +5246,9 @@ async function studioStart() {
   st.skin = $('#studio-skin').checked;
   st.quizBars = Number($('#quiz-bars').value || st.quizBars || 8);
   st.failSec = Number($('#fail-secs').value || st.failSec || 12);
-  save('studio', { level: st.level, mode: st.mode, top: st.top, bottom: st.bottom, file: st.file, skin: st.skin, format: st.format || 'play', quizBars: st.quizBars, failSec: st.failSec });
+  st.tileLaps = Number($('#tile-laps').value || st.tileLaps || 1);
+  save('studio', { level: st.level, mode: st.mode, top: st.top, bottom: st.bottom, file: st.file, skin: st.skin, format: st.format || 'play', quizBars: st.quizBars, failSec: st.failSec, game: st.game || 'drum', tileSong: st.tileSong, tileLaps: st.tileLaps });
+  if (isTileStudio()) return studioTileStart();
   const playId = studioPlayId();
   closeModal('modal-studio-done');
   await audio.unlock();
@@ -5228,11 +5283,11 @@ async function studioStart() {
   await startLevel(playId);
 }
 
-function startRecorder() {
+function startRecorder(cv = $('#game-canvas')) {
   const st = state.studio;
   try {
     const mime = pickMime();
-    const v = $('#game-canvas').captureStream(60);
+    const v = cv.captureStream(60);
     const a = audio.captureStream();
     const stream = new MediaStream([...v.getVideoTracks(), ...a.getAudioTracks()]);
     const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
@@ -5339,11 +5394,94 @@ async function studioFinish(res) {
   openModal('modal-studio-done');
 }
 
+/** 🎹 타일로 영상 찍기: 9:16 타일 화면에 위·아래 문구, 자동 연주(늘 PERFECT·안 죽음) / 내가 직접. 코인·기록·랭킹 없음 */
+async function studioTileStart() {
+  const st = state.studio;
+  const song = tileSong(tileId(st.tileSong)) || tileSong(tileId(TILE_SONGS[0].id));
+  if (!song) return;
+  closeModal('modal-studio-done');
+  await audio.unlock();
+  st.active = true;
+  stopTilePreview();
+  stopTile();
+  tp.map = null;
+  tp.room = null;
+  tp.gen = (tp.gen || 0) + 1;
+  const scr = $('#screen-tplay');
+  scr.classList.add('reel');
+  show('screen-tplay');
+  tpLayers(null);
+  tpStage();
+  audio.ensure();
+  await Promise.race([audio.loadPiano(), new Promise((r) => setTimeout(r, 3000))]);
+  if (audio.orchOn) audio.loadOrch().catch(() => {});
+  const label = `🎹 ${song.level.composer} ${song.level.name}`;
+  await fontsReady(`${st.top}${st.bottom}${label}`);
+  if (!st.active) return;
+  const skin = st.skin !== false ? tileSkin() : { key: 'basic', palette: null, fx: null };
+  const g = new TileGame({
+    audio,
+    canvas: $('#tp-canvas'),
+    songId: song.id,
+    skin,
+    hue: TILE_HUES[(song.order - 1) % TILE_HUES.length],
+    auto: st.mode === 'auto',
+    reel: { top: st.top, bottom: st.bottom, label },
+    maxLaps: [1, 2, 4].includes(st.tileLaps) ? st.tileLaps : 1,
+    onEnd: (r) => studioTileFinish(r),
+  });
+  tp.game = g;
+  g.resize(); // 「시작」 화면을 먼저 그려 둠
+  const box = $('#tp-count');
+  box.hidden = false;
+  $('#tp-count-msg').textContent = st.file ? '녹화 준비 중… 화면 그대로 영상으로 저장돼요' : st.mode === 'auto' ? '폰 화면 녹화 켜셨나요? 곧 시작해요' : '폰 화면 녹화 켜셨나요? 「시작」 타일을 누르면 시작해요';
+  for (const n of ['3', '2', '1']) {
+    $('#tp-count-num').textContent = n;
+    await new Promise((r) => setTimeout(r, 800));
+    if (!st.active || tp.game !== g) {
+      box.hidden = true;
+      return;
+    }
+  }
+  box.hidden = true;
+  if (st.file) startRecorder($('#tp-canvas'));
+  g.start();
+}
+async function studioTileFinish(r) {
+  const st = state.studio;
+  if (tp.game) tp.game = null;
+  if (!st.active) return;
+  // 마지막 장면(별·다이아)을 잠깐 더 담기
+  await new Promise((res) => setTimeout(res, 1200));
+  const blob = await stopRecorder();
+  st.active = false;
+  const video = $('#studio-video');
+  if (st.blobUrl) URL.revokeObjectURL(st.blobUrl);
+  st.blob = blob;
+  if (blob && blob.size) {
+    st.blobUrl = URL.createObjectURL(blob);
+    video.src = st.blobUrl;
+    video.onloadedmetadata = () => {
+      try {
+        video.currentTime = 0.1;
+      } catch {}
+    };
+    video.hidden = false;
+    $('#btn-studio-save').hidden = false;
+    $('#studio-done-msg').textContent = `영상이 만들어졌어요 (${fmt(r.tiles)}점). 저장해서 릴스에 올려보세요!`;
+  } else {
+    video.hidden = true;
+    $('#btn-studio-save').hidden = true;
+    $('#studio-done-msg').textContent = '화면 녹화를 멈추고 사진 앱에서 확인하세요. 위아래를 9:16으로 잘라 쓰면 딱 맞아요.';
+  }
+  openModal('modal-studio-done');
+}
+
 async function studioSave() {
   const st = state.studio;
   if (!st.blob) return;
   const ext = st.blob.type.includes('mp4') ? 'mp4' : 'webm';
-  const file = new File([st.blob], `okaystra-${isQuizFormat() ? 'quiz-' + st.level : isFailFormat() ? 'fail-' + st.level : isChallengeId(st.level) ? 'challenge' : st.level + '단계'}.${ext}`, { type: st.blob.type });
+  const file = new File([st.blob], `okaystra-${isTileStudio() ? 'tile-' + st.tileSong : isQuizFormat() ? 'quiz-' + st.level : isFailFormat() ? 'fail-' + st.level : isChallengeId(st.level) ? 'challenge' : st.level + '단계'}.${ext}`, { type: st.blob.type });
   try {
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       await navigator.share({ files: [file] });
@@ -5366,6 +5504,7 @@ async function studioStop() {
   st.active = false;
   $('#studio-count').hidden = true;
   if (state.game) state.game.stop();
+  stopTile();
   await stopRecorder();
   state.auto = false;
   $('#screen-game').classList.remove('studio-mode');
@@ -6693,7 +6832,8 @@ function tpStage() {
   const st = $('#tp-stage');
   const vw = window.innerWidth;
   const vh = window.innerHeight;
-  const w = Math.min(vw, Math.round(vh * 0.62));
+  // 🎬 영상 찍기는 9:16
+  const w = Math.min(vw, Math.round(vh * ($('#screen-tplay').classList.contains('reel') ? 9 / 16 : 0.62)));
   st.style.width = w + 'px';
   st.style.left = Math.round((vw - w) / 2) + 'px';
 }
@@ -6714,9 +6854,9 @@ function stopTile() {
 const VS_LAPS = 3;
 /** 🎨 상점에서 장착한 것 → 타일 스킨 (2026-11-27 사용자 '스킨 껴도 배경은 안 바뀌게, 대신 스킨은 타일을 꾸며줘'):
  *   배경은 늘 밝은 기본 (무대·사진 안 씀), 콩 스킨·세트 → 타일 무늬 (tilegame _paintTile) */
-function tileSkin() {
-  const ui = decoPick('ui');
-  const key = ui === 'live' ? 'live' : ui === 's1' ? 's1' : decoPick('notes');
+function tileSkin(pick = null) {
+  const ui = pick ? pick.ui : decoPick('ui');
+  const key = ui === 'live' ? 'live' : ui === 's1' ? 's1' : pick ? pick.notes : decoPick('notes');
   const np = NOTE_PALETTES[key] || {};
   return { key, palette: np.c || null, fx: np.fx || null };
 }
@@ -6735,6 +6875,7 @@ async function tilePlay(songId = tp.song, { room = null, map = null } = {}) {
   const gen = (tp.gen = (tp.gen || 0) + 1);
   stopTilePreview();
   stopTile();
+  $('#screen-tplay').classList.remove('reel');
   show('screen-tplay');
   tpLayers(null);
   tpStage();
@@ -8024,6 +8165,23 @@ function bindActions() {
       const v = sl.dataset.studioLevel;
       pickStudioLevel(/^\d+$/.test(v) ? Number(v) : v);
       $$('#studio-levels button').forEach((b) => b.setAttribute('aria-pressed', b === sl));
+      return;
+    }
+    const stt = e.target.closest('[data-studio-tile]');
+    if (stt) {
+      state.studio.tileSong = Number(stt.dataset.studioTile);
+      $$('#studio-levels button').forEach((b) => b.setAttribute('aria-pressed', String(b === stt)));
+      return;
+    }
+    const sg = e.target.closest('#studio-game [data-sgame]');
+    if (sg) {
+      pickStudioGame(sg.dataset.sgame);
+      return;
+    }
+    const sv = e.target.closest('#shopitem-view [data-shopview]');
+    if (sv) {
+      shopView = sv.dataset.shopview === 'tile' ? 'tile' : 'drum';
+      if (shopPrevId) previewShop(shopPrevId);
       return;
     }
     const sf = e.target.closest('#studio-format [data-format]');

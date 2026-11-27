@@ -1905,3 +1905,14 @@ html.has-tabs .screen.active:not(#screen-home2) { padding-bottom: calc(96px + va
 .shop-gems .gem-i { width: 20px; height: 20px; margin-right: 3px; }
 .shop-item span:has(.gem-cost) { flex-wrap: wrap; justify-content: center; }
 .shop-item .gem-cost { flex-basis: 100%; display: flex; align-items: center; justify-content: center; gap: 2px; font-style: normal; font-size: 0.92em; color: #1d6fa3; }
+
+/* 🎬 피아노 타일 영상 찍기 (2026-11-27): 9:16 화면, 일시정지 버튼 숨김, ✕ 만 */
+.tp-reel-stop { display: none; }
+#screen-tplay.reel .tp-pause { display: none; }
+#screen-tplay.reel .tp-reel-stop { display: grid; z-index: 7; }
+/* 🛒 상점 미리보기 드럼 / 타일 고르기 */
+.shopitem-view { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin: 2px 0 6px; }
+.shopitem-view[hidden] { display: none; }
+.shopitem-view button { padding: 7px 8px; border-radius: 12px; border: 2px solid var(--ink); background: #fff; font-size: 15px; }
+.shopitem-view button[aria-pressed='true'] { background: #fff1e6; box-shadow: inset 0 0 0 2px var(--grass); }
+.studio.tile-on #studio-format-block, .studio.tile-on #beat-block, .studio.tile-on #cover-block { display: none !important; }
