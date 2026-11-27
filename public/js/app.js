@@ -21975,6 +21975,9 @@ async function openRank(levelId) {
 
 /** 위: 🏛 명예의 전당 / 🎵 단계 / 💎 무제한. 아래: 그 안의 탭 (전당 = 단계 총합·무제한 총합, 단계 = 단계별, 무제한 = 그리그 + 단계별 무제한) */
 function renderRankTabs() {
+  // 🗄 시즌 2 (11-27 사용자): 시즌 1 단계·무제한 랭킹은 내리고 명예의 전당만
+  if (s2On() && !isHallRank(state.rankLevel)) state.rankLevel = 'hall-stage';
+  $$('#rank-mode button').forEach((b) => (b.hidden = s2On() && b.dataset.rankMode !== 'hall'));
   const cur = state.rankLevel;
   const mode = rankModeOf(cur);
   $('#rank-season').textContent = seasonLeftText();
@@ -27236,6 +27239,7 @@ const OA_MSG = (pv) => {
   return {
     login: `🔑 ${nm}로 로그인했어요!`,
     linked: `🔑 ${nm}${pv === 'google' ? '을' : '를'} 연결했어요! 다른 브라우저에서도 ${nm}로 들어올 수 있어요`,
+    merged: `🔑 ${nm}로 로그인했어요! 다른 곳에서 친 기록·코인도 이 계정으로 합쳤어요`,
     taken: `이 ${nm} 계정은 다른 계정에 연결돼 있어요`,
     none: `이 ${nm} 계정에 연결된 계정이 없어요 · 다시 로그인해 주세요`,
     cancel: `${nm} 로그인을 취소했어요`,

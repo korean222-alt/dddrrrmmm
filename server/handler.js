@@ -580,6 +580,8 @@ export function createHandler(cfg, { store, meter = null }) {
    */
   async function takeOffline(pl, list) {
     if (!pl || !isConfirmed(pl) || !rankOk(pl) || !Array.isArray(list)) return null;
+    // 🗄 시즌 2 를 연 뒤엔 드럼 기록은 시즌 1 보관(scores_s1)으로 굳힘 → 받은 것으로만 치고 안 적음 (폰이 계속 안 보내게)
+    if ((await s2Load()).open) return { done: list.slice(0, OFFLINE_MAX).map((e) => validateOffline(e, cfg, Date.now()).key).filter((k) => k != null), improved: 0 };
     const done = [];
     let up = 0;
     let bumpS = false;
@@ -1038,7 +1040,24 @@ export function createHandler(cfg, { store, meter = null }) {
           console.error('[' + pv + ']', e && e.message);
           return back('fail');
         }
-        const owner = await P.byId(kid);
+        let owner = await P.byId(kid);
+        // 🔗 (11-27) 이 폰의 예전 계정(이 로그인 없음)으로 왔는데 이 카카오가 다른 계정에 붙어 있음
+        //   = 다른 브라우저·앱에서 먼저 카카오로 새로 시작한 같은 사람 → 하나로 합침 (지금 폰 계정을 남기고, 그쪽 기록·코인을 옮김)
+        //   두 계정 열쇠(이 폰 쿠키 + 카카오)를 다 가진 사람만 여기 옴. 남기는 건 먼저 만든 계정(닉네임·명예의 전당·유저 맵 그대로)
+        const cur = owner && ks.igsid && owner !== ks.igsid ? await store.getPlayer(ks.igsid) : null;
+        if (cur && cur.username && !(await P.of(ks.igsid))) {
+          const own = await store.getPlayer(owner);
+          const keepCur = !own || (cur.createdAt || 0) <= (own.createdAt || 0);
+          const keep = keepCur ? ks.igsid : owner;
+          const drop = keepCur ? owner : ks.igsid;
+          await store.moveScores(drop, keep);
+          await moveWallet(drop, keep);
+          await store.deletePlayer(drop);
+          if (store.setSetting) await store.setSetting('alias:' + drop, keep);
+          if (keepCur) await P.set(keep, kid);
+          setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid: keep, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
+          return back('merged');
+        }
         const loginAs = (igsid) => setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
         if (ks.mode === 'link') {
           if (owner && owner !== ks.igsid) return back('taken');
@@ -1761,6 +1780,8 @@ export function createHandler(cfg, { store, meter = null }) {
         const mine = out && out.improved && brake() < 2 ? await store.rankOf(slot, pl.igsid) : null;
         return json(200, wc({ improved: !!(out && out.improved), best: out ? out.best : v.tiles, rank: mine ? mine.rank : null, over: !!(mine && mine.over), busy: !!(out && out.improved) && !mine, kept: !(out && out.improved), next: nextTokens([tile.key]) }));
       }
+      // 🗄 시즌 2 를 연 뒤(11-27): 드럼·무제한 랭킹은 시즌 1 로 끝 (기록은 scores_s1 에 보관, 명예의 전당에서만) — 코인만 받음
+      if ((await s2Load()).open) return json(200, wc({ closed: true }));
       const em = endlessMode(body.level);
       if (em) {
         const e = validateEndless(body, cfg);

@@ -41,7 +41,7 @@ test('점수·랭킹·참여자·통계가 Postgres 와 같은 결과', async ()
       await s.setChecked(id, true);
     }
     await s.upsertPlayer('g_b', { username: null, ig: 'changed' }); // 아이디 바뀜 → 확인 풀림
-    r.push(await s.getPlayer('g_b'));
+    r.push({ ...(await s.getPlayer('g_b')), createdAt: undefined });
     r.push(await s.recordScore('g_a', 5, { score: 500, grade: 'A', maxCombo: 3 }));
     r.push(await s.recordScore('g_a', 5, { score: 400, grade: 'B', maxCombo: 1 }));
     r.push(await s.recordScore('g_a', 5, { score: 900, grade: 'S', maxCombo: 9 }));
