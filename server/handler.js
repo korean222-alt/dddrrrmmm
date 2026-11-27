@@ -344,6 +344,8 @@ export function createHandler(cfg, { store, meter = null }) {
         for (const board of hallBoardsOf(n)) {
           const top = await store.seasonBoard(n, board, 100);
           boards[board] = top.rows;
+          // 🏛 끝난 시즌 최종 순위 100등까지 (전시관 「4~100등」, 2026-11-27) — 끝난 뒤 기록이 올라도 안 바뀜
+          await store.setSetting(`hallfinal:${n}:${board}`, JSON.stringify(top.rows.map((r) => ({ rank: r.rank, igsid: r.igsid, username: r.username, score: r.score, n: r.n, rounds: r.rounds }))));
           await store.hallInsert(top.rows.filter((r) => r.rank <= 3).map((r) => ({ ...r, season: n, board })));
         }
         // 🏆 시즌 보상 (2026-11-22): 위 100명에게 코인 + 다음 접속 때 팝업(1·2·3등은 한마디·사진 칸). 다른 인스턴스와 겹쳐도 한 번만(claimSetting)
@@ -1775,7 +1777,21 @@ export function createHandler(cfg, { store, meter = null }) {
       const mineNow = pl ? await store.seasonMine(season.n, board, pl.igsid) : null;
       const { list: top, mine } = hallMerge(await hallData(season.n, board), mineNow, pl);
       const hall = (await hallListCached()).map((h) => ({ ...hallEntry(h, pl), season: h.season, board: h.board, image: h.image, msg: h.msg || null }));
-      return json(200, { season: { n: season.n, end: season.end }, board, levels: LAST_LEVEL_ID, entries: top.map((r) => hallEntry(r, pl)), me: mine ? { ...hallEntry(mine, pl), cap: mine.cap || null } : null, hall });
+      // ?final=1 (전시관만): 끝난 시즌 최종 순위 100등까지 — settings 한 줄씩, 인스턴스 10분 기억
+      let finals;
+      if (url.searchParams.get('final')) {
+        finals = {};
+        for (const n of endedSeasons())
+          for (const bd of hallBoardsOf(n)) {
+            const raw = await cached(`hallfinal:${n}:${bd}`, 10 * 60 * 1000, async () => (await store.getSetting(`hallfinal:${n}:${bd}`)) || '', { shared: false });
+            let rows = [];
+            try {
+              rows = raw ? JSON.parse(raw) : [];
+            } catch {}
+            if (rows.length) finals[`${n}:${bd}`] = rows.map((r) => ({ rank: r.rank, username: r.username, score: r.score, n: r.n, rounds: r.rounds, me: pl ? r.igsid === pl.igsid : false }));
+          }
+      }
+      return json(200, { season: { n: season.n, end: season.end }, board, levels: LAST_LEVEL_ID, entries: top.map((r) => hallEntry(r, pl)), me: mine ? { ...hallEntry(mine, pl), cap: mine.cap || null } : null, hall, finals });
     }
     // 명예의 전당에 오른 사람만 자기 칸에 프로필 사진 올리기 / 지우기 (image: null)
     if (p === '/api/hall/photo' && m === 'POST') {

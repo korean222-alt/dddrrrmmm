@@ -1770,7 +1770,10 @@ html.has-tabs .screen.active:not(#screen-home2) { padding-bottom: calc(96px + va
 .gal-view { display: flex; justify-content: center; gap: 4px; margin: 10px auto 0; padding: 3px; border-radius: 99px; background: rgba(0, 0, 0, 0.35); width: max-content; }
 .gal-view button { padding: 5px 14px; border-radius: 99px; font-size: 13px; color: rgba(255, 231, 168, 0.7); }
 .gal-view button[aria-pressed='true'] { background: rgba(255, 231, 168, 0.18); color: #ffe7a8; }
-.gal-podium { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1.25fr 1fr; align-items: start; align-content: start; gap: 8px; padding: 18px 10px 8px; overflow-y: auto; }
+.gal-podium { flex: 1; min-height: 0; overflow-y: auto; padding: 18px 10px 12px; }
+.gal-pods { display: grid; grid-template-columns: 1fr 1.25fr 1fr; align-items: start; gap: 8px; }
+.gal-rank { margin-top: 18px; padding: 12px 10px; border-radius: 18px; background: #fff; color: var(--ink); }
+.gal-rank h4 { margin: 0 0 10px; font-weight: 400; font-size: 17px; text-align: center; }
 .gal-pod { display: grid; justify-items: center; align-content: end; gap: 4px; text-align: center; color: #fff3d6; min-width: 0; }
 .gal-pod .gal-frame { display: block; width: 100%; padding: 7px; }
 .gal-pod .gal-mat { display: grid; padding: 4px; }

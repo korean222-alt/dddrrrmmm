@@ -140,11 +140,11 @@ function serverApi(boot = null) {
       return p;
     },
     // 🏛 명예의 전당: 랭킹처럼 1분 동안 같은 걸 다시 씀
-    hall: (board) => {
-      const key = 'hall:' + board;
+    hall: (board, final = false) => {
+      const key = 'hall:' + board + (final ? ':f' : '');
       const hit = lbCache.get(key);
       if (hit && Date.now() - hit.at < LB_CACHE_MS) return hit.p;
-      const p = http('GET', `/api/hall?board=${board === 'endless' ? 'endless' : board === 'tiles' ? 'tiles' : 'stage'}`);
+      const p = http('GET', `/api/hall?board=${board === 'endless' ? 'endless' : board === 'tiles' ? 'tiles' : 'stage'}${final ? '&final=1' : ''}`);
       lbCache.set(key, { at: Date.now(), p });
       p.catch(() => lbCache.delete(key));
       return p;
