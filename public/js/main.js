@@ -1989,7 +1989,7 @@ function openSettings() {
   updateSettingLabels();
   renderDeco();
   $('#settings-account').innerHTML = state.me.guest
-    ? `<button class="av-pick-btn" data-action="avatar-open" aria-label="프로필 이미지 바꾸기">${avatarHtml(state.me.player?.av, state.me.player?.username, 'av-md')}<i>✎</i></button><span>랭킹 닉네임: <b>${escapeHtml(state.me.player?.username)}</b> · <button class="link" data-action="logout">닉네임 지우기</button></span>`
+    ? `<button class="av-pick-btn" data-action="avatar-open" aria-label="프로필 이미지 바꾸기">${avatarHtml(state.me.player?.av, state.me.player?.username, 'av-md')}<i>✎</i></button><span>랭킹 닉네임: <b>${escapeHtml(state.me.player?.username)}</b></span>`
     : `랭킹은 팔로워 인증을 받은 사람만 올라가요 · <button class="link" data-action="rank-join">팔로워 인증 받기</button>`;
   $('#transfer-code').hidden = true;
   openModal('modal-settings');

@@ -1844,8 +1844,10 @@ html.has-tabs .screen.active:not(#screen-home2) { padding-bottom: calc(96px + va
 
 /* 🙂 프로필 이미지 (2026-11-27) */
 .av { position: relative; flex: none; display: inline-grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; overflow: hidden; border: 2px solid #fff; box-shadow: 0 2px 0 rgba(0, 0, 0, 0.18); vertical-align: middle; }
-.av img { width: 112%; height: 112%; object-fit: cover; margin-top: 8%; }
-.av.av-ico svg { width: 62%; height: 62%; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.3)); }
+.av img { position: absolute; left: 50%; top: 53%; width: 112%; height: 112%; object-fit: cover; transform: translate(-50%, -50%); }
+.av.av-ico svg { position: absolute; left: 50%; top: 50%; width: 62%; height: 62%; transform: translate(-50%, -50%); filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.3)); }
+/* 설정 위에서 열리는 창(프로필 이미지·닉네임 바꾸기)은 설정창보다 위에 (같은 z-index 면 HTML 뒤쪽이 이겨서 설정에 묻혔음) */
+#modal-avatar, #modal-join { z-index: 60; }
 .av.av-none { background: linear-gradient(180deg, #8f80c8, #5b4d96); color: #fff; font-size: 0.5em; font-weight: 800; }
 .av-sm { width: 30px; height: 30px; border-width: 1.5px; font-size: 26px; }
 .av-md { width: 52px; height: 52px; font-size: 40px; }
