@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=49794d003e" />
+  <link rel="stylesheet" href="css/style.css?v=9c27ca3f6c" />
 </head>
 <body>
   <div id="app">
@@ -75,7 +75,7 @@
       </div>
       <!-- 🎹 시즌 2 첫 화면 — 2026-11-27 사용자 '깔끔하게, 버튼 눌러야 보이게' → 로고·캐릭터 + 게임 시작 + 멀티·유저 맵만. 출석·퀘스트·오늘의 노래는 아래 탭 「이벤트」 -->
       <div class="h2-top">
-        <button class="h2-avatar btn3d" data-action="settings" aria-label="설정"><img src="assets/ui/gear3d.webp" alt="" width="46" height="46" /><i class="dot" id="gear-dot2" hidden></i></button>
+        <button class="h2-me" data-action="me-open" aria-label="내 프로필"><span id="h2-me-av"></span><i class="h2-me-pen">✎</i><i class="dot" id="gear-dot2" hidden></i></button>
         <button class="h2-res" data-action="shop-open" aria-label="코인 · 상점"><i class="coin-ico"></i><b class="coin-num2">0</b><span class="h2-plus">+</span></button>
         <button class="h2-res h2-gem" data-action="gem-info" aria-label="다이아"><svg viewBox="0 0 24 24" class="gem-i" aria-hidden="true"><path d="M7 4h10l5 5.5L12 21 2 9.5z" fill="#3aa8e8"/><path d="M7 4h10l5 5.5H2z" fill="#a9e8ff"/><path d="M7 4h10l-5 5.5z" fill="#e6f9ff"/><path d="M8.5 9.5h7L12 21z" fill="#7fd7ff"/><path d="M7 4h10l5 5.5L12 21 2 9.5z" fill="none" stroke="#1d6fa3" stroke-width="1.4" stroke-linejoin="round"/></svg><b class="gem-num">0</b></button>
         <button class="h2-res h2-fire" data-action="s2-quests" aria-label="출석 연속"><span class="h2-fire-ico" data-icon="fire"></span><b id="h2-streak">0</b><span class="h2-plus">+</span></button>
@@ -146,6 +146,41 @@
         <button class="gal-nav prev" data-action="gal-prev" aria-label="앞 작품">‹</button>
         <button class="gal-nav next" data-action="gal-next" aria-label="다음 작품">›</button>
         <div class="gal-dots" id="gal-dots"></div>
+      </div>
+    </section>
+
+    <!-- 🙂 내 프로필 (2026-11-27 사용자 '홈 위에 내 프로필 · 나중에 소개·캐릭터 꾸미기·친구') — 설정은 여기 오른쪽 위 + 더보기 -->
+    <section id="screen-me" class="screen s2tab" aria-label="내 프로필">
+      <header class="bar">
+        <button class="icon-btn" data-action="home" aria-label="뒤로"><span data-icon="back"></span></button>
+        <h2>내 프로필</h2>
+        <button class="me-gear btn3d" data-action="settings" aria-label="설정"><img src="assets/ui/gear3d.webp" alt="" width="40" height="40" /><i class="dot" id="gear-dot3" hidden></i></button>
+      </header>
+      <div class="me-wrap">
+        <div class="me-card">
+          <button class="me-av" data-action="me-avatar" aria-label="프로필 이미지 바꾸기"><span id="me-av"></span><i>✎</i></button>
+          <div class="me-name"><b id="me-name"></b><button class="me-edit" data-action="me-nick" id="me-nick" aria-label="닉네임 바꾸기">✎</button></div>
+          <p class="me-sub" id="me-sub"></p>
+          <div class="me-stats">
+            <div><small>시즌 2 순위</small><b id="me-rank">-</b></div>
+            <div><small>타일 총합</small><b id="me-score">-</b></div>
+            <div><small>🪙 코인</small><b class="coin-num2">0</b></div>
+            <div><small>💎 다이아</small><b class="gem-num">0</b></div>
+          </div>
+          <button class="btn btn-kakao login-cta me-login" data-action="login-open" hidden><i class="kakao-ico"></i> 로그인 <small>랭킹 · 코인 저장</small></button>
+        </div>
+        <div class="me-tabs">
+          <button class="on" data-action="me-tab" data-t="profile">🙂 프로필</button>
+          <button data-action="me-tab" data-t="intro">📝 소개<i>🔒</i></button>
+          <button data-action="me-tab" data-t="char">🎨 캐릭터<i>🔒</i></button>
+          <button data-action="me-tab" data-t="friends">👥 친구<i>🔒</i></button>
+        </div>
+        <div class="me-body">
+          <p class="me-soon">📝 자기소개 · 🎨 내 캐릭터 꾸미기 · 👥 친구는 곧 열려요!</p>
+          <button class="btn btn-ghost" data-action="me-avatar">🙂 프로필 이미지 바꾸기</button>
+          <button class="btn btn-ghost" data-action="s2-rank">🏆 시즌 2 랭킹 보기</button>
+          <button class="btn btn-ghost" data-action="settings">⚙️ 설정</button>
+        </div>
       </div>
     </section>
 
@@ -1097,6 +1132,8 @@
     <div class="sheet s2-more">
       <button class="icon-btn close" data-action="close-more" aria-label="닫기"><span data-icon="close"></span></button>
       <h3>더보기</h3>
+      <button class="btn btn-ghost" data-action="settings">⚙️ 설정</button>
+      <button class="btn btn-ghost" data-action="me-open">🙂 내 프로필</button>
       <button class="btn btn-ghost" data-action="hall-open">🏛 명예의 전당</button>
       <button class="btn btn-ghost" data-action="mysong-open">🎵 최신곡으로 치기</button>
       <button class="btn btn-ghost" data-action="studio">🎬 영상 찍기</button>
@@ -1443,6 +1480,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=94b98444fb" defer></script>
+  <script src="js/app.js?v=914b3a851f" defer></script>
 </body>
 </html>

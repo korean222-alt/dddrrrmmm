@@ -108,10 +108,10 @@ function show(screenId) {
     const on = s2On() && TAB_SCREENS.includes(screenId);
     tabs.hidden = !on;
     document.documentElement.classList.toggle('has-tabs', on);
-    if (on) $$('#s2-tabs [data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === (screenId === 'screen-hall' ? 'screen-events' : screenId)));
+    if (on) $$('#s2-tabs [data-tab]').forEach((b) => b.classList.toggle('on', b.dataset.tab === (screenId === 'screen-hall' ? 'screen-events' : screenId === 'screen-me' ? 'screen-home2' : screenId)));
   }
 }
-const TAB_SCREENS = ['screen-home2', 'screen-tiles', 'screen-events', 'screen-shop', 'screen-hall'];
+const TAB_SCREENS = ['screen-home2', 'screen-tiles', 'screen-events', 'screen-shop', 'screen-hall', 'screen-me'];
 function openModal(id) {
   $('#' + id).hidden = false;
 }
@@ -6299,7 +6299,7 @@ function refreshNewsDot() {
   const seen = load('newsSeen', '') === visibleNews()[0].id;
   $('#news-dot').hidden = seen;
   $('#gear-dot').hidden = seen; // 업데이트 버튼이 설정 안으로 가서 톱니에도 빨간 점 (2026-11-24)
-  if ($('#gear-dot2')) $('#gear-dot2').hidden = seen;
+  if ($('#gear-dot2')) $('#gear-dot2').hidden = $('#gear-dot3').hidden = seen;
 }
 function openNews() {
   const seen = load('newsSeen', '');
@@ -6628,7 +6628,8 @@ function refreshHome2() {
   $$('.coin-num2').forEach((el) => (el.textContent = fmt(getCoins())));
   $$('.gem-num').forEach((el) => (el.textContent = fmt(gemTotal())));
   const gd = $('#gear-dot');
-  if (gd) $('#gear-dot2').hidden = gd.hidden;
+  if (gd) $('#gear-dot2').hidden = $('#gear-dot3').hidden = gd.hidden;
+  refreshMeChip();
   const sn = seasonAt();
   $('#s2-start-sub').textContent = sn.n >= 2 && sn.end ? seasonLeftText().replace(/^🏆 /, '🎹 ') : '🎹 시즌 2 랭킹 진행 중';
   // 📅 출석·퀘스트·오늘의 노래·다 같이 퀘스트는 아래 탭 「이벤트」 화면 (2026-11-27 첫 화면 깔끔하게)
@@ -7650,10 +7651,51 @@ async function pickAvatar(id) {
     save('lastAv', id);
     closeModal('modal-avatar');
     if (!$('#modal-settings').hidden) openSettings();
+    refreshMeChip();
+    if ($('#screen-me').classList.contains('active')) renderMe();
     toast('🙂 프로필을 바꿨어요', 1800);
   } catch {
     toast('지금은 못 바꿔요. 잠시 뒤에 다시 해 주세요', 2200);
   }
+}
+// ----- 🙂 내 프로필 (2026-11-27 사용자 '홈 위에 내 프로필 · 나중에 소개·캐릭터·친구') -----
+//   홈 왼쪽 위 = 내 프로필 동그라미(예전 ⚙️ 자리) → 「내 프로필」 화면, 설정은 그 화면 오른쪽 위 + 더보기
+function meHasAcct() {
+  return !!(state.me && state.me.guest && state.me.player && state.me.player.username);
+}
+function refreshMeChip() {
+  const el = $('#h2-me-av');
+  if (!el) return;
+  const pl = state.me && state.me.player;
+  el.innerHTML = meHasAcct() ? avatarHtml(pl.av, pl.username, 'av-me') : '<span class="av av-none av-me">?</span>';
+}
+function renderMe() {
+  const pl = (state.me && state.me.player) || {};
+  const has = meHasAcct();
+  $('#me-av').innerHTML = has ? avatarHtml(pl.av, pl.username, 'av-lg') : '<span class="av av-none av-lg">?</span>';
+  $('#me-name').textContent = has ? pl.username : '게스트';
+  $('#me-nick').hidden = !has;
+  $('#me-sub').textContent = has ? (loggedIn() ? (state.me.kakao ? '카카오로 로그인 중' : '구글로 로그인 중') : '로그인하면 랭킹에 올라가요') : '프로필을 만들면 랭킹에 올라가요';
+  $('#me-rank').textContent = '-';
+  $('#me-score').textContent = '-';
+  refreshHome2();
+  refreshLoginCta();
+  if (has && state.api && state.api.mode === 'server' && state.api.hall)
+    state.api
+      .hall('tiles')
+      .then((d) => {
+        const m = d && d.me;
+        if (!m || !$('#screen-me').classList.contains('active')) return;
+        $('#me-rank').textContent = m.rank ? `${m.rank}등` : m.cap ? `${m.cap}등 밖` : '-';
+        $('#me-score').textContent = fmt(m.score || 0);
+      })
+      .catch(() => {});
+}
+function openMe() {
+  closeModal('modal-more');
+  $$('.me-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.t === 'profile'));
+  show('screen-me');
+  renderMe();
 }
 /** 시작 화면의 '🔑 카카오 로그인' 버튼 */
 function refreshLoginCta() {
@@ -7819,6 +7861,12 @@ const ACTIONS = {
   'kakao-link': () => kakaoGo('link'),
   'kakao-login': () => kakaoGo('login'),
   'avatar-open': () => openAvatar(),
+  'me-open': () => openMe(),
+  'me-avatar': () => (meHasAcct() ? openAvatar() : askNickname(true)),
+  'me-nick': () => askNickname(true),
+  'me-tab': (el) => {
+    if (el.dataset.t !== 'profile') toast({ intro: '📝 자기소개', char: '🎨 내 캐릭터 꾸미기', friends: '👥 친구' }[el.dataset.t] + '는 곧 열려요!', 1800);
+  },
   'close-avatar': () => closeModal('modal-avatar'),
   'google-link': () => oauthGo('google', 'link'),
   'google-login': () => oauthGo('google', 'login'),

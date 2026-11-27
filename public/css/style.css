@@ -1960,3 +1960,34 @@ html.has-tabs .screen.active:not(#screen-home2) { padding-bottom: calc(96px + va
 .shopitem-view button { padding: 7px 8px; border-radius: 12px; border: 2px solid var(--ink); background: #fff; font-size: 15px; }
 .shopitem-view button[aria-pressed='true'] { background: #fff1e6; box-shadow: inset 0 0 0 2px var(--grass); }
 .studio.tile-on #studio-format-block, .studio.tile-on #beat-block, .studio.tile-on #cover-block { display: none !important; }
+
+/* ---------- 🙂 내 프로필 (2026-11-27): 홈 왼쪽 위 동그라미 + 「내 프로필」 화면 ---------- */
+.h2-me { position: relative; flex: none; width: 50px; height: 50px; padding: 0; border-radius: 50%; display: grid; place-items: center; background: none; border: 0; }
+.h2-me .av-me { width: 50px; height: 50px; border: 3px solid #fff; box-shadow: 0 3px 0 rgba(0, 0, 0, 0.35), 0 0 0 2px rgba(255, 210, 90, 0.6); font-size: 22px; }
+.h2-me-pen { position: absolute; right: -3px; bottom: -2px; width: 19px; height: 19px; display: grid; place-items: center; border-radius: 50%; background: #ffd24a; color: #3a2608; font-size: 11px; font-style: normal; border: 2px solid #fff; }
+.h2-me .dot { position: absolute; top: -3px; right: -3px; width: 14px; height: 14px; border-radius: 50%; background: #ff3d6e; border: 2px solid #fff; }
+#screen-me { background: radial-gradient(ellipse at 50% 0%, #3b3290 0%, #1c1648 60%, #120e30 100%); }
+#screen-me .bar h2 { color: #fff; }
+.me-gear { position: relative; width: 44px; height: 44px; padding: 0; display: grid; place-items: center; background: none; border: 0; }
+.me-gear .dot { position: absolute; top: 0; right: 0; width: 12px; height: 12px; border-radius: 50%; background: #ff3d6e; border: 2px solid #fff; }
+.me-wrap { width: 100%; max-width: 480px; margin: 0 auto; padding: 6px 16px 20px; display: grid; gap: 14px; }
+.me-card { display: grid; justify-items: center; gap: 6px; padding: 22px 16px 16px; border-radius: 24px; background: linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05)); border: 2px solid rgba(255, 255, 255, 0.2); color: #fff; text-align: center; }
+.me-av { position: relative; width: 112px; padding: 4px; border-radius: 50%; background: linear-gradient(135deg, #fff1b0, #e2a400 50%, #ffd85a); border: 0; box-shadow: 0 0 26px rgba(255, 210, 80, 0.45); }
+.me-av .av { border: 0; }
+.me-av .av-none { font-size: 46px; }
+.me-av > i { position: absolute; right: 2px; bottom: 4px; width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: #ffd24a; color: #3a2608; font-style: normal; font-size: 15px; border: 3px solid #fff; }
+.me-name { display: flex; align-items: center; gap: 6px; margin-top: 6px; }
+.me-name b { font-weight: 400; font-size: 24px; }
+.me-edit { width: 28px; height: 28px; border-radius: 50%; background: rgba(255, 255, 255, 0.18); color: #fff; border: 0; font-size: 14px; }
+.me-sub { margin: 0; font-size: 13px; opacity: 0.75; }
+.me-stats { width: 100%; display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 8px; }
+.me-stats div { display: grid; gap: 2px; padding: 8px 2px; border-radius: 14px; background: rgba(0, 0, 0, 0.25); }
+.me-stats small { font-size: 11px; opacity: 0.7; }
+.me-stats b { font-weight: 400; font-size: 16px; font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.me-login { margin-top: 6px; }
+.me-tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; padding: 4px; border-radius: 16px; background: rgba(0, 0, 0, 0.3); }
+.me-tabs button { position: relative; padding: 9px 2px; border-radius: 12px; font-size: 13px; color: rgba(255, 255, 255, 0.65); background: none; border: 0; }
+.me-tabs button.on { background: #fff; color: var(--ink); }
+.me-tabs button i { position: absolute; top: 1px; right: 3px; font-size: 9px; font-style: normal; }
+.me-body { display: grid; gap: 8px; }
+.me-soon { margin: 0; padding: 12px; border-radius: 16px; background: rgba(255, 255, 255, 0.08); color: #ffe7a8; font-size: 13px; text-align: center; }
