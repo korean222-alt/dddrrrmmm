@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=279f7f6282" />
+  <link rel="stylesheet" href="css/style.css?v=8e10f323d6" />
 </head>
 <body>
   <div id="app">
@@ -677,6 +677,8 @@
       </div>
       <button class="studio-stop" data-action="studio-stop" aria-label="녹화 그만"><span data-icon="close"></span></button>
       <div class="studio-count" id="studio-count" hidden><b id="studio-count-num">3</b><span id="studio-count-msg"></span></div>
+      <!-- ⚔️ 멀티: 상대가 먼저 쓰러지면 「승리!」 3초 뒤 결과 (2026-11-27) -->
+      <div class="vs-win" id="vs-win" hidden><b>승리!</b><span id="vs-win-msg"></span></div>
     </section>
 
     <!-- 🎹 시즌 2 피아노 미리보기 · 투표 (2026-11-23) -->
@@ -1399,6 +1401,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=065b86caed" defer></script>
+  <script src="js/app.js?v=4730e9447c" defer></script>
 </body>
 </html>

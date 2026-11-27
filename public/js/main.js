@@ -819,6 +819,7 @@ async function startLevel(id, opts = {}) {
       }
     });
   const last = { score: -1, p: -1, op: -1, lives: MAX_LIVES, stars: -1, shown: -1 };
+  let vsWon = null; // ⚔️ 상대가 먼저 쓰러져(나가서) 끝난 판 → 「승리!」 3초 뒤 결과
   // 실시간 대결: 상대 점수는 몇 초 늦게 옴 → 내 점수도 '상대가 보낸 진행 위치' 때의 점수로 보여 줘야 같은 지점끼리 비교됨
   const myHist = []; // [진행, 점수] (진행 순)
   const myScoreAt = (p) => {
@@ -869,6 +870,7 @@ async function startLevel(id, opts = {}) {
         //   (무제한 서바이벌은 곡 끝이 없으니 상대 판이 끝났다는 건 쓰러졌다는 것)
         const opDown = !o || (o.left && !o.final) || (o.final && (lv.survival || o.final.died));
         if (room.mode === 'versus' && opDown && state.game && state.game.state === 'playing') {
+          vsWon = !o || (o.left && !o.final) ? 'left' : 'died';
           state.game.endNow();
           return;
         }
@@ -935,6 +937,7 @@ async function startLevel(id, opts = {}) {
           true
         );
       }
+      if (vsWon && live && !state.studio.active && !res.died && !res.failed) return vsWinThen(vsWon, () => showResult(res));
       return state.studio.active ? studioFinish(res) : showResult(res);
     },
     // 영상 찍기 땐 목숨 없음 (녹화 중에 멈추면 안 되니까). 멀티는 광고 이어하기 없이 그 자리에서 끝
@@ -1281,6 +1284,23 @@ function onDeath(info) {
 }
 
 /** ⚔️ 멀티: 목숨을 다 쓰면 이어하기(광고) 없이 바로 끝 → 결과 (상대 판도 이걸 받고 끝남) */
+/**
+ * ⚔️ 멀티: 상대가 먼저 쓰러져(또는 나가서) 내 판이 끝났을 때 — 바로 결과로 팍 넘어가지 않고
+ *   멈춘 게임 화면 위에 「승리!」 3초 → 결과 (2026-11-27 사용자 '갑자기 팍 꺼지면 좀 그래, 승리! 뜨고 3초 뒤')
+ */
+function vsWinThen(why, done) {
+  const box = $('#vs-win');
+  $('#vs-win-msg').textContent = why === 'left' ? '상대가 나갔어요' : `${roomOtherName()} 님이 먼저 쓰러졌어요`;
+  box.hidden = false;
+  try {
+    audio.fanfare();
+  } catch {}
+  setTimeout(() => {
+    box.hidden = true;
+    if ($('#screen-game').classList.contains('active')) done();
+  }, 3000);
+}
+
 function onRoomDeath() {
   const g = state.game;
   if (g && g.state === 'dead') g.giveUp();
@@ -6346,6 +6366,20 @@ function applyS2Mode() {
 const tileView = () => 'tile';
 const tileBests = () => load('tileBest', {}) || {};
 const tileLocked = (song) => state.cfg.gateMode !== 'open' && tileClosed(song) && !isConfirmed() && !freePass();
+/**
+ * 🔓 난이도 단계 열기 (2026-11-27 사용자 '드럼처럼 각 단계마다 1곡을 깨면 다음 단계 — 보통 한 곡 깨면 어려움, 어려움 한 곡 깨면 지옥'):
+ *   쉬움은 처음부터. 바로 아래 단계 곡 하나를 깨면(첫 바퀴 끝 = 별 3개) 다음 단계가 열림.
+ *   그 단계(이상) 곡을 이미 친 기록이 있으면 열린 채로 (예전부터 치던 사람이 갑자기 잠기지 않게). 폰 기록(tileBest)만 봄 — 요청 없음
+ */
+function tileTierOpen(diff, best = tileBests()) {
+  if (diff <= 1) return true;
+  return TILE_SONGS.some((t) => {
+    const b = best[t.id];
+    return !!b && ((t.diff === diff - 1 && b.laps >= 1) || t.diff >= diff);
+  });
+}
+const tileTierLocked = (song, best) => !!song && !tileTierOpen(song.diff, best);
+const tileTierMsg = (d) => `${TILE_DIFF[d - 1]} 한 곡 깨면 열려요`;
 const tp = { song: TILE_SONGS[0].id, game: null, runToken: null, last: null };
 
 function refreshHome2() {
@@ -6457,7 +6491,8 @@ const tl = { filter: 'all', pick: null };
 const bestStars = (b) => (!b ? { stars: 0, gems: 0 } : b.laps >= 2 ? { stars: 3, gems: 3 } : b.laps === 1 ? { stars: 3, gems: Math.min(2, b.gems || 0) } : { stars: Math.min(2, b.stars || 0), gems: 0 });
 /** 오늘의 추천: 날짜로 고른, 이 폰에서 열린 곡 하나 */
 function tileToday() {
-  const open = TILE_SONGS.filter((t) => !tileLocked(tileSong(tileId(t.id))));
+  const best = tileBests();
+  const open = TILE_SONGS.filter((t) => !tileLocked(tileSong(tileId(t.id))) && tileTierOpen(t.diff, best));
   const day = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
   let h = 0;
   for (const ch of day) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
@@ -6488,7 +6523,8 @@ function renderTiles() {
       const song = tileSong(tileId(t.id));
       const lv = song.level;
       const b = best[t.id];
-      const lock = tileLocked(song);
+      const tier = tileTierLocked(song, best);
+      const lock = tier || tileLocked(song);
       const { stars: st, gems } = bestStars(b);
       const tag = lock ? '' : !b ? '<em class="t-tag new">NEW</em>' : '';
       const pips = [1, 2, 3, 4, 5].map((k) => `<i class="${k <= t.diff ? 'on' : ''}"></i>`).join('');
@@ -6496,7 +6532,7 @@ function renderTiles() {
       return `<div class="tl-row d${t.diff} ${lock ? 'locked' : ''} ${tl.pick === t.id ? 'pick' : ''}" data-tsong="${t.id}" role="button" tabindex="0">
       <span class="tl-no">${i + 1}</span>
       ${tileCoverHtml(t, i)}
-      <span class="tl-info"><b>${escapeHtml(lv.name)}${tag}</b><small>${escapeHtml(lv.composer)}</small>${tileStarsHtml(st, gems)}${b ? `<span class="tl-best">최고 ${fmt(b.tiles)}</span>` : ''}</span>
+      <span class="tl-info"><b>${escapeHtml(lv.name)}${tag}</b><small>${escapeHtml(lv.composer)}</small>${tier ? `<span class="tl-lock">${icon('lock')}${tileTierMsg(t.diff)}</span>` : tileStarsHtml(st, gems)}${b ? `<span class="tl-best">최고 ${fmt(b.tiles)}</span>` : ''}</span>
       ${diffBadge(t.diff)}
       <button class="tl-go" data-tplay="${t.id}" aria-label="${escapeHtml(lv.name)} 시작">${lock ? icon('lock') : '플레이'}</button>
     </div>`;
@@ -6586,6 +6622,7 @@ async function tilePlay(songId = tp.song, { room = null, map = null } = {}) {
   const song = map ? null : tileSong(tileId(songId));
   const mlap = map ? mapTileLap(map.data) : null;
   if (!song && !mlap) return;
+  if (!room && song && tileTierLocked(song)) return tileTierToast(song);
   if (!room && song && tileLocked(song)) return openVerify(null);
   if (!map) tp.song = songId;
   tp.map = map;
@@ -6625,17 +6662,26 @@ async function tilePlay(songId = tp.song, { room = null, map = null } = {}) {
   stopTile();
   tpStage();
   const c = state.roomClient;
+  // 마지막으로 본 상대 (랜덤 대결은 상대가 나가면 방에서 아예 빠져서 — 그래도 점수·쓰러짐은 기억)
+  let seen = null;
   const vs = room
     ? {
         name: (c.other && c.other.name) || '상대',
         other: () => {
-          const o = c.active && c.room && c.room.round === room.round ? c.other : null;
-          if (!o) return null;
-          return { score: o.final ? o.final.score : o.live ? o.live.score : 0, lives: o.live ? o.live.lives : null, done: !!o.final || !!o.left };
+          const same = c.active && c.room && c.room.round === room.round;
+          const o = same ? c.other : null;
+          if (!o) {
+            // 같은 판인데 상대가 방에 없음 = 나감 (먼저 쓰러졌다고 보낸 게 있으면 쓰러짐)
+            if (!same || !seen) return seen;
+            return { ...seen, done: true, left: !seen.died };
+          }
+          seen = { score: o.final ? o.final.score : o.live ? o.live.score : 0, lives: o.live ? o.live.lives : null, done: !!o.final || !!o.left, died: !!(o.final && o.final.died), left: !!o.left && !o.final };
+          return seen;
         },
         onLive: (live) => c.active && c.send({ live }),
       }
     : null;
+  tp.vsName = vs ? vs.name : null;
   const hue = song ? TILE_HUES[(song.order - 1) % TILE_HUES.length] : 220;
   const g = new TileGame({ audio, canvas: $('#tp-canvas'), songId: song ? songId : 0, lap: mlap, skin: tileSkin(), hue, onEnd: (r) => tileEnd(r), onDeath: room ? null : (info) => tileDeath(info), maxLaps: room ? VS_LAPS : map ? MAP_TILE_LAPS : undefined, vs });
   if (isLocalDev()) window.__tg = g; // 내 컴퓨터에서 시험할 때만
@@ -6643,6 +6689,10 @@ async function tilePlay(songId = tp.song, { room = null, map = null } = {}) {
   trackPlayStart(song ? tileId(songId) : UM_ID);
   // 대결: 서버가 정한 시각에 같이 시작 (그때까지는 'VS 상대' 화면). 혼자면 맨 아래 「시작」 타일을 누르면 시작
   g.start(room ? Math.max(0.35, (room.startAt - Date.now()) / 1000) : 0);
+}
+/** 🔒 아직 안 열린 단계 곡을 누름 */
+function tileTierToast(song) {
+  toast(`🔒 ${TILE_DIFF[song.diff]} 곡은 ${tileTierMsg(song.diff)}`, 2600);
 }
 /** 💔 타일: 한 번 틀리면 끝 → 광고 보고 한 번 이어하기 / 결과 보기 */
 function tileDeath(info) {
@@ -6844,12 +6894,19 @@ function renderTileVs() {
   let res = null;
   let why = '';
   const theirs = o ? (o.final ? o.final.score : o.live ? o.live.score : 0) : null;
-  if (!c.active || !o || (o.left && !o.final)) {
+  // 먼저 쓰러진 쪽이 짐 (2026-11-27 사용자 '죽으면 승리!'), 둘 다 끝까지 쳤거나 둘 다 쓰러졌으면 친 타일 수로
+  if (r.won === 'died' || (o && o.final && o.final.died && !r.died)) {
+    res = 'win';
+    why = `${escapeHtml((o && o.name) || tp.vsName || '상대')} 님이 먼저 쓰러졌어요`;
+  } else if (r.won === 'left' || !c.active || !o || (o.left && !o.final)) {
     res = 'win';
     why = '상대가 나갔어요';
+  } else if (r.died && !(o.final && o.final.died) && !(o.live && o.live.lives === 0)) {
+    res = 'lose';
+    why = '내가 먼저 쓰러졌어요';
   } else if (o.final) {
     res = r.tiles > o.final.score ? 'win' : r.tiles < o.final.score ? 'lose' : 'draw';
-    why = res === 'draw' ? '친 타일 수가 같아요' : '친 타일 수로';
+    why = res === 'draw' ? '친 타일 수가 같아요' : r.died ? '둘 다 쓰러져서 친 타일 수로' : '친 타일 수로';
   } else {
     box.innerHTML = `<div class="room-word">${escapeHtml(o.name)} 님 아직 치는 중… ${fmt(theirs || 0)}점</div><div class="tvs-row"><span>나 <b>${fmt(r.tiles)}</b></span><span>VS</span><span>${escapeHtml(o.name)} <b>${fmt(theirs || 0)}</b></span></div>` + acts;
     return;
@@ -6859,7 +6916,13 @@ function renderTileVs() {
   tp.vsDone = true;
   vsEndSync(box, r);
   if (res === 'win') setTimeout(() => audio.sfxFile('cheer', 0.6), 300);
-  if (room.pub && c.active) c.leave(); // 랜덤 대결은 판이 끝나면 방에서 나옴
+  // 랜덤 대결은 판이 끝나면 방에서 나옴. 내가 먼저 쓰러져 진 거면 상대가 내 결과(쓰러짐)를 받을 때까지 조금 있다가
+  if (room.pub && c.active) {
+    if (res === 'lose' && r.died && !(o && o.final)) {
+      const code = c.code;
+      setTimeout(() => c.active && c.code === code && c.leave(), 6000);
+    } else c.leave();
+  }
 }
 
 // ----- 🏆 시즌 2 랭킹 -----
@@ -6956,7 +7019,8 @@ document.addEventListener('click', (e) => {
   } else if (t.dataset.tplay) tilePlay(Number(t.dataset.tplay));
   else if (t.dataset.tsong) {
     const song = tileSong(tileId(Number(t.dataset.tsong)));
-    if (song && tileLocked(song)) openVerify(null);
+    if (song && tileTierLocked(song)) tileTierToast(song);
+    else if (song && tileLocked(song)) openVerify(null);
     else tilePreview(Number(t.dataset.tsong));
   } else if (t.dataset.tview) setTileView(t.dataset.tview);
   else if (t.dataset.tfilter) {
