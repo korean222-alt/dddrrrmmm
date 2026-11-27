@@ -51,9 +51,11 @@ export const COIN_INIT_MAX = 20000;
 /** 💎 한 판에 다이아 최대 3개(폰이 보낼 때) · 판 토큰 하나(기록 못 넘은 판은 토큰을 30분 다시 씀)로 받는 최대
  *   · 다이아 하나 = 바퀴 하나 끝까지(이 시간보다 빨리는 못 침, 첫 바퀴 몫 하나 뺌) · 계정 전 폰 다이아 한 번 */
 export const GEM_RUN_MAX = 3;
+/** 💎 곡 하나에서 받을 수 있는 다이아 (평생, 2026-11-27 사용자 '한곡당 최대3개') */
+export const GEM_SONG_MAX = 3;
 export const GEM_TOKEN_MAX = 60;
 export const GEM_LAP_MS = 20 * 1000;
-export const GEM_INIT_MAX = 300;
+export const GEM_INIT_MAX = GEM_SONG_MAX * TILE_SONGS.length;
 // 폰이 코인을 10분에 한 번 모아 보내고 한동안 안 들어올 수도 있어서 넉넉히 (판 순서 t 로 같은 판 두 번은 안 받음)
 const COIN_TOKEN_AGE = 14 * 24 * 3600 * 1000;
 const coinInt = (v, max) => (Number.isFinite(v) ? Math.max(0, Math.min(max, Math.floor(v))) : 0);
@@ -89,14 +91,18 @@ export function applyCoins(w0, c, secret, now = Date.now()) {
   const s2 = s2Of(w);
   let gemsChanged = false;
   for (const { run, g } of [...byT.values()].sort((a, b) => a.run.t - b.run.t)) {
-    if (!g || !tileSong(run.l) || run.t < (s2.gt || 0)) continue;
+    const song = tileSong(run.l);
+    if (!g || !song || run.t < (s2.gt || 0)) continue;
     if (run.t > (s2.gt || 0)) {
       s2.gt = run.t;
       s2.gn = 0;
     }
     const byTime = Math.max(0, Math.floor((now - run.t) / GEM_LAP_MS) - 1);
-    const give = Math.max(0, Math.min(g, GEM_TOKEN_MAX - (s2.gn || 0), byTime - (s2.gn || 0)));
+    // 2026-11-27 사용자 '한 곡당 최대 3개' → 곡마다 받은 수(gs)를 기억, 평생 3개까지
+    const gs = s2.gs && typeof s2.gs === 'object' ? s2.gs : {};
+    const give = Math.max(0, Math.min(g, GEM_SONG_MAX - (gs[song.key] || 0), GEM_TOKEN_MAX - (s2.gn || 0), byTime - (s2.gn || 0)));
     if (give > 0) {
+      s2.gs = { ...gs, [song.key]: (gs[song.key] || 0) + give };
       s2.gm = (s2.gm || 0) + give;
       s2.gn = (s2.gn || 0) + give;
       gemsChanged = true;

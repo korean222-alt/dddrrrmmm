@@ -6833,7 +6833,10 @@ async function tileEnd(r) {
   const coins = map ? (map.mode === 'tfree' ? 0 : Math.floor(r.coins / 2)) : r.coins; // 🛡 무적 맵 = 코인 없음
   // 💎 다이아 바퀴에서 얻은 다이아도 코인처럼 지갑에 (곡 판만 — 유저 맵·대결은 안 셈)
   const gemTok = !map && !room && tp.runToken && !String(tp.runToken).startsWith('mock.') ? tp.runToken : null;
-  const gems = !map && !room ? Math.max(0, Math.min(3, r.gems || 0)) : 0;
+  //   한 곡당 평생 3개까지 (2026-11-27 사용자) — 이 폰이 곡마다 받은 수(gemGot), 서버도 따로 셈(s2.gs)
+  const gemGot = load('gemGot', {}) || {};
+  const gems = !map && !room && (gemTok || !isConfirmed()) ? Math.max(0, Math.min(3, r.gems || 0) - (gemGot[r.songId] || 0)) : 0;
+  if (gems > 0) save('gemGot', { ...gemGot, [r.songId]: (gemGot[r.songId] || 0) + gems });
   if (coins > 0 || gems > 0) addRunCoins(coins, gemTok, gems);
   noteTilePlay(map ? { ...r, songId: 'm' + map.id } : r);
   const att = noteAttendance(isConfirmed());
@@ -6858,7 +6861,7 @@ async function tileEnd(r) {
   if (room) renderTileVs();
   const gifts = [];
   if (coins > 0) gifts.push(`🪙 +${fmt(coins)}${r.partyCoins ? ` <small>(코인 파티 ${fmt(map ? Math.floor(r.partyCoins / 2) : r.partyCoins)})</small>` : ''}`);
-  if (gems > 0 && (gemTok || !isConfirmed())) gifts.push(`💎 +${gems}`);
+  if (gems > 0) gifts.push(`💎 +${gems}`);
   if (att) gifts.push(`📅 출석 ${att.streak}일째 +${att.reward}`);
   $('#tp-res-gift').hidden = !gifts.length;
   $('#tp-res-gift').innerHTML = gifts.join(' · ');
@@ -7435,7 +7438,7 @@ const ACTIONS = {
   'room-next': roomNext,
   'news-open': openNews,
   'shop-open': () => openShop(),
-  'gem-info': () => toast(`💎 다이아 ${fmt(gemTotal())}개 · 🎹 타일에서 별 3개 뒤 다이아 바퀴를 끝내면 모여요`, 2800),
+  'gem-info': () => toast(`💎 다이아 ${fmt(gemTotal())}개 · 🎹 타일 곡마다 다이아 바퀴를 끝내면 3개까지 모여요`, 2800),
   'close-shop': () => closeShop(),
   'close-shopitem': () => closeShopPreview(),
   'a2hs-open': openA2hs,

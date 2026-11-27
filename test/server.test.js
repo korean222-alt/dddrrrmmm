@@ -7,7 +7,7 @@ import fs from 'node:fs';
 
 import { loadConfig } from '../server/config.js';
 import { createApp } from '../server/app.js';
-import { applyCoins, coinCap, COIN_FREE_DAY, setNoPassword, GEM_LAP_MS, GEM_TOKEN_MAX, GEM_INIT_MAX } from '../server/handler.js';
+import { applyCoins, coinCap, COIN_FREE_DAY, setNoPassword, GEM_INIT_MAX } from '../server/handler.js';
 setNoPassword(false); // 이 파일은 예전 팔로워 암호 동작을 시험 (2026-11-26 부터 사이트는 암호 없음 → test/nopass.test.js)
 import { sign } from '../server/session.js';
 import { getLevel, noteCount, pointsFor } from '../public/js/charts.js';
@@ -868,16 +868,22 @@ test('💎 다이아: 타일 곡 판 토큰만 · 친 시간만큼 · 토큰마�
   let w = applyCoins(null, { runs: [{ tok: tok(now - 120000), n: 10, g: 3 }] }, secret, now).wallet;
   assert.equal(w.s2.gm, 3);
   assert.equal(w.coins, 10);
-  // 같은 토큰 다시 쓴 판(기록 못 넘음): 시간 안이면 더
+  // 같은 곡은 평생 3개까지 (다시 쳐도 더 안 줌)
   w = applyCoins(w, { runs: [{ tok: tok(now - 120000), n: 0, g: 3 }] }, secret, now + 120000).wallet;
+  assert.equal(w.s2.gm, 3);
+  w = applyCoins(w, { runs: [{ tok: tok(now + 1000), n: 0, g: 3 }] }, secret, now + 300000).wallet;
+  assert.equal(w.s2.gm, 3);
+  // 다른 곡은 따로 3개 (토큰 다시 쓴 판도 시간 안이면)
+  w = applyCoins(w, { runs: [{ tok: tok(now + 2000, 't4'), n: 0, g: 2 }] }, secret, now + 300000).wallet;
+  w = applyCoins(w, { runs: [{ tok: tok(now + 2000, 't4'), n: 0, g: 3 }] }, secret, now + 400000).wallet;
   assert.equal(w.s2.gm, 6);
   // 50초 된 판에 3개는 못 받음 (바퀴를 그만큼 못 침)
   const fast = applyCoins(null, { runs: [{ tok: tok(now - 50000), n: 1, g: 3 }] }, secret, now).wallet;
   assert.equal(fast.s2.gm, 1);
-  // 오래된 토큰도 토큰마다 최대까지
-  assert.equal(applyCoins(null, { runs: [{ tok: tok(now - 3 * 24 * 3600 * 1000), n: 1, g: 1e6 }] }, secret, now).wallet.s2.gm, GEM_TOKEN_MAX);
+  // 아무리 보내도 한 곡 3개
+  assert.equal(applyCoins(null, { runs: [{ tok: tok(now - 3 * 24 * 3600 * 1000), n: 1, g: 1e6 }] }, secret, now).wallet.s2.gm, 3);
   // 지난 토큰은 안 받음
-  const old = applyCoins(w, { runs: [{ tok: tok(now - 600000), n: 0, g: 3 }] }, secret, now + 120000).wallet;
+  const old = applyCoins(w, { runs: [{ tok: tok(now - 600000, 't5'), n: 0, g: 3 }] }, secret, now + 400000).wallet;
   assert.equal(old.s2.gm, 6);
   // 계정 전 폰 다이아: 한 번, 상한까지
   let gi = applyCoins(null, { ginit: 1e6 }, secret, now).wallet;
