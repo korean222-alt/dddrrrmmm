@@ -94,7 +94,12 @@ export class TileGame {
    *           maxLaps?:number, skin?:object, vs?:{ name:string, other:()=>({score,lives,done}|null), onLive?:(live)=>void } }} o
    *   lap 을 주면 그걸로 (유저 맵 타일), 아니면 songId 의 곡
    */
-  constructor({ audio, canvas, songId = 0, lap = null, onEnd, onLap, onDeath = null, invincible = false, maxLaps = MAX_LAPS, vs = null, skin = null, hue = null }) {
+  constructor({ audio, canvas, songId = 0, lap = null, onEnd, onLap, onDeath = null, invincible = false, maxLaps = MAX_LAPS, vs = null, skin = null, hue = null, auto = false, mute = false, reel = null }) {
+    // 🎬 auto = 저절로 PERFECT 로 침 (영상 찍기 자동 연주·상점 미리보기), mute = 소리 없음(상점 미리보기), reel = 릴스 문구 { top, bottom, label }
+    this.auto = auto;
+    this.mute = mute;
+    this.reel = reel;
+    if (auto) invincible = true;
     this.onDeath = onDeath;
     this.invincible = invincible; // 🛡 유저 맵 무적: 틀려도 안 죽음
     this.continues = 0;
@@ -359,6 +364,15 @@ export class TileGame {
     this.audio.ensure();
     this.resize();
     const c = this.canvas;
+    this.readyAt = performance.now();
+    if (this.auto) {
+      this.state = 'ready';
+      this.lastFrame = performance.now();
+      this._loop();
+      clearInterval(this.timer);
+      this.timer = setInterval(() => this._schedule(), 50);
+      return;
+    }
     c.addEventListener('touchstart', this._onTouch, { passive: false });
     c.addEventListener('touchmove', this._onTouchMove, { passive: false });
     c.addEventListener('touchend', this._onTouchEnd, { passive: false });
@@ -379,6 +393,14 @@ export class TileGame {
 
   /** 곡 시각 from 이 지금(pn)에서 lead 초 뒤에 들리게 시계·소리 맞춤 */
   _begin(pn, lead = 0.04, from = 0) {
+    if (this.mute || !this.audio.ctx) {
+      // 🔇 소리 없음 (상점 미리보기): 화면 시계만
+      this.aud0 = null;
+      this.perf0 = pn + (lead - from) * 1000;
+      this.drift = 0;
+      this.floorT = from;
+      return;
+    }
     const a = this.audio;
     const ctx = a.ctx;
     const heard = a.heardTime ? a.heardTime(pn) : ctx.currentTime;
@@ -467,9 +489,10 @@ export class TileGame {
 
   resize() {
     const c = this.canvas;
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    this.dpr = dpr;
     this.W = c.clientWidth || window.innerWidth;
+    // 🎬 릴스는 1080 너비쯤으로 (영상이 흐리지 않게)
+    const dpr = this.reel ? clamp(1080 / Math.max(1, this.W), 2, 3) : Math.min(2, window.devicePixelRatio || 1);
+    this.dpr = dpr;
     this.H = c.clientHeight || window.innerHeight;
     c.width = Math.round(this.W * dpr);
     c.height = Math.round(this.H * dpr);
@@ -1009,7 +1032,14 @@ export class TileGame {
     const pn = performance.now();
     const dt = Math.min(0.05, (pn - this.lastFrame) / 1000);
     this.lastFrame = pn;
-    if (this.state === 'ready') return this._draw(0, dt);
+    if (this.state === 'ready') {
+      // 🎬 자동 연주: 잠깐 보여 준 뒤 「시작」 타일을 저절로 누름
+      if (this.auto && pn - this.readyAt > 700) {
+        this._begin(pn, 0.03);
+        this.state = 'playing';
+        this._startHit(this.tiles[0]);
+      } else return this._draw(0, dt);
+    }
     if (this.state === 'count') {
       if (pn >= this.countUntil) {
         // 멈춘 자리부터 노래도 같이 (3·2·1 동안 준비)
@@ -1048,6 +1078,7 @@ export class TileGame {
     const cur = this._rowAt(t);
     // ⚔️ 대결은 「시작」을 누르지 않으니 첫 타일은 0초에 저절로 (예전엔 시작하자마자 첫 타일이 지나가 하트 1개라 둘 다 바로 죽었음)
     if (this.vs && t >= 0 && !this.tiles[0].hit && !this.tiles[0].miss) this._startHit(this.tiles[0]);
+    if (this.auto && this.state === 'playing') this._autoPlay(t);
     if (t > 0) {
       // 지나간 타일 = 놓침 (바로 전 화면 시각으로 — 폰이 버벅인 뒤 밀린 터치가 먼저 처리되게). 코인 타일은 그냥 사라짐
       const prev = this._curPrev ?? cur;
@@ -1091,7 +1122,7 @@ export class TileGame {
       // 🪙 코인 파티 알림은 '별 3개' 글자가 사라진 뒤에 (겹치지 않게)
       if (this.lapsDone === 1 && this.partyRange) this.partyAt = Math.max(this.partyRange.t0 - 0.2, t + 1.4);
       try {
-        this.audio.fanfare();
+        if (!this.mute) this.audio.fanfare();
       } catch {}
       if (this.onLap) this.onLap(this.lapsDone);
       if (this.lapsDone >= this.maxLaps) {
@@ -1120,6 +1151,19 @@ export class TileGame {
     this._draw(this.floorT != null && t < this.floorT ? this.floorT : t, dt);
   }
 
+  /** 🎬 자동 연주: PERFECT 한가운데 시각이 된 타일을 침, 긴 타일은 판정선에 손가락을 둔 채 끝까지 */
+  _autoPlay(t) {
+    for (let i = this.head; i < this.tiles.length; i++) {
+      const tl = this.tiles[i];
+      if (tl.t > t + 0.2) break;
+      if (tl.hit || tl.miss || tl.coin) continue;
+      const rps = Math.max(0.5, (this._rowAt(tl.t + 0.05) - this._rowAt(tl.t - 0.05)) / 0.1);
+      const at = tl.t + clamp(PERFECT_ROWS / rps, 0.03, 0.11);
+      if (t < at) break;
+      this._hit(tl, at, (tl.lane + 0.5) * this.laneW, this.judgeY, 'auto', i);
+    }
+  }
+
   _win(t, why) {
     this.state = 'won';
     this.won = why;
@@ -1129,7 +1173,7 @@ export class TileGame {
     this.press.fill(0);
     this._hush(0.6);
     try {
-      this.audio.fanfare();
+      if (!this.mute) this.audio.fanfare();
     } catch {}
     this._draw(t, 0);
     this._drawWin(this.g);
@@ -1221,6 +1265,7 @@ export class TileGame {
     this._drawJudge(g, t);
     this._drawCount(g, t);
     this._drawLapFx(g, t);
+    if (this.reel) this._drawReel(g);
     if (frozen) this._drawDying(g);
     g.restore();
     // 지난 효과 치우기 (가끔만)
@@ -1229,6 +1274,38 @@ export class TileGame {
       const old = t - 2.4;
       for (const k of Object.keys(this.fx)) if (this.fx[k].length) this.fx[k] = this.fx[k].filter((f) => f.at > old);
     }
+  }
+
+  /** 🎬 릴스 문구: 위 = 훅(곡 이름 작게), 아래 = 유도 — 반투명 띠 위 하얀 글씨 */
+  _drawReel(g) {
+    const { W, H } = this;
+    const r = this.reel;
+    const band = (txt, y, px, sub) => {
+      if (!txt) return;
+      g.save();
+      g.font = font(px);
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      const k = Math.min(1, (W * 0.9) / Math.max(1, g.measureText(txt).width));
+      const fp = px * k;
+      g.font = font(fp);
+      const w = g.measureText(txt).width + fp * 1.2;
+      g.fillStyle = 'rgba(20,14,48,0.62)';
+      rr(g, (W - w) / 2, y - fp * 0.85, w, fp * 1.7, fp * 0.5);
+      g.fill();
+      g.fillStyle = '#fff';
+      g.fillText(txt, W / 2, y + 1);
+      if (sub) {
+        g.font = font(Math.max(11, fp * 0.42));
+        g.fillStyle = 'rgba(255,255,255,0.92)';
+        g.shadowColor = 'rgba(20,14,48,0.8)';
+        g.shadowBlur = 6;
+        g.fillText(sub, W / 2, y + fp * 1.35);
+      }
+      g.restore();
+    };
+    band(r.top, H * 0.3, Math.min(40, W * 0.085), r.label); // PERFECT 글자(점수 밑)와 안 겹치게
+    band(r.bottom, H * 0.9, Math.min(30, W * 0.066));
   }
 
   _drawTiles(g, t) {
