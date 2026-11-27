@@ -14150,12 +14150,14 @@ const __m_season = (() => {
 // 🏛 시즌 · 명예의 전당 (브라우저와 서버가 같이 씀)
 //   시즌마다 '단계 총합'(1~LAST_LEVEL_ID 단계 최고점 합)과 '무제한 총합'(무제한 판들의 점수 합) 두 랭킹.
 //   시즌이 끝나면 두 랭킹의 1·2·3등이 명예의 전당(hall)에 영원히 남고, 그 사람은 프로필 사진을 올릴 수 있음.
-//   시즌 1 = 처음 ~ 2026-11-26 23:59:59 (한국 시간, 인스타 DM 금지 마지막 날) / 시즌 2 = 11-27 부터 (끝나는 날은 아직 안 정함)
+//   시즌 1 = 처음 ~ 2026-11-26 23:59:59 (한국 시간, 인스타 DM 금지 마지막 날) / 시즌 2 = 11-27 ~ 12-17 (2026-11-27 사용자 '일단 17일쯤')
 //   시즌 1 점수 = 지금까지의 최고 기록(scores), 시즌 2 부터는 그 시즌에 친 기록만(season_scores)
 
 const SEASONS = [
   { n: 1, end: Date.UTC(2026, 10, 26, 14, 59, 59, 999) },
-  { n: 2, end: null },
+  // 시즌 2 = 11-27 ~ 12-17 23:59:59 (한국, 2026-11-27 사용자 '일단 17일쯤') — 지나면 서버가 위 100명 보상 + 시즌 3 시작
+  { n: 2, end: Date.UTC(2026, 11, 17, 14, 59, 59, 999) },
+  { n: 3, end: null },
 ];
 const HALL_BOARDS = ['stage', 'endless', 'tiles'];
 const BOARD_LABEL = { stage: '🎵 단계 총합', endless: '💎 무제한 총합', tiles: '🎹 타일 총합' };
@@ -14183,9 +14185,10 @@ function seasonLeftText(t = Date.now()) {
   if (s.end == null) return `🏆 시즌 ${s.n} 진행 중`;
   const day = (ms) => Math.floor((ms + 9 * 3600e3) / 86400e3); // 한국 날짜 번호
   const d = day(s.end) - day(t);
-  if (d <= 0) return `⏰ 오늘 밤 11시 59분에 시즌 ${s.n}이 끝나요!`;
-  if (d === 1) return `⏰ 내일 밤 11시 59분에 시즌 ${s.n}이 끝나요!`;
-  return `🏆 ${d}일 뒤 시즌 ${s.n}이 종료돼요`;
+  const ga = [2, 4, 5, 9].includes(s.n % 10) ? '가' : '이'; // 시즌 1이 · 시즌 2가
+  if (d <= 0) return `⏰ 오늘 밤 11시 59분에 시즌 ${s.n}${ga} 끝나요!`;
+  if (d === 1) return `⏰ 내일 밤 11시 59분에 시즌 ${s.n}${ga} 끝나요!`;
+  return `🏆 ${d}일 뒤 시즌 ${s.n}${ga} 종료돼요`;
 }
 
 /** 사진 data URL 검사 */
@@ -28037,7 +28040,20 @@ async function renderS2Rank() {
       return `<div class="sr-row ${e.me || mine ? 'me' : ''} ${e.rank <= 3 ? 'top' + e.rank : ''}"><span class="r">${e.rank ? medal(e.rank) : '-'}</span>${avatarHtml(e.av, e.username, 'av-sm')}<span class="n">${escapeHtml(e.username || '')}</span><span class="s">${fmt(e.score)}<small>${sub}</small></span></div>`;
     };
     const entries = d.entries || [];
-    let html = entries.length ? entries.map((e) => row(e)).join('') : `<p class="sr-empty">${s2On() && !state.cfg.s2Open ? '👀 미리보기 · 시즌 2 가 열리면 여기에 순위가 떠요' : '아직 기록 없음'}</p>`;
+    // 🏆 1·2·3등은 위에 시상대로 따로 (2026-11-27 사용자 '전에처럼 1·2·3등 따로 위에 멋지게')
+    const top = entries.filter((e) => e.rank >= 1 && e.rank <= 3).slice(0, 3);
+    const subOf = (e) => (sr.tab === 'total' ? `${e.n || 0}곡` : e.laps ? (() => { const { stars, gems } = lapStars(e.laps || 0); return tileStarsHtml(stars, gems); })() : '');
+    const pods = [1, 0, 2]
+      .filter((i) => top[i])
+      .map((i) => {
+        const e = top[i];
+        return `<div class="sr-pod p${e.rank} ${e.me ? 'me' : ''}">${e.rank === 1 ? '<span class="sr-crown">👑</span>' : ''}<span class="sr-pav">${avatarHtml(e.av, e.username, 'av-lg')}</span>
+          <b class="sr-pn">${escapeHtml(e.username || '')}</b><span class="sr-ps">${fmt(e.score)}</span><small class="sr-pl">${subOf(e)}</small>
+          <span class="sr-step"><i>${e.rank}</i></span></div>`;
+      })
+      .join('');
+    const rest = entries.filter((e) => !top.includes(e));
+    let html = entries.length ? (pods ? `<div class="sr-pods">${pods}</div>` : '') + rest.map((e) => row(e)).join('') : `<p class="sr-empty">${s2On() && !state.cfg.s2Open ? '👀 미리보기 · 시즌 2 가 열리면 여기에 순위가 떠요' : '아직 기록 없음'}</p>`;
     if (d.me && !entries.some((e) => e.me)) html += `<div class="sr-mine">${row({ ...d.me, username: state.me.player?.username || '나', av: state.me.player?.av, rank: d.me.rank || (d.me.cap ? `${d.me.cap}+` : null) }, true)}</div>`;
     list.innerHTML = html;
   } catch {
@@ -28138,36 +28154,78 @@ async function openGallery() {
   track.innerHTML = '<p class="gal-empty">작품을 거는 중…</p>';
   $('#gal-dots').innerHTML = '';
   $('#gal-tabs').innerHTML = '';
+  $('#gal-stabs').innerHTML = '';
   let hall = [];
   gal.finals = {};
   gal.finalsMe = {};
+  gal.live = null;
   try {
     if (state.api && state.api.hall) {
       const d = await state.api.hall('tiles', true);
       hall = d.hall || [];
       gal.finals = d.finals || {};
       gal.finalsMe = d.finalsMe || {};
+      // 🎹 지금 시즌(아직 안 끝남): 타일 총합 지금 1·2·3등 (확정 아님, 2026-11-27 사용자)
+      if (d.season && d.season.n >= 2) gal.live = { n: d.season.n, end: d.season.end, entries: d.entries || [], me: d.me || null };
     }
   } catch {}
-  gal.all = hall.slice().sort((a, b) => b.season - a.season || (GAL_ORDER[a.board] ?? 9) - (GAL_ORDER[b.board] ?? 9) || a.rank - b.rank);
-  const keys = [...new Set(gal.all.map((h) => `${h.season}:${h.board}`))];
+  gal.all = hall.slice().sort((a, b) => a.season - b.season || (GAL_ORDER[a.board] ?? 9) - (GAL_ORDER[b.board] ?? 9) || a.rank - b.rank);
+  // 시즌마다 탭 (2026-11-27 사용자 '시즌1 탭 2탭 따로') → 그 안에 판 탭(단계·무제한)
+  const seasons = [...new Set(gal.all.map((h) => h.season))];
+  if (gal.live && !seasons.includes(gal.live.n)) seasons.push(gal.live.n);
+  seasons.sort((a, b) => a - b);
+  const keys = galKeys();
   if (!keys.includes(gal.key)) gal.key = keys[0] || '';
-  const many = new Set(gal.all.map((h) => h.season)).size > 1;
-  $('#gal-tabs').innerHTML = keys
-    .map((k) => {
-      const [se, bd] = k.split(':');
-      return `<button data-action="gal-tab" data-key="${k}" aria-pressed="${k === gal.key}">${many ? `<small>시즌 ${se}</small>` : ''}${GAL_BOARD[bd] || bd}</button>`;
-    })
+  $('#gal-stabs').innerHTML = seasons
+    .map((n) => `<button data-action="gal-season" data-season="${n}">시즌 ${n}${gal.live && gal.live.n === n ? '<small>진행 중</small>' : ''}</button>`)
     .join('');
   galPick(gal.key, 0);
 }
+/** 고를 수 있는 칸: 끝난 시즌은 '시즌:판', 지금 시즌은 '시즌:live' */
+function galKeys() {
+  const keys = [...new Set(gal.all.map((h) => `${h.season}:${h.board}`))];
+  if (gal.live && !keys.some((k) => k.startsWith(`${gal.live.n}:`))) keys.push(`${gal.live.n}:live`);
+  return keys;
+}
 function galPick(key, i) {
   gal.key = key;
-  gal.list = gal.all.filter((h) => `${h.season}:${h.board}` === key);
+  const se = Number(String(key).split(':')[0]);
+  const live = String(key).endsWith(':live');
+  gal.list = live ? [] : gal.all.filter((h) => `${h.season}:${h.board}` === key);
   gal.i = Math.max(0, Math.min(gal.list.length - 1, i || 0));
-  $$('#gal-tabs button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.key === key)));
+  // 판 탭: 고른 시즌에 판이 둘 이상일 때만
+  const boards = galKeys().filter((k) => Number(k.split(':')[0]) === se && !k.endsWith(':live'));
+  $('#gal-tabs').innerHTML = boards.length > 1 ? boards.map((k) => `<button data-action="gal-tab" data-key="${k}" aria-pressed="${k === key}">${GAL_BOARD[k.split(':')[1]] || k}</button>`).join('') : '';
+  $('#gal-tabs').hidden = boards.length <= 1;
+  $$('#gal-stabs button').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.season) === se)));
+  $('.gal-view').hidden = live;
   $$('.gal-view button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === gal.view)));
   renderGallery();
+}
+/** 🎹 지금 시즌: 「시즌 2의 주인공은 누가 될까요?」 + 지금 1·2·3등(확정 아님) + 4~10등 */
+function galLiveHtml() {
+  const L = gal.live;
+  const e = L.entries || [];
+  const endTxt = L.end ? (() => { const t = new Date(L.end + 9 * 3600e3); return `${t.getUTCMonth() + 1}월 ${t.getUTCDate()}일에 끝나요`; })() : '';
+  const head = `<div class="gal-live"><span class="gal-live-tag"><i></i>LIVE · 확정 아님</span><h3>시즌 ${L.n}의 주인공은 누가 될까요?</h3>
+    <p>🎹 타일 총합 지금 순위${endTxt ? ` · ${endTxt}` : ''}<br>끝날 때 1·2·3등이 명예의 전당에 걸려요</p></div>`;
+  if (!e.length) return head + '<p class="gal-empty">아직 기록 없음</p>';
+  const top = e.filter((x) => x.rank <= 3).slice(0, 3);
+  const pods = [2, 1, 3]
+    .map((r) => top.find((x) => x.rank === r))
+    .filter(Boolean)
+    .map((h) => {
+      const pic = AVATARS.some((a) => a.id === h.av) ? avatarHtml(h.av, h.username, 'av-lg') : `<span class="gal-noimg"><b>${escapeHtml((h.username || '?').slice(0, 1))}</b></span>`;
+      return `<div class="gal-pod live r${h.rank} ${h.me ? 'me' : ''}"><span class="gal-frame"><span class="gal-mat">${pic}<span class="gal-q">?</span></span></span>
+        <span class="gal-pod-medal">${['🥇', '🥈', '🥉'][h.rank - 1]} 지금 ${h.rank}등</span><b>${escapeHtml(h.username || '')}</b><small>${fmt(h.score)}점<br>${h.n || 0}곡</small></div>`;
+    })
+    .join('');
+  const rest = e.filter((x) => x.rank > 3).slice(0, 7);
+  const mine = L.me && !e.some((x) => x.me) ? `<div class="rank-list gal-mine"><div class="rank-row me"><span class="r">${L.me.rank || (L.me.cap ? `${L.me.cap}+` : '-')}</span><span class="u">나 · ${escapeHtml(state.me.player?.username || '')}</span><span class="s">${fmt(L.me.score || 0)}</span><span class="g small">${L.me.n || 0}곡</span></div></div>` : '';
+  const list = `<div class="gal-rank">${rest.length ? `<h4>🏆 지금 4~10등</h4><div class="rank-list">${rest
+    .map((x) => `<div class="rank-row ${x.me ? 'me' : ''}"><span class="r">${x.rank}</span><span class="u">${escapeHtml(x.username)}</span><span class="s">${fmt(x.score)}</span><span class="g small">${x.n || 0}곡</span></div>`)
+    .join('')}</div>` : ''}${mine}<button class="btn btn-ghost btn-sm gal-live-more" data-action="s2-rank">전체 순위 보기</button></div>`;
+  return head + `<div class="gal-pods">${pods}</div>` + list;
 }
 function galParts(h) {
   const medal = ['🥇', '🥈', '🥉'][h.rank - 1] || '🏅';
@@ -28230,6 +28288,12 @@ function renderGallery() {
   pod.hidden = one;
   track.hidden = !one;
   $('#gal-dots').innerHTML = '';
+  if (String(gal.key).endsWith(':live') && gal.live) {
+    pod.hidden = false;
+    track.hidden = true;
+    pod.innerHTML = galLiveHtml();
+    return;
+  }
   if (!gal.list.length) {
     pod.hidden = true;
     track.hidden = false;
@@ -28256,7 +28320,7 @@ function renderGallery() {
 function galGo(d) {
   if (gal.view !== 'one') {
     // 한눈에 보기에선 화살표 = 옆 판(단계 ↔ 무제한)
-    const keys = $$('#gal-tabs button').map((b) => b.dataset.key);
+    const keys = galKeys();
     const k = keys.indexOf(gal.key) + d;
     if (k >= 0 && k < keys.length) galPick(keys[k], 0);
     return;
@@ -28494,6 +28558,11 @@ const ACTIONS = {
   'gal-prev': () => galGo(-1),
   'gal-next': () => galGo(1),
   'gal-tab': (el) => galPick(el.dataset.key, 0),
+  'gal-season': (el) => {
+    const n = Number(el.dataset.season);
+    const k = galKeys().find((x) => Number(x.split(':')[0]) === n);
+    if (k) galPick(k, 0);
+  },
   'gal-view': (el) => {
     gal.view = el.dataset.view;
     galPick(gal.key, gal.i);

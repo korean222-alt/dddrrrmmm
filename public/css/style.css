@@ -1905,3 +1905,48 @@ html.has-tabs .screen.active:not(#screen-home2) { padding-bottom: calc(96px + va
 .shop-gems .gem-i { width: 20px; height: 20px; margin-right: 3px; }
 .shop-item span:has(.gem-cost) { flex-wrap: wrap; justify-content: center; }
 .shop-item .gem-cost { flex-basis: 100%; display: flex; align-items: center; justify-content: center; gap: 2px; font-style: normal; font-size: 0.92em; color: #1d6fa3; }
+
+/* ---------- 🏆 시즌 2 랭킹 시상대 (2026-11-27 사용자 '1·2·3등 따로 위에 멋지게') ---------- */
+.sr-pods { position: relative; display: grid; grid-template-columns: 1fr 1.18fr 1fr; align-items: end; gap: 8px; padding: 22px 10px 0; margin-bottom: 6px; border-radius: 22px; overflow: hidden; background: radial-gradient(ellipse 60% 55% at 50% 0%, rgba(255, 226, 122, 0.35), transparent 70%), linear-gradient(180deg, #2b1f55, #1a1238); border: 2px solid var(--ink); }
+.sr-pods::before { content: ''; position: absolute; left: 50%; top: -30px; width: 160px; height: 220px; margin-left: -80px; background: linear-gradient(180deg, rgba(255, 240, 190, 0.28), transparent); clip-path: polygon(40% 0, 60% 0, 100% 100%, 0 100%); pointer-events: none; }
+.sr-pod { position: relative; display: grid; justify-items: center; gap: 2px; min-width: 0; text-align: center; color: #fff; }
+.sr-pav { display: block; width: 62px; border-radius: 50%; padding: 3px; background: linear-gradient(135deg, #f4f6fa, #8d97a8); box-shadow: 0 4px 12px rgba(0, 0, 0, 0.45); }
+.sr-pav .av { border: 0; }
+.sr-pod.p1 .sr-pav { width: 82px; background: linear-gradient(135deg, #fff1b0, #e2a400 50%, #ffd85a); box-shadow: 0 0 22px rgba(255, 210, 80, 0.6), 0 4px 12px rgba(0, 0, 0, 0.45); }
+.sr-pod.p3 .sr-pav { background: linear-gradient(135deg, #f2c49a, #b06a33); }
+.sr-crown { position: absolute; top: -20px; font-size: 26px; filter: drop-shadow(0 2px 2px rgba(0, 0, 0, 0.4)); animation: srcrown 2.4s ease-in-out infinite; z-index: 1; }
+.sr-pn { max-width: 100%; margin-top: 4px; font-weight: 400; font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sr-pod.p1 .sr-pn { font-size: 17px; color: #ffe27a; }
+.sr-ps { font-size: 15px; font-variant-numeric: tabular-nums; }
+.sr-pl { min-height: 14px; font-size: 11px; color: rgba(255, 255, 255, 0.7); }
+.sr-pl .t-stars { font-size: 11px; }
+.sr-step { position: relative; align-self: stretch; display: grid; place-items: center; margin-top: 6px; height: 46px; border-radius: 12px 12px 0 0; overflow: hidden; background: linear-gradient(180deg, #d9dee8, #8a96a8); box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.5); }
+.sr-step i { font-style: normal; font-size: 24px; color: #fff; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.25); }
+.sr-pod.p1 .sr-step { height: 70px; background: linear-gradient(180deg, #ffd85a, #e2a400); }
+.sr-pod.p1 .sr-step i { font-size: 32px; }
+.sr-pod.p1 .sr-step::after { content: ''; position: absolute; inset: 0; background: linear-gradient(110deg, transparent 35%, rgba(255, 255, 255, 0.55) 50%, transparent 65%); transform: translateX(-100%); animation: srshine 3.2s ease-in-out infinite; }
+.sr-pod.p3 .sr-step { height: 34px; background: linear-gradient(180deg, #e7a873, #b06a33); }
+.sr-pod.me .sr-pn::after { content: ' (나)'; font-size: 12px; color: #9ef0b4; }
+@keyframes srcrown { 0%, 100% { transform: translateY(0) rotate(-6deg); } 50% { transform: translateY(-4px) rotate(6deg); } }
+@keyframes srshine { 0%, 55% { transform: translateX(-100%); } 85%, 100% { transform: translateX(100%); } }
+
+/* ---------- 🏛 전시관 시즌 탭 + 지금 시즌 (확정 아님) ---------- */
+.gal-stabs { display: flex; gap: 6px; margin: 2px auto 8px; padding: 4px; border-radius: 99px; background: rgba(0, 0, 0, 0.35); width: max-content; max-width: calc(100% - 32px); overflow-x: auto; scrollbar-width: none; }
+.gal-stabs button { display: flex; align-items: center; gap: 5px; padding: 7px 16px; border-radius: 99px; font-size: 16px; color: rgba(255, 231, 168, 0.7); white-space: nowrap; }
+.gal-stabs button small { font-size: 10px; padding: 1px 6px; border-radius: 99px; background: #e8424f; color: #fff; }
+.gal-stabs button[aria-pressed='true'] { color: #3a2608; background: linear-gradient(180deg, #f6d77e, #c99a3a); box-shadow: 0 0 14px rgba(255, 210, 120, 0.4); }
+.gal-live { display: grid; justify-items: center; gap: 6px; margin-bottom: 18px; text-align: center; color: #fff3d6; }
+.gal-live h3 { margin: 0; font-weight: 400; font-size: 23px; line-height: 1.25; color: #ffe7a8; text-shadow: 0 0 18px rgba(255, 200, 90, 0.45); }
+.gal-live p { margin: 0; font-size: 13px; line-height: 1.5; opacity: 0.8; }
+.gal-live-tag { display: inline-flex; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 99px; font-size: 12px; background: rgba(232, 66, 79, 0.2); color: #ff9aa2; border: 1px solid rgba(255, 120, 130, 0.5); }
+.gal-live-tag i { width: 7px; height: 7px; border-radius: 50%; background: #ff4757; animation: gallive 1.2s ease-in-out infinite; }
+.gal-pod.live .gal-mat { position: relative; place-items: center; }
+.gal-pod.live .av-lg { width: 100%; border: 0; box-shadow: none; }
+.gal-q { position: absolute; right: 4px; bottom: 4px; display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; background: rgba(43, 31, 85, 0.85); color: #ffe27a; font-size: 14px; }
+.gal-pod.live.me > b::after { content: ' (나)'; font-size: 12px; color: #9ef0b4; }
+.gal-live-more { display: block; margin: 12px auto 0; }
+@keyframes gallive { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+@media (prefers-reduced-motion: reduce) { .sr-crown, .sr-pod.p1 .sr-step::after, .gal-live-tag i { animation: none !important; } }
+.sr-step { justify-self: stretch; }
+.sr-pav .av.av-none { font-size: 28px; }
+.sr-pod.p1 .sr-pav .av.av-none { font-size: 36px; }

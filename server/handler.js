@@ -2024,7 +2024,21 @@ export function createHandler(cfg, { store, meter = null }) {
             }
           }
       }
-      return json(200, { season: { n: season.n, end: season.end }, board, levels: LAST_LEVEL_ID, entries: top.map((r) => hallEntry(r, pl)), me: mine ? { ...hallEntry(mine, pl), cap: mine.cap || null } : null, hall, finals, finalsMe });
+      // 🙂 타일 총합 1·2·3등 프로필 이미지 (시상대, 2026-11-27) — 3명만, 인스턴스 10분 기억
+      let avOf = {};
+      if (board === 'tiles') {
+        const ids = top.slice(0, 3).map((r) => r.igsid).filter(Boolean);
+        if (ids.length)
+          avOf = await cached(`hall:av:${ids.join(',')}`, 10 * 60 * 1000, async () => {
+            const o = {};
+            for (const id of ids) {
+              const r = await Promise.resolve().then(() => store.getPlayer(id)).catch(() => null);
+              if (r && r.av) o[id] = r.av;
+            }
+            return o;
+          }, { shared: false });
+      }
+      return json(200, { season: { n: season.n, end: season.end }, board, levels: LAST_LEVEL_ID, entries: top.map((r) => (avOf[r.igsid] ? { ...hallEntry(r, pl), av: avOf[r.igsid] } : hallEntry(r, pl))), me: mine ? { ...hallEntry(mine, pl), cap: mine.cap || null } : null, hall, finals, finalsMe });
     }
     // 명예의 전당에 오른 사람만 자기 칸에 프로필 사진 올리기 / 지우기 (image: null)
     if (p === '/api/hall/photo' && m === 'POST') {
