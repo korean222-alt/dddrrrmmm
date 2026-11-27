@@ -107,6 +107,8 @@ function serverApi(boot = null) {
     guest: (name, ig, av) => http('POST', '/api/guest', { name, ig, av }),
     avatar: (av) => http('POST', '/api/avatar', { av }),
     verifyPassword: (body) => http('POST', '/api/verify/password', body),
+    // 📦 내 기록 되받기 (브라우저 바꾸고 로그인했을 때 한 번)
+    myBests: () => http('GET', '/api/my-bests'),
     // 이용 통계는 따로 안 보내고 이 요청들에 얹어 보냄 (요청 수 아끼기)
     // 🪙 코인도 얹어 보냄 (coins.js). 응답에 잔액이 오면 받은 것, 아니면 다음에 다시
     // 🎟 점수를 올리면 서버가 '같은 단계·다음 단계' 판 토큰을 미리 줌 → 깬 뒤 바로 다시·다음 판은 /api/runs 요청 없이 (Worker 요청 아끼기)
