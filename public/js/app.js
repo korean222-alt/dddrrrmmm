@@ -15877,7 +15877,7 @@ function todayQuests(day) {
 
 /** 커뮤니티 퀘스트 기본값 (운영자가 admin 에서 숫자·달성을 바꿈) */
 //   2026-11-26 사용자: 팔로워 2천 명이 되면 모두에게 2천 코인
-const COMMUNITY_DEFAULT = [{ id: 'f2000', icon: '📸', title: '오케이스트라 인스타 팔로워 2,000명', goal: 2000, now: 0, reward: 2000, done: false }];
+const COMMUNITY_DEFAULT = [{ id: 'f2000', icon: '📸', title: '오케이스트라 인스타 팔로워 2,000명', goal: 2000, now: 1920, reward: 2222, done: false }];
 
 /** admin 이 보낸 커뮤니티 퀘스트 목록 검사 */
 function cleanCommunity(list) {
@@ -16258,11 +16258,11 @@ function serverApi(boot = null) {
       return p;
     },
     // 🏛 명예의 전당: 랭킹처럼 1분 동안 같은 걸 다시 씀
-    hall: (board) => {
-      const key = 'hall:' + board;
+    hall: (board, final = false) => {
+      const key = 'hall:' + board + (final ? ':f' : '');
       const hit = lbCache.get(key);
       if (hit && Date.now() - hit.at < LB_CACHE_MS) return hit.p;
-      const p = http('GET', `/api/hall?board=${board === 'endless' ? 'endless' : board === 'tiles' ? 'tiles' : 'stage'}`);
+      const p = http('GET', `/api/hall?board=${board === 'endless' ? 'endless' : board === 'tiles' ? 'tiles' : 'stage'}${final ? '&final=1' : ''}`);
       lbCache.set(key, { at: Date.now(), p });
       p.catch(() => lbCache.delete(key));
       return p;
@@ -27035,8 +27035,13 @@ async function openGallery() {
   $('#gal-dots').innerHTML = '';
   $('#gal-tabs').innerHTML = '';
   let hall = [];
+  gal.finals = {};
   try {
-    if (state.api && state.api.hall) hall = (await state.api.hall('tiles')).hall || [];
+    if (state.api && state.api.hall) {
+      const d = await state.api.hall('tiles', true);
+      hall = d.hall || [];
+      gal.finals = d.finals || {};
+    }
   } catch {}
   gal.all = hall.slice().sort((a, b) => b.season - a.season || (GAL_ORDER[a.board] ?? 9) - (GAL_ORDER[b.board] ?? 9) || a.rank - b.rank);
   const keys = [...new Set(gal.all.map((h) => `${h.season}:${h.board}`))];
@@ -27091,6 +27096,20 @@ function galPodium(h, k) {
       <em>${h.msg ? `“${escapeHtml(h.msg)}”` : ''}</em>
     </button>`;
 }
+// 4~100등: 예전 랭킹판 모양 그대로 (시즌 끝날 때 순위, 서버 settings hallfinal)
+function galRest() {
+  const rows = (gal.finals && gal.finals[gal.key]) || [];
+  const rest = rows.filter((r) => r.rank > 3);
+  if (!rest.length) return '';
+  const endless = gal.key.endsWith(':endless');
+  const lv = endless ? '' : `/${LAST_LEVEL_ID}`;
+  return `<div class="gal-rank"><h4>🏆 시즌 ${gal.key.split(':')[0]} 최종 순위</h4><div class="rank-list">${rest
+    .map(
+      (e) => `<div class="rank-row ${e.me ? 'me' : ''}"><span class="r">${e.rank}</span><span class="u">${escapeHtml(e.username)}</span>
+        <span class="s">${fmt(e.score)}</span><span class="g small">${endless ? `Lv.${fmt(e.rounds)}` : `${e.n}${lv}`}</span></div>`
+    )
+    .join('')}</div></div>`;
+}
 function renderGallery() {
   const track = $('#gal-track');
   const pod = $('#gal-podium');
@@ -27106,7 +27125,7 @@ function renderGallery() {
   }
   if (!one) {
     const order = [2, 1, 3].map((r) => gal.list.findIndex((h) => h.rank === r)).filter((k) => k >= 0);
-    pod.innerHTML = order.map((k) => galPodium(gal.list[k], k)).join('');
+    pod.innerHTML = `<div class="gal-pods">${order.map((k) => galPodium(gal.list[k], k)).join('')}</div>${galRest()}`;
     return;
   }
   track.innerHTML = gal.list.map(galSlide).join('');

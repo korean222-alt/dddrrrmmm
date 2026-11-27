@@ -1158,6 +1158,15 @@ test('🏛 명예의 전당 API: 이번 시즌 단계·무제한 총합 · 시�
   assert.ok(h.entries.some((e) => e.username === '전당후보' && e.me));
   assert.equal(h.me.username, '전당후보');
   assert.ok(Array.isArray(h.hall));
+  assert.equal(h.finals, undefined);
+  // 🏛 전시관 「4~100등」: ?final=1 일 때만 끝난 시즌 최종 순위 (igsid 는 안 보냄)
+  const hf = (await c('GET', '/api/hall?board=tiles&final=1')).json;
+  assert.ok(hf.finals && typeof hf.finals === 'object');
+  for (const rows of Object.values(hf.finals)) {
+    assert.ok(rows.length <= 100 && rows[0].rank === 1);
+    assert.ok(rows.every((r) => !('igsid' in r) && typeof r.me === 'boolean'));
+  }
+  if (endedSeasons().includes(1)) assert.ok(Object.keys(hf.finals).every((k) => /^1:(stage|endless)$/.test(k)));
   const en = (await c('GET', '/api/hall?board=endless')).json;
   assert.equal(en.board, 'endless');
   assert.ok(en.entries.every((e) => e.score < 1_000_000_000));
