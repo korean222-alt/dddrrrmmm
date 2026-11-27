@@ -832,7 +832,7 @@ async function startLevel(id, opts = {}) {
   };
   $('#hud-coin').textContent = '0';
   $('#hud-coin-box').hidden = !!(state.auto || st.active);
-  renderer.coinFx = !(state.auto || st.active);
+  renderer.coinFx = !(state.auto || st.active || (lv.userMap && um.from === 'list' && um.mode === 'free'));
   renderer.coinPerfectOnly = !!lv.userMap; // 🎹 유저 맵: PERFECT 때만 코인 하나
   const starBox = $('#hud-stars');
   starBox.hidden = !!lv.endless;
@@ -2324,7 +2324,10 @@ function refreshCoins() {
 function runCoins(g) {
   if (!g || state.auto || g.auto || state.studio.active) return 0;
   const c = g.counts || {};
-  if (g.level && g.level.userMap) return Math.max(0, Math.min(40000, c.perfect || 0));
+  if (g.level && g.level.userMap) {
+    if (um.from === 'list' && um.mode === 'free') return 0; // 🛡 무적 = 코인 없음
+    return Math.max(0, Math.min(40000, c.perfect || 0));
+  }
   return Math.max(0, Math.min(40000, (c.perfect || 0) * 2 + (c.great || 0) + (c.good || 0) + (g.rollHits || 0)));
 }
 /**
@@ -6827,7 +6830,7 @@ async function tileEnd(r) {
   } catch {}
   const song = map ? null : tileSong(tileId(r.songId));
   // 🪙 타일 하나 = 1코인 + 코인 파티 (유저 맵 타일은 반) · 퀘스트 진행 · 출석
-  const coins = map ? Math.floor(r.coins / 2) : r.coins;
+  const coins = map ? (map.mode === 'tfree' ? 0 : Math.floor(r.coins / 2)) : r.coins; // 🛡 무적 맵 = 코인 없음
   // 💎 다이아 바퀴에서 얻은 다이아도 코인처럼 지갑에 (곡 판만 — 유저 맵·대결은 안 셈)
   const gemTok = !map && !room && tp.runToken && !String(tp.runToken).startsWith('mock.') ? tp.runToken : null;
   const gems = !map && !room ? Math.max(0, Math.min(3, r.gems || 0)) : 0;
