@@ -6836,31 +6836,55 @@ document.addEventListener(
 
 // ----- 🏛 명예의 전당 전시관 (2026-11-27 사용자 '미술관 전시회처럼, 넘기면서 1·2·3등 사진·한마디') -----
 //   데이터는 /api/hall 응답의 hall (끝난 시즌 1·2·3등 + 사진·한마디) — 랭킹 창과 같은 요청(1분 기억), 새 API 없음
-const gal = { list: [], i: 0, from: 'screen-title' };
+const gal = { all: [], list: [], i: 0, from: 'screen-title', key: '', view: 'all' };
 const GAL_BOARD = { stage: '🎵 단계 총합', endless: '💎 무제한 총합', tiles: '🎹 타일 총합' };
+const GAL_ORDER = { stage: 0, endless: 1, tiles: 2 };
+// 2026-11-27 사용자 '단계·무제한이 밑에 줄로만 나뉘어 티가 안 남 · 1·2·3등 한 번에' → 판마다 탭 + 「1·2·3등 한눈에」(기본) / 「하나씩 크게」
 async function openGallery() {
   const act = $$('.screen.active')[0];
   if (act && act.id !== 'screen-hall') gal.from = act.id;
   closeModal('modal-more');
   show('screen-hall');
   const track = $('#gal-track');
+  track.hidden = false;
+  $('#gal-podium').hidden = true;
   track.innerHTML = '<p class="gal-empty">작품을 거는 중…</p>';
   $('#gal-dots').innerHTML = '';
+  $('#gal-tabs').innerHTML = '';
   let hall = [];
   try {
     if (state.api && state.api.hall) hall = (await state.api.hall('tiles')).hall || [];
   } catch {}
-  // 최근 시즌 먼저, 판마다 1·2·3등
-  gal.list = hall.slice().sort((a, b) => b.season - a.season || a.board.localeCompare(b.board) || a.rank - b.rank);
-  gal.i = 0;
+  gal.all = hall.slice().sort((a, b) => b.season - a.season || (GAL_ORDER[a.board] ?? 9) - (GAL_ORDER[b.board] ?? 9) || a.rank - b.rank);
+  const keys = [...new Set(gal.all.map((h) => `${h.season}:${h.board}`))];
+  if (!keys.includes(gal.key)) gal.key = keys[0] || '';
+  const many = new Set(gal.all.map((h) => h.season)).size > 1;
+  $('#gal-tabs').innerHTML = keys
+    .map((k) => {
+      const [se, bd] = k.split(':');
+      return `<button data-action="gal-tab" data-key="${k}" aria-pressed="${k === gal.key}">${many ? `<small>시즌 ${se}</small>` : ''}${GAL_BOARD[bd] || bd}</button>`;
+    })
+    .join('');
+  galPick(gal.key, 0);
+}
+function galPick(key, i) {
+  gal.key = key;
+  gal.list = gal.all.filter((h) => `${h.season}:${h.board}` === key);
+  gal.i = Math.max(0, Math.min(gal.list.length - 1, i || 0));
+  $$('#gal-tabs button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.key === key)));
+  $$('.gal-view button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === gal.view)));
   renderGallery();
 }
-function galFrame(h) {
+function galParts(h) {
   const medal = ['🥇', '🥈', '🥉'][h.rank - 1] || '🏅';
   const pic = h.image
     ? `<img src="${escapeHtml(h.image)}" alt="${escapeHtml(h.username || '')} 사진" />`
     : `<span class="gal-noimg"><b>${escapeHtml((h.username || '?').slice(0, 1))}</b><small>사진 준비 중</small></span>`;
   const score = h.board === 'endless' && h.rounds ? `Lv.${fmt(h.rounds)} · ${fmt(h.score % 1e9)}점` : `${fmt(h.score)}점`;
+  return { medal, pic, score };
+}
+function galSlide(h) {
+  const { medal, pic, score } = galParts(h);
   return `<article class="gal-slide r${h.rank}">
       <div class="gal-light"></div>
       <div class="gal-frame"><div class="gal-mat">${pic}</div></div>
@@ -6873,14 +6897,38 @@ function galFrame(h) {
       ${h.me ? '<button class="btn btn-ghost btn-sm" data-action="s2-hall">📷 내 사진·한마디 바꾸기</button>' : ''}
     </article>`;
 }
+// 한눈에: 2등 왼쪽 · 1등 가운데(크게) · 3등 오른쪽, 누르면 「하나씩 크게」로 그 사람
+function galPodium(h, k) {
+  const { medal, pic, score } = galParts(h);
+  return `<button class="gal-pod r${h.rank}" data-action="gal-one" data-i="${k}">
+      <span class="gal-frame"><span class="gal-mat">${pic}</span></span>
+      <span class="gal-pod-medal">${medal} ${h.rank}등</span>
+      <b>${escapeHtml(h.username || '')}</b>
+      <small>${score.replace(' · ', '<br>')}</small>
+      <em>${h.msg ? `“${escapeHtml(h.msg)}”` : ''}</em>
+    </button>`;
+}
 function renderGallery() {
   const track = $('#gal-track');
+  const pod = $('#gal-podium');
+  const one = gal.view === 'one';
+  pod.hidden = one;
+  track.hidden = !one;
+  $('#gal-dots').innerHTML = '';
   if (!gal.list.length) {
+    pod.hidden = true;
+    track.hidden = false;
     track.innerHTML = '<p class="gal-empty">아직 전시된 작품이 없어요</p>';
     return;
   }
-  track.innerHTML = gal.list.map(galFrame).join('');
+  if (!one) {
+    const order = [2, 1, 3].map((r) => gal.list.findIndex((h) => h.rank === r)).filter((k) => k >= 0);
+    pod.innerHTML = order.map((k) => galPodium(gal.list[k], k)).join('');
+    return;
+  }
+  track.innerHTML = gal.list.map(galSlide).join('');
   $('#gal-dots').innerHTML = gal.list.map((h, i) => `<i class="${i === gal.i ? 'on' : ''}"></i>`).join('');
+  track.scrollLeft = gal.i * (track.clientWidth || 0);
   track.onscroll = () => {
     const w = track.clientWidth || 1;
     const i = Math.round(track.scrollLeft / w);
@@ -6891,6 +6939,13 @@ function renderGallery() {
   };
 }
 function galGo(d) {
+  if (gal.view !== 'one') {
+    // 한눈에 보기에선 화살표 = 옆 판(단계 ↔ 무제한)
+    const keys = $$('#gal-tabs button').map((b) => b.dataset.key);
+    const k = keys.indexOf(gal.key) + d;
+    if (k >= 0 && k < keys.length) galPick(keys[k], 0);
+    return;
+  }
   const track = $('#gal-track');
   if (!gal.list.length) return;
   gal.i = Math.max(0, Math.min(gal.list.length - 1, gal.i + d));
@@ -7022,6 +7077,15 @@ const ACTIONS = {
   'hall-back': () => (gal.from === 'screen-events' ? openS2Q() : show(gal.from || 'screen-title')),
   'gal-prev': () => galGo(-1),
   'gal-next': () => galGo(1),
+  'gal-tab': (el) => galPick(el.dataset.key, 0),
+  'gal-view': (el) => {
+    gal.view = el.dataset.view;
+    galPick(gal.key, gal.i);
+  },
+  'gal-one': (el) => {
+    gal.view = 'one';
+    galPick(gal.key, Number(el.dataset.i));
+  },
   'close-modes': () => closeModal('modal-modes'),
   's2-tiles': () => openTiles(),
   's2-drum': () => {

@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=5c8d1120d7" />
+  <link rel="stylesheet" href="css/style.css?v=0784d2502b" />
 </head>
 <body>
   <div id="app">
@@ -124,7 +124,13 @@
         <h2>🏛 명예의 전당</h2>
         <span class="bar-gap"></span>
       </header>
-      <div class="gal-wall">
+      <div class="gal-tabs" id="gal-tabs"></div>
+      <div class="gal-view">
+        <button data-action="gal-view" data-view="all" aria-pressed="true">1·2·3등 한눈에</button>
+        <button data-action="gal-view" data-view="one" aria-pressed="false">하나씩 크게</button>
+      </div>
+      <div class="gal-wall" id="gal-wall">
+        <div class="gal-podium" id="gal-podium" hidden></div>
         <div class="gal-track" id="gal-track"></div>
         <button class="gal-nav prev" data-action="gal-prev" aria-label="앞 작품">‹</button>
         <button class="gal-nav next" data-action="gal-next" aria-label="다음 작품">›</button>
@@ -1327,6 +1333,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=83308587a4" defer></script>
+  <script src="js/app.js?v=b566195664" defer></script>
 </body>
 </html>

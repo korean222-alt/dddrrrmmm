@@ -1761,3 +1761,27 @@ html.has-tabs .screen.active:not(#screen-home2) { padding-bottom: calc(96px + va
 
 .room-drums { border-color: #ff8ac0; background: linear-gradient(180deg, #fff0f7, #fff); }
 @media (prefers-reduced-motion: reduce) { .vs-scene *, .vs-badge { animation: none !important; } }
+
+/* ---------- 🏛 전시관 2026-11-27: 판 탭(단계·무제한) + 1·2·3등 한눈에 ---------- */
+.gal-tabs { display: flex; gap: 8px; padding: 4px 16px 0; }
+.gal-tabs button { flex: 1; display: grid; justify-items: center; padding: 10px 6px; border-radius: 14px; font-size: 17px; color: rgba(255, 231, 168, 0.65); background: rgba(0, 0, 0, 0.3); border: 2px solid rgba(255, 231, 168, 0.2); }
+.gal-tabs button small { font-size: 11px; opacity: 0.8; }
+.gal-tabs button[aria-pressed='true'] { color: #3a2608; background: linear-gradient(180deg, #f6d77e, #c99a3a); border-color: #ffeab0; box-shadow: 0 0 18px rgba(255, 210, 120, 0.45); }
+.gal-view { display: flex; justify-content: center; gap: 4px; margin: 10px auto 0; padding: 3px; border-radius: 99px; background: rgba(0, 0, 0, 0.35); width: max-content; }
+.gal-view button { padding: 5px 14px; border-radius: 99px; font-size: 13px; color: rgba(255, 231, 168, 0.7); }
+.gal-view button[aria-pressed='true'] { background: rgba(255, 231, 168, 0.18); color: #ffe7a8; }
+.gal-podium { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1.25fr 1fr; align-items: start; align-content: start; gap: 8px; padding: 18px 10px 8px; overflow-y: auto; }
+.gal-pod { display: grid; justify-items: center; align-content: end; gap: 4px; text-align: center; color: #fff3d6; min-width: 0; }
+.gal-pod .gal-frame { display: block; width: 100%; padding: 7px; }
+.gal-pod .gal-mat { display: grid; padding: 4px; }
+.gal-pod.r2, .gal-pod.r3 { margin-top: 34px; }
+.gal-pod.r2 .gal-frame { background: linear-gradient(135deg, #f4f6fa, #9aa3b3 35%, #e6eaf2 55%, #737c8c 80%, #d7dde7); }
+.gal-pod.r3 .gal-frame { background: linear-gradient(135deg, #f2c49a, #a5622d 35%, #e7ae7c 55%, #7d4318 80%, #d99b66); }
+.gal-pod .gal-noimg b { font-size: 34px; }
+.gal-pod .gal-noimg small { font-size: 10px; }
+.gal-pod-medal { margin-top: 4px; font-size: 13px; color: #ffd86b; }
+.gal-pod b { font-weight: 400; font-size: 17px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gal-pod.r1 b { font-size: 20px; }
+.gal-pod small { font-size: 11px; opacity: 0.75; }
+.gal-pod em { font-size: 12px; line-height: 1.35; color: #ffe7c0; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.gal-podium:not([hidden]) ~ .gal-nav { display: none; }
