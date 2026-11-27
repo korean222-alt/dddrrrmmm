@@ -1426,10 +1426,10 @@ export function createHandler(cfg, { store, meter = null }) {
         // 10분 기억 (통계 표는 크고 계속 늘어남). D1 은 시간 순 표라 기간만 읽고, 그 전 기간(예전 표 전체)은 한도 여유 있을 때만
         //   2026-11-27 무료 한도 점검: 예전 표(시간 순 표 전, 5만 줄+ 통째로 읽음)는 ?legacy=1 일 때만 · 결과는 여러 서버가 30분 같이 씀
         const fresh = url.searchParams.get('fresh') === '1';
-        const legacy = url.searchParams.get('legacy') === '1' && brake() < 1;
+        const legacy = url.searchParams.get('legacy') !== '0' && brake() < 1; // 2026-11-27 다시 기본 켬: 안 읽었더니 통계가 텅 비어 보임 → 대신 6시간 같이 씀
         const key = `admin:stats:${days}${legacy ? ':l' : ''}`;
         if (fresh) await forget(key);
-        const out = await cached(key, 30 * 60_000, async () => {
+        const out = await cached(key, legacy ? 6 * 3600_000 : 30 * 60_000, async () => {
           const raw = await store.statsRaw(from, now + 1, { legacy });
           return { days, ...buildStats(raw, { from, to: now, tzMin }), legacySkipped: !!raw.legacySkipped, at: now };
         });
