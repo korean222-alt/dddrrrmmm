@@ -18564,10 +18564,17 @@ class TileGame {
     const x = (cx - r.left) * (r.width ? this.W / r.width : 1);
     const y = (cy - r.top) * (r.height ? this.H / r.height : 1);
     const pn = performance.now();
-    // touchstart 와 pointerdown 이 같은 손가락으로 둘 다 오면 한 번만
-    if (this.recent.length > 8) this.recent = this.recent.filter((p) => pn - p.at < 120);
-    for (const p of this.recent) if (pn - p.at < 80 && Math.abs(p.x - x) < 24 && Math.abs(p.y - y) < 24) return;
-    this.recent.push({ x, y, at: pn });
+    // touchstart 와 pointerdown 이 같은 손가락으로 둘 다 오면 한 번만.
+    //   느린 폰은 앞 이벤트 처리(시작 타일 = 노래 예약, 빽빽한 곳 = 화면)가 길어 둘째가 80ms 넘게 늦게 처리됨 →
+    //   처리 시각으로 재면 같은 터치가 두 번 쳐져 '안 눌렀는데 눌림'(2026-11-27 건의: 터키 행진곡·시작 타일 사라짐).
+    //   폰이 붙인 이벤트 시각(같은 손가락이면 거의 같음)으로 잼, 못 믿을 값이면 처리 시각
+    const ev = ts > 0 && Math.abs(pn - ts) < 1000 ? ts : pn;
+    if (this.recent.length > 8) this.recent = this.recent.filter((p) => pn - p.at < 1200);
+    for (const p of this.recent) {
+      if (p.src === src || Math.abs(p.x - x) >= 24 || Math.abs(p.y - y) >= 24) continue;
+      if (Math.abs(p.ev - ev) < 80 || pn - p.at < 80) return;
+    }
+    this.recent.push({ x, y, at: pn, ev, src });
     if (y < this.topNo) return;
     const lane = clamp(Math.floor(x / this.laneW), 0, 3);
     const tsOk = ts > 0 && Math.abs(pn - ts) < 300 ? ts : pn;
