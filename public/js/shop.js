@@ -101,7 +101,10 @@ export function seasonReward(rank) {
   if (rank <= 100) return 3000;
   return 0;
 }
-/** boards = { stage: [{igsid, rank}], endless: [...] } → [{ igsid, coins, board, rank }] 사람마다 가장 큰 것 하나 */
+/**
+ * boards = { stage: [{igsid, rank}], endless: [...] } → [{ igsid, coins, board, rank, also }] 사람마다 가장 큰 것 하나
+ *   단 1·2·3등이 두 판 이상이면 그 1·2·3등 보상을 다 더함 (2026-11-27 사용자: 단계 1등 + 무제한 2등 = 17만). also = 더한 다른 판들
+ */
 export function seasonRewards(boards) {
   const best = new Map();
   for (const board of ['stage', 'endless', 'tiles']) {
@@ -109,7 +112,11 @@ export function seasonRewards(boards) {
       const coins = seasonReward(r.rank);
       if (!coins || !r.igsid) continue;
       const o = best.get(r.igsid);
-      if (!o || coins > o.coins) best.set(r.igsid, { igsid: r.igsid, coins, board, rank: r.rank });
+      if (o && o.rank <= 3 && r.rank <= 3) {
+        const big = coins > o.coins ? { board, rank: r.rank } : { board: o.board, rank: o.rank };
+        const small = coins > o.coins ? { board: o.board, rank: o.rank } : { board, rank: r.rank };
+        best.set(r.igsid, { igsid: r.igsid, coins: o.coins + coins, ...big, also: [...(o.also || []), small] });
+      } else if (!o || coins > o.coins) best.set(r.igsid, { igsid: r.igsid, coins, board, rank: r.rank });
     }
   }
   return [...best.values()];

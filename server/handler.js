@@ -354,7 +354,7 @@ export function createHandler(cfg, { store, meter = null }) {
           const list = seasonRewards(boards).map((r) => ({
             igsid: r.igsid,
             coins: r.coins,
-            gift: { coins: r.coins, note: `🏆 시즌 ${n} ${BN[r.board]} ${r.rank}등 보상이에요!`, hall: r.rank <= 3 ? { season: n, board: r.board, rank: r.rank } : null, reward: n, at: now },
+            gift: { coins: r.coins, note: `🏆 시즌 ${n} ${[{ board: r.board, rank: r.rank }, ...(r.also || [])].map((x) => `${BN[x.board]} ${x.rank}등`).join(' + ')} 보상이에요!`, hall: r.rank <= 3 ? { season: n, board: r.board, rank: r.rank } : null, reward: n, at: now },
           }));
           await store.giveCoinsMany(list);
         }
