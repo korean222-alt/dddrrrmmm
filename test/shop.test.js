@@ -35,7 +35,7 @@ test('사기', () => {
   assert.equal(buyItem(r.wallet, 'notes:zzz').error, 'bad_item');
 });
 
-test('🏆 시즌 보상: 등수별 · 두 판에 다 들면 큰 것 하나만', () => {
+test('🏆 시즌 보상: 등수별 · 두 판에 다 들면 큰 것 하나 · 1·2·3등이 겹치면 더함(11-27)', () => {
   assert.deepEqual([1, 2, 3, 4, 10, 11, 50, 51, 100, 101].map(seasonReward), [100000, 70000, 50000, 10000, 10000, 5000, 5000, 3000, 3000, 0]);
   const r = seasonRewards({
     stage: [{ igsid: 'a', rank: 1 }, { igsid: 'b', rank: 2 }, { igsid: 'c', rank: 60 }],
@@ -43,7 +43,8 @@ test('🏆 시즌 보상: 등수별 · 두 판에 다 들면 큰 것 하나만',
   });
   const by = Object.fromEntries(r.map((x) => [x.igsid, x]));
   assert.equal(r.length, 3);
-  assert.deepEqual([by.a.coins, by.a.board, by.a.rank], [100000, 'stage', 1]);
+  assert.deepEqual([by.a.coins, by.a.board, by.a.rank], [170000, 'stage', 1]);
+  assert.deepEqual(by.a.also, [{ board: 'endless', rank: 2 }]);
   assert.equal(by.b.coins, 70000);
   assert.deepEqual([by.c.coins, by.c.board, by.c.rank], [50000, 'endless', 3]);
 });

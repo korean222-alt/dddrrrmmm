@@ -4912,7 +4912,10 @@ function seasonReward(rank) {
   if (rank <= 100) return 3000;
   return 0;
 }
-/** boards = { stage: [{igsid, rank}], endless: [...] } → [{ igsid, coins, board, rank }] 사람마다 가장 큰 것 하나 */
+/**
+ * boards = { stage: [{igsid, rank}], endless: [...] } → [{ igsid, coins, board, rank, also }] 사람마다 가장 큰 것 하나
+ *   단 1·2·3등이 두 판 이상이면 그 1·2·3등 보상을 다 더함 (2026-11-27 사용자: 단계 1등 + 무제한 2등 = 17만). also = 더한 다른 판들
+ */
 function seasonRewards(boards) {
   const best = new Map();
   for (const board of ['stage', 'endless', 'tiles']) {
@@ -4920,7 +4923,11 @@ function seasonRewards(boards) {
       const coins = seasonReward(r.rank);
       if (!coins || !r.igsid) continue;
       const o = best.get(r.igsid);
-      if (!o || coins > o.coins) best.set(r.igsid, { igsid: r.igsid, coins, board, rank: r.rank });
+      if (o && o.rank <= 3 && r.rank <= 3) {
+        const big = coins > o.coins ? { board, rank: r.rank } : { board: o.board, rank: o.rank };
+        const small = coins > o.coins ? { board: o.board, rank: o.rank } : { board, rank: r.rank };
+        best.set(r.igsid, { igsid: r.igsid, coins: o.coins + coins, ...big, also: [...(o.also || []), small] });
+      } else if (!o || coins > o.coins) best.set(r.igsid, { igsid: r.igsid, coins, board, rank: r.rank });
     }
   }
   return [...best.values()];
@@ -17359,8 +17366,10 @@ const GONE_ROWS = 0.35;
 const MIN_TAP_SEC = 0.2;
 /** 예전 이름 (첫 바퀴 간격) */
 const MIN_GAP = MIN_TAP_SEC;
-/** 🪙 코인 파티: 첫 바퀴(별 3개)를 끝내고 빨라지기 전에 한 번 (마디 수, 사용자 11-26) */
-const PARTY_BARS = 4;
+/** 🪙 코인 파티: 첫 바퀴(별 3개)를 끝내고 빨라지기 전에 한 번 (마디 수, 사용자 11-26)
+ *   앞뒤로 PARTY_GAP 마디씩 비워 둠 (2026-11-27 사용자 '보너스 코인 시작할 때 처음이랑 끝 텀 좀 둬줘') → 코인은 가운데 4마디 */
+const PARTY_BARS = 6;
+const PARTY_GAP = 1;
 
 // ---------------------------------------------------------------
 // 곡 전체 (드럼 단계 멜로디가 조각뿐인 곡). 퍼블릭 도메인 곡만. bars = 드럼 단계 마디 번호 또는 새 마디 문자열
@@ -17537,7 +17546,7 @@ function buildCourse(lap, { laps = MAX_LAPS, party = true } = {}) {
       // 🪙 코인 파티: 반 줄마다 코인이 마구잡이로 (한두 개씩, 같은 줄은 안 겹치게) — 벌 없음
       const endAt = [-1e9, -1e9, -1e9, -1e9];
       const half = Math.max(1, u / 2);
-      for (let a = a0; a < a0 + P * STEPS_PER_BAR; a += half) {
+      for (let a = a0 + PARTY_GAP * STEPS_PER_BAR; a < a0 + (P - PARTY_GAP) * STEPS_PER_BAR - 1e-9; a += half) {
         const n = rnd() < 0.35 ? 2 : 1;
         for (let j = 0; j < n; j++) {
           const free = [0, 1, 2, 3].filter((x) => endAt[x] <= a + 1e-9);
@@ -17772,7 +17781,7 @@ const gradeLaps = (g) => {
   return m ? Number(m[1]) : 0;
 };
 
-return { TILE_ROWS, TILE_RPS, LAP_SPEEDS, HOLD_PTS, TILE_SONGS, TILE_DIFF, TILE_FREE, TILE_SLOT0, TILE_SLOT_MAX, MAX_LAPS, TILE_HEARTS, GONE_ROWS, MIN_TAP_SEC, MIN_GAP, PARTY_BARS, TILE_MEL, tileSource, rowUnit, buildLap, tilePoints, buildCourse, assignLanes, LAP_MIN_SEC, transposeBar, tileLap, mapTileLap, MAP_TILE_LAPS, mapTileMax, lapSpeed, lapStars, tileId, tileSong, tileSlot, isTileSlot, tileClosed, tileCourse, tileTimes, tilesWithin, checkTileRun, lapGrade, gradeLaps };
+return { TILE_ROWS, TILE_RPS, LAP_SPEEDS, HOLD_PTS, TILE_SONGS, TILE_DIFF, TILE_FREE, TILE_SLOT0, TILE_SLOT_MAX, MAX_LAPS, TILE_HEARTS, GONE_ROWS, MIN_TAP_SEC, MIN_GAP, PARTY_BARS, PARTY_GAP, TILE_MEL, tileSource, rowUnit, buildLap, tilePoints, buildCourse, assignLanes, LAP_MIN_SEC, transposeBar, tileLap, mapTileLap, MAP_TILE_LAPS, mapTileMax, lapSpeed, lapStars, tileId, tileSong, tileSlot, isTileSlot, tileClosed, tileCourse, tileTimes, tilesWithin, checkTileRun, lapGrade, gradeLaps };
 })();
 
 // ---- tilegame.js ----
@@ -17795,15 +17804,19 @@ const __m_tilegame = (() => {
 //   🎯 판정 (2026-11-27 사용자 '죄다 퍼펙트'): 타일 아래 끝이 판정선에 닿는 시각과 누른 시각의 차이 — PERFECT_SEC 안만 PERFECT
 //   🪙 코인은 드럼처럼 판정선에서 튀어 올라 떨어짐 (코인 칸으로 날아가 쌓이던 것 없앰)
 //   👆 긴 타일: 누른 손가락 자리까지 차오름 (판정선 기준 아님), 손가락이 내려가면 따라감
+//   🎨 6차 (2026-11-27 사용자 '너무 중국 게임 같아 · 점수·PERFECT 글씨 사진 느낌으로'): 밝은 파스텔 그라데이션 배경 + 하얀 줄·판정선,
+//     하얀 둥근 점수(Fredoka), PERFECT = 파스텔 그라데이션 글자 + 유리 조각 + 하얀 ×연속, 진행 줄 = 가는 하얀 선 + 노란 별
+//   👆 타일 자리를 눌러야 침 (빈 칸 = 하트), PERFECT 한가운데 = 타일이 판정선에 걸칠 때 (PERFECT_ROWS)
 //   ⚔️ 대결(vs): 상대 점수 막대, maxLaps 바퀴(기본 3)에서 끝, 코인 파티 없음
 
 const { STEPS_PER_BAR, parseChord } = __m_charts;
 const { tileLap, tileCourse, buildCourse, lapStars, MAX_LAPS, TILE_HEARTS, TILE_ROWS, tilePoints, HOLD_PTS } = __m_tiles;
 
 const FONT = "Jua, 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif";
-const BOLD = "800 {px}px 'Arial Rounded MT Bold', 'Trebuchet MS', system-ui, sans-serif";
 const font = (px) => `${Math.round(px)}px ${FONT}`;
-const bold = (px) => BOLD.replace('{px}', Math.round(px));
+/** 점수·판정 글자 (2026-11-27 사용자 '점수·PERFECT 글씨 구려, 사진 느낌으로'): 둥근 굵은 영문 글꼴 (Google Fonts Fredoka, OFL) */
+const DISP = "'Fredoka', 'Arial Rounded MT Bold', 'Trebuchet MS', system-ui, sans-serif";
+const disp = (px, w = 700) => `${w} ${Math.round(px)}px ${DISP}`;
 const ease = (k) => 1 - Math.pow(1 - Math.max(0, Math.min(1, k)), 3);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const BOUNCE_SEC = 0.12;
@@ -17814,10 +17827,13 @@ const JUDGE_AT = 0.75;
 const GONE_ROWS = (1 - JUDGE_AT) * TILE_ROWS + 0.08;
 const HOLD_BLUE = '#2fb8ff';
 /** 🎯 판정 창 (초, 음수 = 빨리): 타일 아래 끝이 판정선에 닿는 순간 기준 — 2026-11-27 사용자 '선에 맞춰 쳤을 때만 PERFECT' */
-const PERFECT_SEC = [-0.07, 0.085];
-const GREAT_SEC = [-0.14, 0.16];
-/** 판정 색 (빛 기둥·고리) */
-const WORD_RGB = { perfect: '255,206,70', great: '80,190,255', good: '110,220,140' };
+const PERFECT_SEC = [-0.075, 0.085];
+const GREAT_SEC = [-0.15, 0.17];
+/** 🎯 PERFECT 자리 (줄): 타일 아래 끝이 판정선을 이만큼 지난 때가 한가운데 (2026-11-27 사용자 '선 중간에 맞춰 누르는데 PERFECT 가 안 떠, 좀만 내려')
+ *   = 타일이 판정선에 걸쳐 있을 때. 소리(그 음)는 그대로 아래 끝이 선에 닿을 때 */
+const PERFECT_ROWS = 0.3;
+/** 👆 타일 아래 끝보다 이만큼(줄) 아래를 눌러도 그 타일 (손가락이 닿는 사이 타일이 내려옴) — 더 밑은 빈 칸 */
+const TAP_BELOW = 0.3;
 /** 🪙 떨어지는 코인 (드럼처럼) 수명 */
 const DROP_SEC = 0.7;
 /** 노래 소리 미리 예약 (초) */
@@ -17841,7 +17857,9 @@ class TileGame {
     this.vs = vs;
     this.skin = skin || {};
     this.hue = hue ?? SONG_HUES[songId] ?? 220;
-    this.hueRgb = hslRgb(this.hue, 60, 55).join(',');
+    try {
+      if (document.fonts) document.fonts.load(disp(40)).then(() => this.W && this.state !== 'playing' && this._draw(this.pausedT || 0, 0)).catch(() => {});
+    } catch {}
     this.maxLaps = Math.max(1, Math.min(MAX_LAPS, maxLaps));
     this.lap = lap || tileLap(songId);
     // 혼자 치는 곡 = 서버 검사와 같은 코스 (코인 파티 포함). 대결은 파티 없이
@@ -17904,7 +17922,8 @@ class TileGame {
     if (a < 0) return null;
     const sg = this.course.segs.find((s) => s.kind === 'party');
     const T = (abs) => this.tempo.stepTime(abs) - this.t0;
-    return { a, b, t0: T(sg.bar0 * STEPS_PER_BAR), t1: T((sg.bar0 + sg.bars) * STEPS_PER_BAR) };
+    // t0·t1 = 파티 구간(앞뒤 빈 마디 포함, 벌 없음), c0·c1 = 첫·마지막 코인 타일이 판정선에 닿는 때
+    return { a, b, t0: T(sg.bar0 * STEPS_PER_BAR), t1: T((sg.bar0 + sg.bars) * STEPS_PER_BAR), c0: this.tiles[a].t, c1: this.tiles[b].t };
   }
 
   // ---------- 🎵 노래 (멜로디 + 왼손 반주) ----------
@@ -18151,7 +18170,6 @@ class TileGame {
     this.judgeY = H * JUDGE_AT;
     this.topNo = Math.max(44, H * 0.055); // 맨 위(일시정지 자리)는 터치 안 받음
     this.lookRows = (this.judgeY + 4) / this.rowH + 0.2;
-    this.tapRows = (this.judgeY - this.topNo) / this.rowH;
   }
 
   /** 긴 타일·친 자리 빛 색 (줄마다): 스킨 색 있으면 그 색, 없으면 하늘색 */
@@ -18179,25 +18197,23 @@ class TileGame {
     this.spr = {};
     const [bg, b] = mk(W, H);
     this._paintBg(b, W, H);
-    // 줄 사이 가는 선
-    b.fillStyle = 'rgba(60,50,100,0.1)';
+    // 줄 사이 가는 하얀 선
+    b.fillStyle = 'rgba(255,255,255,0.55)';
     for (let i = 1; i < 4; i++) b.fillRect(Math.round(i * laneW) - 0.5, 0, 1, H);
-    // 판정선: 옅은 빛 띠 + 또렷한 선 (어디서 치면 PERFECT 인지 보이게)
+    // 판정선: 하얀 빛 띠 + 가는 선 (어디서 치면 PERFECT 인지 보이게 — 타일이 이 선에 걸칠 때)
     const jy = this.judgeY;
-    const jg = b.createLinearGradient(0, jy - 34, 0, jy + 34);
-    jg.addColorStop(0, `rgba(${this.hueRgb},0)`);
-    jg.addColorStop(0.5, `rgba(${this.hueRgb},0.16)`);
-    jg.addColorStop(1, `rgba(${this.hueRgb},0)`);
+    const jg = b.createLinearGradient(0, jy - 30, 0, jy + 30);
+    jg.addColorStop(0, 'rgba(255,255,255,0)');
+    jg.addColorStop(0.5, 'rgba(255,255,255,0.32)');
+    jg.addColorStop(1, 'rgba(255,255,255,0)');
     b.fillStyle = jg;
-    b.fillRect(0, jy - 34, W, 68);
+    b.fillRect(0, jy - 30, W, 60);
     const lg = b.createLinearGradient(0, 0, W, 0);
-    lg.addColorStop(0, `rgba(${this.hueRgb},0.15)`);
-    lg.addColorStop(0.5, `rgba(${this.hueRgb},0.75)`);
-    lg.addColorStop(1, `rgba(${this.hueRgb},0.15)`);
+    lg.addColorStop(0, 'rgba(255,255,255,0.35)');
+    lg.addColorStop(0.5, 'rgba(255,255,255,0.95)');
+    lg.addColorStop(1, 'rgba(255,255,255,0.35)');
     b.fillStyle = lg;
-    b.fillRect(0, jy - 1.5, W, 3);
-    b.fillStyle = 'rgba(255,255,255,0.9)';
-    b.fillRect(0, jy - 0.5, W, 1);
+    b.fillRect(0, jy - 1, W, 2);
     this.spr.bg = bg;
     const tw = laneW - 1;
     const th = rowH;
@@ -18215,22 +18231,54 @@ class TileGame {
     // 누른 줄 빛
     const [pc, p] = mk(laneW, H);
     const pg = p.createLinearGradient(0, 0, 0, H);
-    pg.addColorStop(0, `rgba(${this.hueRgb},0)`);
-    pg.addColorStop(1, `rgba(${this.hueRgb},0.14)`);
+    pg.addColorStop(0, 'rgba(255,255,255,0)');
+    pg.addColorStop(1, 'rgba(255,255,255,0.28)');
     p.fillStyle = pg;
     p.fillRect(0, 0, laneW, H);
     this.spr.press = pc;
   }
 
-  /** 배경: 흰 바탕 + 곡 색이 아주 옅게 (스킨과 상관없이 늘 같음 — 2026-11-27 사용자 '스킨 끼면 너무 어두워') */
+  /** 배경 (2026-11-27 사용자 '너무 중국 게임 같아 · 사진 느낌으로'): 곡 색 → 옆 색으로 흐르는 밝은 파스텔 그라데이션 +
+   *   가운데 은은한 빛 + 옅은 네모 무늬 몇 개. 스킨과 상관없이 늘 같음 (타일은 어두워서 잘 보임) */
   _paintBg(b, W, H) {
     const h = this.hue;
-    const gr = b.createLinearGradient(0, 0, 0, H);
-    gr.addColorStop(0, '#ffffff');
-    gr.addColorStop(0.6, `hsl(${h},60%,97%)`);
-    gr.addColorStop(1, `hsl(${h},70%,92%)`);
+    const [h1, h2] = bgHues(h);
+    const gr = b.createLinearGradient(0, 0, W, H);
+    gr.addColorStop(0, `hsl(${h1},80%,66%)`);
+    gr.addColorStop(1, `hsl(${h2},76%,64%)`);
     b.fillStyle = gr;
     b.fillRect(0, 0, W, H);
+    // 위아래 살짝 다른 결
+    const vg = b.createLinearGradient(0, 0, 0, H);
+    vg.addColorStop(0, 'rgba(255,255,255,0.12)');
+    vg.addColorStop(0.55, 'rgba(255,255,255,0)');
+    vg.addColorStop(1, `hsla(${h2},70%,40%,0.14)`);
+    b.fillStyle = vg;
+    b.fillRect(0, 0, W, H);
+    // 가운데 은은한 빛
+    const rg = b.createRadialGradient(W * 0.5, H * 0.46, 0, W * 0.5, H * 0.46, Math.max(W, H) * 0.5);
+    rg.addColorStop(0, 'rgba(255,255,255,0.42)');
+    rg.addColorStop(1, 'rgba(255,255,255,0)');
+    b.fillStyle = rg;
+    b.fillRect(0, 0, W, H);
+    // 옅은 네모 무늬 (기울어진 판 몇 장)
+    let seed = 5 + Math.round(h);
+    const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
+    for (let i = 0; i < 7; i++) {
+      const s = Math.max(W, H) * (0.12 + rnd() * 0.22);
+      b.save();
+      b.translate(rnd() * W, rnd() * H);
+      b.rotate(Math.PI / 4 + (rnd() - 0.5) * 0.5);
+      if (i % 3 === 0) {
+        b.strokeStyle = 'rgba(255,255,255,0.16)';
+        b.lineWidth = Math.max(2, s * 0.04);
+        b.strokeRect(-s / 2, -s / 2, s, s);
+      } else {
+        b.fillStyle = `rgba(255,255,255,${0.05 + rnd() * 0.05})`;
+        b.fillRect(-s / 2, -s / 2, s, s);
+      }
+      b.restore();
+    }
   }
 
   /** 🪙 코인 타일: 금빛 타일 + 가운데 흰 동그라미 속 우리 코인 */
@@ -18365,9 +18413,15 @@ class TileGame {
         break;
       }
     }
-    const visible = (tl) => tl && tl.row - cur < this.tapRows;
-    if (a && a.lane === lane && visible(a)) return this._hit(a, t, x, y, src, id);
-    if (b && b.lane === lane && visible(b) && b.row - a.row <= 1.01) return this._hit(b, t, x, y, src, id);
+    // 👆 타일 자리를 눌러야 침 (2026-11-27 사용자 '빈 곳을 눌렀는데 위에 아직 안 내려온 타일이 눌리며 살았어 — 빈 곳 누르면 목숨 깎이게'):
+    //   같은 줄이어도 타일 밖(아래 빈 칸)을 누르면 빈 칸 누름. 손가락이 닿는 사이 타일이 내려오니 아래쪽만 조금 넉넉히
+    const onTile = (tl) => {
+      if (!tl || tl.lane !== lane) return false;
+      const yb = this.judgeY - (tl.row - cur) * this.rowH;
+      return y <= yb + this.rowH * TAP_BELOW && y >= yb - tl.rows * this.rowH - this.rowH * 0.12 && y >= this.topNo;
+    };
+    if (onTile(a)) return this._hit(a, t, x, y, src, id);
+    if (onTile(b) && b.row - a.row <= 1.01) return this._hit(b, t, x, y, src, id);
     // 코인 파티 중엔 빈 칸을 눌러도 벌 없음
     if (this._inParty(t)) return this.fx.bad.push({ lane, at: t, y, soft: true });
     // 방금 이 줄을 쳤음(튕김) · 꾹 누르는 중인 긴 타일 줄 · 그 자리에 아직 칠 차례가 아닌 타일이 있음 → 그냥 넘어감
@@ -18414,7 +18468,9 @@ class TileGame {
     tl.hitAt = t;
     // 판정 (2026-11-27 사용자 '죄다 퍼펙트 — 선에 박자 맞춰 쳤을 때만 PERFECT, 선 넘거나 빨리 치면 GREAT·GOOD'):
     //   타일 아래 끝이 판정선에 닿는 시각(tl.t)과 누른 시각의 차이. 화면 시계 = 판정 시계라 보이는 그대로
-    const dt = t - tl.t;
+    // PERFECT 한가운데 = 아래 끝이 판정선을 PERFECT_ROWS 줄 지난 때 (빠르기에 따라 초로)
+    const rps = Math.max(0.5, (this._rowAt(tl.t + 0.05) - this._rowAt(tl.t - 0.05)) / 0.1);
+    const dt = t - tl.t - clamp(PERFECT_ROWS / rps, 0.03, 0.11);
     const word = dt >= PERFECT_SEC[0] && dt <= PERFECT_SEC[1] ? 'perfect' : dt >= GREAT_SEC[0] && dt <= GREAT_SEC[1] ? 'great' : 'good';
     // 콤보는 PERFECT 만 쌓임 (2026-11-27 사용자)
     if (word === 'perfect') {
@@ -18703,16 +18759,15 @@ class TileGame {
       g.fillStyle = b.soft ? `rgba(255,255,255,${0.3 * a})` : `rgba(255,60,80,${0.6 * a})`;
       g.fillRect(b.lane * laneW + 1, b.y - rowH / 2, laneW - 2, rowH);
     }
-    // 판정 빛 기둥 (타일 밑에): PERFECT 는 금빛 기둥 + 판정선 번쩍, GREAT 는 옅게
+    // 판정 빛 (타일 밑에): 친 줄이 하얗게 은은히 (PERFECT 는 조금 더 길게)
     for (const r of this.fx.ring) {
-      const k = (t - r.at) / 0.4;
+      const k = (t - r.at) / 0.35;
       if (k < 0 || k > 1 || r.word === 'good') continue;
-      const c = WORD_RGB[r.word];
-      const a = (r.word === 'perfect' ? 0.55 : 0.28) * (1 - ease(k));
-      const ph = rowH * (r.word === 'perfect' ? 2.2 : 1.3);
+      const a = (r.word === 'perfect' ? 0.5 : 0.28) * (1 - ease(k));
+      const ph = rowH * (r.word === 'perfect' ? 1.8 : 1.1);
       const pg = g.createLinearGradient(0, judgeY - ph, 0, judgeY);
-      pg.addColorStop(0, `rgba(${c},0)`);
-      pg.addColorStop(1, `rgba(${c},${a})`);
+      pg.addColorStop(0, 'rgba(255,255,255,0)');
+      pg.addColorStop(1, `rgba(255,255,255,${a})`);
       g.fillStyle = pg;
       g.fillRect(r.lane * laneW, judgeY - ph, laneW, ph);
     }
@@ -18766,7 +18821,7 @@ class TileGame {
           g.fillRect(x, y, tw, th);
           g.globalAlpha = 1;
         }
-        g.fillStyle = `rgba(0,0,0,${0.13 * Math.min(1, k)})`;
+        g.fillStyle = `rgba(255,255,255,${0.22 * Math.min(1, k)})`;
         g.fillRect(x, y, tw, th);
         continue;
       }
@@ -18787,35 +18842,27 @@ class TileGame {
       g.fillText('시작', 0, 0);
       g.restore();
     }
-    // 판정선 위 빛 고리 + 반짝 가루 (판정마다 크기·색이 다름)
+    // 판정선 위 하얀 고리 + 선 따라 번쩍 (판정마다 크기가 다름)
     for (const r of this.fx.ring) {
-      const k = (t - r.at) / (r.word === 'perfect' ? 0.45 : 0.35);
+      const k = (t - r.at) / (r.word === 'perfect' ? 0.42 : 0.32);
       if (k < 0 || k > 1) continue;
-      const c = WORD_RGB[r.word];
       const cx = (r.lane + 0.5) * laneW;
       const big = r.word === 'perfect' ? 1 : r.word === 'great' ? 0.75 : 0.55;
       g.save();
       g.globalAlpha = 1 - k;
-      g.strokeStyle = `rgb(${c})`;
-      g.lineWidth = (r.word === 'perfect' ? 5 : 3) * (1 - k) + 1;
+      g.strokeStyle = '#ffffff';
+      g.lineWidth = (r.word === 'perfect' ? 4 : 2.5) * (1 - k) + 1;
       g.beginPath();
-      g.ellipse(cx, judgeY, laneW * (0.25 + 0.4 * ease(k)) * big, laneW * (0.1 + 0.16 * ease(k)) * big, 0, 0, Math.PI * 2);
+      g.ellipse(cx, judgeY, laneW * (0.22 + 0.36 * ease(k)) * big, laneW * (0.08 + 0.12 * ease(k)) * big, 0, 0, Math.PI * 2);
       g.stroke();
       if (r.word === 'perfect') {
-        // 판정선 따라 번쩍
-        const fw = laneW * (0.6 + 0.9 * ease(k));
+        const fw = laneW * (0.5 + 0.7 * ease(k));
         const lg = g.createLinearGradient(cx - fw, 0, cx + fw, 0);
         lg.addColorStop(0, 'rgba(255,255,255,0)');
         lg.addColorStop(0.5, 'rgba(255,255,255,1)');
         lg.addColorStop(1, 'rgba(255,255,255,0)');
         g.fillStyle = lg;
-        g.fillRect(cx - fw, judgeY - 2, fw * 2, 4);
-        // 위로 튀는 반짝이 4개
-        for (let i = 0; i < 4; i++) {
-          const ang = -Math.PI / 2 + (i - 1.5) * 0.55;
-          const dist = laneW * (0.2 + 0.55 * ease(k));
-          sparkle(g, cx + Math.cos(ang) * dist, judgeY + Math.sin(ang) * dist, laneW * 0.07 * (1 - k * 0.6), '#fff6c8');
-        }
+        g.fillRect(cx - fw, judgeY - 1.5, fw * 2, 3);
       }
       g.restore();
     }
@@ -18829,15 +18876,13 @@ class TileGame {
       g.translate(clamp((p.lane + 0.5) * laneW, laneW * 0.62, W - laneW * 0.62), clamp((p.y ?? H * 0.72) - rowH * 0.5, this.topNo + 40, H - 40) - k * 50);
       g.scale(s, s);
       const txt = `+${p.v.toLocaleString()}`;
-      g.font = bold(Math.min(30, laneW * 0.3));
+      g.font = disp(Math.min(30, laneW * 0.3));
       g.textAlign = 'center';
       g.textBaseline = 'middle';
-      g.lineJoin = 'round';
-      g.lineWidth = 6;
-      g.strokeStyle = '#ffffff';
-      g.strokeText(txt, 0, 0);
       const [ac] = this._accent(p.lane);
-      g.fillStyle = ac;
+      g.shadowColor = ac;
+      g.shadowBlur = 10;
+      g.fillStyle = '#ffffff';
       g.fillText(txt, 0, 0);
       g.restore();
     }
@@ -18976,118 +19021,94 @@ class TileGame {
         p = clamp((this.lapsDone - 1 + (this.lapsDone >= this.maxLaps ? 0 : lapP)) / Math.max(1, Math.min(3, this.maxLaps - 1)), 0, 1);
       }
     }
-    const bh = Math.max(9, H * 0.012);
+    // 진행 줄 (사진 느낌, 2026-11-27): 가는 하얀 선 + 빛나는 점, 지난 만큼 금빛으로 빛남
     g.save();
-    // 길: 옅은 홈 + 하얀 테두리
-    g.shadowColor = 'rgba(60,40,120,0.18)';
-    g.shadowBlur = 6;
-    g.shadowOffsetY = 1;
-    g.fillStyle = 'rgba(255,255,255,0.85)';
-    rr(g, x0 - 3, by - bh / 2 - 3, x1 - x0 + 6, bh + 6, bh / 2 + 3);
-    g.fill();
-    g.shadowColor = 'transparent';
-    g.fillStyle = 'rgba(60,45,110,0.13)';
-    rr(g, x0, by - bh / 2, x1 - x0, bh, bh / 2);
-    g.fill();
-    // 채움: 그라데이션 + 윗면 광택 + 지나가는 빛
+    g.lineCap = 'round';
+    g.strokeStyle = 'rgba(255,255,255,0.5)';
+    g.lineWidth = 3;
+    g.beginPath();
+    g.moveTo(x0, by);
+    g.lineTo(x1, by);
+    g.stroke();
+    const fx = x0 + (x1 - x0) * p;
+    const glow = party ? '#ffcf3a' : gems ? '#7fe3ff' : '#ffd84a';
     if (p > 0) {
-      const fw = Math.max(bh, (x1 - x0) * p);
-      const fg = g.createLinearGradient(x0, 0, x0 + fw, 0);
-      const cs = party ? ['#ffe066', '#ff9f0a'] : gems ? ['#7ee8ff', '#3a7bff'] : ['#ffd84a', '#ff8a1f'];
-      fg.addColorStop(0, cs[0]);
-      fg.addColorStop(1, cs[1]);
-      g.save();
-      rr(g, x0, by - bh / 2, fw, bh, bh / 2);
-      g.clip();
-      g.fillStyle = fg;
-      g.fillRect(x0, by - bh / 2, fw, bh);
-      g.fillStyle = 'rgba(255,255,255,0.4)';
-      g.fillRect(x0, by - bh / 2, fw, bh * 0.42);
-      const sx = x0 + (((rt * 0.7) % 1.6) - 0.3) * (x1 - x0);
-      const sg = g.createLinearGradient(sx - 30, 0, sx + 30, 0);
-      sg.addColorStop(0, 'rgba(255,255,255,0)');
-      sg.addColorStop(0.5, 'rgba(255,255,255,0.7)');
-      sg.addColorStop(1, 'rgba(255,255,255,0)');
-      g.fillStyle = sg;
-      g.fillRect(sx - 30, by - bh / 2, 60, bh);
-      g.restore();
-      // 끝 빛 점
-      g.shadowColor = cs[1];
+      g.shadowColor = glow;
       g.shadowBlur = 10;
-      g.fillStyle = '#ffffff';
+      g.strokeStyle = party ? '#fff3c2' : gems ? '#e6fbff' : '#fff6cf';
+      g.lineWidth = 3.5;
       g.beginPath();
-      g.arc(x0 + fw - bh * 0.15, by, bh * 0.34, 0, Math.PI * 2);
-      g.fill();
-      g.shadowBlur = 0;
+      g.moveTo(x0, by);
+      g.lineTo(fx, by);
+      g.stroke();
     }
-    // 별 · 다이아 · 코인 메달
+    // 시작 점 · 지금 자리 점
+    g.shadowColor = glow;
+    g.shadowBlur = 12;
+    g.fillStyle = '#ffffff';
+    g.beginPath();
+    g.arc(x0, by, 5.5, 0, Math.PI * 2);
+    g.fill();
+    if (p > 0.01) {
+      g.beginPath();
+      g.arc(fx, by, 3.5, 0, Math.PI * 2);
+      g.fill();
+    }
+    g.restore();
+    // 별 · 다이아 · 코인 (받으면 톡 커지며 하얀 조각이 튐)
     for (let i = 1; i <= 3; i++) {
       const x = x0 + ((x1 - x0) * i) / 3;
       const on = i <= (gems ? this.gemsNow : this.starsNow);
       const ev = this.fx.icon.find((f) => f.gem === gems && f.i === i - 1);
       const kk = ev ? clamp((t - ev.at) / 0.6, 0, 1) : 1;
-      medal(g, x, by, Math.max(14, W * 0.042), party ? 'coin' : gems ? 'gem' : 'star', party || on, on && kk < 1 ? kk : 1, rt + i);
+      hudIcon(g, x, by, Math.max(13, W * 0.04), party ? 'coin' : gems ? 'gem' : 'star', party || on, on && kk < 1 ? kk : 1);
     }
-    g.restore();
-    // 점수 (가운데 위): 굵은 숫자 + 입체 그림자 + 하얀 테두리 + 광택, 오르면 톡 + 옆에 +점수
+    // 점수 (가운데 위, 사진 느낌): 크고 둥근 하얀 숫자 + 은은한 그림자, 오르면 살짝 톡
     const sTxt = Math.round(this.shown).toLocaleString();
-    const pop = this.comboAt != null ? 1 + 0.12 * (1 - ease((t - this.comboAt) / 0.18)) : 1;
-    const px = Math.min(46, W * 0.115);
-    const sy = by + Math.max(20, H * 0.026);
+    const pop = this.comboAt != null ? 1 + 0.08 * (1 - ease((t - this.comboAt) / 0.16)) : 1;
+    const px = Math.min(56, W * 0.135);
+    const sy = by + Math.max(22, H * 0.03);
     g.save();
     g.translate(W / 2, sy + px * 0.5);
-    g.scale(pop, pop);
-    g.font = `900 ${Math.round(px)}px 'Arial Rounded MT Bold', 'Trebuchet MS', system-ui, sans-serif`;
+    g.font = disp(px);
+    // 점수가 길어지면 하트·코인 칸과 안 겹치게 줄임
+    const fit = Math.min(1, (W - 2 * (30 + TILE_HEARTS * (Math.min(24, W * 0.06) + 5))) / Math.max(1, g.measureText(sTxt).width));
+    g.scale(pop * fit, pop * fit);
     g.textAlign = 'center';
     g.textBaseline = 'middle';
-    g.lineJoin = 'round';
-    g.lineWidth = px * 0.2;
-    g.strokeStyle = '#ffffff';
-    g.shadowColor = 'rgba(60,30,140,0.25)';
-    g.shadowBlur = 10;
+    const sh = bgHues(this.hue)[1];
+    g.shadowColor = `hsla(${sh},65%,28%,0.4)`;
+    g.shadowBlur = 12;
     g.shadowOffsetY = 3;
-    g.strokeText(sTxt, 0, 0);
-    g.shadowColor = 'transparent';
-    const ext = Math.max(2, px * 0.07);
-    g.fillStyle = '#2a1866';
-    g.fillText(sTxt, 0, ext);
-    const sgr = g.createLinearGradient(0, -px * 0.5, 0, px * 0.5);
-    sgr.addColorStop(0, '#a57bff');
-    sgr.addColorStop(0.5, '#6a3cf0');
-    sgr.addColorStop(1, '#4220b8');
-    g.fillStyle = sgr;
+    g.fillStyle = '#ffffff';
     g.fillText(sTxt, 0, 0);
-    const hg = g.createLinearGradient(0, -px * 0.5, 0, 0);
-    hg.addColorStop(0, 'rgba(255,255,255,0.55)');
-    hg.addColorStop(1, 'rgba(255,255,255,0)');
-    g.fillStyle = hg;
+    g.shadowColor = 'transparent';
+    const sg = g.createLinearGradient(0, -px * 0.45, 0, px * 0.45);
+    sg.addColorStop(0, 'rgba(255,255,255,0)');
+    sg.addColorStop(1, `hsla(${sh},80%,90%,0.5)`);
+    g.fillStyle = sg;
     g.fillText(sTxt, 0, 0);
     g.restore();
-    // 🪙 코인 (오른쪽, 일시정지 버튼 밑) — 코인이 생기면 톡 커짐
+    // 🪙 코인 (오른쪽, 일시정지 버튼 밑): 반투명 하얀 칩 — 코인이 생기면 톡 커짐
     const cy = Math.max(78, H * 0.105);
     const cTxt = Math.round(this.coinShown).toLocaleString();
     g.save();
-    g.font = bold(Math.min(18, W * 0.046));
+    g.font = disp(Math.min(18, W * 0.046), 600);
     g.textAlign = 'right';
     g.textBaseline = 'middle';
     const tw = g.measureText(cTxt).width;
     const bx = W - 14 - tw - 32;
-    const pg = g.createLinearGradient(0, cy - 15, 0, cy + 15);
-    pg.addColorStop(0, '#4a3392');
-    pg.addColorStop(1, '#251755');
-    g.shadowColor = 'rgba(40,20,100,0.3)';
-    g.shadowBlur = 6;
-    g.shadowOffsetY = 2;
-    g.fillStyle = pg;
+    g.fillStyle = 'rgba(255,255,255,0.26)';
     rr(g, bx - 8, cy - 15, tw + 48, 30, 15);
     g.fill();
-    g.shadowColor = 'transparent';
-    g.strokeStyle = 'rgba(255,255,255,0.35)';
-    g.lineWidth = 1.5;
+    g.strokeStyle = 'rgba(255,255,255,0.65)';
+    g.lineWidth = 1.2;
     g.stroke();
     const ck = rt - this.coinBump;
     const cb = ck >= 0 && ck < 0.2 ? 1 + 0.35 * Math.sin((ck / 0.2) * Math.PI) : 1;
     coin(g, bx + 10, cy, 11 * cb);
+    g.shadowColor = 'rgba(40,20,90,0.3)';
+    g.shadowBlur = 4;
     g.fillStyle = '#fff';
     g.fillText(cTxt, W - 14, cy + 1);
     g.restore();
@@ -19106,132 +19127,112 @@ class TileGame {
     if (this.vs) this._drawVs(g, cy + 24);
   }
 
-  /** PERFECT × 연속 (점수 밑) — 2026-11-27 사용자 'PERFECT 애니메이션 멋지게':
-   *   PERFECT = 빛살이 돌며 튀어나오고 글자 위로 빛이 쓱 지나감 + 반짝이, GREAT·GOOD = 작게 톡 + 빨라요/늦어요 */
+  /** PERFECT ×연속 (점수 밑) — 2026-11-27 사용자 'PERFECT 글씨 구려, 사진 느낌으로':
+   *   둥근 굵은 글자에 파스텔 그라데이션 + 하얀 테두리, 뒤에 반투명 유리 조각이 퍼짐, ×연속은 하얀 숫자. GREAT·GOOD 엔 빨라요/늦어요 */
   _drawJudge(g, t) {
     const j = this.fx.judge[this.fx.judge.length - 1];
     if (!j) return;
     const per = j.word === 'PERFECT';
-    const life = per ? 0.8 : 0.6;
+    const life = per ? 0.75 : 0.6;
     const k = (t - j.at) / life;
     if (k < 0 || k > 1) return;
     const { W, H } = this;
-    const y = Math.max(150, H * 0.225);
+    const px = Math.min(46, W * 0.115);
+    const y = Math.max(76, H * 0.105) + Math.min(56, W * 0.135) + px * 0.9;
     const a = k > 0.7 ? (1 - k) / 0.3 : 1;
-    // 톡 튀어나옴 (넘쳤다 돌아옴)
-    const k1 = clamp(k / 0.2, 0, 1);
-    const s = (per ? 1 : 0.86) * (k1 < 1 ? 0.5 + 0.75 * ease(k1) - 0.25 * Math.max(0, k1 - 0.6) / 0.4 : 1 + 0.03 * (k - 0.2));
-    const px = Math.min(42, W * 0.105);
+    const k1 = clamp(k / 0.16, 0, 1);
+    const s = (per ? 1 : 0.85) * (k1 < 1 ? 0.6 + 0.5 * ease(k1) - 0.1 * Math.max(0, k1 - 0.6) / 0.4 : 1 + 0.02 * (k - 0.16));
     g.save();
     g.globalAlpha = a;
     g.translate(W / 2, y);
-    if (per) {
-      // 빛살 (천천히 돎)
-      const R = px * 2.6 * (0.6 + 0.4 * ease(k / 0.3));
-      g.save();
-      g.rotate(this.realT * 0.9);
-      const rg = g.createRadialGradient(0, 0, px * 0.3, 0, 0, R);
-      rg.addColorStop(0, 'rgba(255,230,140,0.55)');
-      rg.addColorStop(1, 'rgba(255,170,220,0)');
-      g.fillStyle = rg;
-      for (let i = 0; i < 12; i++) {
-        g.beginPath();
-        g.moveTo(0, 0);
-        g.arc(0, 0, R, (i * Math.PI) / 6, (i * Math.PI) / 6 + 0.17);
-        g.closePath();
-        g.fill();
-      }
-      g.restore();
-      // 가로 빛줄
-      const fw = px * 4 * ease(k / 0.25);
-      const lg = g.createLinearGradient(-fw, 0, fw, 0);
-      lg.addColorStop(0, 'rgba(255,255,255,0)');
-      lg.addColorStop(0.5, `rgba(255,250,220,${0.9 * (1 - k)})`);
-      lg.addColorStop(1, 'rgba(255,255,255,0)');
-      g.fillStyle = lg;
-      g.fillRect(-fw, -2, fw * 2, 4);
-    }
     g.scale(s, s);
-    g.font = `italic 900 ${Math.round(px)}px 'Arial Rounded MT Bold', 'Trebuchet MS', system-ui, sans-serif`;
+    g.font = disp(px);
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     const tw = g.measureText(j.word).width;
-    const gr = g.createLinearGradient(0, -px * 0.5, 0, px * 0.5);
-    const cs = per ? ['#fff3a8', '#ffc21a', '#ff7a3d'] : j.word === 'GREAT' ? ['#c4f1ff', '#45b8ff', '#3a6bff'] : ['#d8ffd8', '#58d68d', '#22a884'];
+    // 유리 조각 (판정마다 모양이 조금씩 다름): 글자 뒤에서 살짝 퍼짐
+    if (per) {
+      let seed = Math.floor(j.at * 977) % 233280 || 7;
+      const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
+      const spread = ease(k / 0.5);
+      const shards = [
+        [-tw * 0.42, px * 0.05, px * 1.15, -0.35, -1],
+        [tw * 0.32, -px * 0.62, px * 0.55, 0.9, 1],
+        [tw * 0.18, px * 0.55, px * 0.5, 2.4, 1],
+        [-tw * 0.05, -px * 0.75, px * 0.38, -1.6, -1],
+      ];
+      for (const [sx, sy, sz, rot, dir] of shards) {
+        const r1 = 0.75 + rnd() * 0.5;
+        g.save();
+        g.translate(sx + dir * spread * px * 0.25, sy + Math.sign(sy || 1) * spread * px * 0.15);
+        g.rotate(rot + dir * spread * 0.25);
+        g.beginPath();
+        g.moveTo(-sz, -sz * 0.18 * r1);
+        g.lineTo(sz * 0.9, -sz * 0.42);
+        g.lineTo(sz * 0.3 * r1, sz * 0.4);
+        g.closePath();
+        const sgr = g.createLinearGradient(-sz, -sz * 0.4, sz, sz * 0.4);
+        sgr.addColorStop(0, 'rgba(255,255,255,0.42)');
+        sgr.addColorStop(1, 'rgba(255,220,250,0.08)');
+        g.fillStyle = sgr;
+        g.fill();
+        g.strokeStyle = 'rgba(255,255,255,0.85)';
+        g.lineWidth = 1.6;
+        g.lineJoin = 'round';
+        g.stroke();
+        g.restore();
+      }
+    }
+    const gr = g.createLinearGradient(-tw / 2, 0, tw / 2, 0);
+    const cs = per ? ['#d98bff', '#ff8fcf', '#ffb07a'] : j.word === 'GREAT' ? ['#7fe6ff', '#6aa6ff', '#8f86ff'] : ['#8ff0c8', '#5ccfb4', '#4fb7d8'];
     gr.addColorStop(0, cs[0]);
-    gr.addColorStop(0.55, cs[1]);
+    gr.addColorStop(0.5, cs[1]);
     gr.addColorStop(1, cs[2]);
     g.lineJoin = 'round';
-    // 바깥 진한 테두리 → 하얀 테두리 → 글자
-    g.lineWidth = px * 0.34;
-    g.strokeStyle = per ? '#7a2fd1' : j.word === 'GREAT' ? '#1d3d9e' : '#16725a';
-    g.strokeText(j.word, 0, 0);
-    g.lineWidth = px * 0.16;
+    g.shadowColor = per ? 'rgba(170,70,200,0.45)' : 'rgba(40,60,160,0.35)';
+    g.shadowBlur = 10;
+    g.shadowOffsetY = 2;
+    g.lineWidth = px * 0.14;
     g.strokeStyle = '#ffffff';
     g.strokeText(j.word, 0, 0);
-    if (per) {
-      g.shadowColor = 'rgba(255,200,60,0.9)';
-      g.shadowBlur = 14;
-    }
+    g.shadowColor = 'transparent';
     g.fillStyle = gr;
     g.fillText(j.word, 0, 0);
-    g.shadowBlur = 0;
-    if (per) {
-      // 글자 위로 빛이 쓱 지나감
-      const sp = clamp((k - 0.08) / 0.4, 0, 1);
-      if (sp > 0 && sp < 1) {
-        const bx = -tw * 0.7 + tw * 1.4 * sp;
-        const sg = g.createLinearGradient(bx - px * 0.6, -px * 0.4, bx + px * 0.6, px * 0.4);
-        sg.addColorStop(0, 'rgba(255,255,255,0)');
-        sg.addColorStop(0.5, 'rgba(255,255,255,0.95)');
-        sg.addColorStop(1, 'rgba(255,255,255,0)');
-        g.fillStyle = sg;
-        g.fillText(j.word, 0, 0);
-      }
-      // 반짝이
-      for (let i = 0; i < 5; i++) {
-        const ph = (i * 1.7 + j.at * 3) % 1;
-        const tk = clamp((k - i * 0.06) / 0.5, 0, 1);
-        if (tk <= 0 || tk >= 1) continue;
-        const sx = (ph - 0.5) * tw * 1.25;
-        const sy = (i % 2 ? -1 : 1) * px * (0.55 + 0.2 * ph) - tk * px * 0.3;
-        sparkle(g, sx, sy, px * 0.22 * Math.sin(tk * Math.PI), '#ffffff');
-      }
-    } else {
+    // 윗면 광택
+    const hg = g.createLinearGradient(0, -px * 0.45, 0, px * 0.1);
+    hg.addColorStop(0, 'rgba(255,255,255,0.45)');
+    hg.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = hg;
+    g.fillText(j.word, 0, 0);
+    if (!per) {
       // 빨라요 / 늦어요 (왜 PERFECT 가 아닌지)
       g.font = font(px * 0.42);
-      g.lineWidth = 4;
-      g.strokeStyle = '#ffffff';
-      g.strokeText(j.late ? '늦어요' : '빨라요', 0, px * 0.82);
-      g.fillStyle = j.late ? '#ff7a3d' : '#3a8bff';
-      g.fillText(j.late ? '늦어요' : '빨라요', 0, px * 0.82);
+      g.shadowColor = 'rgba(30,20,80,0.4)';
+      g.shadowBlur = 4;
+      g.fillStyle = '#ffffff';
+      g.fillText(j.late ? '늦어요' : '빨라요', 0, px * 0.85);
+      g.shadowColor = 'transparent';
     }
     g.restore();
-    // ×연속 (PERFECT 이어질 때): 오른쪽 아래 배지
+    // ×연속: 글자 오른쪽 아래에 하얀 숫자
     if (j.n >= 2) {
-      const ck = clamp(k / 0.15, 0, 1);
-      const cs2 = 0.6 + 0.4 * ease(ck) + 0.15 * Math.sin(ck * Math.PI);
+      const ck = clamp(k / 0.14, 0, 1);
+      const cs2 = 0.7 + 0.3 * ease(ck) + 0.12 * Math.sin(ck * Math.PI);
       g.save();
       g.globalAlpha = a;
-      g.translate(W / 2 + (tw * s) / 2 - px * 0.1, y + px * 0.78);
-      g.rotate(-0.08);
+      g.translate(W / 2 + (tw * s) * 0.22, y + px * 0.92);
       g.scale(cs2, cs2);
-      const ct = `×${j.n}`;
-      g.font = `italic 900 ${Math.round(px * 0.62)}px 'Arial Rounded MT Bold', 'Trebuchet MS', system-ui, sans-serif`;
-      g.textAlign = 'center';
+      g.textAlign = 'left';
       g.textBaseline = 'middle';
-      const cw = g.measureText(ct).width + px * 0.5;
-      const bg = g.createLinearGradient(0, -px * 0.35, 0, px * 0.35);
-      bg.addColorStop(0, '#ff6fb4');
-      bg.addColorStop(1, '#8a3cff');
-      g.fillStyle = bg;
-      rr(g, -cw / 2, -px * 0.36, cw, px * 0.72, px * 0.36);
-      g.fill();
-      g.strokeStyle = '#ffffff';
-      g.lineWidth = 2.5;
-      g.stroke();
+      g.shadowColor = 'rgba(150,60,190,0.45)';
+      g.shadowBlur = 8;
+      g.shadowOffsetY = 2;
       g.fillStyle = '#ffffff';
-      g.fillText(ct, 0, px * 0.03);
+      g.font = disp(px * 0.5, 600);
+      g.fillText('×', 0, px * 0.04);
+      const xw = g.measureText('×').width;
+      g.font = disp(px * 0.82);
+      g.fillText(String(j.n), xw + px * 0.06, 0);
       g.restore();
     }
   }
@@ -19284,7 +19285,7 @@ class TileGame {
     // 코인 파티 시작 · 끝 알림
     if (this.partyRange && this.partyAt != null) {
       shows.push({ at: this.partyAt, party: 1 });
-      shows.push({ at: Math.max(this.partyRange.t1 - 0.15, this.partyAt + 1.5), speed: 1 });
+      shows.push({ at: Math.max(this.partyRange.c1 + 0.35, this.partyAt + 1.5), speed: 1 });
     }
     // 다이아 바퀴를 끝내면 1.5초 뒤 '더 빨라져요!' (마지막 바퀴 뒤엔 없음)
     for (const f of this.fx.lap) if (f.v >= 2 && f.v < this.maxLaps) shows.push({ at: f.at + 1.5, speed: 1 });
@@ -19305,15 +19306,25 @@ class TileGame {
           const dist = (40 + rnd() * W * 0.45) * ease(k * 1.4);
           const x = W / 2 + Math.cos(ang) * dist;
           const y = cy + Math.sin(ang) * dist * 0.7 + 30 * k * k;
-          g.fillStyle = i % 2 ? '#ffc23d' : '#8f6bff';
-          g.fillRect(x - 3, y - 3, 6, 6);
+          const q = 3 + rnd() * 6;
+          g.save();
+          g.translate(x, y);
+          g.rotate(rnd() * 3 + k * 2);
+          g.fillStyle = `rgba(255,255,255,${0.5 + rnd() * 0.4})`;
+          g.fillRect(-q / 2, -q / 2, q, q);
+          g.restore();
         }
       }
       const s = 0.7 + 0.4 * ease(k / 0.25);
       g.translate(W / 2, cy);
       g.scale(s, s);
       const big = Math.min(46, W * 0.115);
-      if (f.v === 1) for (let i = 0; i < 3; i++) star(g, (i - 1) * big * 1.3, -(i === 1 ? big * 0.3 : 0) - big * 0.5, big * 0.6, '#ffd23f', 'rgba(220,140,0,0.9)');
+      if (f.v === 1) {
+        g.shadowColor = 'rgba(80,40,160,0.3)';
+        g.shadowBlur = 10;
+        for (let i = 0; i < 3; i++) star(g, (i - 1) * big * 1.15, -big * 0.75, big * 0.55, '#ffffff');
+        g.shadowColor = 'transparent';
+      }
       else if (f.v >= 2) {
         const n = Math.min(3, f.v - 1);
         for (let i = 0; i < 3; i++) {
@@ -19325,22 +19336,29 @@ class TileGame {
       }
       else if (f.party) for (let i = 0; i < 3; i++) coin(g, (i - 1) * big * 1.3, -(i === 1 ? big * 0.3 : 0) - big * 0.5, big * 0.5);
       const msg = f.party ? 'COIN PARTY!' : f.speed ? '더 빨라져요!' : f.v >= this.maxLaps ? 'COMPLETE!' : ['', 'EXCELLENT!', 'AMAZING!', 'FANTASTIC!'][f.v] || 'GREAT!';
-      g.font = f.speed ? font(Math.min(34, W * 0.085)) : `italic ${bold(Math.min(40, W * 0.1))}`;
+      g.font = f.speed ? font(Math.min(34, W * 0.085)) : disp(Math.min(44, W * 0.11));
       g.textAlign = 'center';
       g.textBaseline = 'middle';
       const tw = g.measureText(msg).width;
       const gr = g.createLinearGradient(-tw / 2, 0, tw / 2, 0);
       if (f.party) {
-        gr.addColorStop(0, '#ffe066');
-        gr.addColorStop(1, '#ff9f0a');
+        gr.addColorStop(0, '#ffc83a');
+        gr.addColorStop(1, '#ff8a3d');
+      } else if (f.speed) {
+        gr.addColorStop(0, '#ffffff');
+        gr.addColorStop(1, '#ffffff');
       } else {
-        gr.addColorStop(0, '#b46bff');
-        gr.addColorStop(1, '#2d8cff');
+        gr.addColorStop(0, '#a95cff');
+        gr.addColorStop(1, '#2f8cff');
       }
       g.lineJoin = 'round';
-      g.lineWidth = 7;
-      g.strokeStyle = 'rgba(255,255,255,0.95)';
-      g.strokeText(msg, 0, big * 0.5);
+      g.shadowColor = 'rgba(60,30,140,0.35)';
+      g.shadowBlur = 10;
+      g.shadowOffsetY = 2;
+      g.lineWidth = f.speed ? 0 : 5;
+      g.strokeStyle = '#ffffff';
+      if (!f.speed) g.strokeText(msg, 0, big * 0.5);
+      if (!f.speed) g.shadowColor = 'transparent';
       g.fillStyle = gr;
       g.fillText(msg, 0, big * 0.5);
       g.restore();
@@ -19421,13 +19439,11 @@ class TileGame {
 TileGame.prototype._gc = 0;
 
 // ---------- 그리기 도우미 ----------
-function hslRgb(h, s, l) {
-  s /= 100;
-  l /= 100;
-  const k = (n) => (n + h / 30) % 12;
-  const a = s * Math.min(l, 1 - l);
-  const f = (n) => l - a * Math.max(-1, Math.min(k(n) - 3, Math.min(9 - k(n), 1)));
-  return [Math.round(255 * f(0)), Math.round(255 * f(8)), Math.round(255 * f(4))];
+/** 배경 두 색: 노랑·연두(밝아서 흰 글자가 안 보임)는 주황·분홍 쪽으로, 나머지는 옆 색으로 흐름 */
+function bgHues(h) {
+  h = ((h % 360) + 360) % 360;
+  if (h >= 35 && h < 110) h = h < 70 ? 25 : 150;
+  return h < 100 ? [h, h - 40] : [h, h + 48];
 }
 function rr(g, x, y, w, h, r) {
   r = Math.max(0, Math.min(r, w / 2, h / 2));
@@ -19485,73 +19501,60 @@ function sparkle(g, x, y, r, color) {
   g.fill();
 }
 /**
- * 진행 줄 메달 (별·다이아·코인): 동그란 배지 + 속 아이콘. 받은 순간(kk 0→1)엔 크게 튀며 빛살·고리
- *   kind 'star' | 'gem' | 'coin', on = 받음
+ * 진행 줄 아이콘 (별·다이아·코인, 2026-11-27 사진 느낌): 받으면 노란 별 / 하늘색 다이아, 아직이면 반투명 하얀 모양.
+ *   받은 순간(kk 0→1)엔 톡 커지며 작은 하얀 조각이 튐
  */
-function medal(g, x, y, r, kind, on, kk, seed) {
+function hudIcon(g, x, y, r, kind, on, kk) {
   g.save();
   if (on && kk < 1) {
-    // 받은 순간: 빛살 + 퍼지는 고리
     g.save();
     g.globalAlpha = 1 - kk;
-    g.strokeStyle = kind === 'gem' ? '#7fd7ff' : '#ffcf3a';
-    g.lineWidth = 3;
-    for (let i = 0; i < 10; i++) {
-      const a = (i * Math.PI) / 5 + kk;
-      const r1 = r * (1.1 + 0.6 * kk);
-      const r2 = r * (1.5 + 1.4 * ease(kk));
-      g.beginPath();
-      g.moveTo(x + Math.cos(a) * r1, y + Math.sin(a) * r1);
-      g.lineTo(x + Math.cos(a) * r2, y + Math.sin(a) * r2);
-      g.stroke();
+    g.fillStyle = '#ffffff';
+    for (let i = 0; i < 7; i++) {
+      const a = (i / 7) * Math.PI * 2 + 0.4;
+      const d = r * (0.9 + 1.6 * ease(kk));
+      const q = r * 0.16 * (1 - kk * 0.5);
+      g.save();
+      g.translate(x + Math.cos(a) * d, y + Math.sin(a) * d);
+      g.rotate(a + kk * 3);
+      g.fillRect(-q, -q, q * 2, q * 2);
+      g.restore();
     }
-    g.lineWidth = 2;
-    g.beginPath();
-    g.arc(x, y, r * (1 + 1.6 * ease(kk)), 0, Math.PI * 2);
-    g.stroke();
     g.restore();
   }
-  const sc = on && kk < 1 ? 1 + 0.55 * Math.sin(Math.min(1, kk * 1.6) * Math.PI) : 1;
+  const sc = on && kk < 1 ? 1 + 0.45 * Math.sin(Math.min(1, kk * 1.6) * Math.PI) : 1;
   g.translate(x, y);
   g.scale(sc, sc);
-  // 배지
-  g.shadowColor = on ? (kind === 'gem' ? 'rgba(40,140,255,0.55)' : 'rgba(255,170,0,0.55)') : 'rgba(60,40,120,0.2)';
-  g.shadowBlur = on ? 12 : 5;
-  g.shadowOffsetY = on ? 0 : 1.5;
-  let bg;
-  if (!on) bg = '#ffffff';
-  else {
-    bg = g.createRadialGradient(-r * 0.35, -r * 0.4, r * 0.1, 0, 0, r);
-    if (kind === 'gem') {
-      bg.addColorStop(0, '#e9f9ff');
-      bg.addColorStop(0.55, '#5cc4ff');
-      bg.addColorStop(1, '#2560d8');
+  if (kind === 'coin') {
+    g.shadowColor = 'rgba(255,190,40,0.8)';
+    g.shadowBlur = 10;
+    coin(g, 0, 0, r * 0.8);
+  } else if (kind === 'gem') {
+    if (on) {
+      g.shadowColor = 'rgba(80,200,255,0.85)';
+      g.shadowBlur = 12;
+      gem(g, 0, r * 0.02, r * 0.78);
     } else {
-      bg.addColorStop(0, '#fff6c4');
-      bg.addColorStop(0.55, '#ffc21a');
-      bg.addColorStop(1, '#e07800');
+      gemPath(g, 0, r * 0.02, r * 0.78);
+      g.fillStyle = 'rgba(255,255,255,0.28)';
+      g.fill();
+      g.strokeStyle = 'rgba(255,255,255,0.85)';
+      g.lineWidth = 1.8;
+      g.lineJoin = 'round';
+      g.stroke();
     }
-  }
-  g.fillStyle = bg;
-  g.beginPath();
-  g.arc(0, 0, r, 0, Math.PI * 2);
-  g.fill();
-  g.shadowColor = 'transparent';
-  g.lineWidth = Math.max(2, r * 0.15);
-  g.strokeStyle = on ? '#ffffff' : 'rgba(60,45,110,0.18)';
-  g.stroke();
-  // 아이콘
-  if (kind === 'coin') coin(g, 0, 0, r * 0.68);
-  else if (kind === 'gem') {
-    if (on) gem(g, 0, r * 0.02, r * 0.58);
-    else gemOutline(g, 0, r * 0.02, r * 0.58);
+  } else if (on) {
+    g.shadowColor = 'rgba(255,170,0,0.75)';
+    g.shadowBlur = 10;
+    const sg = g.createLinearGradient(0, -r, 0, r);
+    sg.addColorStop(0, '#fff3a0');
+    sg.addColorStop(0.55, '#ffd23a');
+    sg.addColorStop(1, '#ffae1f');
+    star(g, 0, r * 0.06, r * 1.02, sg, 'rgba(230,140,0,0.55)');
   } else {
-    star(g, 0, r * 0.04, r * 0.66, on ? '#ffffff' : '#e6e1f0', on ? 'rgba(200,110,0,0.6)' : 'rgba(60,45,110,0.22)');
-  }
-  // 받은 메달엔 가끔 반짝
-  if (on) {
-    const tw = (seed * 0.8) % 2.2;
-    if (tw < 0.4) sparkle(g, r * 0.5, -r * 0.55, r * 0.42 * Math.sin((tw / 0.4) * Math.PI), '#ffffff');
+    g.shadowColor = 'rgba(60,40,140,0.2)';
+    g.shadowBlur = 4;
+    star(g, 0, r * 0.06, r * 0.95, 'rgba(255,255,255,0.45)', 'rgba(255,255,255,0.9)');
   }
   g.restore();
 }
@@ -19560,219 +19563,466 @@ function medal(g, x, y, r, kind, on, kk, seed) {
  *   key = 콩 스킨(NOTE_PALETTES 키) · 'live'·'s1' 세트 · 'basic'. pal = [main, light, dark] (그 줄 색)
  */
 function paintTileSkin(g, w, h, key, pal, lane) {
+  // 2026-11-27 사용자 '스킨들 너무 대충 꾸민 감, 특히 시즌 1 「1」 이 너무 구려' → 다시 그림:
+  //   바탕은 어둡게(배경 위에서 잘 보이게) + 유리 광택·안쪽 테두리를 모든 스킨에 같이, 무늬는 작고 또렷하게
   let seed = 11 + lane * 97;
   const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
+  const m = Math.min(w, h);
   const vgrad = (stops) => {
     const gr = g.createLinearGradient(0, 0, 0, h);
     stops.forEach(([o, c]) => gr.addColorStop(o, c));
     g.fillStyle = gr;
     g.fillRect(0, 0, w, h);
   };
-  const topLine = (c, a = 1) => {
-    g.globalAlpha = a;
-    g.fillStyle = c;
-    g.fillRect(0, 0, w, 2);
-    g.globalAlpha = 1;
+  const radial = (x, y, r, c0, c1 = 'rgba(0,0,0,0)') => {
+    const rg = g.createRadialGradient(x, y, 0, x, y, r);
+    rg.addColorStop(0, c0);
+    rg.addColorStop(1, c1);
+    g.fillStyle = rg;
+    g.fillRect(0, 0, w, h);
   };
-  const frame = (c, lw = 2, inset = 4) => {
-    g.strokeStyle = c;
-    g.lineWidth = lw;
-    g.strokeRect(inset, inset, w - inset * 2, h - inset * 2);
+  /** 모든 스킨 공통 마감: 위쪽 유리 광택 + 안쪽 가는 테두리 + 아래쪽 빛 띠(색) */
+  const finish = (edge = 'rgba(255,255,255,0.1)', glow = null) => {
+    const sg = g.createLinearGradient(0, 0, 0, h * 0.28);
+    sg.addColorStop(0, 'rgba(255,255,255,0.2)');
+    sg.addColorStop(1, 'rgba(255,255,255,0)');
+    g.fillStyle = sg;
+    g.fillRect(0, 0, w, h * 0.28);
+    if (glow) {
+      const bg = g.createLinearGradient(0, h * 0.82, 0, h);
+      bg.addColorStop(0, 'rgba(0,0,0,0)');
+      bg.addColorStop(1, glow);
+      g.fillStyle = bg;
+      g.fillRect(0, h * 0.82, w, h * 0.18);
+    }
+    g.strokeStyle = edge;
+    g.lineWidth = 1;
+    g.strokeRect(1.5, 1.5, w - 3, h - 3);
+  };
+  const glint = (x, y, r, c = '#ffffff') => {
+    g.save();
+    g.shadowColor = c;
+    g.shadowBlur = r * 1.5;
+    sparkle(g, x, y, r, c);
+    g.restore();
   };
   switch (key) {
     case 'flame': {
-      vgrad([[0, '#2a0d05'], [0.5, '#0b0302'], [1, '#000']]);
-      // 아래에서 불길이 넘실
-      for (let i = 0; i < 5; i++) {
-        const cx = w * (0.1 + 0.2 * i) + (rnd() - 0.5) * w * 0.06;
-        const fh = h * (0.24 + rnd() * 0.18);
-        const fw = w * (0.16 + rnd() * 0.06);
-        const fg = g.createLinearGradient(0, h - fh, 0, h);
-        fg.addColorStop(0, 'rgba(255,210,122,0)');
-        fg.addColorStop(0.35, 'rgba(255,150,40,0.85)');
-        fg.addColorStop(1, 'rgba(200,30,10,0.95)');
-        g.fillStyle = fg;
+      vgrad([[0, '#1c0804'], [0.55, '#070201'], [1, '#000']]);
+      // 아래에서 넘실대는 불길: 빨강 → 주황 → 노랑 세 겹을 더해서 (lighter)
+      g.save();
+      g.globalCompositeOperation = 'lighter';
+      const layer = (n, hk, c0, c1, wk) => {
+        for (let i = 0; i < n; i++) {
+          const cx = w * ((i + 0.5) / n) + (rnd() - 0.5) * w * 0.12;
+          const fh = h * hk * (0.75 + rnd() * 0.5);
+          const fw = w * wk * (0.8 + rnd() * 0.4);
+          const fg = g.createLinearGradient(0, h - fh, 0, h);
+          fg.addColorStop(0, c0);
+          fg.addColorStop(1, c1);
+          g.fillStyle = fg;
+          const tip = cx + (rnd() - 0.5) * fw * 0.8;
+          g.beginPath();
+          g.moveTo(cx - fw, h);
+          g.bezierCurveTo(cx - fw * 1.05, h - fh * 0.45, tip - fw * 0.35, h - fh * 0.7, tip, h - fh);
+          g.bezierCurveTo(tip + fw * 0.35, h - fh * 0.65, cx + fw * 1.05, h - fh * 0.4, cx + fw, h);
+          g.closePath();
+          g.fill();
+        }
+      };
+      layer(4, 0.42, 'rgba(200,30,10,0)', 'rgba(220,40,10,0.85)', 0.2);
+      layer(3, 0.3, 'rgba(255,120,20,0)', 'rgba(255,130,30,0.85)', 0.2);
+      layer(3, 0.17, 'rgba(255,230,120,0)', 'rgba(255,240,170,0.9)', 0.13);
+      // 불티
+      for (let i = 0; i < 9; i++) {
+        const r = 0.8 + rnd() * 1.4;
+        g.fillStyle = `rgba(255,${170 + rnd() * 70},70,${0.5 + rnd() * 0.5})`;
         g.beginPath();
-        g.moveTo(cx - fw, h);
-        g.quadraticCurveTo(cx - fw * 0.9, h - fh * 0.5, cx + (rnd() - 0.5) * fw * 0.6, h - fh);
-        g.quadraticCurveTo(cx + fw * 0.9, h - fh * 0.45, cx + fw, h);
-        g.closePath();
+        g.arc(w * (0.1 + rnd() * 0.8), h * (0.3 + rnd() * 0.42), r, 0, Math.PI * 2);
         g.fill();
       }
-      for (let i = 0; i < 7; i++) {
-        g.fillStyle = `rgba(255,${180 + rnd() * 60},80,${0.5 + rnd() * 0.4})`;
-        g.fillRect(rnd() * w, h * (0.3 + rnd() * 0.4), 2, 2);
-      }
-      topLine('#ff8a3a', 0.8);
+      g.restore();
+      finish('rgba(255,150,70,0.28)');
       break;
     }
     case 'ice': {
-      vgrad([[0, '#1d5d86'], [0.35, '#0a2740'], [1, '#02080f']]);
-      // 크리스탈 조각 선
-      g.strokeStyle = 'rgba(190,240,255,0.28)';
-      g.lineWidth = 1;
-      for (let i = 0; i < 6; i++) {
+      vgrad([[0, '#174d73'], [0.4, '#0a2840'], [1, '#030b14']]);
+      // 크리스탈: 아래에서 솟은 각진 결정 + 면마다 밝기 다르게
+      const crystal = (cx, base, cw, ch, tilt) => {
+        const tipX = cx + tilt;
+        const tipY = base - ch;
+        const pts = [[cx - cw, base], [cx - cw * 0.9, base - ch * 0.62], [tipX, tipY], [cx + cw * 0.9, base - ch * 0.62], [cx + cw, base]];
+        const cg = g.createLinearGradient(cx - cw, tipY, cx + cw, base);
+        cg.addColorStop(0, 'rgba(210,248,255,0.75)');
+        cg.addColorStop(0.5, 'rgba(110,200,245,0.45)');
+        cg.addColorStop(1, 'rgba(40,110,170,0.25)');
         g.beginPath();
-        g.moveTo(rnd() * w, rnd() * h);
-        g.lineTo(rnd() * w, rnd() * h);
-        g.lineTo(rnd() * w, rnd() * h);
+        pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+        g.closePath();
+        g.fillStyle = cg;
+        g.fill();
+        g.strokeStyle = 'rgba(225,250,255,0.75)';
+        g.lineWidth = 1;
         g.stroke();
-      }
+        // 가운데 모서리 (면이 나뉘어 보이게)
+        g.beginPath();
+        g.moveTo(tipX, tipY);
+        g.lineTo(cx + tilt * 0.3, base);
+        g.strokeStyle = 'rgba(255,255,255,0.45)';
+        g.stroke();
+        g.fillStyle = 'rgba(255,255,255,0.12)';
+        g.beginPath();
+        g.moveTo(tipX, tipY);
+        g.lineTo(cx - cw * 0.9, base - ch * 0.62);
+        g.lineTo(cx - cw, base);
+        g.lineTo(cx + tilt * 0.3, base);
+        g.closePath();
+        g.fill();
+      };
+      crystal(w * 0.3, h + 2, w * 0.14, h * 0.34, -w * 0.04);
+      crystal(w * 0.72, h + 2, w * 0.12, h * 0.26, w * 0.05);
+      crystal(w * 0.52, h + 2, w * 0.18, h * 0.46, 0);
       // 위쪽 서리
-      const fg = g.createLinearGradient(0, 0, 0, h * 0.18);
-      fg.addColorStop(0, 'rgba(230,251,255,0.85)');
-      fg.addColorStop(1, 'rgba(230,251,255,0)');
+      const fg = g.createLinearGradient(0, 0, 0, h * 0.16);
+      fg.addColorStop(0, 'rgba(235,252,255,0.7)');
+      fg.addColorStop(1, 'rgba(235,252,255,0)');
       g.fillStyle = fg;
-      g.fillRect(0, 0, w, h * 0.18);
-      for (let i = 0; i < 4; i++) sparkle(g, rnd() * w, h * (0.15 + rnd() * 0.7), 3 + rnd() * 4, 'rgba(255,255,255,0.85)');
+      g.fillRect(0, 0, w, h * 0.16);
+      glint(w * 0.52, h * 0.55, m * 0.07);
+      glint(w * 0.25, h * 0.3, m * 0.045);
+      finish('rgba(190,240,255,0.35)');
       break;
     }
     case 'heart': {
-      vgrad([[0, '#5a1238'], [0.45, '#1f0614'], [1, '#000']]);
-      const hp = (x, y, s, c) => {
-        g.save();
-        g.translate(x, y);
-        g.scale(s / 24, s / 24);
+      vgrad([[0, '#4c0f33'], [0.5, '#1d0513'], [1, '#050003']]);
+      radial(w / 2, h * 0.6, m * 0.75, 'rgba(255,90,160,0.35)');
+      const hp = (x, y, s) => {
         g.beginPath();
-        g.moveTo(0, 9);
-        g.bezierCurveTo(-15, -1, -11, -15, 0, -6.5);
-        g.bezierCurveTo(11, -15, 15, -1, 0, 9);
+        g.moveTo(x, y + s * 0.38);
+        g.bezierCurveTo(x - s * 0.62, y - s * 0.05, x - s * 0.46, y - s * 0.62, x, y - s * 0.27);
+        g.bezierCurveTo(x + s * 0.46, y - s * 0.62, x + s * 0.62, y - s * 0.05, x, y + s * 0.38);
         g.closePath();
-        g.fillStyle = c;
-        g.fill();
-        g.restore();
       };
-      for (let i = 0; i < 6; i++) hp(rnd() * w, rnd() * h * 0.8, 8 + rnd() * 8, 'rgba(255,140,200,0.28)');
-      hp(w / 2, h * 0.68, Math.min(w, h) * 0.42, 'rgba(255,95,162,0.9)');
-      g.fillStyle = 'rgba(255,255,255,0.6)';
-      g.beginPath();
-      g.ellipse(w / 2 - Math.min(w, h) * 0.08, h * 0.62, 4, 2.5, -0.6, 0, Math.PI * 2);
+      // 작은 하트 (테두리만, 옅게)
+      g.strokeStyle = 'rgba(255,170,210,0.35)';
+      g.lineWidth = 1.2;
+      for (let i = 0; i < 4; i++) {
+        hp(w * (0.15 + rnd() * 0.7), h * (0.12 + rnd() * 0.32), m * (0.14 + rnd() * 0.08));
+        g.stroke();
+      }
+      // 가운데 큰 하트: 광택 있는 젤리
+      const S = m * 0.62;
+      const cx = w / 2;
+      const cy = h * 0.62;
+      g.save();
+      g.shadowColor = 'rgba(255,80,160,0.8)';
+      g.shadowBlur = 14;
+      hp(cx, cy, S);
+      const hg = g.createLinearGradient(0, cy - S * 0.6, 0, cy + S * 0.4);
+      hg.addColorStop(0, '#ffa6d2');
+      hg.addColorStop(0.5, '#ff4f9a');
+      hg.addColorStop(1, '#b8135f');
+      g.fillStyle = hg;
       g.fill();
-      topLine('#ffd0e4', 0.8);
+      g.restore();
+      hp(cx, cy, S);
+      g.strokeStyle = 'rgba(255,220,238,0.8)';
+      g.lineWidth = 1.2;
+      g.stroke();
+      g.fillStyle = 'rgba(255,255,255,0.7)';
+      g.beginPath();
+      g.ellipse(cx - S * 0.2, cy - S * 0.2, S * 0.11, S * 0.06, -0.7, 0, Math.PI * 2);
+      g.fill();
+      glint(cx + S * 0.32, cy - S * 0.38, m * 0.06);
+      finish('rgba(255,170,210,0.4)');
       break;
     }
     case 'cyber': {
-      vgrad([[0, '#06121c'], [1, '#000']]);
-      g.strokeStyle = 'rgba(0,240,255,0.14)';
+      vgrad([[0, '#061522'], [1, '#000206']]);
+      g.strokeStyle = 'rgba(0,240,255,0.07)';
       g.lineWidth = 1;
-      for (let x = 6; x < w; x += 12) g.strokeRect(x, -1, 0.01, h + 2);
-      for (let y = 6; y < h; y += 12) g.strokeRect(-1, y, w + 2, 0.01);
-      // 회로 줄
-      g.lineWidth = 1.5;
-      for (let i = 0; i < 3; i++) {
-        const c = i % 2 ? 'rgba(255,43,214,0.8)' : 'rgba(0,240,255,0.85)';
-        g.strokeStyle = c;
-        g.fillStyle = c;
-        let x = w * (0.2 + rnd() * 0.6);
-        let y = h * (0.15 + rnd() * 0.25);
+      for (let x = 8; x < w; x += 10) {
         g.beginPath();
-        g.moveTo(x, y);
-        y += h * 0.25;
-        g.lineTo(x, y);
-        x += (rnd() < 0.5 ? -1 : 1) * w * 0.2;
-        y += w * 0.2;
-        g.lineTo(x, y);
-        y += h * 0.15;
-        g.lineTo(x, y);
+        g.moveTo(x + 0.5, 0);
+        g.lineTo(x + 0.5, h);
         g.stroke();
-        g.beginPath();
-        g.arc(x, y, 2.5, 0, Math.PI * 2);
-        g.fill();
       }
+      for (let y = 8; y < h; y += 10) {
+        g.beginPath();
+        g.moveTo(0, y + 0.5);
+        g.lineTo(w, y + 0.5);
+        g.stroke();
+      }
+      // 칩 + 칩에서 뻗는 회로 (꺾이는 선 + 끝 점)
+      const chip = m * 0.34;
+      const ccx = w / 2;
+      const ccy = h * 0.56;
+      const trace = (pts, c) => {
+        g.save();
+        g.shadowColor = c;
+        g.shadowBlur = 6;
+        g.strokeStyle = c;
+        g.lineWidth = 1.5;
+        g.beginPath();
+        pts.forEach(([x, y], i) => (i ? g.lineTo(x, y) : g.moveTo(x, y)));
+        g.stroke();
+        const [ex, ey] = pts[pts.length - 1];
+        g.fillStyle = c;
+        g.beginPath();
+        g.arc(ex, ey, 2.2, 0, Math.PI * 2);
+        g.fill();
+        g.restore();
+      };
+      const C = 'rgba(0,240,255,0.9)';
+      const M = 'rgba(255,60,220,0.9)';
+      trace([[ccx - chip * 0.25, ccy - chip / 2], [ccx - chip * 0.25, h * 0.3], [w * 0.2, h * 0.3 - w * 0.12], [w * 0.2, h * 0.12]], C);
+      trace([[ccx + chip * 0.25, ccy - chip / 2], [ccx + chip * 0.25, h * 0.36], [w * 0.8, h * 0.36 - w * 0.1], [w * 0.8, h * 0.2]], M);
+      trace([[ccx, ccy + chip / 2], [ccx, h * 0.78], [w * 0.3, h * 0.78 + w * 0.12], [w * 0.3, h * 0.92]], C);
+      trace([[ccx + chip / 2, ccy], [w * 0.86, ccy], [w * 0.86, h * 0.72]], C);
+      g.save();
+      g.shadowColor = 'rgba(0,240,255,0.7)';
+      g.shadowBlur = 10;
+      g.fillStyle = '#0b2433';
+      g.fillRect(ccx - chip / 2, ccy - chip / 2, chip, chip);
+      g.restore();
+      g.strokeStyle = 'rgba(120,250,255,0.95)';
+      g.lineWidth = 1.5;
+      g.strokeRect(ccx - chip / 2, ccy - chip / 2, chip, chip);
+      g.fillStyle = 'rgba(0,240,255,0.25)';
+      g.fillRect(ccx - chip * 0.22, ccy - chip * 0.22, chip * 0.44, chip * 0.44);
+      // 양옆 네온 테두리
+      g.save();
+      g.shadowBlur = 8;
+      g.shadowColor = '#00f0ff';
       g.fillStyle = '#00f0ff';
       g.fillRect(0, 0, 2, h);
+      g.shadowColor = '#ff2bd6';
       g.fillStyle = '#ff2bd6';
       g.fillRect(w - 2, 0, 2, h);
-      topLine('#b8fcff');
+      g.restore();
+      finish('rgba(0,240,255,0)');
       break;
     }
     case 'gold': {
-      vgrad([[0, '#3a2a06'], [0.4, '#120d02'], [1, '#000']]);
-      // 비스듬한 금빛
+      vgrad([[0, '#2a1f08'], [0.45, '#0f0b03'], [1, '#000']]);
+      const gold = (x0, y0, x1, y1) => {
+        const fg = g.createLinearGradient(x0, y0, x1, y1);
+        fg.addColorStop(0, '#fff3c0');
+        fg.addColorStop(0.35, '#ffcf4a');
+        fg.addColorStop(0.65, '#b98300');
+        fg.addColorStop(1, '#ffe08a');
+        return fg;
+      };
+      // 비스듬한 빛 한 줄기
+      const sh = g.createLinearGradient(0, h * 0.2, w, h * 0.5);
+      sh.addColorStop(0, 'rgba(255,215,90,0)');
+      sh.addColorStop(0.5, 'rgba(255,215,90,0.14)');
+      sh.addColorStop(1, 'rgba(255,215,90,0)');
+      g.fillStyle = sh;
+      g.fillRect(0, 0, w, h);
+      // 두 줄 금테 + 모서리 장식
+      g.strokeStyle = gold(0, 0, w, h);
+      g.lineWidth = 2;
+      g.strokeRect(4, 4, w - 8, h - 8);
+      g.lineWidth = 0.8;
+      g.strokeRect(8, 8, w - 16, h - 16);
+      g.fillStyle = gold(0, 0, w, h);
+      for (const [x, y] of [[8, 8], [w - 8, 8], [8, h - 8], [w - 8, h - 8]]) {
+        g.beginPath();
+        g.moveTo(x, y - 4);
+        g.lineTo(x + 4, y);
+        g.lineTo(x, y + 4);
+        g.lineTo(x - 4, y);
+        g.closePath();
+        g.fill();
+      }
+      // 가운데 왕관
+      const cw = m * 0.3;
+      const cx = w / 2;
+      const cy = h * 0.6;
       g.save();
-      g.globalAlpha = 0.22;
-      g.fillStyle = '#ffd75a';
+      g.shadowColor = 'rgba(255,200,60,0.7)';
+      g.shadowBlur = 10;
       g.beginPath();
-      g.moveTo(0, h * 0.55);
-      g.lineTo(w, h * 0.15);
-      g.lineTo(w, h * 0.32);
-      g.lineTo(0, h * 0.72);
+      g.moveTo(cx - cw, cy + cw * 0.45);
+      g.lineTo(cx - cw * 1.05, cy - cw * 0.45);
+      g.lineTo(cx - cw * 0.5, cy);
+      g.lineTo(cx, cy - cw * 0.7);
+      g.lineTo(cx + cw * 0.5, cy);
+      g.lineTo(cx + cw * 1.05, cy - cw * 0.45);
+      g.lineTo(cx + cw, cy + cw * 0.45);
       g.closePath();
+      g.fillStyle = gold(cx - cw, cy - cw, cx + cw, cy + cw);
       g.fill();
       g.restore();
-      const fg = g.createLinearGradient(0, 0, w, h);
-      fg.addColorStop(0, '#fff1b8');
-      fg.addColorStop(0.5, '#ffc83d');
-      fg.addColorStop(1, '#b07a00');
-      frame(fg, 2.5, 4);
+      g.fillRect(cx - cw, cy + cw * 0.55, cw * 2, cw * 0.22);
+      g.fillStyle = '#fff8dc';
+      for (const [x, y] of [[cx - cw * 1.05, cy - cw * 0.45], [cx, cy - cw * 0.7], [cx + cw * 1.05, cy - cw * 0.45]]) {
+        g.beginPath();
+        g.arc(x, y, cw * 0.11, 0, Math.PI * 2);
+        g.fill();
+      }
+      g.fillStyle = '#ff5a7a';
+      g.beginPath();
+      g.arc(cx, cy + cw * 0.12, cw * 0.12, 0, Math.PI * 2);
+      g.fill();
+      glint(cx + cw * 0.7, cy - cw * 0.9, m * 0.05, '#fff6c8');
+      finish('rgba(255,215,90,0)');
       break;
     }
     case 'galaxy': {
-      g.fillStyle = '#07031a';
-      g.fillRect(0, 0, w, h);
-      const neb = (x, y, r, c) => {
-        const rg = g.createRadialGradient(x, y, 0, x, y, r);
-        rg.addColorStop(0, c);
-        rg.addColorStop(1, 'rgba(0,0,0,0)');
-        g.fillStyle = rg;
-        g.fillRect(0, 0, w, h);
-      };
-      neb(w * 0.3, h * 0.35, h * 0.55, 'rgba(178,107,255,0.55)');
-      neb(w * 0.75, h * 0.7, h * 0.45, 'rgba(79,216,255,0.4)');
-      neb(w * 0.5, h * 0.1, h * 0.3, 'rgba(255,122,217,0.35)');
-      for (let i = 0; i < 18; i++) {
-        g.fillStyle = `rgba(255,255,255,${0.4 + rnd() * 0.6})`;
-        const sz = rnd() < 0.15 ? 2 : 1;
-        g.fillRect(rnd() * w, rnd() * h, sz, sz);
+      vgrad([[0, '#0c0628'], [1, '#03010c']]);
+      g.save();
+      g.globalCompositeOperation = 'lighter';
+      const neb = (x, y, r, c) => radial(x, y, r, c);
+      neb(w * 0.25, h * 0.3, h * 0.42, 'rgba(160,90,255,0.45)');
+      neb(w * 0.8, h * 0.62, h * 0.4, 'rgba(60,190,255,0.35)');
+      neb(w * 0.45, h * 0.12, h * 0.25, 'rgba(255,110,210,0.3)');
+      neb(w * 0.5, h * 0.48, h * 0.18, 'rgba(255,255,255,0.12)');
+      g.restore();
+      for (let i = 0; i < 26; i++) {
+        const r = rnd() < 0.18 ? 1.3 : 0.7;
+        g.fillStyle = `rgba(255,255,255,${0.35 + rnd() * 0.65})`;
+        g.beginPath();
+        g.arc(rnd() * w, rnd() * h, r, 0, Math.PI * 2);
+        g.fill();
       }
-      sparkle(g, w * (0.2 + rnd() * 0.6), h * (0.2 + rnd() * 0.5), 5, '#ffffff');
-      const sh = g.createLinearGradient(0, h * 0.6, 0, h);
-      sh.addColorStop(0, 'rgba(0,0,0,0)');
-      sh.addColorStop(1, 'rgba(0,0,0,0.6)');
-      g.fillStyle = sh;
-      g.fillRect(0, 0, w, h);
+      glint(w * (0.3 + rnd() * 0.4), h * (0.3 + rnd() * 0.3), m * 0.08);
+      glint(w * (0.2 + rnd() * 0.6), h * (0.62 + rnd() * 0.2), m * 0.045);
+      finish('rgba(200,170,255,0.3)', 'rgba(0,0,0,0.5)');
       break;
     }
     case 's1': {
-      vgrad([[0, '#2b3a8c'], [0.45, '#121a4a'], [1, '#060a22']]);
-      const fg = g.createLinearGradient(0, h * 0.2, 0, h * 0.85);
-      fg.addColorStop(0, '#fff2b0');
-      fg.addColorStop(0.5, '#ffcf3a');
-      fg.addColorStop(1, '#c78a00');
-      g.font = `900 ${Math.round(h * 0.56)}px 'Arial Rounded MT Bold', 'Trebuchet MS', system-ui, sans-serif`;
-      g.textAlign = 'center';
-      g.textBaseline = 'middle';
+      // 🥇 시즌 1: 남색 벨벳 + 가는 금테 + 월계수로 둘러싼 금메달 속 「1」 (예전 크고 뚱뚱한 「1」 은 없앰)
+      vgrad([[0, '#22337d'], [0.5, '#101a4d'], [1, '#050a24']]);
+      radial(w / 2, h * 0.55, m * 0.8, 'rgba(90,120,255,0.28)');
+      const gold = (y0, y1) => {
+        const fg = g.createLinearGradient(0, y0, 0, y1);
+        fg.addColorStop(0, '#fff5c8');
+        fg.addColorStop(0.45, '#ffd24a');
+        fg.addColorStop(0.75, '#c08a00');
+        fg.addColorStop(1, '#ffe48a');
+        return fg;
+      };
+      g.strokeStyle = 'rgba(255,215,110,0.75)';
+      g.lineWidth = 1;
+      g.strokeRect(5, 5, w - 10, h - 10);
+      // 작은 별 몇 개
+      for (let i = 0; i < 6; i++) {
+        g.fillStyle = `rgba(255,236,170,${0.35 + rnd() * 0.5})`;
+        g.beginPath();
+        g.arc(w * (0.12 + rnd() * 0.76), h * (0.1 + rnd() * 0.25), 0.6 + rnd() * 0.8, 0, Math.PI * 2);
+        g.fill();
+      }
+      const cx = w / 2;
+      const cy = h * 0.56;
+      const R = m * 0.27;
+      // 월계수 (양쪽으로 잎이 둥글게)
+      g.fillStyle = gold(cy - R * 1.4, cy + R * 1.4);
+      for (const side of [-1, 1]) {
+        for (let i = 0; i < 6; i++) {
+          const a = Math.PI / 2 + side * (0.55 + i * 0.36);
+          const lx = cx + Math.cos(a) * R * 1.32;
+          const ly = cy + Math.sin(a) * R * 1.32;
+          g.save();
+          g.translate(lx, ly);
+          g.rotate(a + side * 1.25);
+          g.beginPath();
+          g.ellipse(0, 0, R * 0.26, R * 0.1, 0, 0, Math.PI * 2);
+          g.fill();
+          g.restore();
+        }
+      }
+      // 메달
+      g.save();
       g.shadowColor = 'rgba(255,200,60,0.6)';
       g.shadowBlur = 10;
-      g.fillStyle = fg;
-      g.fillText('1', w / 2, h * 0.55);
-      g.shadowBlur = 0;
-      frame('rgba(255,215,90,0.7)', 1.5, 4);
+      g.fillStyle = gold(cy - R, cy + R);
+      g.beginPath();
+      g.arc(cx, cy, R, 0, Math.PI * 2);
+      g.fill();
+      g.restore();
+      const ig = g.createLinearGradient(0, cy - R, 0, cy + R);
+      ig.addColorStop(0, '#2c3f96');
+      ig.addColorStop(1, '#121c55');
+      g.fillStyle = ig;
+      g.beginPath();
+      g.arc(cx, cy, R * 0.8, 0, Math.PI * 2);
+      g.fill();
+      g.strokeStyle = 'rgba(255,230,150,0.7)';
+      g.lineWidth = 0.8;
+      g.beginPath();
+      g.arc(cx, cy, R * 0.7, 0, Math.PI * 2);
+      g.stroke();
+      g.font = `700 ${Math.round(R * 1.05)}px Georgia, 'Times New Roman', serif`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.fillStyle = gold(cy - R * 0.5, cy + R * 0.5);
+      g.fillText('1', cx, cy + R * 0.06);
+      // 아래 작은 글씨
+      g.font = `600 ${Math.max(7, Math.round(m * 0.085))}px ${DISP}`;
+      g.fillStyle = 'rgba(255,225,140,0.85)';
+      g.fillText('SEASON', cx, cy + R * 1.75);
+      glint(cx + R * 0.72, cy - R * 0.72, m * 0.05, '#fff6c8');
+      finish('rgba(255,215,110,0)');
       break;
     }
     case 'live': {
-      vgrad([[0, '#272b55'], [0.45, '#0e1024'], [1, '#04050c']]);
+      vgrad([[0, '#262a58'], [0.5, '#0e1026'], [1, '#04050c']]);
+      // 위에서 내려오는 무대 조명 두 줄기
+      g.save();
+      g.globalCompositeOperation = 'lighter';
+      const beam = (x0, x1, c) => {
+        const bg = g.createLinearGradient(0, 0, 0, h * 0.85);
+        bg.addColorStop(0, c);
+        bg.addColorStop(1, 'rgba(0,0,0,0)');
+        g.fillStyle = bg;
+        g.beginPath();
+        g.moveTo(x0 - w * 0.05, 0);
+        g.lineTo(x0 + w * 0.05, 0);
+        g.lineTo(x1 + w * 0.22, h * 0.85);
+        g.lineTo(x1 - w * 0.22, h * 0.85);
+        g.closePath();
+        g.fill();
+      };
+      beam(w * 0.2, w * 0.45, 'rgba(255,138,216,0.35)');
+      beam(w * 0.8, w * 0.55, 'rgba(125,242,255,0.3)');
+      g.restore();
+      // 양옆 파스텔 빛 테두리
       const eg = g.createLinearGradient(0, 0, 0, h);
       eg.addColorStop(0, '#ff8ad8');
       eg.addColorStop(0.5, '#7df2ff');
       eg.addColorStop(1, '#b996ff');
+      g.save();
+      g.shadowColor = '#c9a8ff';
+      g.shadowBlur = 8;
       g.fillStyle = eg;
       g.fillRect(0, 0, 2, h);
       g.fillRect(w - 2, 0, 2, h);
-      topLine('#ffffff');
+      g.restore();
+      glint(w * 0.5, h * 0.7, m * 0.06);
+      finish('rgba(255,255,255,0)', 'rgba(185,150,255,0.35)');
       break;
     }
     default: {
       if (pal && key !== 'basic') {
-        // 색 콩 스킨: 위쪽이 그 색 → 아래로 검정
-        vgrad([[0, pal[0]], [0.42, pal[2]], [0.75, '#050507'], [1, '#000']]);
-        topLine(pal[1], 0.9);
+        // 색 콩 스킨: 위쪽이 그 색 → 아래로 어둡게 + 아래쪽 빛 띠
+        vgrad([[0, pal[0]], [0.38, pal[2]], [0.78, '#07070b'], [1, '#000']]);
+        g.fillStyle = pal[1];
+        g.globalAlpha = 0.9;
+        g.fillRect(0, 0, w, 2);
+        g.globalAlpha = 1;
+        finish('rgba(255,255,255,0.12)', hexA(pal[0], 0.45));
       } else {
         // 기본: 검정, 위쪽만 살짝 빛
         vgrad([[0, '#2a2a33'], [0.16, '#08080b'], [1, '#000']]);
       }
     }
   }
+}
+function hexA(hex, a) {
+  const n = parseInt(String(hex).slice(1, 7), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 }
 /** 🪙 우리 코인 (금빛 동전 + 가운데 별) */
 function coin(g, cx, cy, r) {
@@ -21975,6 +22225,9 @@ async function openRank(levelId) {
 
 /** 위: 🏛 명예의 전당 / 🎵 단계 / 💎 무제한. 아래: 그 안의 탭 (전당 = 단계 총합·무제한 총합, 단계 = 단계별, 무제한 = 그리그 + 단계별 무제한) */
 function renderRankTabs() {
+  // 🗄 시즌 2 (11-27 사용자): 시즌 1 단계·무제한 랭킹은 내리고 명예의 전당만
+  if (s2On() && !isHallRank(state.rankLevel)) state.rankLevel = 'hall-stage';
+  $$('#rank-mode button').forEach((b) => (b.hidden = s2On() && b.dataset.rankMode !== 'hall'));
   const cur = state.rankLevel;
   const mode = rankModeOf(cur);
   $('#rank-season').textContent = seasonLeftText();
@@ -27236,6 +27489,7 @@ const OA_MSG = (pv) => {
   return {
     login: `🔑 ${nm}로 로그인했어요!`,
     linked: `🔑 ${nm}${pv === 'google' ? '을' : '를'} 연결했어요! 다른 브라우저에서도 ${nm}로 들어올 수 있어요`,
+    merged: `🔑 ${nm}로 로그인했어요! 다른 곳에서 친 기록·코인도 이 계정으로 합쳤어요`,
     taken: `이 ${nm} 계정은 다른 계정에 연결돼 있어요`,
     none: `이 ${nm} 계정에 연결된 계정이 없어요 · 다시 로그인해 주세요`,
     cancel: `${nm} 로그인을 취소했어요`,

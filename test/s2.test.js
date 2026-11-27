@@ -275,13 +275,20 @@ for (const kind of KINDS) test(`[${kind}] 카카오 로그인: 키 없으면 꺼
     setJar('');
     assert.equal(await go('login'), '/?kakao=login');
     assert.equal((await (await call('/api/me')).json()).player.username, '카톡이');
-    // 다른 계정이 같은 카카오를 붙이려 함 → taken
-    setJar('');
-    assert.equal((await call('/api/verify/password', { name: '딴사람', ig: 'other_one' })).status, 200);
-    assert.equal(await go('link'), '/?kakao=taken');
     // 연결 안 된 카카오로 로그인 → 이 폰 계정(카카오 없음)에 연결
+    setJar('');
+    assert.equal((await call('/api/verify/password', { name: '셋째', ig: 'third_one' })).status, 200);
     kakaoId = '888';
     assert.equal(await go('login'), '/?kakao=linked');
+    kakaoId = '777';
+    // 다른 계정(카카오 없음)이 이미 붙은 카카오로 로그인 → 같은 사람 → 먼저 만든 계정(카톡이)으로 합침 (11-27)
+    setJar('');
+    await new Promise((r) => setTimeout(r, 5));
+    assert.equal((await call('/api/verify/password', { name: '딴사람', ig: 'other_one' })).status, 200);
+    assert.equal(await go('link'), '/?kakao=merged');
+    const mm = await (await call('/api/me')).json();
+    assert.equal(mm.player.username, '카톡이');
+    assert.equal(mm.kakao, true);
     // 다른 브라우저에서 시작한 state 를 가져와도 (쿠키가 다르면) 거절
     setJar(mine);
     const st = await (await call('/api/auth/kakao/start', { mode: 'login' })).json();
@@ -401,4 +408,15 @@ for (const kind of KINDS) test(`[${kind}] 🔑 카카오 로그인 켠 뒤(11-27
   } finally {
     globalThis.fetch = realFetch;
   }
+});
+
+for (const kind of KINDS) test(`[${kind}] 🗄 시즌 2 를 연 뒤 드럼·무제한 점수는 안 올라감 (시즌 1 보관)`, async () => {
+  const { call } = await setup({}, kind);
+  assert.equal((await call('/api/verify/password', { name: '드럼러', ig: 'drum_er' })).status, 200);
+  const run = await (await call('/api/runs', { level: 1 })).json();
+  await call('/api/admin/s2', { open: true }, { 'X-Admin-Token': 'adm' });
+  const r = await (await call('/api/scores', { level: 1, runToken: run.runToken, score: 1000, maxCombo: 5, counts: { perfect: 5, great: 0, good: 0, miss: 0 } })).json();
+  assert.equal(r.closed, true);
+  const lb = await (await call('/api/leaderboard?level=1')).json();
+  assert.equal((lb.entries || []).length, 0);
 });

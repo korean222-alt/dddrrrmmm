@@ -412,7 +412,7 @@ END $$`);
   // ----- players -----
   async getPlayer(igsid) {
     const r = await this.one('SELECT * FROM players WHERE igsid = $1', [igsid]);
-    return r ? { igsid: r.igsid, username: r.username, ig: r.ig || null, hiddenAt: num(r.hidden_at) ?? null, checkedAt: num(r.checked_at) ?? null, kakao: !!r.kakao, google: !!r.google } : null;
+    return r ? { igsid: r.igsid, username: r.username, ig: r.ig || null, hiddenAt: num(r.hidden_at) ?? null, checkedAt: num(r.checked_at) ?? null, kakao: !!r.kakao, google: !!r.google, createdAt: num(r.created_at) ?? null } : null;
   }
   async upsertPlayer(igsid, patch) {
     // 인스타 아이디가 바뀌면 운영자가 팔로우를 다시 확인해야 함 (checked_at 비움)
