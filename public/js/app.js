@@ -15546,7 +15546,7 @@ const __m_ads = (() => {
 //
 // 1순위: 구글 애드센스 'H5 게임 광고'(Ad Placement API)의 보상형 광고 adBreak({ type: 'reward' }).
 //        config.js 의 ads.adsenseClient 에 'ca-pub-…' 를 넣으면 켜집니다. (애드센스 승인 + H5 게임 광고 신청 필요)
-// 2순위: 광고가 없거나(승인 전, 광고 재고 없음, 광고 차단) 실패하면 → 홍보 화면(팔로우하고 집 한 채! · @goyangi.seom)을 몇 초 보여주고 이어하기.
+// 2순위: 광고가 없거나(승인 전, 광고 재고 없음, 광고 차단) 실패하면 → 홍보 화면(2주 무료 광고 · 인스타 @ok_aystra 문의)을 몇 초 보여주고 이어하기.
 //        이어하기가 막혀서 답답한 일은 없게 하고, 그 시간에 인스타 팔로우를 유도.
 //
 // showRewarded() → Promise<'rewarded' | 'dismissed'>
@@ -16546,7 +16546,7 @@ const CONFIG = {
     test: false,
     houseSeconds: 5,
     // 광고 대신 나오는 홍보 화면에서 팔로우하러 보낼 인스타 아이디 (@ 빼고). 비우면 instagramHandle.
-    houseHandle: 'goyangi.seom',
+    houseHandle: 'ok_aystra',
   },
 };
 
@@ -17359,7 +17359,8 @@ const TILE_SLOT_MAX = 3999;
 /** 이 바퀴까지 돌면 끝 (그 전에 사람은 못 버팀) */
 /** 첫 바퀴(별 3개) + 다이아 3바퀴 = 4바퀴에서 끝 (2026-11-27) */
 const MAX_LAPS = 4;
-const TILE_HEARTS = 3;
+/** 2026-11-27 사용자: 한 번 틀리면 끝 (광고 보고 한 번 이어하기만) */
+const TILE_HEARTS = 1;
 /** 이만큼(줄) 화면 아래로 지나가면 놓침 */
 const GONE_ROWS = 0.35;
 /** 📱 이웃한 두 타일 사이는 늘(빨라져도) 적어도 이만큼(초) — 아이폰 터치 빠짐 (tasks/채보-만들때-주의.md) */
@@ -17767,7 +17768,7 @@ function checkTileRun(songId, body, elapsedSec) {
   // 그 시간 안에 화면에 들어올 수 있는 타일 점수보다 많이 칠 순 없음
   if (tiles > tilesWithin(songId, elapsedSec)) return { ok: false, error: 'too_fast' };
   // 바퀴 수: 다 돈 바퀴의 타일(놓친 건 하트 3개 + 바퀴마다 회복분까지만)을 가장 낮은 판정(GOOD 400)으로 쳤을 때보다 적을 순 없음
-  if (laps > 0 && tiles < (c.lapEnd[laps - 1] - TILE_HEARTS * (laps + 1)) * 400) return { ok: false, error: 'bad_score' };
+  if (laps > 0 && tiles < (c.lapEnd[laps - 1] - 3 * (laps + 1)) * 400) return { ok: false, error: 'bad_score' };
   // 지금 치던 바퀴까지의 점수보다 많이 칠 순 없음
   if (tiles > c.lapPts[Math.min(laps, MAX_LAPS - 1)]) return { ok: false, error: 'bad_score' };
   const maxCombo = Number.isInteger(body.maxCombo) ? Math.max(0, Math.min(body.maxCombo, c.lapEnd[MAX_LAPS - 1])) : 0;
@@ -17847,7 +17848,9 @@ class TileGame {
    *           maxLaps?:number, skin?:object, vs?:{ name:string, other:()=>({score,lives,done}|null), onLive?:(live)=>void } }} o
    *   lap 을 주면 그걸로 (유저 맵 타일), 아니면 songId 의 곡
    */
-  constructor({ audio, canvas, songId = 0, lap = null, onEnd, onLap, maxLaps = MAX_LAPS, vs = null, skin = null, hue = null }) {
+  constructor({ audio, canvas, songId = 0, lap = null, onEnd, onLap, onDeath = null, maxLaps = MAX_LAPS, vs = null, skin = null, hue = null }) {
+    this.onDeath = onDeath;
+    this.continues = 0;
     this.audio = audio;
     this.canvas = canvas;
     this.g = canvas.getContext('2d');
@@ -18098,7 +18101,7 @@ class TileGame {
   _loop() {
     cancelAnimationFrame(this.raf);
     const loop = () => {
-      if (this.state === 'stopped' || this.state === 'ended' || this.state === 'paused') return;
+      if (this.state === 'stopped' || this.state === 'ended' || this.state === 'paused' || this.state === 'dead') return;
       this._tick();
       this.raf = requestAnimationFrame(loop);
     };
@@ -18125,6 +18128,25 @@ class TileGame {
     this.countUntil = performance.now() + 1500;
     this.lastFrame = performance.now();
     this._loop();
+  }
+
+  /** 광고 보고 이어하기: 하트 1개로 틀린 자리에서 3·2·1 뒤 다시 (한 판에 한 번) */
+  revive() {
+    if (this.state !== 'dead' || this.continues >= 1) return false;
+    this.continues++;
+    this.hearts = 1;
+    this.failTile = null;
+    this._curPrev = null;
+    this.lastHurt = this.diedAt;
+    this.hurtFx = { at: this.diedAt, heal: true, heart: 0 };
+    this.state = 'paused';
+    this.resume();
+    return true;
+  }
+
+  /** 이어하기 안 함 → 결과 */
+  giveUp() {
+    if (this.state === 'dead') this._finish();
   }
 
   stop() {
@@ -18635,7 +18657,19 @@ class TileGame {
     }
     if (this.state === 'dying') {
       this._draw(this.diedAt, dt, true);
-      if (pn - this.diedPerf > 1300) this._finish();
+      if (pn - this.diedPerf > 1300) {
+        // 틀리면 끝 — 광고 보고 한 번만 이어하기 (끝까지 돈 판·대결은 바로 끝)
+        if (this.onDeath && !this.complete && this.hearts <= 0 && this.continues < 1) {
+          this.state = 'dead';
+          cancelAnimationFrame(this.raf);
+          this.pausedT = this.diedAt;
+          try {
+            this.onDeath({ score: this.score, canContinue: true });
+          } catch {
+            this._finish();
+          }
+        } else this._finish();
+      }
       return;
     }
     this._syncClock(pn);
@@ -26920,6 +26954,7 @@ function tpLayers(id) {
   for (const x of ['tp-paused', 'tp-over']) $('#' + x).hidden = x !== id;
 }
 function stopTile() {
+  closeModal('modal-tiledie');
   if (tp.game) tp.game.stop();
   tp.game = null;
 }
@@ -26987,12 +27022,41 @@ async function tilePlay(songId = tp.song, { room = null, map = null } = {}) {
       }
     : null;
   const hue = song ? TILE_HUES[(song.order - 1) % TILE_HUES.length] : 220;
-  const g = new TileGame({ audio, canvas: $('#tp-canvas'), songId: song ? songId : 0, lap: mlap, skin: tileSkin(), hue, onEnd: (r) => tileEnd(r), maxLaps: room ? VS_LAPS : map ? MAP_TILE_LAPS : undefined, vs });
+  const g = new TileGame({ audio, canvas: $('#tp-canvas'), songId: song ? songId : 0, lap: mlap, skin: tileSkin(), hue, onEnd: (r) => tileEnd(r), onDeath: room ? null : (info) => tileDeath(info), maxLaps: room ? VS_LAPS : map ? MAP_TILE_LAPS : undefined, vs });
   if (isLocalDev()) window.__tg = g; // 내 컴퓨터에서 시험할 때만
   tp.game = g;
   trackPlayStart(song ? tileId(songId) : UM_ID);
   // 대결: 서버가 정한 시각에 같이 시작 (그때까지는 'VS 상대' 화면). 혼자면 맨 아래 「시작」 타일을 누르면 시작
   g.start(room ? Math.max(0.35, (room.startAt - Date.now()) / 1000) : 0);
+}
+/** 💔 타일: 한 번 틀리면 끝 → 광고 보고 한 번 이어하기 / 결과 보기 */
+function tileDeath(info) {
+  const g = tp.game;
+  if (!g) return;
+  contOpenedAt = performance.now();
+  $('#tdie-score').textContent = `${fmt(info.score)}점`;
+  $('#tdie-ad').disabled = false;
+  openModal('modal-tiledie');
+}
+async function tileContinueAd() {
+  const g = tp.game;
+  if (!g || g.state !== 'dead') return;
+  if (performance.now() - contOpenedAt < CONT_GUARD_MS) return;
+  $('#tdie-ad').disabled = true;
+  closeModal('modal-tiledie');
+  const r = await showRewarded(state.cfg, {
+    beforeAd: () => audio.setVolumes({ music: 0, sfx: 0 }),
+    afterAd: () => audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx }),
+  });
+  audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx });
+  if (tp.game !== g || g.state !== 'dead') return;
+  if (r === 'rewarded' && g.revive()) return;
+  toast('광고를 끝까지 봐야 이어할 수 있어요');
+  tileDeath({ score: g.score });
+}
+function tileGiveUp() {
+  closeModal('modal-tiledie');
+  if (tp.game) tp.game.giveUp();
 }
 function tilePause() {
   if (tp.game && tp.game.pause()) tpLayers('tp-paused');
@@ -27654,6 +27718,8 @@ const ACTIONS = {
   's2rank-back': () => (sr.from === 'screen-tiles' ? (renderTiles(), show('screen-tiles')) : show(sr.from === 'screen-home2' ? 'screen-title' : sr.from || 'screen-title')),
   's2-hall': () => openRank('hall-stage'),
   'tp-pause': () => tilePause(),
+  'tile-continue-ad': () => tileContinueAd(),
+  'tile-giveup': () => tileGiveUp(),
   'tiles-rush-go': () => rushGo('tiles'),
   'tvs-leave': async () => {
     tpLayers(null);

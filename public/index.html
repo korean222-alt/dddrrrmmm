@@ -866,15 +866,29 @@
     </div>
   </div>
 
+  <!-- 🎹 타일: 틀리면 끝 → 광고 보고 한 번 이어하기 -->
+  <div class="modal" id="modal-tiledie" hidden>
+    <div class="sheet small cont-sheet">
+      <div class="cont-heart" aria-hidden="true"><span data-icon="heartbreak" data-e></span></div>
+      <h3>틀렸어요!</h3>
+      <div class="cont-score" id="tdie-score">0점</div>
+      <div class="stack">
+        <button class="btn btn-primary btn-big" data-action="tile-continue-ad" id="tdie-ad"><span class="ad-tag">AD</span> 광고 보고 이어하기</button>
+        <button class="btn btn-ghost" data-action="tile-giveup">결과 보기</button>
+      </div>
+      <p class="muted small">이어하기는 한 판에 한 번이에요</p>
+    </div>
+  </div>
+
   <!-- 광고 대신 나오는 우리 인스타 홍보 화면 (애드센스 광고가 없을 때) -->
   <div class="modal ad-modal" id="modal-ad" hidden>
     <div class="ad-box" role="dialog" aria-label="광고">
       <div class="ad-head"><span class="ad-tag">광고</span><span id="ad-count"></span><button class="ad-x" id="ad-close" aria-label="광고 닫기 (이어하기 안 함)"><span data-icon="close"></span></button></div>
       <div class="ad-body">
-        <div class="ad-logo" aria-hidden="true"><span data-icon="home" data-e></span></div>
-        <p class="ad-copy">팔로우하고 <b class="ad-hot">집 한 채</b> 받아가요!</p>
-        <p class="ad-sub">광고 보는 동안 팔로우 한 번이면 끝</p>
-        <a class="btn btn-insta" id="ad-insta" target="_blank" rel="noopener"><span data-icon="insta"></span> <span id="ad-handle">인스타그램</span> 팔로우</a>
+        <div class="ad-logo" aria-hidden="true">📣</div>
+        <p class="ad-copy"><b class="ad-hot">2주 동안 무료</b>로<br>광고해드립니다</p>
+        <p class="ad-sub">인스타로 문의 주세요</p>
+        <a class="btn btn-insta" id="ad-insta" target="_blank" rel="noopener"><span data-icon="insta"></span> <span id="ad-handle">인스타그램</span> 문의하기</a>
       </div>
       <button class="btn btn-primary btn-big" id="ad-continue" disabled>5</button>
     </div>
@@ -1359,6 +1373,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=c7bfcbb8f2" defer></script>
+  <script src="js/app.js?v=aadcce1d4c" defer></script>
 </body>
 </html>

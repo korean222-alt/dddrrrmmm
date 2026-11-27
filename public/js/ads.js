@@ -2,7 +2,7 @@
 //
 // 1순위: 구글 애드센스 'H5 게임 광고'(Ad Placement API)의 보상형 광고 adBreak({ type: 'reward' }).
 //        config.js 의 ads.adsenseClient 에 'ca-pub-…' 를 넣으면 켜집니다. (애드센스 승인 + H5 게임 광고 신청 필요)
-// 2순위: 광고가 없거나(승인 전, 광고 재고 없음, 광고 차단) 실패하면 → 홍보 화면(팔로우하고 집 한 채! · @goyangi.seom)을 몇 초 보여주고 이어하기.
+// 2순위: 광고가 없거나(승인 전, 광고 재고 없음, 광고 차단) 실패하면 → 홍보 화면(2주 무료 광고 · 인스타 @ok_aystra 문의)을 몇 초 보여주고 이어하기.
 //        이어하기가 막혀서 답답한 일은 없게 하고, 그 시간에 인스타 팔로우를 유도.
 //
 // showRewarded() → Promise<'rewarded' | 'dismissed'>

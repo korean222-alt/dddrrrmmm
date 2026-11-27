@@ -6464,6 +6464,7 @@ function tpLayers(id) {
   for (const x of ['tp-paused', 'tp-over']) $('#' + x).hidden = x !== id;
 }
 function stopTile() {
+  closeModal('modal-tiledie');
   if (tp.game) tp.game.stop();
   tp.game = null;
 }
@@ -6531,12 +6532,41 @@ async function tilePlay(songId = tp.song, { room = null, map = null } = {}) {
       }
     : null;
   const hue = song ? TILE_HUES[(song.order - 1) % TILE_HUES.length] : 220;
-  const g = new TileGame({ audio, canvas: $('#tp-canvas'), songId: song ? songId : 0, lap: mlap, skin: tileSkin(), hue, onEnd: (r) => tileEnd(r), maxLaps: room ? VS_LAPS : map ? MAP_TILE_LAPS : undefined, vs });
+  const g = new TileGame({ audio, canvas: $('#tp-canvas'), songId: song ? songId : 0, lap: mlap, skin: tileSkin(), hue, onEnd: (r) => tileEnd(r), onDeath: room ? null : (info) => tileDeath(info), maxLaps: room ? VS_LAPS : map ? MAP_TILE_LAPS : undefined, vs });
   if (isLocalDev()) window.__tg = g; // 내 컴퓨터에서 시험할 때만
   tp.game = g;
   trackPlayStart(song ? tileId(songId) : UM_ID);
   // 대결: 서버가 정한 시각에 같이 시작 (그때까지는 'VS 상대' 화면). 혼자면 맨 아래 「시작」 타일을 누르면 시작
   g.start(room ? Math.max(0.35, (room.startAt - Date.now()) / 1000) : 0);
+}
+/** 💔 타일: 한 번 틀리면 끝 → 광고 보고 한 번 이어하기 / 결과 보기 */
+function tileDeath(info) {
+  const g = tp.game;
+  if (!g) return;
+  contOpenedAt = performance.now();
+  $('#tdie-score').textContent = `${fmt(info.score)}점`;
+  $('#tdie-ad').disabled = false;
+  openModal('modal-tiledie');
+}
+async function tileContinueAd() {
+  const g = tp.game;
+  if (!g || g.state !== 'dead') return;
+  if (performance.now() - contOpenedAt < CONT_GUARD_MS) return;
+  $('#tdie-ad').disabled = true;
+  closeModal('modal-tiledie');
+  const r = await showRewarded(state.cfg, {
+    beforeAd: () => audio.setVolumes({ music: 0, sfx: 0 }),
+    afterAd: () => audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx }),
+  });
+  audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx });
+  if (tp.game !== g || g.state !== 'dead') return;
+  if (r === 'rewarded' && g.revive()) return;
+  toast('광고를 끝까지 봐야 이어할 수 있어요');
+  tileDeath({ score: g.score });
+}
+function tileGiveUp() {
+  closeModal('modal-tiledie');
+  if (tp.game) tp.game.giveUp();
 }
 function tilePause() {
   if (tp.game && tp.game.pause()) tpLayers('tp-paused');
@@ -7198,6 +7228,8 @@ const ACTIONS = {
   's2rank-back': () => (sr.from === 'screen-tiles' ? (renderTiles(), show('screen-tiles')) : show(sr.from === 'screen-home2' ? 'screen-title' : sr.from || 'screen-title')),
   's2-hall': () => openRank('hall-stage'),
   'tp-pause': () => tilePause(),
+  'tile-continue-ad': () => tileContinueAd(),
+  'tile-giveup': () => tileGiveUp(),
   'tiles-rush-go': () => rushGo('tiles'),
   'tvs-leave': async () => {
     tpLayers(null);
