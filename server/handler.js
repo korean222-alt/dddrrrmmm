@@ -534,12 +534,22 @@ export function createHandler(cfg, { store, meter = null }) {
   /** 운영자가 팔로우를 직접 확인함('확인함') → 13·14단계 · 단계별 무제한까지 열림 */
   const isConfirmed = (pl) => isVerified(pl) && !!pl.checkedAt;
   /** /api/me · /api/guest 응답 */
+  // 🔑 랭킹은 카카오(·구글) 로그인한 계정만 (2026-11-27 사용자). 카카오 키가 없는 서버(시험·로컬)는 예전처럼
+  const loginOn = () => !!(cfg.kakaoKey && cfg.kakaoSecret);
+  const rankOk = (pl) => !loginOn() || !!(pl && (pl.kakao || pl.google));
+  // 카카오로 처음 들어온 사람: 닉네임 정하기 전까지 카카오 회원번호 해시를 서명한 쿠키(kk_nw)에 잠깐 들고 있음
+  const NEW_LOGIN_MS = 30 * 60 * 1000;
+  const newLoginOf = (request) => {
+    const v = unsign(cookiesOf(request).kk_nw || '', cfg.sessionSecret);
+    return v && v.kid && OAUTH[v.pv] && Date.now() - v.t < NEW_LOGIN_MS ? v : null;
+  };
   const meOf = (pl) => ({
-    verified: false, guest: true, needsIg: !pl.ig, checked: isVerified(pl), confirmed: isConfirmed(pl), temp: !NO_PASSWORD && isConfirmed(pl) && pl.checkedAt < 0,
+    verified: false, guest: true, needsIg: !pl.ig && !pl.kakao && !pl.google, checked: isVerified(pl), confirmed: isConfirmed(pl), temp: !NO_PASSWORD && isConfirmed(pl) && pl.checkedAt < 0,
     hidden: pl.hiddenAt ? { deleteAt: pl.hiddenAt + HIDE_KEEP_MS } : null,
     player: { username: pl.username, ig: pl.ig },
     kakao: !!pl.kakao,
     google: !!pl.google,
+    rank: rankOk(pl),
   });
 
   /** 🪙 요청에 얹혀 온 코인 받기 → 잔액(계정 없거나 인증 전이면 null = 폰이 다시 보냄) */
@@ -569,7 +579,7 @@ export function createHandler(cfg, { store, meter = null }) {
    *   한 번에 OFFLINE_MAX 개까지 (쿼리 수 제한) → 받은 것·버린 것 키를 돌려줌, 나머지는 폰이 다음에
    */
   async function takeOffline(pl, list) {
-    if (!pl || !isConfirmed(pl) || !Array.isArray(list)) return null;
+    if (!pl || !isConfirmed(pl) || !rankOk(pl) || !Array.isArray(list)) return null;
     const done = [];
     let up = 0;
     let bumpS = false;
@@ -598,7 +608,7 @@ export function createHandler(cfg, { store, meter = null }) {
    *   판 토큰·판정 개수가 없어서 단계·점수 상한·콤보 상한·친 시각만 봄. 한 번에 OFFLINE_MAX 개, 받은 키를 돌려줌
    */
   async function takeLost(pl, list) {
-    if (!pl || !isConfirmed(pl) || !Array.isArray(list) || Date.now() > LOST_UNTIL) return null;
+    if (!pl || !isConfirmed(pl) || !rankOk(pl) || !Array.isArray(list) || Date.now() > LOST_UNTIL) return null;
     const done = [];
     let bump = false;
     let hallReady = false;
@@ -887,7 +897,7 @@ export function createHandler(cfg, { store, meter = null }) {
       if (rec2 && rec2.username) {
         rec = rec2;
         if (request._setCookies) request._setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid: rec2.igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
-        return { igsid: rec.igsid, username: rec.username, ig: rec.ig || null, hiddenAt: rec.hiddenAt || null, checkedAt: rec.checkedAt || null };
+        return { igsid: rec.igsid, username: rec.username, ig: rec.ig || null, hiddenAt: rec.hiddenAt || null, checkedAt: rec.checkedAt || null, kakao: !!rec.kakao, google: !!rec.google };
       }
     }
     if (rec && rec.username) {
@@ -1044,7 +1054,9 @@ export function createHandler(cfg, { store, meter = null }) {
           await P.set(ks.igsid, kid);
           return back('linked');
         }
-        return back('none');
+        // 🔑 처음 온 사람 (2026-11-27): 닉네임만 정하면 이 카카오로 새 계정 → 폰이 닉네임 창을 엶 (/api/guest 가 kk_nw 를 보고 연결)
+        setCookies.push(cookie('kk_nw', sign({ kid, pv, t: Date.now() }, cfg.sessionSecret), { maxAge: Math.floor(NEW_LOGIN_MS / 1000), secure: cfg.cookieSecure }));
+        return back('new');
       }
     }
     if (p === '/api/logout' && m === 'POST') {
@@ -1060,9 +1072,14 @@ export function createHandler(cfg, { store, meter = null }) {
       const body = await readJson(request);
       const name = cleanNickname(body.name);
       if (!name) return json(400, { error: 'bad_name' });
-      const pl = await getPlayer(request);
+      const pl0 = await getPlayer(request);
+      const nw = newLoginOf(request);
+      // 카카오로 처음 온 사람: 지금 폰 계정에 이미 이 로그인이 있으면(다른 카카오) 새 계정으로
+      const pl = nw && pl0 && pl0[nw.pv] ? null : pl0;
       const ig = cleanInstagram(body.ig);
-      if (!ig && !(pl && pl.ig)) return json(400, { error: 'bad_ig' });
+      // 🔑 카카오 로그인을 켠 뒤(11-27): 새 계정은 카카오(·구글) 로그인으로만 · 인스타 아이디는 안 받아도 됨
+      if (!pl && !nw && loginOn()) return json(403, { error: 'login_required' });
+      if (!ig && !(pl && pl.ig) && !nw) return json(400, { error: 'bad_ig' });
       // 🔑 같은 아이디·닉네임의 예전 계정이 있으면 새로 만들지 않고 알려 줌 → 폰이 '팔로워 암호로 이어가기 / 새로 시작' (2026-11-25)
       if (OLD_ASK && !pl && body.fresh !== true) {
         const o = await sameOldAccount(ig, name);
@@ -1072,8 +1089,15 @@ export function createHandler(cfg, { store, meter = null }) {
       let rec = await store.upsertPlayer(igsid, { username: name, ig });
       // 🔓 암호를 없앤 뒤(11-26): 이용 등록·아이디 바꾸기 = 바로 인증 완료 (예전엔 아이디를 바꾸면 암호로 다시 인증)
       if (NO_PASSWORD && rec && !rec.checkedAt && (await store.setChecked(igsid, true))) rec = await store.getPlayer(igsid);
+      if (nw) {
+        const P = OAUTH[nw.pv];
+        // 그 사이 다른 계정에 붙었으면(다른 창에서 먼저) 안 붙임
+        if (!(await P.byId(nw.kid)) && !(await P.of(igsid))) await P.set(igsid, nw.kid);
+        setCookies.push(cookie('kk_nw', '', { maxAge: 0, secure: cfg.cookieSecure }));
+        rec = await store.getPlayer(igsid);
+      }
       if (!pl) setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
-      return json(200, meOf({ username: name, ig: (rec && rec.ig) || ig, checkedAt: rec && rec.checkedAt, hiddenAt: rec && rec.hiddenAt }));
+      return json(200, meOf({ username: name, ig: (rec && rec.ig) || ig, checkedAt: rec && rec.checkedAt, hiddenAt: rec && rec.hiddenAt, kakao: !!(rec && rec.kakao), google: !!(rec && rec.google) }));
     }
 
     // 팔로워 암호로 인증: 키티챗이 팔로워에게만 DM 으로 준 암호를 적으면 바로 '인증 완료'(운영자 확인과 같음)
@@ -1308,6 +1332,7 @@ export function createHandler(cfg, { store, meter = null }) {
           return json(200, { ok: await store.deleteMap(id, pl.igsid) });
         }
         if (act === 'score') {
+          if (!rankOk(pl)) return json(403, { error: 'login_required' });
           // 🏆 판이 끝날 때 한 번: mode 'free'(무적) / 'hearts'(하트 5개, 끝까지 살아남은 판만) / 'tiles'(🎹 타일 맵)
           const b = await readJson(request);
           const mode = ['hearts', 'free', 'tiles'].includes(b.mode) ? b.mode : null;
@@ -1706,6 +1731,8 @@ export function createHandler(cfg, { store, meter = null }) {
       if (cfg.gateMode !== 'open' && !isConfirmed(pl)) return json(403, { error: 'verify_required' });
       notePre(pl, body);
       const coins = body.coins ? await takeCoins(pl, body.coins) : null;
+      // 🔑 랭킹은 카카오 로그인한 계정만 (11-27) — 코인은 받아 둠
+      if (!rankOk(pl)) return json(403, { error: 'login_required', ...(coins || {}) });
       const offline = body.offline ? await takeOffline(pl, body.offline) : null;
       const lost = body.lost && !offline ? await takeLost(pl, body.lost) : null;
       // 코인·서버 없을 때 기록을 받았으면 오류 응답에도 실음 (폰이 두 번 안 보내게)

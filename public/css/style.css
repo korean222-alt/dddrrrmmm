@@ -1410,6 +1410,16 @@ html.s2 #screen-levels .follow-chip { display: none !important; }
 .kakao-box h4 { margin: 0; font-weight: 400; font-size: 17px; }
 .kakao-box p { margin: 0; }
 .kakao-box.on { background: #eef9e6; border-color: #9bd47a; }
+/* 🔑 카카오 로그인 창·첫 화면 버튼 (2026-11-27) */
+.kakao-ico { display: inline-block; position: relative; width: 20px; height: 16px; border-radius: 50%; background: #191600; vertical-align: -2px; margin-right: 4px; }
+.kakao-ico::after { content: ''; position: absolute; left: 4px; bottom: -4px; border: 4px solid transparent; border-top: 6px solid #191600; border-bottom: 0; transform: rotate(20deg); }
+.login-sheet { text-align: center; }
+.login-sheet .stack { margin-top: 14px; }
+.login-sheet .field { text-align: left; }
+.login-kakao { font-size: 18px; padding: 14px; }
+.login-guest-note { margin: 12px 0 0; font-size: 13px; color: #8a5a00; background: #fff4d6; border-radius: 12px; padding: 8px 10px; }
+.login-cta { width: 100%; display: flex; align-items: center; justify-content: center; gap: 6px; margin: 0 0 10px; }
+.login-cta small { font-size: 12px; opacity: .7; }
 .btn-google { background: #fff; color: #1f1f1f; border-color: #1f1f1f; box-shadow: 0 3px 0 #1f1f1f; }
 .btn-google:active { box-shadow: 0 1px 0 #1f1f1f; }
 .google-box { background: #f1f5ff; border-color: #a9bff0; }
@@ -1788,3 +1798,4 @@ html.has-tabs .screen.active:not(#screen-home2) { padding-bottom: calc(96px + va
 .gal-pod small { font-size: 11px; opacity: 0.75; }
 .gal-pod em { font-size: 12px; line-height: 1.35; color: #ffe7c0; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .gal-podium:not([hidden]) ~ .gal-nav { display: none; }
+#screen-home2 .login-cta { width: calc(100% - 24px); margin: 14px auto 0; border-radius: 22px; }

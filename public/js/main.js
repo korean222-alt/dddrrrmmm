@@ -245,6 +245,24 @@ function isConfirmed() {
   // 2026-11-22 사용자 요청: 서버가 쉬는 동안엔 누구나 전부 열림 (인증 창 때문에 릴스에 「쿵」 댓글·DM 이 쏟아져서)
   return true;
 }
+// 🔑 카카오 로그인 (2026-11-27 사용자): 랭킹은 카카오(·구글) 로그인한 계정만, 게스트는 코인·기록이 서버에 안 남음
+/** 서버가 카카오 로그인을 켰나 (켜져 있으면 랭킹은 로그인한 사람만) */
+const loginOn = () => !!state.cfg.kakao;
+/** 이 폰이 카카오·구글 로그인한 계정인가 (서버가 쉬는 동안엔 마지막으로 본 값) */
+function loggedIn() {
+  if (state.api && state.api.mode === 'server') {
+    const me = state.me || {};
+    const ok = !!(me.guest && (me.kakao || me.google));
+    if (me.guest || me.verified === false) save('loggedIn', ok);
+    return ok;
+  }
+  return !!load('loggedIn', false);
+}
+/** 랭킹에 못 올림 (로그인 안 함) */
+const rankLocked = () => loginOn() && !loggedIn();
+/** 계정은 있는데(예전 이용 등록) 카카오는 아직 */
+const hasAccount = () => !!(state.me && state.me.guest && state.me.player && state.me.player.username);
+
 /** 처음부터 서버 없이 배포된 사이트(정적 호스팅)인가 */
 const CONFIG_STATIC = () => CONFIG.apiMode === 'mock';
 const CONFIRM_WHAT = VERIFY_WHAT;
@@ -259,6 +277,8 @@ const freePass = () => true;
 function openVerify(id, { label = '', then = null, restore = false } = {}) {
   // 예전 계정 되찾기는 암호 대신 '되찾기 요청'(운영자가 확인)으로 (11-26 암호 없앰)
   if (restore) return openReq();
+  // 🔑 카카오 로그인을 켠 뒤(11-27): 새 계정은 카카오로만 → 이용 등록 창 대신 로그인 창
+  if (loginOn() && !hasAccount() && state.api && state.api.mode === 'server') return openLogin({ why: label || '' });
   state.verifyRestore = false;
   state.verifyFresh = false;
   $('#verify-fresh').hidden = true;
@@ -485,8 +505,10 @@ function showDailyResult(res) {
 function refreshFollowChip() {
   const me = state.me || {};
   const on = state.api && state.api.mode === 'server';
+  refreshLoginCta();
   for (const el of $$('.follow-chip')) {
-    el.hidden = !on;
+    // 🔑 카카오 로그인 전이면 대신 '카카오 로그인' 버튼(.login-cta)
+    el.hidden = !on || rankLocked();
     el.classList.toggle('warn', !!me.hidden);
     el.classList.toggle('todo', !me.hidden && !me.confirmed);
     el.classList.toggle('ok', !me.hidden && !!me.confirmed);
@@ -1599,6 +1621,8 @@ async function submitRank(r = state.lastResult) {
       )
     );
   };
+  // 🔑 랭킹은 카카오 로그인한 사람만 (게스트·예전 이용 등록 계정은 기록이 폰에만)
+  if (rankLocked()) return askLogin();
   if (state.api.mode !== 'server') return keepOffline();
   // 랭킹은 팔로워 인증(암호)을 받은 사람만 → 안 받았으면 인증 창을 한 번 띄움
   if (!isConfirmed()) {
@@ -1623,7 +1647,10 @@ async function submitRank(r = state.lastResult) {
     else toast(out.improved ? `랭킹에 올라갔어요! 현재 ${out.rank}위 🏆` : `내 최고 기록(${fmt(out.best)})이 그대로 유지돼요 · ${out.rank}위`, 3000);
   } catch (e) {
     if (e.status === 503 || !e.status) keepOffline(); // 서버가 막혔거나 연결이 끊김
-    else if (e.status === 401 || (e.status === 403 && e.data && e.data.error === 'verify_required')) {
+    else if (e.status === 403 && e.data && e.data.error === 'login_required') {
+      state.me = { ...state.me, kakao: false, google: false };
+      askLogin();
+    } else if (e.status === 401 || (e.status === 403 && e.data && e.data.error === 'verify_required')) {
       if (e.status === 401) state.me = { verified: false };
       else state.me = { ...state.me, confirmed: false };
       askNickname();
@@ -3158,9 +3185,10 @@ function umFinish(res) {
   const mode = um.mode;
   const modeName = mode === 'hearts' ? '❤ 하트 5개' : '🛡 무적';
   // 🏆 기록 보내기: 무적은 끝까지 친 판, 하트는 살아남은 판만 (판마다 요청 1번)
-  const canRank = !auto && !res.practice && !res.stopped && um.mapId && state.api.mapScore && !(mode === 'hearts' && res.failed);
+  const canRank0 = !auto && !res.practice && !res.stopped && um.mapId && state.api.mapScore && !(mode === 'hearts' && res.failed);
+  const canRank = canRank0 && !rankLocked();
   banner.innerHTML = `<b>${res.failed ? '💔' : res.grade}</b> ${fmt(res.score)}점 · 정확도 ${acc}% · 최대 콤보 ${res.maxCombo}
-    <div class="map-rank"><small>${modeName} 랭킹</small><ol id="map-res-top">${res.failed && mode === 'hearts' ? '<li class="mm-empty">하트를 다 써서 이번 판은 기록이 안 남아요</li>' : canRank ? '<li class="mm-empty">기록 올리는 중…</li>' : mapTopHTML(um.top && um.top[mode])}</ol></div>
+    <div class="map-rank"><small>${modeName} 랭킹</small><ol id="map-res-top">${res.failed && mode === 'hearts' ? '<li class="mm-empty">하트를 다 써서 이번 판은 기록이 안 남아요</li>' : canRank0 && !canRank ? '<li class="mm-empty">🔑 카카오 로그인하면 기록이 올라가요</li>' : canRank ? '<li class="mm-empty">기록 올리는 중…</li>' : mapTopHTML(um.top && um.top[mode])}</ol></div>
     <div class="map-res-btns"><button class="btn btn-ghost" type="button" data-map-again>다시 치기</button>${liked ? '' : '<button class="btn btn-hot" type="button" data-map-like>❤ 이 맵 좋아요</button>'}</div>`;
   if (canRank) {
     const id = um.mapId;
@@ -6600,6 +6628,10 @@ async function tileEnd(r) {
     if (r.tiles > 0) say('📴 서버가 쉬는 중 · 기록은 이 폰에 남아요');
     return;
   }
+  if (rankLocked()) {
+    if (r.tiles > 0) say('🏆 랭킹은 <button class="link" data-action="login-open">카카오 로그인</button> 하면 올라가요');
+    return;
+  }
   if (!isConfirmed()) {
     if (r.tiles > 0) say('🏆 랭킹에 올리려면 <button class="link" data-action="rank-join">이용 등록</button>');
     return;
@@ -6642,6 +6674,7 @@ function tileMapRank(map, r) {
   const ol = $('#tp-res-maptop');
   ol.innerHTML = mapTopHTML(um.top && um.top.tiles);
   if (!map.id || !state.api.mapScore || r.tiles <= 0) return;
+  if (rankLocked()) return void (ol.innerHTML = '<li class="mm-empty">🔑 카카오 로그인하면 기록이 올라가요</li>');
   ol.innerHTML = '<li class="mm-empty">기록 올리는 중…</li>';
   state.api
     .mapScore(map.id, 'tiles', r.tiles)
@@ -6951,7 +6984,7 @@ function galGo(d) {
 
 // ----- 🔑 카카오·구글 로그인 -----
 const OA_NAME = { kakao: '카카오', google: '구글' };
-const oaOn = (pv) => !!state.cfg[pv] && s2On() && state.api && state.api.mode === 'server';
+const oaOn = (pv) => !!state.cfg[pv] && state.api && state.api.mode === 'server';
 function refreshOauth(pv) {
   const nm = OA_NAME[pv];
   const box = $(`#${pv}-box`);
@@ -6998,10 +7031,73 @@ const OA_MSG = (pv) => {
     login: `🔑 ${nm}로 로그인했어요!`,
     linked: `🔑 ${nm}${pv === 'google' ? '을' : '를'} 연결했어요! 다른 브라우저에서도 ${nm}로 들어올 수 있어요`,
     taken: `이 ${nm} 계정은 다른 계정에 연결돼 있어요`,
-    none: `이 ${nm} 계정에 연결된 계정이 없어요 · 이용 등록 뒤 설정에서 연결해 주세요`,
+    none: `이 ${nm} 계정에 연결된 계정이 없어요 · 다시 로그인해 주세요`,
     cancel: `${nm} 로그인을 취소했어요`,
   };
 };
+
+// ----- 🔑 카카오 로그인 · 게스트 창 (2026-11-27) -----
+const LOGIN_ASK_MS = 24 * 3600 * 1000;
+/** 첫 화면에서 저절로 띄울까: 처음 온 사람 · 카카오 안 한 예전 계정 (게스트·나중에를 고르면 하루 뒤 다시) */
+const loginDue = () => state.api && state.api.mode === 'server' && rankLocked() && Date.now() - (Number(load('loginAskAt', 0)) || 0) > LOGIN_ASK_MS;
+function openLogin({ why = '', rank = false } = {}) {
+  if (!loginOn()) return;
+  const old = hasAccount();
+  $('#login-mascots').innerHTML = buddiesHTML('cheer', 'idle');
+  $('#login-choose').hidden = false;
+  $('#login-name-form').hidden = true;
+  $('#login-title').textContent = old ? `${state.me.player.username} 님, 카카오 로그인` : rank ? '랭킹은 카카오 로그인한 사람만' : '오케이스트라 시작하기';
+  $('#login-desc').innerHTML = old
+    ? '이제 <b>랭킹은 카카오 로그인한 사람만</b> 올라가요.<br>로그인하면 지금 기록·코인 그대로 이어져요.'
+    : `${why ? `<b>${escapeHtml(why)}</b> · ` : ''}카카오로 로그인하면 <b>코인·기록이 저장</b>되고 <b>랭킹</b>에 올라가요.`;
+  $('#login-guest').textContent = old ? '나중에 할게요' : '게스트로 하기';
+  $('#login-guest-note').innerHTML = old ? '안 하면 <b>랭킹에 못 올라가요</b>' : '게스트는 <b>코인·기록이 저장되지 않고</b> <b>랭킹에도 못 올라가요</b>';
+  openModal('modal-login');
+}
+function askLogin() {
+  if (state.loginAskedRank) return toast('🔑 랭킹은 카카오 로그인하면 올라가요', 2600);
+  state.loginAskedRank = true;
+  openLogin({ rank: true });
+}
+function openLoginName() {
+  $('#login-mascots').innerHTML = buddiesHTML('cheer', 'cheer');
+  $('#login-choose').hidden = true;
+  $('#login-name-form').hidden = false;
+  $('#login-err').hidden = true;
+  $('#login-name').value = load('lastNick', '');
+  openModal('modal-login');
+  setTimeout(() => $('#login-name').focus(), 50);
+}
+async function submitLoginName() {
+  const name = $('#login-name').value.trim();
+  const err = (t) => {
+    $('#login-err').textContent = t;
+    $('#login-err').hidden = false;
+  };
+  if ([...name].length < 2) return err('닉네임을 2자 이상으로 써 주세요.');
+  if (!/^[\p{L}\p{N}_. ]+$/u.test(name)) return err('닉네임은 한글·영문·숫자·_ . 만 쓸 수 있어요.');
+  try {
+    state.me = await state.api.guest(name);
+    save('lastNick', name);
+    closeModal('modal-login');
+    refreshTitle();
+    refreshKakao();
+    toast(`🔑 ${name} 님, 환영해요! 이제 코인·기록이 저장돼요`, 3000);
+  } catch (e) {
+    const c = e && e.data && e.data.error;
+    if (c === 'bad_name') return err('쓸 수 없는 닉네임이에요.');
+    if (c === 'login_required') {
+      closeModal('modal-login');
+      return toast('로그인 시간이 지났어요 · 카카오로 다시 로그인해 주세요', 3000);
+    }
+    err('지금은 등록이 안 돼요. 잠시 뒤 다시 해 주세요.');
+  }
+}
+/** 시작 화면의 '🔑 카카오 로그인' 버튼 */
+function refreshLoginCta() {
+  const on = loginOn() && state.api && state.api.mode === 'server' && rankLocked();
+  for (const el of $$('.login-cta')) el.hidden = !on;
+}
 
 const ACTIONS = {
   'room-open': () => openRoom(),
@@ -7141,6 +7237,13 @@ const ACTIONS = {
     tileBack();
   },
   'tp-rank': () => openS2Rank('song', tp.song),
+  'login-open': () => openLogin(),
+  'login-kakao': () => kakaoGo('login'),
+  'login-guest': () => {
+    save('loginAskAt', Date.now());
+    closeModal('modal-login');
+    if (!hasAccount()) toast('게스트로 시작해요 · 코인·기록은 저장되지 않아요', 2600);
+  },
   'kakao-link': () => kakaoGo('link'),
   'kakao-login': () => kakaoGo('login'),
   'google-link': () => oauthGo('google', 'link'),
@@ -7462,6 +7565,10 @@ function bindActions() {
   $('#verify-form').addEventListener('submit', (e) => {
     e.preventDefault();
     submitVerify();
+  });
+  $('#login-name-form').addEventListener('submit', (e) => {
+    e.preventDefault();
+    submitLoginName();
   });
   $('#join-form').addEventListener('submit', (e) => {
     e.preventDefault();
@@ -7953,6 +8060,7 @@ async function boot() {
     setTimeout(() => toast(s2p === 'okay' ? '🎹 시즌 2 미리보기를 켰어요 (이 기기만)' : '시즌 2 미리보기를 껐어요', 2600), 300);
   }
   // 🔑 카카오·구글 로그인에서 돌아옴 (/?kakao=결과 · /?google=결과)
+  let oauthBack = '';
   for (const pv of ['kakao', 'google']) {
     const kk = params.get(pv);
     if (!kk) continue;
@@ -7961,8 +8069,15 @@ async function boot() {
       u.searchParams.delete(pv);
       history.replaceState(null, '', u.pathname + u.search + u.hash);
     } catch {}
-    setTimeout(() => toast(OA_MSG(pv)[kk] || `${OA_NAME[pv]} 로그인이 안 됐어요. 다시 해 주세요`, 3400), 500);
+    oauthBack = kk;
+    if (kk === 'new') setTimeout(openLoginName, 300);
+    else setTimeout(() => toast(OA_MSG(pv)[kk] || `${OA_NAME[pv]} 로그인이 안 됐어요. 다시 해 주세요`, 3400), 500);
   }
+  // 🔑 처음 온 사람·카카오 안 한 예전 계정: 첫 화면에 카카오 로그인 / 게스트 창 (하루 한 번)
+  if (!oauthBack && loginDue()) setTimeout(() => {
+    if (!$$('.modal').some((m) => !m.hidden)) openLogin();
+  }, 600);
+  refreshLoginCta();
   // 🛒 운영자 시험: /?shoptest=okay 면 이 기기에서만 상점 물건을 전부 써 봄 (산 것으로 안 침, 서버 안 감), ?shoptest=off 면 끔
   const shopTest = params.get('shoptest');
   if (shopTest === 'okay' || shopTest === 'off') {

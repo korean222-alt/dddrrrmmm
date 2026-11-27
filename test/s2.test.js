@@ -356,3 +356,49 @@ for (const kind of KINDS) test(`[${kind}] 구글 로그인: 키 없으면 꺼짐
     globalThis.fetch = realFetch;
   }
 });
+
+for (const kind of KINDS) test(`[${kind}] 🔑 카카오 로그인 켠 뒤(11-27): 처음 온 사람은 카카오 → 닉네임으로 새 계정 · 게스트는 새 계정 못 만듦 · 랭킹은 카카오 계정만`, async () => {
+  const { call, setJar } = await setup({ KAKAO_REST_KEY: 'rk', KAKAO_SECRET: 'cs' }, kind);
+  // 예전 계정(카카오 없음): 점수는 login_required, 코인은 받음
+  assert.equal((await call('/api/verify/password', { name: '옛사람', ig: 'old_one' })).status, 200);
+  let me = await (await call('/api/me')).json();
+  assert.equal(me.rank, false);
+  const s0 = await call('/api/scores', { level: 1, score: 1 });
+  assert.equal(s0.status, 403);
+  assert.equal((await s0.json()).error, 'login_required');
+  // 게스트(쿠키 없음)는 이용 등록으로 새 계정 못 만듦
+  setJar('');
+  const g = await call('/api/guest', { name: '게스트', ig: 'guest_one' });
+  assert.equal(g.status, 403);
+  assert.equal((await g.json()).error, 'login_required');
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (u) => {
+    if (String(u).includes('/oauth/token')) return new Response(JSON.stringify({ access_token: 'at' }), { status: 200 });
+    if (String(u).includes('/v2/user/me')) return new Response(JSON.stringify({ id: 4242 }), { status: 200 });
+    throw new Error('unexpected ' + u);
+  };
+  try {
+    const st = await (await call('/api/auth/kakao/start', { mode: 'login' })).json();
+    const r = await call(`/api/auth/kakao/callback?code=c&state=${encodeURIComponent(new URL(st.url).searchParams.get('state'))}`);
+    assert.equal(r.headers.get('location'), '/?kakao=new');
+    // 닉네임만 (인스타 아이디 없이) → 카카오 붙은 새 계정
+    const n = await call('/api/guest', { name: '카카오새싹' });
+    assert.equal(n.status, 200);
+    me = await (await call('/api/me')).json();
+    assert.equal(me.player.username, '카카오새싹');
+    assert.equal(me.kakao, true);
+    assert.equal(me.rank, true);
+    assert.equal(me.needsIg, false);
+    // 다른 브라우저에서 같은 카카오로 → 같은 계정
+    setJar('');
+    const st2 = await (await call('/api/auth/kakao/start', { mode: 'login' })).json();
+    const r2 = await call(`/api/auth/kakao/callback?code=c&state=${encodeURIComponent(new URL(st2.url).searchParams.get('state'))}`);
+    assert.equal(r2.headers.get('location'), '/?kakao=login');
+    assert.equal((await (await call('/api/me')).json()).player.username, '카카오새싹');
+    // 카카오 계정은 점수 요청이 로그인 검사를 지나감 (판 토큰이 없어 다른 오류)
+    const s1 = await call('/api/scores', { level: 1, score: 1 });
+    assert.notEqual((await s1.json()).error, 'login_required');
+  } finally {
+    globalThis.fetch = realFetch;
+  }
+});
