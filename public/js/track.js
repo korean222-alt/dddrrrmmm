@@ -20,6 +20,7 @@ let lastSent = -1;
 let lastSentAt = 0;
 let play = null; // 진행 중인 판 { id, level, mode, startedAt }
 const queue = []; // 아직 못 보낸 판 이벤트
+const adQueue = []; // 📣 아직 못 보낸 광고 이벤트 (광고주에게 줄 숫자라 '표본 밖' 때도 버리지 않음)
 
 const rid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 
@@ -56,7 +57,7 @@ function deviceKind() {
 }
 
 function payloadNow() {
-  const payload = { sid: sess.sid, st: sess.st, active: Math.round(activeMs / 1000), ref: sess.ref, device: deviceKind(), plays: queue.splice(0, 10) };
+  const payload = { sid: sess.sid, st: sess.st, active: Math.round(activeMs / 1000), ref: sess.ref, device: deviceKind(), plays: queue.splice(0, 10), ads: adQueue.splice(0, 10) };
   lastSent = payload.active;
   lastSentAt = Date.now();
   writeStore();
@@ -75,7 +76,7 @@ function send() {
   if (!on || !sess) return;
   if (Date.now() < restUntil) {
     queue.length = 0;
-    return;
+    if (!adQueue.length) return; // 광고 이벤트가 있으면 그것만이라도 보냄
   }
   const payload = payloadNow();
   try {
@@ -115,10 +116,10 @@ export function initTracker({ enabled }) {
   setInterval(() => {
     // 판 시작·점수 요청에 얹어서 방금(5분 안) 보냈으면 건너뜀 → 계속 치는 사람은 따로 안 보냄
     if (Date.now() - lastSentAt < FLUSH_MS - TICK_MS) return;
-    if (!document.hidden && (queue.length || Math.round(activeMs / 1000) !== lastSent)) send();
+    if (!document.hidden && (queue.length || adQueue.length || Math.round(activeMs / 1000) !== lastSent)) send();
   }, FLUSH_MS);
   const leave = () => {
-    if (queue.length || (Date.now() - lastSentAt > HIDE_GAP_MS && Math.round(activeMs / 1000) !== lastSent)) send();
+    if (queue.length || adQueue.length || (Date.now() - lastSentAt > HIDE_GAP_MS && Math.round(activeMs / 1000) !== lastSent)) send();
   };
   document.addEventListener('visibilitychange', () => document.hidden && leave());
   window.addEventListener('pagehide', leave);
@@ -152,3 +153,34 @@ export function trackPlayEnd(res = {}) {
 }
 
 export const hasOpenPlay = () => !!play;
+
+// ---------------- 📣 광고 노출 (2026-11-27, 광고주에게 줄 통계: server/adstats.js · admin '📣 광고') ----------------
+// 광고를 보여 줄 때 start · 인스타 버튼을 누르면 click · 끝나면 end(done = 끝까지 봄 / closed = 중간에 닫음, sec = 본 초).
+// 판 통계처럼 다른 요청(판 시작·점수 올리기)에 얹혀 가거나 5분마다·화면을 떠날 때 감 → 따로 요청을 늘리지 않음.
+// 서버가 없는 모드(on=false)에선 아무것도 안 함. 이름·아이디 없이 익명 방문자 쿠키로만 셈.
+const ads = new Map(); // 보고 있는 광고 id → { ad, src, surface, at }
+
+/** 광고 하나 보여 주기 시작. ad = 광고 이름(우리 광고 'house', 애드센스 'adsense'…), surface = 'drum' | 'tile' (어디서 떴나). 반환 = 이 노출의 id */
+export function trackAdStart({ ad = 'house', surface = 'other' } = {}) {
+  const id = rid() + rid();
+  if (!on) return id;
+  ads.set(id, { ad, surface, at: Date.now() });
+  adQueue.push({ ev: 'start', id, ad, surface });
+  return id;
+}
+
+/** 광고의 인스타 버튼을 눌렀다 (노출마다 한 번만) */
+export function trackAdClick(id) {
+  const a = ads.get(id);
+  if (!on || !a || a.clicked) return;
+  a.clicked = true;
+  adQueue.push({ ev: 'click', id, ad: a.ad, surface: a.surface });
+}
+
+/** 광고가 끝났다. result: 'done'(끝까지 봐서 보상) | 'closed'(중간에 닫음) */
+export function trackAdEnd(id, result) {
+  const a = ads.get(id);
+  if (!on || !a) return;
+  ads.delete(id);
+  adQueue.push({ ev: 'end', id, ad: a.ad, surface: a.surface, result: result === 'done' ? 'done' : 'closed', sec: Math.round((Date.now() - a.at) / 1000) });
+}

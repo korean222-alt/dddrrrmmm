@@ -123,6 +123,8 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS ranked_runs (igsid TEXT NOT NULL, level INTEGER NOT NULL, rating INTEGER NOT NULL, at BIGINT NOT NULL, data JSONB NOT NULL, PRIMARY KEY (igsid, level))`,
   // 🗳 투표 (2026-11-23 시즌 2 피아노 미리보기): 한 사람 한 표
   `CREATE TABLE IF NOT EXISTS poll_votes (poll TEXT NOT NULL, igsid TEXT NOT NULL, choice TEXT NOT NULL, at BIGINT NOT NULL, PRIMARY KEY (poll, igsid))`,
+  // 📣 광고 노출 통계 (2026-11-27): 날짜·광고·방문자(익명 쿠키)마다 한 줄 — server/adstats.js
+  `CREATE TABLE IF NOT EXISTS ad_vday (day TEXT NOT NULL, ad TEXT NOT NULL, vid TEXT NOT NULL, shows INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0, closed INTEGER NOT NULL DEFAULT 0, clicks INTEGER NOT NULL DEFAULT 0, sec INTEGER NOT NULL DEFAULT 0, s_drum INTEGER NOT NULL DEFAULT 0, s_tile INTEGER NOT NULL DEFAULT 0, at BIGINT NOT NULL, PRIMARY KEY (day, ad, vid))`,
 ];
 
 /** init 에서 도는 옛 기록 옮기기 목록 — 새로 추가하면 여기에도 이름을 붙임 (SCHEMA_FLAG 가 바뀌어 다시 돎) */
@@ -791,6 +793,49 @@ END $$`);
          score = COALESCE(EXCLUDED.score, plays.score), stars = COALESCE(EXCLUDED.stars, plays.stars), sec = COALESCE(EXCLUDED.sec, plays.sec)`,
       params
     );
+  }
+  // ----- 📣 광고 노출 통계 (server/adstats.js) -----
+  /** 한 방문자의 하루치 광고 숫자를 더함. rows = [{ad, shows, done, closed, clicks, sec, drum, tile}] (광고마다 한 줄 → 쓰기 1번) */
+  async trackAds({ vid, day, rows, now = Date.now() }) {
+    if (!rows || !rows.length) return;
+    // 한 사람이 하루에 만들 수 있는 양에 상한 (이상한 반복 요청이 숫자를 부풀리지 못하게)
+    const CAP = { shows: 300, done: 300, closed: 300, clicks: 300, sec: 36000, s_drum: 300, s_tile: 300 };
+    const vals = [];
+    const params = [];
+    for (const r of rows) {
+      const row = [day, r.ad, vid, r.shows, r.done, r.closed, r.clicks, r.sec, r.drum, r.tile, now];
+      vals.push('(' + row.map((_, i) => `$${params.length + i + 1}`).join(', ') + ')');
+      params.push(...row);
+    }
+    const add = (c) => `${c} = CASE WHEN ad_vday.${c} + EXCLUDED.${c} > ${CAP[c]} THEN ${CAP[c]} ELSE ad_vday.${c} + EXCLUDED.${c} END`;
+    await this.q(
+      `INSERT INTO ad_vday (day, ad, vid, shows, done, closed, clicks, sec, s_drum, s_tile, at) VALUES ${vals.join(', ')}
+       ON CONFLICT (day, ad, vid) DO UPDATE SET ${Object.keys(CAP).map(add).join(', ')}, at = EXCLUDED.at`,
+      params
+    );
+  }
+  /**
+   * day(YYYY-MM-DD) fromDay~toDay 의 광고 원본: 날짜·광고별 합계(byDay) + 광고·방문자별 합계(byViewer)
+   *   표를 두 번 훑음 (기간 줄만) — handler 가 10분 이상 기억해 둠
+   */
+  async adStats(fromDay, toDay) {
+    const [byDay, byViewer] = await Promise.all([
+      this.q(
+        `SELECT day, ad, COUNT(*) AS viewers, SUM(shows) AS shows, SUM(done) AS done, SUM(closed) AS closed, SUM(clicks) AS clicks, SUM(sec) AS sec, SUM(s_drum) AS drum, SUM(s_tile) AS tile
+         FROM ad_vday WHERE day >= $1 AND day <= $2 GROUP BY day, ad`,
+        [fromDay, toDay]
+      ),
+      this.q(
+        `SELECT ad, vid, SUM(shows) AS shows, SUM(done) AS done, SUM(closed) AS closed, SUM(clicks) AS clicks, COUNT(*) AS days
+         FROM ad_vday WHERE day >= $1 AND day <= $2 GROUP BY ad, vid`,
+        [fromDay, toDay]
+      ),
+    ]);
+    const num = (v) => Number(v) || 0;
+    return {
+      byDay: byDay.map((r) => ({ day: r.day, ad: r.ad, viewers: num(r.viewers), shows: num(r.shows), done: num(r.done), closed: num(r.closed), clicks: num(r.clicks), sec: num(r.sec), drum: num(r.drum), tile: num(r.tile) })),
+      byViewer: byViewer.map((r) => ({ ad: r.ad, vid: r.vid, shows: num(r.shows), done: num(r.done), closed: num(r.closed), clicks: num(r.clicks), days: num(r.days) })),
+    };
   }
   /** [from, to) 에 시작한 접속·판 원본 (한도 없음) + 이 기간에 처음 온 방문자 */
   async statsRaw(from, to) {

@@ -1293,6 +1293,7 @@ async function continueWithAd() {
   btn.disabled = true;
   closeModal('modal-continue');
   const r = await showRewarded(state.cfg, {
+    surface: 'drum',
     beforeAd: () => audio.setVolumes({ music: 0, sfx: 0 }),
     afterAd: () => audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx }),
   });
@@ -6659,6 +6660,7 @@ async function tileContinueAd() {
   $('#tdie-ad').disabled = true;
   closeModal('modal-tiledie');
   const r = await showRewarded(state.cfg, {
+    surface: 'tile',
     beforeAd: () => audio.setVolumes({ music: 0, sfx: 0 }),
     afterAd: () => audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx }),
   });

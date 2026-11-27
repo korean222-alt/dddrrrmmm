@@ -7,6 +7,7 @@ import { cleanAvatar } from '../public/js/avatars.js';
 import crypto from 'node:crypto';
 import { sign, unsign, parseCookies, cookie, newId } from './session.js';
 import { buildStats } from './stats.js';
+import { cleanAds, foldAds, makeAdDedupe, buildAdStats } from './adstats.js';
 import { findSuspects, suspectReport } from './suspect.js';
 import { createRoomHandler } from './rooms.js';
 import { createRankedHandler } from './ranked.js';
@@ -435,6 +436,10 @@ export function createHandler(cfg, { store, meter = null }) {
   //   무거운 결과(명예의 전당 전체 순위·admin 참여자 목록)는 settings 한 줄에 담아 두고 TTL 동안 같이 씀
   //   (읽기 1줄). 인스턴스 메모리에도 1분. 'set:cache:*' 키는 d1-sync 에서 뺌
   const memo = new Map();
+  // 📣 광고 통계의 '날' = 통계와 같은 시간대(한국)의 YYYY-MM-DD, 같은 이벤트 중복 막기
+  //   ⚠ handle 을 돌려준 뒤에 있는 코드(api 쪽)에서 쓰는 const 는 초기화가 안 됨 → 반드시 return 앞에 둘 것
+  const adDedupe = makeAdDedupe();
+  const adDay = (ms) => new Date(ms + cfg.statsTzMin * 60000).toISOString().slice(0, 10);
   async function cached(key, ttlOrFn, fn, { shared = true } = {}) {
     const now = Date.now();
     // ttl 이 함수면 담긴 값을 보고 정함 (예: 명예의 전당은 계산할 때 읽은 줄 수에 맞춰 길게)
@@ -1007,6 +1012,11 @@ export function createHandler(cfg, { store, meter = null }) {
       setCookies.push(cookie(VID_COOKIE, vid, { maxAge: VID_MAX_AGE, secure: cfg.cookieSecure }));
     }
     const now = Date.now();
+    // 📣 광고 노출 (광고주에게 줄 숫자라 통계 표본과 상관없이 다 적음. 한도 브레이크 2단계부터만 쉼)
+    if (t.ads.length && brake() < 2) {
+      const rows = foldAds(adDedupe(vid, t.ads));
+      if (rows.length) await Promise.resolve().then(() => store.trackAds({ vid, day: adDay(now), rows, now })).catch(() => {});
+    }
     const w = statsRate();
     if (!w || (w > 1 && vidBucket(vid) % w !== 0)) return 'skip'; // 표본 밖 (쿠키는 그대로 줌)
     // 접속 + 판들을 동시에 (판은 한 문장으로 묶음)
@@ -1539,6 +1549,17 @@ export function createHandler(cfg, { store, meter = null }) {
           const raw = await store.statsRaw(from, now + 1, { legacy });
           return { days, ...buildStats(raw, { from, to: now, tzMin }), legacySkipped: !!raw.legacySkipped, at: now };
         });
+        return json(200, out);
+      }
+      // 📣 광고 노출 통계: ?days=7 (1~365, 오늘 포함 최근 N일). 10분 같이 씀(?fresh=1 이면 바로 다시)
+      if (p === '/api/admin/ads' && m === 'GET') {
+        const days = Math.min(365, Math.max(1, Math.floor(Number(url.searchParams.get('days'))) || 7));
+        const now = Date.now();
+        const toDay = adDay(now);
+        const fromDay = adDay(now - (days - 1) * 24 * 3600 * 1000);
+        const key = `admin:ads:${days}`;
+        if (url.searchParams.get('fresh') === '1') await forget(key);
+        const out = await cached(key, () => (brake() >= 1 ? 30 * 60_000 : 10 * 60_000), async () => ({ days, at: now, ...buildAdStats(await store.adStats(fromDay, toDay), { from: fromDay, to: toDay }) }));
         return json(200, out);
       }
       // 🏛 명예의 전당 사진 보기·지우기 (이상한 사진이면)
@@ -2088,6 +2109,7 @@ export function cleanTrack(b) {
     ref: typeof b.ref === 'string' ? b.ref.toLowerCase().replace(/[^a-z0-9._-]/g, '').slice(0, 40) : '',
     device: ['mobile', 'desktop', 'inapp'].includes(b.device) ? b.device : 'unknown',
     plays,
+    ads: cleanAds(b.ads),
   };
 }
 

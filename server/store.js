@@ -475,6 +475,33 @@ export class JsonStore {
   trackPlays(list) {
     for (const p of list) this.trackPlay(p);
   }
+  // ----- 📣 광고 노출 통계 (server/adstats.js, pgstore 와 같은 모양) -----
+  trackAds({ vid, day, rows }) {
+    const m = (this.data.adDays ||= {});
+    const CAP = { shows: 300, done: 300, closed: 300, clicks: 300, sec: 36000, drum: 300, tile: 300 };
+    for (const r of rows || []) {
+      const k = `${day}|${r.ad}|${vid}`;
+      const cur = (m[k] ||= { day, ad: r.ad, vid, shows: 0, done: 0, closed: 0, clicks: 0, sec: 0, drum: 0, tile: 0 });
+      for (const c of Object.keys(CAP)) cur[c] = Math.min(CAP[c], cur[c] + (r[c] || 0));
+    }
+    this._save();
+  }
+  adStats(fromDay, toDay) {
+    const rows = Object.values(this.data.adDays || {}).filter((r) => r.day >= fromDay && r.day <= toDay);
+    const byDay = new Map();
+    const byViewer = new Map();
+    for (const r of rows) {
+      const d = byDay.get(r.day + '|' + r.ad) || { day: r.day, ad: r.ad, viewers: 0, shows: 0, done: 0, closed: 0, clicks: 0, sec: 0, drum: 0, tile: 0 };
+      d.viewers++;
+      for (const c of ['shows', 'done', 'closed', 'clicks', 'sec', 'drum', 'tile']) d[c] += r[c];
+      byDay.set(r.day + '|' + r.ad, d);
+      const v = byViewer.get(r.ad + '|' + r.vid) || { ad: r.ad, vid: r.vid, shows: 0, done: 0, closed: 0, clicks: 0, days: 0 };
+      v.days++;
+      for (const c of ['shows', 'done', 'closed', 'clicks']) v[c] += r[c];
+      byViewer.set(r.ad + '|' + r.vid, v);
+    }
+    return { byDay: [...byDay.values()], byViewer: [...byViewer.values()] };
+  }
   /** [from, to) 에 시작한 접속·판 원본 + 이 기간에 처음 온 방문자 */
   statsRaw(from, to) {
     const inRange = (r) => r.startedAt >= from && r.startedAt < to;

@@ -15540,138 +15540,6 @@ class Game {
 return { MAX_LIVES, LIFE_REGEN_COMBO, MAX_CONTINUES, REVIVE_LIVES, Game };
 })();
 
-// ---- ads.js ----
-const __m_ads = (() => {
-// 보상형 광고 (이어하기용)
-//
-// 1순위: 구글 애드센스 'H5 게임 광고'(Ad Placement API)의 보상형 광고 adBreak({ type: 'reward' }).
-//        config.js 의 ads.adsenseClient 에 'ca-pub-…' 를 넣으면 켜집니다. (애드센스 승인 + H5 게임 광고 신청 필요)
-// 2순위: 광고가 없거나(승인 전, 광고 재고 없음, 광고 차단) 실패하면 → 홍보 화면(2주 무료 광고 · 인스타 @ok_aystra 문의)을 몇 초 보여주고 이어하기.
-//        이어하기가 막혀서 답답한 일은 없게 하고, 그 시간에 인스타 팔로우를 유도.
-//
-// showRewarded() → Promise<'rewarded' | 'dismissed'>
-//   rewarded : 끝까지 봄 → 이어하기 줌
-//   dismissed: 중간에 닫음 → 이어하기 없음
-
-let adsense = null; // { ready: bool }
-
-/** 앱 시작할 때 한 번: 애드센스 스크립트를 미리 불러와 광고를 준비시킴 */
-function initAds(cfg) {
-  const a = (cfg && cfg.ads) || {};
-  if (!/^ca-pub-\d{10,}$/.test(a.adsenseClient || '') || adsense) return;
-  adsense = { ready: false };
-  window.adsbygoogle = window.adsbygoogle || [];
-  window.adBreak = window.adConfig = function (o) {
-    window.adsbygoogle.push(o);
-  };
-  const s = document.createElement('script');
-  s.async = true;
-  s.crossOrigin = 'anonymous';
-  s.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${a.adsenseClient}`;
-  if (a.test) s.dataset.adbreakTest = 'on';
-  s.onerror = () => (adsense = { ready: false, failed: true });
-  document.head.appendChild(s);
-  window.adConfig({
-    preloadAdBreaks: 'on',
-    sound: 'on',
-    onReady: () => adsense && (adsense.ready = true),
-  });
-}
-
-/** 애드센스 보상형 광고 1회. 광고가 안 뜨면 'unavailable' */
-function adsenseReward(hooks) {
-  return new Promise((resolve) => {
-    let state = 'waiting'; // waiting → showing → done
-    const finish = (r) => {
-      if (state === 'done') return;
-      state = 'done';
-      resolve(r);
-    };
-    // 광고가 준비 안 돼 있으면 beforeReward 가 안 불림 → 잠깐 기다렸다 대체 광고로
-    const timer = setTimeout(() => state === 'waiting' && finish('unavailable'), 2500);
-    try {
-      window.adBreak({
-        type: 'reward',
-        name: 'continue',
-        beforeAd: () => hooks.beforeAd && hooks.beforeAd(),
-        afterAd: () => hooks.afterAd && hooks.afterAd(),
-        // 사용자가 이미 "광고 보고 이어하기"를 눌렀으니 바로 보여줌
-        beforeReward: (showAdFn) => {
-          if (state !== 'waiting') return;
-          state = 'showing';
-          clearTimeout(timer);
-          showAdFn();
-        },
-        adDismissed: () => finish('dismissed'),
-        adViewed: () => finish('rewarded'),
-        adBreakDone: () => {
-          clearTimeout(timer);
-          finish(state === 'showing' ? 'dismissed' : 'unavailable');
-        },
-      });
-    } catch {
-      clearTimeout(timer);
-      finish('unavailable');
-    }
-  });
-}
-
-/**
- * 대체 광고: 우리 인스타 홍보 화면을 seconds 초 보여줌. 다 보면 '이어하기' 버튼이 켜짐.
- * 화면 요소는 index.html 의 #modal-ad.
- */
-function houseAd({ seconds = 5, handle = '' } = {}) {
-  return new Promise((resolve) => {
-    const $ = (s) => document.querySelector(s);
-    const modal = $('#modal-ad');
-    const btn = $('#ad-continue');
-    const close = $('#ad-close');
-    const count = $('#ad-count');
-    const link = $('#ad-insta');
-    link.href = handle ? `https://www.instagram.com/${handle}/` : 'https://www.instagram.com/';
-    $('#ad-handle').textContent = handle ? '@' + handle : '인스타그램';
-    btn.disabled = true;
-    modal.hidden = false;
-    let left = seconds;
-    const tick = () => {
-      count.textContent = left > 0 ? `${left}초 뒤 이어하기` : '';
-      btn.textContent = left > 0 ? `${left}` : '▶ 이어하기';
-      if (left <= 0) {
-        btn.disabled = false;
-        clearInterval(timer);
-      }
-      left--;
-    };
-    const timer = setInterval(tick, 1000);
-    tick();
-    const done = (r) => {
-      clearInterval(timer);
-      btn.onclick = close.onclick = null;
-      modal.hidden = true;
-      resolve(r);
-    };
-    btn.onclick = () => !btn.disabled && done('rewarded');
-    close.onclick = () => done('dismissed');
-  });
-}
-
-/**
- * 보상형 광고 보여주기.
- * @param {{ ads?: object, instagramHandle?: string }} cfg
- * @param {{ beforeAd?: Function, afterAd?: Function }} hooks 광고 소리 나는 동안 게임 소리 끄기 등
- */
-async function showRewarded(cfg, hooks = {}) {
-  const a = (cfg && cfg.ads) || {};
-  if (adsense && !adsense.failed && typeof window.adBreak === 'function') {
-    const r = await adsenseReward(hooks);
-    if (r !== 'unavailable') return r;
-  }
-  return houseAd({ seconds: a.houseSeconds ?? 5, handle: a.houseHandle || cfg.instagramHandle });
-}
-
-return { initAds, showRewarded };
-})();
-
 // ---- track.js ----
 const __m_track = (() => {
 // 익명 이용 통계: 접속 시간(실제로 화면을 보고 만진 시간)과 곡 시작/끝을 서버에 모읍니다.
@@ -15696,6 +15564,7 @@ let lastSent = -1;
 let lastSentAt = 0;
 let play = null; // 진행 중인 판 { id, level, mode, startedAt }
 const queue = []; // 아직 못 보낸 판 이벤트
+const adQueue = []; // 📣 아직 못 보낸 광고 이벤트 (광고주에게 줄 숫자라 '표본 밖' 때도 버리지 않음)
 
 const rid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 
@@ -15732,7 +15601,7 @@ function deviceKind() {
 }
 
 function payloadNow() {
-  const payload = { sid: sess.sid, st: sess.st, active: Math.round(activeMs / 1000), ref: sess.ref, device: deviceKind(), plays: queue.splice(0, 10) };
+  const payload = { sid: sess.sid, st: sess.st, active: Math.round(activeMs / 1000), ref: sess.ref, device: deviceKind(), plays: queue.splice(0, 10), ads: adQueue.splice(0, 10) };
   lastSent = payload.active;
   lastSentAt = Date.now();
   writeStore();
@@ -15751,7 +15620,7 @@ function send() {
   if (!on || !sess) return;
   if (Date.now() < restUntil) {
     queue.length = 0;
-    return;
+    if (!adQueue.length) return; // 광고 이벤트가 있으면 그것만이라도 보냄
   }
   const payload = payloadNow();
   try {
@@ -15791,10 +15660,10 @@ function initTracker({ enabled }) {
   setInterval(() => {
     // 판 시작·점수 요청에 얹어서 방금(5분 안) 보냈으면 건너뜀 → 계속 치는 사람은 따로 안 보냄
     if (Date.now() - lastSentAt < FLUSH_MS - TICK_MS) return;
-    if (!document.hidden && (queue.length || Math.round(activeMs / 1000) !== lastSent)) send();
+    if (!document.hidden && (queue.length || adQueue.length || Math.round(activeMs / 1000) !== lastSent)) send();
   }, FLUSH_MS);
   const leave = () => {
-    if (queue.length || (Date.now() - lastSentAt > HIDE_GAP_MS && Math.round(activeMs / 1000) !== lastSent)) send();
+    if (queue.length || adQueue.length || (Date.now() - lastSentAt > HIDE_GAP_MS && Math.round(activeMs / 1000) !== lastSent)) send();
   };
   document.addEventListener('visibilitychange', () => document.hidden && leave());
   window.addEventListener('pagehide', leave);
@@ -15829,7 +15698,178 @@ function trackPlayEnd(res = {}) {
 
 const hasOpenPlay = () => !!play;
 
-return { takeTrack, initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay };
+// ---------------- 📣 광고 노출 (2026-11-27, 광고주에게 줄 통계: server/adstats.js · admin '📣 광고') ----------------
+// 광고를 보여 줄 때 start · 인스타 버튼을 누르면 click · 끝나면 end(done = 끝까지 봄 / closed = 중간에 닫음, sec = 본 초).
+// 판 통계처럼 다른 요청(판 시작·점수 올리기)에 얹혀 가거나 5분마다·화면을 떠날 때 감 → 따로 요청을 늘리지 않음.
+// 서버가 없는 모드(on=false)에선 아무것도 안 함. 이름·아이디 없이 익명 방문자 쿠키로만 셈.
+const ads = new Map(); // 보고 있는 광고 id → { ad, src, surface, at }
+
+/** 광고 하나 보여 주기 시작. ad = 광고 이름(우리 광고 'house', 애드센스 'adsense'…), surface = 'drum' | 'tile' (어디서 떴나). 반환 = 이 노출의 id */
+function trackAdStart({ ad = 'house', surface = 'other' } = {}) {
+  const id = rid() + rid();
+  if (!on) return id;
+  ads.set(id, { ad, surface, at: Date.now() });
+  adQueue.push({ ev: 'start', id, ad, surface });
+  return id;
+}
+
+/** 광고의 인스타 버튼을 눌렀다 (노출마다 한 번만) */
+function trackAdClick(id) {
+  const a = ads.get(id);
+  if (!on || !a || a.clicked) return;
+  a.clicked = true;
+  adQueue.push({ ev: 'click', id, ad: a.ad, surface: a.surface });
+}
+
+/** 광고가 끝났다. result: 'done'(끝까지 봐서 보상) | 'closed'(중간에 닫음) */
+function trackAdEnd(id, result) {
+  const a = ads.get(id);
+  if (!on || !a) return;
+  ads.delete(id);
+  adQueue.push({ ev: 'end', id, ad: a.ad, surface: a.surface, result: result === 'done' ? 'done' : 'closed', sec: Math.round((Date.now() - a.at) / 1000) });
+}
+
+return { takeTrack, initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay, trackAdStart, trackAdClick, trackAdEnd };
+})();
+
+// ---- ads.js ----
+const __m_ads = (() => {
+// 보상형 광고 (이어하기용)
+//
+// 1순위: 구글 애드센스 'H5 게임 광고'(Ad Placement API)의 보상형 광고 adBreak({ type: 'reward' }).
+//        config.js 의 ads.adsenseClient 에 'ca-pub-…' 를 넣으면 켜집니다. (애드센스 승인 + H5 게임 광고 신청 필요)
+// 2순위: 광고가 없거나(승인 전, 광고 재고 없음, 광고 차단) 실패하면 → 홍보 화면(2주 무료 광고 · 인스타 @ok_aystra 문의)을 몇 초 보여주고 이어하기.
+//        이어하기가 막혀서 답답한 일은 없게 하고, 그 시간에 인스타 팔로우를 유도.
+//
+// showRewarded() → Promise<'rewarded' | 'dismissed'>
+//   rewarded : 끝까지 봄 → 이어하기 줌
+//   dismissed: 중간에 닫음 → 이어하기 없음
+
+const { trackAdStart, trackAdClick, trackAdEnd } = __m_track;
+
+let adsense = null; // { ready: bool }
+
+/** 앱 시작할 때 한 번: 애드센스 스크립트를 미리 불러와 광고를 준비시킴 */
+function initAds(cfg) {
+  const a = (cfg && cfg.ads) || {};
+  if (!/^ca-pub-\d{10,}$/.test(a.adsenseClient || '') || adsense) return;
+  adsense = { ready: false };
+  window.adsbygoogle = window.adsbygoogle || [];
+  window.adBreak = window.adConfig = function (o) {
+    window.adsbygoogle.push(o);
+  };
+  const s = document.createElement('script');
+  s.async = true;
+  s.crossOrigin = 'anonymous';
+  s.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${a.adsenseClient}`;
+  if (a.test) s.dataset.adbreakTest = 'on';
+  s.onerror = () => (adsense = { ready: false, failed: true });
+  document.head.appendChild(s);
+  window.adConfig({
+    preloadAdBreaks: 'on',
+    sound: 'on',
+    onReady: () => adsense && (adsense.ready = true),
+  });
+}
+
+/** 애드센스 보상형 광고 1회. 광고가 안 뜨면 'unavailable' */
+function adsenseReward(hooks) {
+  return new Promise((resolve) => {
+    let state = 'waiting'; // waiting → showing → done
+    let seen = null; // 📣 광고 통계 노출 id (실제로 보여 준 광고만)
+    const finish = (r) => {
+      if (state === 'done') return;
+      state = 'done';
+      if (seen && r !== 'unavailable') trackAdEnd(seen, r === 'rewarded' ? 'done' : 'closed');
+      resolve(r);
+    };
+    // 광고가 준비 안 돼 있으면 beforeReward 가 안 불림 → 잠깐 기다렸다 대체 광고로
+    const timer = setTimeout(() => state === 'waiting' && finish('unavailable'), 2500);
+    try {
+      window.adBreak({
+        type: 'reward',
+        name: 'continue',
+        beforeAd: () => hooks.beforeAd && hooks.beforeAd(),
+        afterAd: () => hooks.afterAd && hooks.afterAd(),
+        // 사용자가 이미 "광고 보고 이어하기"를 눌렀으니 바로 보여줌
+        beforeReward: (showAdFn) => {
+          if (state !== 'waiting') return;
+          state = 'showing';
+          clearTimeout(timer);
+          seen = trackAdStart({ ad: 'adsense', surface: hooks.surface });
+          showAdFn();
+        },
+        adDismissed: () => finish('dismissed'),
+        adViewed: () => finish('rewarded'),
+        adBreakDone: () => {
+          clearTimeout(timer);
+          finish(state === 'showing' ? 'dismissed' : 'unavailable');
+        },
+      });
+    } catch {
+      clearTimeout(timer);
+      finish('unavailable');
+    }
+  });
+}
+
+/**
+ * 대체 광고: 우리 인스타 홍보 화면을 seconds 초 보여줌. 다 보면 '이어하기' 버튼이 켜짐.
+ * 화면 요소는 index.html 의 #modal-ad.
+ */
+function houseAd({ seconds = 5, handle = '', ad = 'house', surface = 'other' } = {}) {
+  return new Promise((resolve) => {
+    const $ = (s) => document.querySelector(s);
+    const modal = $('#modal-ad');
+    const btn = $('#ad-continue');
+    const close = $('#ad-close');
+    const count = $('#ad-count');
+    const link = $('#ad-insta');
+    const seen = trackAdStart({ ad, surface }); // 📣 광고 통계: 노출 1
+    link.onclick = () => trackAdClick(seen); // 인스타 버튼 누름 (노출마다 한 번만 셈)
+    link.href = handle ? `https://www.instagram.com/${handle}/` : 'https://www.instagram.com/';
+    $('#ad-handle').textContent = handle ? '@' + handle : '인스타그램';
+    btn.disabled = true;
+    modal.hidden = false;
+    let left = seconds;
+    const tick = () => {
+      count.textContent = left > 0 ? `${left}초 뒤 이어하기` : '';
+      btn.textContent = left > 0 ? `${left}` : '▶ 이어하기';
+      if (left <= 0) {
+        btn.disabled = false;
+        clearInterval(timer);
+      }
+      left--;
+    };
+    const timer = setInterval(tick, 1000);
+    tick();
+    const done = (r) => {
+      clearInterval(timer);
+      trackAdEnd(seen, r === 'rewarded' ? 'done' : 'closed');
+      btn.onclick = close.onclick = link.onclick = null;
+      modal.hidden = true;
+      resolve(r);
+    };
+    btn.onclick = () => !btn.disabled && done('rewarded');
+    close.onclick = () => done('dismissed');
+  });
+}
+
+/**
+ * 보상형 광고 보여주기.
+ * @param {{ ads?: object, instagramHandle?: string }} cfg
+ * @param {{ beforeAd?: Function, afterAd?: Function, surface?: 'drum'|'tile' }} hooks 광고 소리 나는 동안 게임 소리 끄기 등 (surface = 어디서 떴나, 광고 통계용)
+ */
+async function showRewarded(cfg, hooks = {}) {
+  const a = (cfg && cfg.ads) || {};
+  if (adsense && !adsense.failed && typeof window.adBreak === 'function') {
+    const r = await adsenseReward(hooks);
+    if (r !== 'unavailable') return r;
+  }
+  return houseAd({ seconds: a.houseSeconds ?? 5, handle: a.houseHandle || cfg.instagramHandle, ad: a.houseId || 'house', surface: hooks.surface });
+}
+
+return { initAds, showRewarded };
 })();
 
 // ---- quests.js ----
@@ -16555,6 +16595,8 @@ const CONFIG = {
     houseSeconds: 5,
     // 광고 대신 나오는 홍보 화면에서 팔로우하러 보낼 인스타 아이디 (@ 빼고). 비우면 instagramHandle.
     houseHandle: 'ok_aystra',
+    // 📣 이 광고의 이름 (admin '광고' 통계에서 광고별로 나눠 봄). 광고를 바꾸거나 여러 개 만들 땐 다른 이름으로.
+    houseId: 'house',
   },
 };
 
@@ -22011,6 +22053,7 @@ async function continueWithAd() {
   btn.disabled = true;
   closeModal('modal-continue');
   const r = await showRewarded(state.cfg, {
+    surface: 'drum',
     beforeAd: () => audio.setVolumes({ music: 0, sfx: 0 }),
     afterAd: () => audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx }),
   });
@@ -27377,6 +27420,7 @@ async function tileContinueAd() {
   $('#tdie-ad').disabled = true;
   closeModal('modal-tiledie');
   const r = await showRewarded(state.cfg, {
+    surface: 'tile',
     beforeAd: () => audio.setVolumes({ music: 0, sfx: 0 }),
     afterAd: () => audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx }),
   });

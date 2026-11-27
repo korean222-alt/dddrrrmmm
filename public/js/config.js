@@ -22,5 +22,7 @@ export const CONFIG = {
     houseSeconds: 5,
     // 광고 대신 나오는 홍보 화면에서 팔로우하러 보낼 인스타 아이디 (@ 빼고). 비우면 instagramHandle.
     houseHandle: 'ok_aystra',
+    // 📣 이 광고의 이름 (admin '광고' 통계에서 광고별로 나눠 봄). 광고를 바꾸거나 여러 개 만들 땐 다른 이름으로.
+    houseId: 'house',
   },
 };
