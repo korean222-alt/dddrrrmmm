@@ -42,7 +42,7 @@
         <p class="buddy-hint">쿵콩이 · 짝콩이를 눌러 보세요!</p>
       </div>
       <div class="title-actions">
-        <button class="btn btn-kakao login-cta" data-action="login-open" hidden><i class="kakao-ico"></i> 카카오로 로그인 <small>랭킹 · 코인 저장</small></button>
+        <button class="btn btn-kakao login-cta" data-action="login-open" hidden><i class="kakao-ico"></i> 로그인 <small>카카오 · 구글 · 랭킹 · 코인 저장</small></button>
         <div class="mode-row">
           <button class="mode-card mode-single" data-action="levels"><b><span data-icon="drum" data-e></span> 싱글</b></button>
           <button class="mode-card mode-multi" data-action="room-open"><b><span data-icon="swords" data-e></span> 멀티</b></button>
@@ -83,7 +83,7 @@
           </div>
         </div>
         <button class="s2-start" data-action="s2-modes"><span class="s2-start-shine"></span><b>게임 시작</b><small id="s2-start-sub">🎹 시즌 2 랭킹 진행 중</small></button>
-        <button class="btn btn-kakao login-cta" data-action="login-open" hidden><i class="kakao-ico"></i> 카카오로 로그인 <small>랭킹 · 코인 저장</small></button>
+        <button class="btn btn-kakao login-cta" data-action="login-open" hidden><i class="kakao-ico"></i> 로그인 <small>카카오 · 구글 · 랭킹 · 코인 저장</small></button>
         <div class="h2-two">
           <button class="h2-big h2-multi" data-action="room-open"><span class="h2-big-ico" data-icon="swords"></span><b>멀티</b><small>친구·랜덤 대결</small></button>
           <button class="h2-big h2-maps" data-action="maps-open"><span class="h2-big-ico" data-icon="piano"></span><b>유저 맵</b><small>다 같이 만든 곡</small></button>
@@ -938,13 +938,14 @@
         <p class="muted" id="login-desc"></p>
         <div class="stack">
           <button class="btn btn-kakao login-kakao" type="button" data-action="login-kakao"><i class="kakao-ico"></i> 카카오로 로그인</button>
+          <button class="btn btn-google login-kakao" type="button" data-action="login-google" id="login-google" hidden>구글로 로그인</button>
           <button class="btn btn-ghost" type="button" data-action="login-guest" id="login-guest">게스트로 하기</button>
         </div>
         <p class="login-guest-note" id="login-guest-note">게스트는 <b>코인·기록이 저장되지 않고</b> <b>랭킹에도 못 올라가요</b></p>
       </div>
       <form id="login-name-form" class="stack" hidden>
         <h3>닉네임 정하기</h3>
-        <p class="muted">카카오로 로그인했어요! 랭킹에 보일 닉네임만 정하면 끝.</p>
+        <p class="muted">로그인했어요! 랭킹에 보일 닉네임만 정하면 끝.</p>
         <label class="field"><span>닉네임 <small class="muted">2~12자</small></span><input type="text" id="login-name" maxlength="12" autocomplete="nickname" placeholder="예: 쿵짝왕" /></label>
         <p class="join-err small" id="login-err" hidden></p>
         <button class="btn btn-primary" type="submit">시작하기</button>
@@ -1358,6 +1359,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=eed7dc41ab" defer></script>
+  <script src="js/app.js?v=90b1c1f964" defer></script>
 </body>
 </html>

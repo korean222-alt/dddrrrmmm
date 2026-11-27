@@ -27252,16 +27252,17 @@ function openLogin({ why = '', rank = false } = {}) {
   $('#login-mascots').innerHTML = buddiesHTML('cheer', 'idle');
   $('#login-choose').hidden = false;
   $('#login-name-form').hidden = true;
-  $('#login-title').textContent = old ? `${state.me.player.username} 님, 카카오 로그인` : rank ? '랭킹은 카카오 로그인한 사람만' : '오케이스트라 시작하기';
+  $('#login-title').textContent = old ? `${state.me.player.username} 님, 로그인` : rank ? '랭킹은 로그인한 사람만' : '오케이스트라 시작하기';
   $('#login-desc').innerHTML = old
-    ? '이제 <b>랭킹은 카카오 로그인한 사람만</b> 올라가요.<br>로그인하면 지금 기록·코인 그대로 이어져요.'
-    : `${why ? `<b>${escapeHtml(why)}</b> · ` : ''}카카오로 로그인하면 <b>코인·기록이 저장</b>되고 <b>랭킹</b>에 올라가요.`;
+    ? '이제 <b>랭킹은 로그인한 사람만</b> 올라가요.<br>로그인하면 지금 기록·코인 그대로 이어져요.'
+    : `${why ? `<b>${escapeHtml(why)}</b> · ` : ''}카카오·구글로 로그인하면 <b>코인·기록이 저장</b>되고 <b>랭킹</b>에 올라가요.`;
+  { const g = $('#login-google'); if (g) g.hidden = !oaOn('google') || isInApp(); }
   $('#login-guest').textContent = old ? '나중에 할게요' : '게스트로 하기';
   $('#login-guest-note').innerHTML = old ? '안 하면 <b>랭킹에 못 올라가요</b>' : '게스트는 <b>코인·기록이 저장되지 않고</b> <b>랭킹에도 못 올라가요</b>';
   openModal('modal-login');
 }
 function askLogin() {
-  if (state.loginAskedRank) return toast('🔑 랭킹은 카카오 로그인하면 올라가요', 2600);
+  if (state.loginAskedRank) return toast('🔑 랭킹은 로그인하면 올라가요', 2600);
   state.loginAskedRank = true;
   openLogin({ rank: true });
 }
@@ -27445,6 +27446,7 @@ const ACTIONS = {
   'tp-rank': () => openS2Rank('song', tp.song),
   'login-open': () => openLogin(),
   'login-kakao': () => kakaoGo('login'),
+  'login-google': () => oauthGo('google', 'login'),
   'login-guest': () => {
     save('loginAskAt', Date.now());
     closeModal('modal-login');
