@@ -24004,7 +24004,7 @@ function openMaps() {
   if (state.game) state.game.stop();
   $$('#maps-sort button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.sort === um.sort));
   // ⚠ 11-27 에 좋아요 1개 이하 맵을 지운다는 안내 (그날이 지나면 숨김, 11-26 사용자 '2개 → 1개')
-  $$('#maps-kind button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.kind === (um.kind || 'drum'))));
+  $$('#maps-kind button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.kind === (um.kind || 'all'))));
   show('screen-maps');
   loadMaps();
 }
@@ -24033,8 +24033,8 @@ function renderMaps() {
   const box = $('#maps-list');
   const likes = umLikes();
   // 🥁 드럼 / 🎹 타일 나눠 보기 (2026-11-27 사용자)
-  const kind = um.kind || 'drum';
-  const list = um.list.filter((m) => (m.kind === 'tiles' ? 'tiles' : 'drum') === kind);
+  const kind = um.kind || 'all';
+  const list = kind === 'all' ? um.list : um.list.filter((m) => (m.kind === 'tiles' ? 'tiles' : 'drum') === kind);
   if (!list.length) {
     box.innerHTML = '<p class="rank-empty">아직 올라온 맵이 없어요</p>';
     return;
@@ -24043,7 +24043,7 @@ function renderMaps() {
     .map((m) => {
       const liked = !!likes[m.id];
       return `<div class="map-card ${m.kind === 'tiles' ? 'tiles' : ''}" data-id="${m.id}">
-        <div class="map-info"><h4>${escapeHtml(m.name)}</h4>
+        <div class="map-info"><h4><em class="map-kind">${m.kind === 'tiles' ? '🎹 타일' : '🥁 드럼'}</em>${escapeHtml(m.name)}</h4>
           <p>${escapeHtml(m.nick || '익명')} · ${Math.round(m.bpm)} BPM · ${m.bars}마디 · ${m.kind === 'tiles' ? TL_DIFF_WORDS[m.diff] || '' : DIFFICULTY_WORDS[m.diff] || ''}</p>
           <p class="map-meta">▶ ${fmt(m.plays)} · ❤ ${fmt(m.likes)}</p></div>
         <div class="map-btns">
