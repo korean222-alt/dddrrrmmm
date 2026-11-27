@@ -35,7 +35,7 @@ import { makeReelCover } from './cover.js';
 import { barEnergy, detectBeat, monoOf, songChart } from './beatsync.js';
 import { seasonLeftText, BOARD_LABEL, seasonAt } from './season.js';
 import { AVATARS, avatarHtml, cleanAvatar } from './avatars.js';
-import { TILE_SONGS, TILE_DIFF, tileSong, tileId, tileClosed, lapStars, tileLap, mapTileLap, MAP_TILE_LAPS } from './tiles.js';
+import { TILE_SONGS, TILE_DIFF, TILE_RPS, DIFF_SPEEDS, buildLap, tileSong, tileId, tileClosed, lapStars, tileLap, mapTileLap, MAP_TILE_LAPS } from './tiles.js';
 import { TileGame } from './tilegame.js';
 import { noteTilePlay, noteDrum, questView, claimQuest, claimCommunity, communityClaimed, attView, noteAttendance } from './s2claims.js';
 import { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder, resetOldLevel18, photoSave, photoLoad, photoDelete } from './storage.js';
@@ -939,7 +939,7 @@ async function startLevel(id, opts = {}) {
     },
     // 영상 찍기 땐 목숨 없음 (녹화 중에 멈추면 안 되니까). 멀티는 광고 이어하기 없이 그 자리에서 끝
     // 🐢 연습은 목숨 없이 끝까지
-    onDeath: st.active ? (lv.failReel ? studioFailDeath : null) : practice ? null : lv.userMap && um.from === 'list' && um.mode === 'hearts' ? umDeath : lv.custom || sum ? null : room ? onRoomDeath : onDeath,
+    onDeath: st.active ? (lv.failReel ? studioFailDeath : null) : practice ? null : lv.userMap ? (um.from === 'list' && um.mode === 'hearts' ? umDeath : onRoomDeath) : lv.custom || sum ? null : room ? onRoomDeath : onDeath,
   });
   if (live) {
     // 상대와 같은 시각에 시작: 남은 시간 카운트다운 (Game.start 가 0.35초 뒤에 첫 박을 놓음)
@@ -3060,7 +3060,7 @@ const um = { level: null, from: 'list', sort: 'new', mapId: null, list: null, wa
 const newDraft = () => ({ name: '', bpm: 100, mel: [[], [], [], []], drums: autoDrums([[], [], [], []], 'easy'), drumsAuto: 'easy', bar: 0, cur: 0, len: 2, oct: 4, way: 'play', step: false, tab: 'mel' });
 let mk = load('mapDraft', null);
 if (!mk || !Array.isArray(mk.mel) || !Array.isArray(mk.drums) || mk.mel.length !== mk.drums.length || mk.mel.length < 2) mk = newDraft();
-if (!['drum', 'mel', 'done'].includes(mk.tab)) mk.tab = 'mel';
+if (!['drum', 'mel', 'tl', 'done'].includes(mk.tab)) mk.tab = 'mel';
 if (!['play', 'file', 'score'].includes(mk.way)) mk.way = 'play';
 const mkSave = () => save('mapDraft', mk);
 /** ↩ 되돌리기: 녹음·자동 채우기 직전 모습 하나 (폰에 저장 안 함) */
@@ -3079,7 +3079,7 @@ function openMaps() {
   if (state.game) state.game.stop();
   $$('#maps-sort button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.sort === um.sort));
   // ⚠ 11-27 에 좋아요 1개 이하 맵을 지운다는 안내 (그날이 지나면 숨김, 11-26 사용자 '2개 → 1개')
-  $('#maps-warn').hidden = Date.now() >= Date.parse('2026-11-27T15:00:00Z');
+  $$('#maps-kind button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.kind === (um.kind || 'drum'))));
   show('screen-maps');
   loadMaps();
 }
@@ -3107,16 +3107,19 @@ function mapsSnapNotice() {
 function renderMaps() {
   const box = $('#maps-list');
   const likes = umLikes();
-  if (!um.list.length) {
+  // 🥁 드럼 / 🎹 타일 나눠 보기 (2026-11-27 사용자)
+  const kind = um.kind || 'drum';
+  const list = um.list.filter((m) => (m.kind === 'tiles' ? 'tiles' : 'drum') === kind);
+  if (!list.length) {
     box.innerHTML = '<p class="rank-empty">아직 올라온 맵이 없어요</p>';
     return;
   }
-  box.innerHTML = (um.snap ? mapsSnapNotice() : '') + um.list
+  box.innerHTML = (um.snap ? mapsSnapNotice() : '') + list
     .map((m) => {
       const liked = !!likes[m.id];
       return `<div class="map-card ${m.kind === 'tiles' ? 'tiles' : ''}" data-id="${m.id}">
-        <div class="map-info"><h4>${m.kind === 'tiles' ? '<em class="map-kind">🎹 타일</em>' : ''}${escapeHtml(m.name)}</h4>
-          <p>${escapeHtml(m.nick || '익명')} · ${Math.round(m.bpm)} BPM · ${m.bars}마디 · ${DIFFICULTY_WORDS[m.diff] || ''}</p>
+        <div class="map-info"><h4>${escapeHtml(m.name)}</h4>
+          <p>${escapeHtml(m.nick || '익명')} · ${Math.round(m.bpm)} BPM · ${m.bars}마디 · ${m.kind === 'tiles' ? TL_DIFF_WORDS[m.diff] || '' : DIFFICULTY_WORDS[m.diff] || ''}</p>
           <p class="map-meta">▶ ${fmt(m.plays)} · ❤ ${fmt(m.likes)}</p></div>
         <div class="map-btns">
           <button class="btn btn-primary map-play" type="button" data-map-act="play">▶ 치기</button>
@@ -3306,9 +3309,52 @@ function mkFixBars() {
     mk.low.length = mk.mel.length;
     if (!mk.low.some((b) => b.length)) mk.low = null;
   }
+  if (Array.isArray(mk.tl)) {
+    while (mk.tl.length < mk.mel.length) mk.tl.push(TL_EMPTY);
+    mk.tl.length = mk.mel.length;
+  }
   mk.bar = Math.max(0, Math.min(mk.mel.length - 1, mk.bar));
   mk.cur = Math.max(0, Math.min(STEPS_PER_BAR - 1, mk.cur));
   mkSave();
+}
+// ----- ✍ 타일 직접 놓기 (타일 맵, 2026-11-27 사용자 '타일도 자유롭게') — mk.tl = 마디마다 16칸 '.'/'0'~'3', 8분 칸에 놓음 -----
+const TL_EMPTY = '................';
+const TL_DIFF_WORDS = ['', '쉬움', '보통', '어려움', '지옥', '지옥+'];
+const mkTlCount = () => (mk.tl || []).reduce((n, r) => n + r.replace(/\./g, '').length, 0);
+/** 멜로디로 자동으로 만든 타일 그대로 채움 (거기서 고치기) */
+function mkTlFromMelody() {
+  let lap = null;
+  try {
+    lap = buildLap(mk.mel.map(barToMelody), mkProg(), TILE_RPS[mk.tdiff || 2], DIFF_SPEEDS[mk.tdiff || 2]);
+  } catch {}
+  const rows = mk.mel.map(() => TL_EMPTY.split(''));
+  if (lap) for (const t of lap.pattern) if (rows[Math.floor(t.at / 16)]) rows[Math.floor(t.at / 16)][t.at % 16] = String(t.lane);
+  return rows.map((r) => r.join(''));
+}
+function mkTlGrid() {
+  const row = mk.tl ? mk.tl[mk.bar] || TL_EMPTY : mkTlFromMelody()[mk.bar] || TL_EMPTY;
+  let h = '';
+  // 위 = 나중, 아래 = 먼저 (8분 칸 8개 × 줄 4개)
+  for (let r = 7; r >= 0; r--) {
+    const e = r * 2;
+    h += `<div class="mk-tlrow${r % 2 ? '' : ' beat'}">`;
+    for (let L = 0; L < 4; L++) {
+      const on = row[e] === String(L) || row[e + 1] === String(L);
+      h += `<button type="button" data-e="${e}" data-l="${L}" class="${on ? 'on' : ''}${mk.tl ? '' : ' auto'}" aria-label="${r + 1}번째 8분 ${L + 1}번 줄"></button>`;
+    }
+    h += '</div>';
+  }
+  $('#mk-tlgrid').innerHTML = h;
+}
+function mkTlTap(e, L) {
+  if (!mk.tl) mk.tl = mkTlFromMelody();
+  const r = mk.tl[mk.bar].split('');
+  const on = r[e] === String(L) || r[e + 1] === String(L);
+  r[e] = on ? '.' : String(L);
+  r[e + 1] = '.';
+  mk.tl[mk.bar] = r.join('');
+  mkSave();
+  mkRender();
 }
 /** 화음: 노래 파일에서 딴 코드가 있으면 그것(곡의 진짜 코드), 없으면 멜로디로 짐작 */
 function mkProg() {
@@ -3347,17 +3393,23 @@ function mkRender() {
   const tiles = mk.kind === 'tiles';
   $$('#mk-kind button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mkkind === (tiles ? 'tiles' : 'drum'))));
   $('#mk-tabs [data-tab="drum"]').hidden = tiles;
+  $('#mk-tabs [data-tab="tl"]').hidden = !tiles;
   if (tiles && mk.tab === 'drum') mk.tab = 'mel';
+  if (!tiles && mk.tab === 'tl') mk.tab = 'mel';
+  $('#mk-tab-tl').textContent = mk.tl ? `타일 ${mkTlCount()}개` : '자동';
+  $('#mk-tdiff').hidden = !tiles;
+  $$('#mk-tdiff button').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.tdiff) === (mk.tdiff || 2))));
+  if (tiles && mk.tab === 'tl') mkTlGrid();
   // 탭
   $$('#mk-tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === mk.tab)));
-  for (const t of ['drum', 'mel', 'done']) $(`#mk-pane-${t}`).hidden = mk.tab !== t;
+  for (const t of ['drum', 'mel', 'tl', 'done']) $(`#mk-pane-${t}`).hidden = mk.tab !== t;
   const dn = mkDrumNotes();
   const mn = mkMelNotes();
   $('#mk-tab-drum').textContent = `노트 ${dn}개`;
   $('#mk-tab-mel').textContent = mn ? `음 ${mn}개` : tiles ? '없음' : '없음 (드럼만)';
   $('#mk-tab-bars').textContent = `${mk.mel.length}마디`;
   $('#mk-sum').innerHTML = tiles
-    ? `🎹 타일 맵 · 타일 <b>${mn}</b>개 (멜로디 음 하나 = 타일 하나)<br>${mk.mel.length}마디 · ${mk.bpm} BPM · 별 3개 → 다이아 3개`
+    ? `🎹 타일 맵 · 타일 <b>${mk.tl ? mkTlCount() : mn}</b>개 (${mk.tl ? '직접 놓은 타일' : '멜로디 음 하나 = 타일 하나'})<br>${mk.mel.length}마디 · ${mk.bpm} BPM · 별 3개 → 다이아 3개`
     : `🥁 드럼 노트 <b>${dn}</b>개 · 🎹 멜로디 ${mn ? `음 <b>${mn}</b>개` : '<b>없음</b> (드럼만 나오는 맵)'}<br>${mk.mel.length}마디 · ${mk.bpm} BPM · 약 ${Math.round((mk.mel.length * 4 * 60) / mk.bpm)}초`;
   mkDecoRender();
   $$('#mk-way button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.way === mk.way));
@@ -3637,6 +3689,7 @@ function mkBarOp(op) {
     mk.mel.splice(b + 1, 0, op === 'copy' ? mk.mel[b].map((n) => ({ ...n })) : []);
     mk.drums.splice(b + 1, 0, op === 'copy' ? mk.drums[b] : 'K...S...K...S...');
     for (const k of ['prog', 'songDrums']) if (Array.isArray(mk[k]) && mk[k].length === mk.mel.length - 1) mk[k].splice(b + 1, 0, mk[k][b]);
+    if (Array.isArray(mk.tl) && mk.tl.length === mk.mel.length - 1) mk.tl.splice(b + 1, 0, op === 'copy' ? mk.tl[b] : TL_EMPTY);
     mk.bar = b + 1;
     mk.cur = 0;
     if (op === 'copy') toast('마디를 복사해서 뒤에 넣었어요', 1400);
@@ -3647,7 +3700,7 @@ function mkBarOp(op) {
     if (mk.mel.length <= MAP_LIMITS.minBars) return toast(`${MAP_LIMITS.minBars}마디는 있어야 해요`, 1400);
     mk.mel.splice(b, 1);
     mk.drums.splice(b, 1);
-    for (const k of ['prog', 'songDrums']) if (Array.isArray(mk[k]) && mk[k].length === mk.mel.length + 1) mk[k].splice(b, 1);
+    for (const k of ['prog', 'songDrums', 'tl']) if (Array.isArray(mk[k]) && mk[k].length === mk.mel.length + 1) mk[k].splice(b, 1);
   }
   mkFixBars();
   mkRender();
@@ -4032,12 +4085,14 @@ function mkMap(strict = true) {
   // 🎹 타일 맵: 드럼 칸은 자동으로 채워 둠(맵 모양을 같게), 치는 건 멜로디
   if (mk.kind === 'tiles') {
     raw.kind = 'tiles';
+    raw.tdiff = mk.tdiff || 2;
+    if (mk.tl) raw.tl = mk.tl;
     if (mkDrumNotes() < MAP_LIMITS.minNotes) raw.bars = autoDrums(mk.mel, 'easy');
   }
   const map = cleanMap(raw);
   if (map) return map;
   if (!raw.name) toast('곡 이름을 적어 주세요', 1800);
-  else if (mk.kind === 'tiles') toast('멜로디 음이 너무 적어요. 🎹 멜로디에서 8개 넘게 넣어 주세요', 2400);
+  else if (mk.kind === 'tiles') toast(mk.tl ? '타일이 너무 적어요. ✍ 타일 놓기에서 8개 넘게 놓아 주세요' : '멜로디 음이 너무 적어요. 🎹 멜로디에서 8개 넘게 넣어 주세요', 2400);
   else toast('드럼 노트가 너무 적어요. ② 드럼에서 더 넣어 주세요', 2400);
   return null;
 }
@@ -6636,7 +6691,7 @@ async function tilePlay(songId = tp.song, { room = null, map = null } = {}) {
       }
     : null;
   const hue = song ? TILE_HUES[(song.order - 1) % TILE_HUES.length] : 220;
-  const g = new TileGame({ audio, canvas: $('#tp-canvas'), songId: song ? songId : 0, lap: mlap, skin: tileSkin(), hue, onEnd: (r) => tileEnd(r), onDeath: room ? null : (info) => tileDeath(info), maxLaps: room ? VS_LAPS : map ? MAP_TILE_LAPS : undefined, vs });
+  const g = new TileGame({ audio, canvas: $('#tp-canvas'), songId: song ? songId : 0, lap: mlap, skin: tileSkin(), hue, onEnd: (r) => tileEnd(r), onDeath: room || map ? null : (info) => tileDeath(info), maxLaps: room ? VS_LAPS : map ? MAP_TILE_LAPS : undefined, vs });
   if (isLocalDev()) window.__tg = g; // 내 컴퓨터에서 시험할 때만
   tp.game = g;
   trackPlayStart(song ? tileId(songId) : UM_ID);
@@ -7488,6 +7543,23 @@ const ACTIONS = {
     mkSave();
     mkRender();
   },
+  'mk-tl-auto': () => {
+    mkSnap();
+    mk.tl = mkTlFromMelody();
+    mkSave();
+    mkRender();
+  },
+  'mk-tl-clear': () => {
+    if (!mk.tl) mk.tl = mkTlFromMelody();
+    mk.tl[mk.bar] = TL_EMPTY;
+    mkSave();
+    mkRender();
+  },
+  'mk-tl-off': () => {
+    mk.tl = null;
+    mkSave();
+    mkRender();
+  },
   'mk-baradd': () => mkBarOp('add'),
   'mk-barcopy': () => mkBarOp('copy'),
   'mk-barclear': () => mkBarOp('clear'),
@@ -7971,6 +8043,24 @@ function bindActions() {
     mk.kind = b.dataset.mkkind === 'tiles' ? 'tiles' : 'drum';
     mkSave();
     mkRender();
+  });
+  $('#mk-tlgrid').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-e]');
+    if (b) mkTlTap(Number(b.dataset.e), Number(b.dataset.l));
+  });
+  $('#mk-tdiff').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-tdiff]');
+    if (!b) return;
+    mk.tdiff = Number(b.dataset.tdiff);
+    mkSave();
+    mkRender();
+  });
+  $('#maps-kind').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-kind]');
+    if (!b) return;
+    um.kind = b.dataset.kind;
+    $$('#maps-kind button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    if (um.list) renderMaps();
   });
   $('#mk-tabs').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-tab]');

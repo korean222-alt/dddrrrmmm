@@ -635,6 +635,19 @@ async function main() {
     console.log(`D1 오늘(UTC) 쓴 줄 ${when}: ${w == null ? '못 읽음' : w.toLocaleString()} / 100,000`);
     return w;
   };
+  if (cmd === 'mapclean') {
+    // 🎹 좋아요(❤) 1개 이하 유저 맵 지우기 (2026-11-27 사용자 요청) — 맵 + 좋아요·신고 + 맵 기록
+    const ids = (await d1.q(`SELECT id FROM maps WHERE likes <= 1`)).map((r) => r.id);
+    console.log(`맵 ${(await d1.q(`SELECT COUNT(*) n FROM maps`))[0].n}개 중 지울 맵 ${ids.length}개`);
+    for (let i = 0; i < ids.length; i += 50) {
+      const part = ids.slice(i, i + 50);
+      const ph = part.map((x) => `'${String(x).replace(/[^\w-]/g, '')}'`).join(',');
+      for (const t of ['map_votes', 'map_scores']) await d1.q(`DELETE FROM ${t} WHERE map_id IN (${ph})`);
+      await d1.q(`DELETE FROM maps WHERE id IN (${ph})`);
+    }
+    console.log(`남은 맵 ${(await d1.q(`SELECT COUNT(*) n FROM maps`))[0].n}개`);
+    return;
+  }
   if (cmd === 'shop') {
     // 🛒 상점 이용 보고 (2026-11-24, 읽기만): 지갑 owned 를 물건별로 셈 · 코인 분포
     const rows = await d1.q(`SELECT owned, coins FROM wallet`);

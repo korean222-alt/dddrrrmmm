@@ -1413,7 +1413,7 @@ export function createHandler(cfg, { store, meter = null }) {
         let id = null;
         for (let i = 0; i < 5 && !id; i++) {
           const tryId = crypto.randomBytes(5).toString('base64url').replace(/[-_]/g, 'x').slice(0, 7);
-          if (await store.addMap({ id: tryId, igsid: pl.igsid, nick: pl.username, name: map.name, bpm: map.bpm, bars: map.bars.length, diff: mapDifficulty(map) + (map.kind === 'tiles' ? 100 : 0), data: map, at: now })) id = tryId;
+          if (await store.addMap({ id: tryId, igsid: pl.igsid, nick: pl.username, name: map.name, bpm: map.bpm, bars: map.bars.length, diff: (map.kind === 'tiles' && map.tdiff ? map.tdiff : mapDifficulty(map)) + (map.kind === 'tiles' ? 100 : 0), data: map, at: now })) id = tryId;
         }
         if (!id) return json(500, { error: 'server_error' });
         memo.delete('maps:new');

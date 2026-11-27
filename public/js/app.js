@@ -10927,8 +10927,16 @@ function cleanMap(raw) {
   const out = { name, bpm, bars: [...bars], melody: melody.map((m) => m.trim().replace(/\s+/g, ' ')), prog: prog.map((p) => String(p).trim().replace(/\s+/g, ' ')) };
   // 🎹 타일 맵 (2026-11-26): 멜로디로 피아노 타일을 침 → 음이 적어도 minNotes 개
   if (raw.kind === 'tiles') {
-    if (parseMelody(out.melody).length < MAP_LIMITS.minNotes) return null;
+    // ✍ 직접 놓은 타일(tl): 마디마다 16칸 '.' 또는 줄 '0'~'3' — 있으면 그 수로 셈 (멜로디는 노래로만)
+    let nt = 0;
+    if (Array.isArray(raw.tl) && raw.tl.length === bars.length && raw.tl.every((r) => typeof r === 'string' && /^[.0-3]{16}$/.test(r))) {
+      for (const r of raw.tl) nt += r.replace(/\./g, '').length;
+      if (nt >= MAP_LIMITS.minNotes) out.tl = [...raw.tl];
+    }
+    if (!out.tl && parseMelody(out.melody).length < MAP_LIMITS.minNotes) return null;
     out.kind = 'tiles';
+    const td = Number(raw.tdiff);
+    if (Number.isInteger(td) && td >= 1 && td <= 5) out.tdiff = td;
   }
   // 🎹 왼손(아래 줄, 악보에서) — 있으면 자동 베이스 대신 이걸 침. 이상하면 빼고 맵은 그대로
   const low = raw.low;
@@ -17436,7 +17444,7 @@ const MIN_TAP_SEC = 0.2;
 const MIN_GAP = MIN_TAP_SEC;
 /** 🪙 코인 파티: 첫 바퀴(별 3개)를 끝내고 빨라지기 전에 한 번 (마디 수, 사용자 11-26)
  *   앞뒤로 PARTY_GAP 마디씩 비워 둠 (2026-11-27 사용자 '보너스 코인 시작할 때 처음이랑 끝 텀 좀 둬줘') → 코인은 가운데 4마디 */
-const PARTY_BARS = 6;
+const PARTY_BARS = 2; // 2026-11-27 사용자 '보너스 코인 타임 없애고 몇 초 뒤 다이아' → 코인 없이 2마디 쉼
 const PARTY_GAP = 1;
 
 // ---------------------------------------------------------------
@@ -17531,7 +17539,7 @@ function rowUnit(notes) {
  *   → { u, bpm, bars, steps, notes, prog, first, pattern, tiles, points }
  *   notes = 노래(반주가 치는 멜로디 전부), pattern = 한 바퀴 타일 (모든 바퀴가 똑같음 — 2026-11-27 사용자 '띄엄띄엄 이상해')
  */
-function buildLap(melody, prog, rps, speeds = LAP_SPEEDS) {
+function buildLap(melody, prog, rps, speeds = LAP_SPEEDS, tl = null) {
   const parsed = parseMelody(melody).map((n) => ({ ...n, at: n.bar * STEPS_PER_BAR + n.step }));
   const uniq = [];
   for (const n of parsed) {
@@ -17540,8 +17548,11 @@ function buildLap(melody, prog, rps, speeds = LAP_SPEEDS) {
       if (n.midi > last.midi) uniq[uniq.length - 1] = n;
     } else uniq.push(n);
   }
-  if (!uniq.length) return null;
-  const u = rowUnit(uniq);
+  // ✍ 유저가 직접 놓은 타일(tl, 마디마다 16칸 '.'/'0'~'3' = 줄) — 있으면 멜로디 대신 이 자리·줄 (2026-11-27 사용자 '타일도 자유롭게')
+  const free = Array.isArray(tl) ? freeTiles(tl, uniq) : null;
+  const src = free || uniq;
+  if (!src.length) return null;
+  const u = rowUnit(src);
   const bars = melody.length;
   const steps = bars * STEPS_PER_BAR;
   // 📱 제일 빠른 바퀴(×1.3)에서도 한 줄이 0.2초 이상이 되게 빠르기 상한
@@ -17552,10 +17563,10 @@ function buildLap(melody, prog, rps, speeds = LAP_SPEEDS) {
   const minSteps = Math.max(u, Math.ceil(MIN_TAP_SEC / fastStep - 1e-9));
   // 타일 고르기: 한 줄 + 0.2초(제일 빠른 바퀴 기준) 이상 떨어진 음만 → 모든 바퀴에서 같은 타일
   const pat = [];
-  for (const n of uniq) {
+  for (const n of src) {
     const last = pat[pat.length - 1];
     if (last && n.at - last.at < minSteps) continue;
-    pat.push({ at: n.at, bar: n.bar, len: n.len, midi: n.midi });
+    pat.push({ at: n.at, bar: n.bar, len: n.len, midi: n.midi, fixed: n.lane });
   }
   // 바퀴 이음새(마지막 타일 → 다음 바퀴 첫 타일)도 같은 간격
   while (pat.length > 2 && steps - pat[pat.length - 1].at + pat[0].at < minSteps) pat.pop();
@@ -17568,9 +17579,11 @@ function buildLap(melody, prog, rps, speeds = LAP_SPEEDS) {
     t.rows = Math.max(1, Math.min(rows, 6));
     t.hold = t.rows >= 2;
   });
-  assignLanes(pat.map((t) => Object.assign(t, { abs: t.at })), u);
+  if (free) pat.forEach((t) => Object.assign(t, { abs: t.at, lane: t.fixed }));
+  else assignLanes(pat.map((t) => Object.assign(t, { abs: t.at })), u);
+  pat.forEach((t) => delete t.fixed);
   // 이음새에서 같은 줄 연속 안 되게
-  if (pat.length > 2 && pat[pat.length - 1].lane === pat[0].lane) {
+  if (!free && pat.length > 2 && pat[pat.length - 1].lane === pat[0].lane) {
     const last = pat[pat.length - 1];
     const prev = pat[pat.length - 2].lane;
     last.lane = [0, 1, 2, 3].find((x) => x !== prev && x !== pat[0].lane && Math.abs(x - last.lane) <= 2) ?? last.lane;
@@ -17580,6 +17593,25 @@ function buildLap(melody, prog, rps, speeds = LAP_SPEEDS) {
   lap.tiles = two.tiles.filter((t) => t.k === 0);
   lap.points = two.lapPts[0];
   return lap;
+}
+
+/** 직접 놓은 타일 → [{ at, bar, len, midi, lane }] (음 높이는 그때 울리는 멜로디 음, 없으면 72) — 긴 타일 없음 */
+function freeTiles(tl, notes = []) {
+  const out = [];
+  tl.forEach((row, bar) => {
+    for (let e = 0; e < STEPS_PER_BAR; e++) {
+      const c = String(row || '')[e];
+      if (c >= '0' && c <= '3') out.push({ at: bar * STEPS_PER_BAR + e, bar, lane: Number(c) });
+    }
+  });
+  out.forEach((t, i) => {
+    const nx = out[i + 1] ? out[i + 1].at : t.at + 4;
+    t.len = Math.max(1, Math.min(4, nx - t.at));
+    let m = 72;
+    for (const n of notes) if (n.at <= t.at) m = n.midi;
+    t.midi = m;
+  });
+  return out;
 }
 
 /** 판정에 따른 점수 (드럼처럼: PERFECT 1000·GREAT 700·GOOD 400 × 콤보 배수, 콤보는 PERFECT 만 쌓임) */
@@ -17607,24 +17639,10 @@ function buildCourse(lap, { laps = MAX_LAPS, party = true } = {}) {
   const t0 = tempo.stepTime(lap.first);
   const timeOf = (abs) => tempo.stepTime(abs) - t0;
   const tiles = [];
-  let seed = 7 + lap.bars * 13 + lap.notes.length;
-  const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
   for (const sg of segs) {
     const a0 = sg.bar0 * STEPS_PER_BAR;
     if (sg.kind === 'party') {
-      // 🪙 코인 파티: 반 줄마다 코인이 마구잡이로 (한두 개씩, 같은 줄은 안 겹치게) — 벌 없음
-      const endAt = [-1e9, -1e9, -1e9, -1e9];
-      const half = Math.max(1, u / 2);
-      for (let a = a0 + PARTY_GAP * STEPS_PER_BAR; a < a0 + (P - PARTY_GAP) * STEPS_PER_BAR - 1e-9; a += half) {
-        const n = rnd() < 0.35 ? 2 : 1;
-        for (let j = 0; j < n; j++) {
-          const free = [0, 1, 2, 3].filter((x) => endAt[x] <= a + 1e-9);
-          if (!free.length) break;
-          const L = free[Math.floor(rnd() * free.length)];
-          endAt[L] = a + u;
-          tiles.push({ abs: a, k: -1, coin: true, len: u, midi: 0, rows: 1, hold: false, lane: L });
-        }
-      }
+      // 쉬는 마디 (코인 없음)
       continue;
     }
     for (const p of lap.pattern) tiles.push({ abs: a0 + p.at, k: sg.k, coin: false, len: p.len, midi: p.midi, rows: p.rows, hold: p.hold, lane: p.lane });
@@ -17732,10 +17750,15 @@ function tileLap(songId) {
 function mapTileLap(map) {
   if (!map || !Array.isArray(map.melody)) return null;
   try {
-    const probe = buildLap(map.melody, map.prog || map.melody.map(() => 'C'), 1);
+    const prog = map.prog || map.melody.map(() => 'C');
+    const tl = Array.isArray(map.tl) ? map.tl : null;
+    // 올릴 때 고른 난이도(tdiff 1~5)가 있으면 곡 타일과 같은 빠르기
+    const d = Number(map.tdiff);
+    if (d >= 1 && d <= 5) return buildLap(map.melody, prog, TILE_RPS[d], DIFF_SPEEDS[d], tl);
+    const probe = buildLap(map.melody, prog, 1, LAP_SPEEDS, tl);
     if (!probe) return null;
     const rps = Math.max(2.6, Math.min(3.8, map.bpm / (15 * probe.u)));
-    return buildLap(map.melody, map.prog || map.melody.map(() => 'C'), rps);
+    return buildLap(map.melody, prog, rps, LAP_SPEEDS, tl);
   } catch {
     return null;
   }
@@ -17850,7 +17873,7 @@ const gradeLaps = (g) => {
   return m ? Number(m[1]) : 0;
 };
 
-return { TILE_ROWS, TILE_RPS, LAP_SPEEDS, DIFF_SPEEDS, HOLD_PTS, TILE_SONGS, TILE_DIFF, TILE_FREE, TILE_SLOT0, TILE_SLOT_MAX, MAX_LAPS, TILE_HEARTS, GONE_ROWS, MIN_TAP_SEC, MIN_GAP, PARTY_BARS, PARTY_GAP, TILE_MEL, tileSource, rowUnit, buildLap, tilePoints, buildCourse, assignLanes, LAP_MIN_SEC, transposeBar, tileLap, mapTileLap, MAP_TILE_LAPS, mapTileMax, lapSpeed, lapStars, tileId, tileSong, tileSlot, isTileSlot, tileClosed, tileCourse, tileTimes, tilesWithin, checkTileRun, lapGrade, gradeLaps };
+return { TILE_ROWS, TILE_RPS, LAP_SPEEDS, DIFF_SPEEDS, HOLD_PTS, TILE_SONGS, TILE_DIFF, TILE_FREE, TILE_SLOT0, TILE_SLOT_MAX, MAX_LAPS, TILE_HEARTS, GONE_ROWS, MIN_TAP_SEC, MIN_GAP, PARTY_BARS, PARTY_GAP, TILE_MEL, tileSource, rowUnit, buildLap, freeTiles, tilePoints, buildCourse, assignLanes, LAP_MIN_SEC, transposeBar, tileLap, mapTileLap, MAP_TILE_LAPS, mapTileMax, lapSpeed, lapStars, tileId, tileSong, tileSlot, isTileSlot, tileClosed, tileCourse, tileTimes, tilesWithin, checkTileRun, lapGrade, gradeLaps };
 })();
 
 // ---- tilegame.js ----
@@ -18016,18 +18039,13 @@ class TileGame {
   }
 
   _partyRange() {
-    let a = -1;
-    let b = -1;
-    this.tiles.forEach((t, i) => {
-      if (!t.coin) return;
-      if (a < 0) a = i;
-      b = i;
-    });
-    if (a < 0) return null;
     const sg = this.course.segs.find((s) => s.kind === 'party');
+    if (!sg) return null;
     const T = (abs) => this.tempo.stepTime(abs) - this.t0;
-    // t0·t1 = 파티 구간(앞뒤 빈 마디 포함, 벌 없음), c0·c1 = 첫·마지막 코인 타일이 판정선에 닿는 때
-    return { a, b, t0: T(sg.bar0 * STEPS_PER_BAR), t1: T((sg.bar0 + sg.bars) * STEPS_PER_BAR), c0: this.tiles[a].t, c1: this.tiles[b].t };
+    // 다이아 바퀴 앞 쉬는 마디 (2026-11-27 코인 파티 없앰, 벌 없음)
+    const t0 = T(sg.bar0 * STEPS_PER_BAR);
+    const t1 = T((sg.bar0 + sg.bars) * STEPS_PER_BAR);
+    return { a: this.tiles.length, b: -1, t0, t1, c0: t0, c1: t1 - 1.6 };
   }
 
   // ---------- 🎵 노래 (멜로디 + 반주 + 드럼 + 현악) ----------
@@ -18071,26 +18089,12 @@ class TileGame {
     for (const sg of this.course.segs) {
       const a0 = sg.bar0 * STEPS_PER_BAR;
       if (sg.kind === 'party') {
-        // 🎉 코인 파티: 곡의 코드를 그대로 돌며 쿵쿵(4박 내내)·짝·하이햇 8분 + 반짝이 + 환호
-        ev.push({ t: T(a0), sfx: 'cheer' });
-        ev.push({ t: T(a0), crash: true, v: 0.45 });
+        // 쉬는 마디: 하이햇·쿵만 가볍게 → 다이아 바퀴로
         for (let b = 0; b < sg.bars; b++) {
-          for (let e = 0; e < 16; e++) {
-            const abs = a0 + b * STEPS_PER_BAR + e;
-            const t = T(abs);
-            const d = T(abs + 1) - t;
-            const ch = chordAtStep(b, e);
-            if (!ch) continue;
-            const tri = ch.notes.slice(0, 3);
-            if (e % 4 === 0) ev.push({ t, kick: true, v: 0.75 });
-            if (e === 4 || e === 12) ev.push({ t, snare: true, v: 0.5 });
-            if (e % 2 === 0) ev.push({ t, hat: true, v: e % 4 === 2 ? 0.45 : 0.25, open: e % 4 === 2 });
-            if (e % 4 === 0) ev.push({ t, m: ch.root - 24, d: d * 3.5, v: 0.6, bass: true });
-            if (e === 0 || e === 8) {
-              for (const m of tri) ev.push({ t, m, d: d * 6, v: 0.26 });
-              for (const m of tri) ev.push({ t, orch: 'vln', m: m + 12, d: d * 7.5, v: 0.3, at: 0.02, rel: 0.2 });
-            }
-            ev.push({ t, glock: tri[[0, 1, 2, 1][e % 4]] + 12 + (e >= 8 ? 12 : 0), v: 0.7 });
+          for (let e = 0; e < 16; e += 2) {
+            const t = T(a0 + b * STEPS_PER_BAR + e);
+            if (e % 8 === 0) ev.push({ t, kick: true, v: 0.55 });
+            ev.push({ t, hat: true, v: e % 4 === 0 ? 0.35 : 0.2 });
           }
         }
         ev.push({ t: T(a0 + sg.bars * STEPS_PER_BAR), crash: true, v: 0.5 });
@@ -19219,7 +19223,7 @@ class TileGame {
     const by = Math.max(30, H * 0.062);
     const x0 = W * 0.17;
     const x1 = W * 0.8;
-    const party = this.state === 'playing' && this._inParty(t) && this.lapsDone === 1;
+    const party = false;
     const gems = this.lapsDone >= 1;
     let p = 0;
     if (this.state !== 'ready') {
@@ -19546,8 +19550,7 @@ class TileGame {
     const shows = this.fx.lap.map((f) => ({ ...f }));
     // 코인 파티 시작 · 끝 알림
     if (this.partyRange && this.partyAt != null) {
-      shows.push({ at: this.partyAt, party: 1 });
-      shows.push({ at: Math.max(this.partyRange.c1 + 0.35, this.partyAt + 1.5), speed: 1 });
+      shows.push({ at: Math.max(this.partyRange.c1, this.partyAt + 0.2), speed: 1 });
     }
     // 다이아 바퀴를 끝내면 1.5초 뒤 '더 빨라져요!' (마지막 바퀴 뒤엔 없음)
     for (const f of this.fx.lap) if (f.v >= 2 && f.v < this.maxLaps) shows.push({ at: f.at + 1.5, speed: 1 });
@@ -20753,7 +20756,7 @@ const { makeReelCover } = __m_cover;
 const { barEnergy, detectBeat, monoOf, songChart } = __m_beatsync;
 const { seasonLeftText, BOARD_LABEL, seasonAt } = __m_season;
 const { AVATARS, avatarHtml, cleanAvatar } = __m_avatars;
-const { TILE_SONGS, TILE_DIFF, tileSong, tileId, tileClosed, lapStars, tileLap, mapTileLap, MAP_TILE_LAPS } = __m_tiles;
+const { TILE_SONGS, TILE_DIFF, TILE_RPS, DIFF_SPEEDS, buildLap, tileSong, tileId, tileClosed, lapStars, tileLap, mapTileLap, MAP_TILE_LAPS } = __m_tiles;
 const { TileGame } = __m_tilegame;
 const { noteTilePlay, noteDrum, questView, claimQuest, claimCommunity, communityClaimed, attView, noteAttendance } = __m_s2claims;
 const { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder, resetOldLevel18, photoSave, photoLoad, photoDelete } = __m_storage;
@@ -21657,7 +21660,7 @@ async function startLevel(id, opts = {}) {
     },
     // 영상 찍기 땐 목숨 없음 (녹화 중에 멈추면 안 되니까). 멀티는 광고 이어하기 없이 그 자리에서 끝
     // 🐢 연습은 목숨 없이 끝까지
-    onDeath: st.active ? (lv.failReel ? studioFailDeath : null) : practice ? null : lv.userMap && um.from === 'list' && um.mode === 'hearts' ? umDeath : lv.custom || sum ? null : room ? onRoomDeath : onDeath,
+    onDeath: st.active ? (lv.failReel ? studioFailDeath : null) : practice ? null : lv.userMap ? (um.from === 'list' && um.mode === 'hearts' ? umDeath : onRoomDeath) : lv.custom || sum ? null : room ? onRoomDeath : onDeath,
   });
   if (live) {
     // 상대와 같은 시각에 시작: 남은 시간 카운트다운 (Game.start 가 0.35초 뒤에 첫 박을 놓음)
@@ -23778,7 +23781,7 @@ const um = { level: null, from: 'list', sort: 'new', mapId: null, list: null, wa
 const newDraft = () => ({ name: '', bpm: 100, mel: [[], [], [], []], drums: autoDrums([[], [], [], []], 'easy'), drumsAuto: 'easy', bar: 0, cur: 0, len: 2, oct: 4, way: 'play', step: false, tab: 'mel' });
 let mk = load('mapDraft', null);
 if (!mk || !Array.isArray(mk.mel) || !Array.isArray(mk.drums) || mk.mel.length !== mk.drums.length || mk.mel.length < 2) mk = newDraft();
-if (!['drum', 'mel', 'done'].includes(mk.tab)) mk.tab = 'mel';
+if (!['drum', 'mel', 'tl', 'done'].includes(mk.tab)) mk.tab = 'mel';
 if (!['play', 'file', 'score'].includes(mk.way)) mk.way = 'play';
 const mkSave = () => save('mapDraft', mk);
 /** ↩ 되돌리기: 녹음·자동 채우기 직전 모습 하나 (폰에 저장 안 함) */
@@ -23797,7 +23800,7 @@ function openMaps() {
   if (state.game) state.game.stop();
   $$('#maps-sort button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.sort === um.sort));
   // ⚠ 11-27 에 좋아요 1개 이하 맵을 지운다는 안내 (그날이 지나면 숨김, 11-26 사용자 '2개 → 1개')
-  $('#maps-warn').hidden = Date.now() >= Date.parse('2026-11-27T15:00:00Z');
+  $$('#maps-kind button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.kind === (um.kind || 'drum'))));
   show('screen-maps');
   loadMaps();
 }
@@ -23825,16 +23828,19 @@ function mapsSnapNotice() {
 function renderMaps() {
   const box = $('#maps-list');
   const likes = umLikes();
-  if (!um.list.length) {
+  // 🥁 드럼 / 🎹 타일 나눠 보기 (2026-11-27 사용자)
+  const kind = um.kind || 'drum';
+  const list = um.list.filter((m) => (m.kind === 'tiles' ? 'tiles' : 'drum') === kind);
+  if (!list.length) {
     box.innerHTML = '<p class="rank-empty">아직 올라온 맵이 없어요</p>';
     return;
   }
-  box.innerHTML = (um.snap ? mapsSnapNotice() : '') + um.list
+  box.innerHTML = (um.snap ? mapsSnapNotice() : '') + list
     .map((m) => {
       const liked = !!likes[m.id];
       return `<div class="map-card ${m.kind === 'tiles' ? 'tiles' : ''}" data-id="${m.id}">
-        <div class="map-info"><h4>${m.kind === 'tiles' ? '<em class="map-kind">🎹 타일</em>' : ''}${escapeHtml(m.name)}</h4>
-          <p>${escapeHtml(m.nick || '익명')} · ${Math.round(m.bpm)} BPM · ${m.bars}마디 · ${DIFFICULTY_WORDS[m.diff] || ''}</p>
+        <div class="map-info"><h4>${escapeHtml(m.name)}</h4>
+          <p>${escapeHtml(m.nick || '익명')} · ${Math.round(m.bpm)} BPM · ${m.bars}마디 · ${m.kind === 'tiles' ? TL_DIFF_WORDS[m.diff] || '' : DIFFICULTY_WORDS[m.diff] || ''}</p>
           <p class="map-meta">▶ ${fmt(m.plays)} · ❤ ${fmt(m.likes)}</p></div>
         <div class="map-btns">
           <button class="btn btn-primary map-play" type="button" data-map-act="play">▶ 치기</button>
@@ -24024,9 +24030,52 @@ function mkFixBars() {
     mk.low.length = mk.mel.length;
     if (!mk.low.some((b) => b.length)) mk.low = null;
   }
+  if (Array.isArray(mk.tl)) {
+    while (mk.tl.length < mk.mel.length) mk.tl.push(TL_EMPTY);
+    mk.tl.length = mk.mel.length;
+  }
   mk.bar = Math.max(0, Math.min(mk.mel.length - 1, mk.bar));
   mk.cur = Math.max(0, Math.min(STEPS_PER_BAR - 1, mk.cur));
   mkSave();
+}
+// ----- ✍ 타일 직접 놓기 (타일 맵, 2026-11-27 사용자 '타일도 자유롭게') — mk.tl = 마디마다 16칸 '.'/'0'~'3', 8분 칸에 놓음 -----
+const TL_EMPTY = '................';
+const TL_DIFF_WORDS = ['', '쉬움', '보통', '어려움', '지옥', '지옥+'];
+const mkTlCount = () => (mk.tl || []).reduce((n, r) => n + r.replace(/\./g, '').length, 0);
+/** 멜로디로 자동으로 만든 타일 그대로 채움 (거기서 고치기) */
+function mkTlFromMelody() {
+  let lap = null;
+  try {
+    lap = buildLap(mk.mel.map(barToMelody), mkProg(), TILE_RPS[mk.tdiff || 2], DIFF_SPEEDS[mk.tdiff || 2]);
+  } catch {}
+  const rows = mk.mel.map(() => TL_EMPTY.split(''));
+  if (lap) for (const t of lap.pattern) if (rows[Math.floor(t.at / 16)]) rows[Math.floor(t.at / 16)][t.at % 16] = String(t.lane);
+  return rows.map((r) => r.join(''));
+}
+function mkTlGrid() {
+  const row = mk.tl ? mk.tl[mk.bar] || TL_EMPTY : mkTlFromMelody()[mk.bar] || TL_EMPTY;
+  let h = '';
+  // 위 = 나중, 아래 = 먼저 (8분 칸 8개 × 줄 4개)
+  for (let r = 7; r >= 0; r--) {
+    const e = r * 2;
+    h += `<div class="mk-tlrow${r % 2 ? '' : ' beat'}">`;
+    for (let L = 0; L < 4; L++) {
+      const on = row[e] === String(L) || row[e + 1] === String(L);
+      h += `<button type="button" data-e="${e}" data-l="${L}" class="${on ? 'on' : ''}${mk.tl ? '' : ' auto'}" aria-label="${r + 1}번째 8분 ${L + 1}번 줄"></button>`;
+    }
+    h += '</div>';
+  }
+  $('#mk-tlgrid').innerHTML = h;
+}
+function mkTlTap(e, L) {
+  if (!mk.tl) mk.tl = mkTlFromMelody();
+  const r = mk.tl[mk.bar].split('');
+  const on = r[e] === String(L) || r[e + 1] === String(L);
+  r[e] = on ? '.' : String(L);
+  r[e + 1] = '.';
+  mk.tl[mk.bar] = r.join('');
+  mkSave();
+  mkRender();
 }
 /** 화음: 노래 파일에서 딴 코드가 있으면 그것(곡의 진짜 코드), 없으면 멜로디로 짐작 */
 function mkProg() {
@@ -24065,17 +24114,23 @@ function mkRender() {
   const tiles = mk.kind === 'tiles';
   $$('#mk-kind button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mkkind === (tiles ? 'tiles' : 'drum'))));
   $('#mk-tabs [data-tab="drum"]').hidden = tiles;
+  $('#mk-tabs [data-tab="tl"]').hidden = !tiles;
   if (tiles && mk.tab === 'drum') mk.tab = 'mel';
+  if (!tiles && mk.tab === 'tl') mk.tab = 'mel';
+  $('#mk-tab-tl').textContent = mk.tl ? `타일 ${mkTlCount()}개` : '자동';
+  $('#mk-tdiff').hidden = !tiles;
+  $$('#mk-tdiff button').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.tdiff) === (mk.tdiff || 2))));
+  if (tiles && mk.tab === 'tl') mkTlGrid();
   // 탭
   $$('#mk-tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === mk.tab)));
-  for (const t of ['drum', 'mel', 'done']) $(`#mk-pane-${t}`).hidden = mk.tab !== t;
+  for (const t of ['drum', 'mel', 'tl', 'done']) $(`#mk-pane-${t}`).hidden = mk.tab !== t;
   const dn = mkDrumNotes();
   const mn = mkMelNotes();
   $('#mk-tab-drum').textContent = `노트 ${dn}개`;
   $('#mk-tab-mel').textContent = mn ? `음 ${mn}개` : tiles ? '없음' : '없음 (드럼만)';
   $('#mk-tab-bars').textContent = `${mk.mel.length}마디`;
   $('#mk-sum').innerHTML = tiles
-    ? `🎹 타일 맵 · 타일 <b>${mn}</b>개 (멜로디 음 하나 = 타일 하나)<br>${mk.mel.length}마디 · ${mk.bpm} BPM · 별 3개 → 다이아 3개`
+    ? `🎹 타일 맵 · 타일 <b>${mk.tl ? mkTlCount() : mn}</b>개 (${mk.tl ? '직접 놓은 타일' : '멜로디 음 하나 = 타일 하나'})<br>${mk.mel.length}마디 · ${mk.bpm} BPM · 별 3개 → 다이아 3개`
     : `🥁 드럼 노트 <b>${dn}</b>개 · 🎹 멜로디 ${mn ? `음 <b>${mn}</b>개` : '<b>없음</b> (드럼만 나오는 맵)'}<br>${mk.mel.length}마디 · ${mk.bpm} BPM · 약 ${Math.round((mk.mel.length * 4 * 60) / mk.bpm)}초`;
   mkDecoRender();
   $$('#mk-way button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.way === mk.way));
@@ -24355,6 +24410,7 @@ function mkBarOp(op) {
     mk.mel.splice(b + 1, 0, op === 'copy' ? mk.mel[b].map((n) => ({ ...n })) : []);
     mk.drums.splice(b + 1, 0, op === 'copy' ? mk.drums[b] : 'K...S...K...S...');
     for (const k of ['prog', 'songDrums']) if (Array.isArray(mk[k]) && mk[k].length === mk.mel.length - 1) mk[k].splice(b + 1, 0, mk[k][b]);
+    if (Array.isArray(mk.tl) && mk.tl.length === mk.mel.length - 1) mk.tl.splice(b + 1, 0, op === 'copy' ? mk.tl[b] : TL_EMPTY);
     mk.bar = b + 1;
     mk.cur = 0;
     if (op === 'copy') toast('마디를 복사해서 뒤에 넣었어요', 1400);
@@ -24365,7 +24421,7 @@ function mkBarOp(op) {
     if (mk.mel.length <= MAP_LIMITS.minBars) return toast(`${MAP_LIMITS.minBars}마디는 있어야 해요`, 1400);
     mk.mel.splice(b, 1);
     mk.drums.splice(b, 1);
-    for (const k of ['prog', 'songDrums']) if (Array.isArray(mk[k]) && mk[k].length === mk.mel.length + 1) mk[k].splice(b, 1);
+    for (const k of ['prog', 'songDrums', 'tl']) if (Array.isArray(mk[k]) && mk[k].length === mk.mel.length + 1) mk[k].splice(b, 1);
   }
   mkFixBars();
   mkRender();
@@ -24750,12 +24806,14 @@ function mkMap(strict = true) {
   // 🎹 타일 맵: 드럼 칸은 자동으로 채워 둠(맵 모양을 같게), 치는 건 멜로디
   if (mk.kind === 'tiles') {
     raw.kind = 'tiles';
+    raw.tdiff = mk.tdiff || 2;
+    if (mk.tl) raw.tl = mk.tl;
     if (mkDrumNotes() < MAP_LIMITS.minNotes) raw.bars = autoDrums(mk.mel, 'easy');
   }
   const map = cleanMap(raw);
   if (map) return map;
   if (!raw.name) toast('곡 이름을 적어 주세요', 1800);
-  else if (mk.kind === 'tiles') toast('멜로디 음이 너무 적어요. 🎹 멜로디에서 8개 넘게 넣어 주세요', 2400);
+  else if (mk.kind === 'tiles') toast(mk.tl ? '타일이 너무 적어요. ✍ 타일 놓기에서 8개 넘게 놓아 주세요' : '멜로디 음이 너무 적어요. 🎹 멜로디에서 8개 넘게 넣어 주세요', 2400);
   else toast('드럼 노트가 너무 적어요. ② 드럼에서 더 넣어 주세요', 2400);
   return null;
 }
@@ -27354,7 +27412,7 @@ async function tilePlay(songId = tp.song, { room = null, map = null } = {}) {
       }
     : null;
   const hue = song ? TILE_HUES[(song.order - 1) % TILE_HUES.length] : 220;
-  const g = new TileGame({ audio, canvas: $('#tp-canvas'), songId: song ? songId : 0, lap: mlap, skin: tileSkin(), hue, onEnd: (r) => tileEnd(r), onDeath: room ? null : (info) => tileDeath(info), maxLaps: room ? VS_LAPS : map ? MAP_TILE_LAPS : undefined, vs });
+  const g = new TileGame({ audio, canvas: $('#tp-canvas'), songId: song ? songId : 0, lap: mlap, skin: tileSkin(), hue, onEnd: (r) => tileEnd(r), onDeath: room || map ? null : (info) => tileDeath(info), maxLaps: room ? VS_LAPS : map ? MAP_TILE_LAPS : undefined, vs });
   if (isLocalDev()) window.__tg = g; // 내 컴퓨터에서 시험할 때만
   tp.game = g;
   trackPlayStart(song ? tileId(songId) : UM_ID);
@@ -28206,6 +28264,23 @@ const ACTIONS = {
     mkSave();
     mkRender();
   },
+  'mk-tl-auto': () => {
+    mkSnap();
+    mk.tl = mkTlFromMelody();
+    mkSave();
+    mkRender();
+  },
+  'mk-tl-clear': () => {
+    if (!mk.tl) mk.tl = mkTlFromMelody();
+    mk.tl[mk.bar] = TL_EMPTY;
+    mkSave();
+    mkRender();
+  },
+  'mk-tl-off': () => {
+    mk.tl = null;
+    mkSave();
+    mkRender();
+  },
   'mk-baradd': () => mkBarOp('add'),
   'mk-barcopy': () => mkBarOp('copy'),
   'mk-barclear': () => mkBarOp('clear'),
@@ -28689,6 +28764,24 @@ function bindActions() {
     mk.kind = b.dataset.mkkind === 'tiles' ? 'tiles' : 'drum';
     mkSave();
     mkRender();
+  });
+  $('#mk-tlgrid').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-e]');
+    if (b) mkTlTap(Number(b.dataset.e), Number(b.dataset.l));
+  });
+  $('#mk-tdiff').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-tdiff]');
+    if (!b) return;
+    mk.tdiff = Number(b.dataset.tdiff);
+    mkSave();
+    mkRender();
+  });
+  $('#maps-kind').addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-kind]');
+    if (!b) return;
+    um.kind = b.dataset.kind;
+    $$('#maps-kind button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+    if (um.list) renderMaps();
   });
   $('#mk-tabs').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-tab]');

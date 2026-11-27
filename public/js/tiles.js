@@ -74,7 +74,7 @@ export const MIN_TAP_SEC = 0.2;
 export const MIN_GAP = MIN_TAP_SEC;
 /** 🪙 코인 파티: 첫 바퀴(별 3개)를 끝내고 빨라지기 전에 한 번 (마디 수, 사용자 11-26)
  *   앞뒤로 PARTY_GAP 마디씩 비워 둠 (2026-11-27 사용자 '보너스 코인 시작할 때 처음이랑 끝 텀 좀 둬줘') → 코인은 가운데 4마디 */
-export const PARTY_BARS = 6;
+export const PARTY_BARS = 2; // 2026-11-27 사용자 '보너스 코인 타임 없애고 몇 초 뒤 다이아' → 코인 없이 2마디 쉼
 export const PARTY_GAP = 1;
 
 // ---------------------------------------------------------------
@@ -169,7 +169,7 @@ export function rowUnit(notes) {
  *   → { u, bpm, bars, steps, notes, prog, first, pattern, tiles, points }
  *   notes = 노래(반주가 치는 멜로디 전부), pattern = 한 바퀴 타일 (모든 바퀴가 똑같음 — 2026-11-27 사용자 '띄엄띄엄 이상해')
  */
-export function buildLap(melody, prog, rps, speeds = LAP_SPEEDS) {
+export function buildLap(melody, prog, rps, speeds = LAP_SPEEDS, tl = null) {
   const parsed = parseMelody(melody).map((n) => ({ ...n, at: n.bar * STEPS_PER_BAR + n.step }));
   const uniq = [];
   for (const n of parsed) {
@@ -178,8 +178,11 @@ export function buildLap(melody, prog, rps, speeds = LAP_SPEEDS) {
       if (n.midi > last.midi) uniq[uniq.length - 1] = n;
     } else uniq.push(n);
   }
-  if (!uniq.length) return null;
-  const u = rowUnit(uniq);
+  // ✍ 유저가 직접 놓은 타일(tl, 마디마다 16칸 '.'/'0'~'3' = 줄) — 있으면 멜로디 대신 이 자리·줄 (2026-11-27 사용자 '타일도 자유롭게')
+  const free = Array.isArray(tl) ? freeTiles(tl, uniq) : null;
+  const src = free || uniq;
+  if (!src.length) return null;
+  const u = rowUnit(src);
   const bars = melody.length;
   const steps = bars * STEPS_PER_BAR;
   // 📱 제일 빠른 바퀴(×1.3)에서도 한 줄이 0.2초 이상이 되게 빠르기 상한
@@ -190,10 +193,10 @@ export function buildLap(melody, prog, rps, speeds = LAP_SPEEDS) {
   const minSteps = Math.max(u, Math.ceil(MIN_TAP_SEC / fastStep - 1e-9));
   // 타일 고르기: 한 줄 + 0.2초(제일 빠른 바퀴 기준) 이상 떨어진 음만 → 모든 바퀴에서 같은 타일
   const pat = [];
-  for (const n of uniq) {
+  for (const n of src) {
     const last = pat[pat.length - 1];
     if (last && n.at - last.at < minSteps) continue;
-    pat.push({ at: n.at, bar: n.bar, len: n.len, midi: n.midi });
+    pat.push({ at: n.at, bar: n.bar, len: n.len, midi: n.midi, fixed: n.lane });
   }
   // 바퀴 이음새(마지막 타일 → 다음 바퀴 첫 타일)도 같은 간격
   while (pat.length > 2 && steps - pat[pat.length - 1].at + pat[0].at < minSteps) pat.pop();
@@ -206,9 +209,11 @@ export function buildLap(melody, prog, rps, speeds = LAP_SPEEDS) {
     t.rows = Math.max(1, Math.min(rows, 6));
     t.hold = t.rows >= 2;
   });
-  assignLanes(pat.map((t) => Object.assign(t, { abs: t.at })), u);
+  if (free) pat.forEach((t) => Object.assign(t, { abs: t.at, lane: t.fixed }));
+  else assignLanes(pat.map((t) => Object.assign(t, { abs: t.at })), u);
+  pat.forEach((t) => delete t.fixed);
   // 이음새에서 같은 줄 연속 안 되게
-  if (pat.length > 2 && pat[pat.length - 1].lane === pat[0].lane) {
+  if (!free && pat.length > 2 && pat[pat.length - 1].lane === pat[0].lane) {
     const last = pat[pat.length - 1];
     const prev = pat[pat.length - 2].lane;
     last.lane = [0, 1, 2, 3].find((x) => x !== prev && x !== pat[0].lane && Math.abs(x - last.lane) <= 2) ?? last.lane;
@@ -218,6 +223,25 @@ export function buildLap(melody, prog, rps, speeds = LAP_SPEEDS) {
   lap.tiles = two.tiles.filter((t) => t.k === 0);
   lap.points = two.lapPts[0];
   return lap;
+}
+
+/** 직접 놓은 타일 → [{ at, bar, len, midi, lane }] (음 높이는 그때 울리는 멜로디 음, 없으면 72) — 긴 타일 없음 */
+export function freeTiles(tl, notes = []) {
+  const out = [];
+  tl.forEach((row, bar) => {
+    for (let e = 0; e < STEPS_PER_BAR; e++) {
+      const c = String(row || '')[e];
+      if (c >= '0' && c <= '3') out.push({ at: bar * STEPS_PER_BAR + e, bar, lane: Number(c) });
+    }
+  });
+  out.forEach((t, i) => {
+    const nx = out[i + 1] ? out[i + 1].at : t.at + 4;
+    t.len = Math.max(1, Math.min(4, nx - t.at));
+    let m = 72;
+    for (const n of notes) if (n.at <= t.at) m = n.midi;
+    t.midi = m;
+  });
+  return out;
 }
 
 /** 판정에 따른 점수 (드럼처럼: PERFECT 1000·GREAT 700·GOOD 400 × 콤보 배수, 콤보는 PERFECT 만 쌓임) */
@@ -245,24 +269,10 @@ export function buildCourse(lap, { laps = MAX_LAPS, party = true } = {}) {
   const t0 = tempo.stepTime(lap.first);
   const timeOf = (abs) => tempo.stepTime(abs) - t0;
   const tiles = [];
-  let seed = 7 + lap.bars * 13 + lap.notes.length;
-  const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
   for (const sg of segs) {
     const a0 = sg.bar0 * STEPS_PER_BAR;
     if (sg.kind === 'party') {
-      // 🪙 코인 파티: 반 줄마다 코인이 마구잡이로 (한두 개씩, 같은 줄은 안 겹치게) — 벌 없음
-      const endAt = [-1e9, -1e9, -1e9, -1e9];
-      const half = Math.max(1, u / 2);
-      for (let a = a0 + PARTY_GAP * STEPS_PER_BAR; a < a0 + (P - PARTY_GAP) * STEPS_PER_BAR - 1e-9; a += half) {
-        const n = rnd() < 0.35 ? 2 : 1;
-        for (let j = 0; j < n; j++) {
-          const free = [0, 1, 2, 3].filter((x) => endAt[x] <= a + 1e-9);
-          if (!free.length) break;
-          const L = free[Math.floor(rnd() * free.length)];
-          endAt[L] = a + u;
-          tiles.push({ abs: a, k: -1, coin: true, len: u, midi: 0, rows: 1, hold: false, lane: L });
-        }
-      }
+      // 쉬는 마디 (코인 없음)
       continue;
     }
     for (const p of lap.pattern) tiles.push({ abs: a0 + p.at, k: sg.k, coin: false, len: p.len, midi: p.midi, rows: p.rows, hold: p.hold, lane: p.lane });
@@ -370,10 +380,15 @@ export function tileLap(songId) {
 export function mapTileLap(map) {
   if (!map || !Array.isArray(map.melody)) return null;
   try {
-    const probe = buildLap(map.melody, map.prog || map.melody.map(() => 'C'), 1);
+    const prog = map.prog || map.melody.map(() => 'C');
+    const tl = Array.isArray(map.tl) ? map.tl : null;
+    // 올릴 때 고른 난이도(tdiff 1~5)가 있으면 곡 타일과 같은 빠르기
+    const d = Number(map.tdiff);
+    if (d >= 1 && d <= 5) return buildLap(map.melody, prog, TILE_RPS[d], DIFF_SPEEDS[d], tl);
+    const probe = buildLap(map.melody, prog, 1, LAP_SPEEDS, tl);
     if (!probe) return null;
     const rps = Math.max(2.6, Math.min(3.8, map.bpm / (15 * probe.u)));
-    return buildLap(map.melody, map.prog || map.melody.map(() => 'C'), rps);
+    return buildLap(map.melody, prog, rps, LAP_SPEEDS, tl);
   } catch {
     return null;
   }

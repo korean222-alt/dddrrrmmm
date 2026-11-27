@@ -42,14 +42,9 @@ test('타일 채보: 줄 단위 · 같은 줄 연속·겹침 없음 · 바퀴마
     // 바퀴마다 같은 타일 · 같은 줄 (2026-11-27 '띄엄띄엄 이상해')
     const lapsOf = [0, 1, 2, 3].map((k) => song.filter((t) => t.k === k));
     for (const L of lapsOf.slice(1)) assert.deepEqual(L.map((t) => t.lane + ':' + t.rows), lapsOf[0].map((t) => t.lane + ':' + t.rows), `${s.id} 바퀴마다 같음`);
-    // 코인 파티: 첫 바퀴 바로 뒤, 많이, 같은 줄 안 겹침
-    assert.ok(coins.length > 20, `${s.id} 코인 수`);
-    assert.ok(coins.every((t) => t.abs >= lapsOf[0].at(-1).abs && t.abs < lapsOf[1][0].abs));
-    const cend = [-1, -1, -1, -1];
-    for (const t of coins) {
-      assert.ok(t.abs >= cend[t.lane] - 1e-9, `${s.id} 코인 겹침`);
-      cend[t.lane] = t.abs + c.u;
-    }
+    // 코인 파티 없앰 (2026-11-27): 첫 바퀴 뒤 쉬는 마디만, 코인 타일 없음
+    assert.equal(coins.length, 0, `${s.id} 코인 없음`);
+    assert.ok(c.segs.some((g) => g.kind === 'party' && g.bars === 2), `${s.id} 쉬는 마디`);
     // 바퀴마다 빨라짐 (바퀴 안에선 고정)
     const dur = lapsOf.map((L) => L.at(-1).t - L[0].t);
     for (let k = 1; k < 4; k++) assert.ok(dur[k] < dur[k - 1], `${s.id} 빨라짐`);
@@ -419,4 +414,22 @@ for (const kind of KINDS) test(`[${kind}] 🗄 시즌 2 를 연 뒤 드럼·무�
   assert.equal(r.closed, true);
   const lb = await (await call('/api/leaderboard?level=1')).json();
   assert.equal((lb.entries || []).length, 0);
+});
+
+test('유저 맵 타일: 직접 놓은 타일(tl) · 고른 난이도(tdiff)', () => {
+  const bars = 4;
+  const tl = Array.from({ length: bars }, (_, i) => '0...1...2...3...'.replace(/\d/g, (d) => String((Number(d) + i) % 4)));
+  const raw = { kind: 'tiles', name: '직접', bpm: 100, bars: autoDrums([[], [], [], []], 'easy'), melody: ['_:16', '_:16', '_:16', '_:16'], prog: ['C', 'C', 'C', 'C'], tl, tdiff: 3 };
+  const m = cleanMap(raw);
+  assert.ok(m, 'cleanMap 통과');
+  assert.deepEqual(m.tl, tl);
+  assert.equal(m.tdiff, 3);
+  const lap = mapTileLap(m);
+  assert.ok(lap && lap.pattern.length >= 8);
+  // 줄은 놓은 그대로
+  for (const t of lap.pattern) assert.equal(String(t.lane), tl[Math.floor(t.at / 16)][t.at % 16]);
+  assert.ok(mapTileMax(m) > 0);
+  // 이상한 tl·적은 타일은 받지 않음
+  assert.equal(cleanMap({ ...raw, tl: tl.map(() => '0...............') }), null);
+  assert.ok(!cleanMap({ ...raw, tl: ['x'], melody: ['C4:4 D4:4 E4:4 F4:4', 'G4:4 A4:4 B4:4 C5:4', 'C4:16', 'C4:16'] }).tl);
 });

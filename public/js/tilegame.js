@@ -159,18 +159,13 @@ export class TileGame {
   }
 
   _partyRange() {
-    let a = -1;
-    let b = -1;
-    this.tiles.forEach((t, i) => {
-      if (!t.coin) return;
-      if (a < 0) a = i;
-      b = i;
-    });
-    if (a < 0) return null;
     const sg = this.course.segs.find((s) => s.kind === 'party');
+    if (!sg) return null;
     const T = (abs) => this.tempo.stepTime(abs) - this.t0;
-    // t0·t1 = 파티 구간(앞뒤 빈 마디 포함, 벌 없음), c0·c1 = 첫·마지막 코인 타일이 판정선에 닿는 때
-    return { a, b, t0: T(sg.bar0 * STEPS_PER_BAR), t1: T((sg.bar0 + sg.bars) * STEPS_PER_BAR), c0: this.tiles[a].t, c1: this.tiles[b].t };
+    // 다이아 바퀴 앞 쉬는 마디 (2026-11-27 코인 파티 없앰, 벌 없음)
+    const t0 = T(sg.bar0 * STEPS_PER_BAR);
+    const t1 = T((sg.bar0 + sg.bars) * STEPS_PER_BAR);
+    return { a: this.tiles.length, b: -1, t0, t1, c0: t0, c1: t1 - 1.6 };
   }
 
   // ---------- 🎵 노래 (멜로디 + 반주 + 드럼 + 현악) ----------
@@ -214,26 +209,12 @@ export class TileGame {
     for (const sg of this.course.segs) {
       const a0 = sg.bar0 * STEPS_PER_BAR;
       if (sg.kind === 'party') {
-        // 🎉 코인 파티: 곡의 코드를 그대로 돌며 쿵쿵(4박 내내)·짝·하이햇 8분 + 반짝이 + 환호
-        ev.push({ t: T(a0), sfx: 'cheer' });
-        ev.push({ t: T(a0), crash: true, v: 0.45 });
+        // 쉬는 마디: 하이햇·쿵만 가볍게 → 다이아 바퀴로
         for (let b = 0; b < sg.bars; b++) {
-          for (let e = 0; e < 16; e++) {
-            const abs = a0 + b * STEPS_PER_BAR + e;
-            const t = T(abs);
-            const d = T(abs + 1) - t;
-            const ch = chordAtStep(b, e);
-            if (!ch) continue;
-            const tri = ch.notes.slice(0, 3);
-            if (e % 4 === 0) ev.push({ t, kick: true, v: 0.75 });
-            if (e === 4 || e === 12) ev.push({ t, snare: true, v: 0.5 });
-            if (e % 2 === 0) ev.push({ t, hat: true, v: e % 4 === 2 ? 0.45 : 0.25, open: e % 4 === 2 });
-            if (e % 4 === 0) ev.push({ t, m: ch.root - 24, d: d * 3.5, v: 0.6, bass: true });
-            if (e === 0 || e === 8) {
-              for (const m of tri) ev.push({ t, m, d: d * 6, v: 0.26 });
-              for (const m of tri) ev.push({ t, orch: 'vln', m: m + 12, d: d * 7.5, v: 0.3, at: 0.02, rel: 0.2 });
-            }
-            ev.push({ t, glock: tri[[0, 1, 2, 1][e % 4]] + 12 + (e >= 8 ? 12 : 0), v: 0.7 });
+          for (let e = 0; e < 16; e += 2) {
+            const t = T(a0 + b * STEPS_PER_BAR + e);
+            if (e % 8 === 0) ev.push({ t, kick: true, v: 0.55 });
+            ev.push({ t, hat: true, v: e % 4 === 0 ? 0.35 : 0.2 });
           }
         }
         ev.push({ t: T(a0 + sg.bars * STEPS_PER_BAR), crash: true, v: 0.5 });
@@ -1362,7 +1343,7 @@ export class TileGame {
     const by = Math.max(30, H * 0.062);
     const x0 = W * 0.17;
     const x1 = W * 0.8;
-    const party = this.state === 'playing' && this._inParty(t) && this.lapsDone === 1;
+    const party = false;
     const gems = this.lapsDone >= 1;
     let p = 0;
     if (this.state !== 'ready') {
@@ -1689,8 +1670,7 @@ export class TileGame {
     const shows = this.fx.lap.map((f) => ({ ...f }));
     // 코인 파티 시작 · 끝 알림
     if (this.partyRange && this.partyAt != null) {
-      shows.push({ at: this.partyAt, party: 1 });
-      shows.push({ at: Math.max(this.partyRange.c1 + 0.35, this.partyAt + 1.5), speed: 1 });
+      shows.push({ at: Math.max(this.partyRange.c1, this.partyAt + 0.2), speed: 1 });
     }
     // 다이아 바퀴를 끝내면 1.5초 뒤 '더 빨라져요!' (마지막 바퀴 뒤엔 없음)
     for (const f of this.fx.lap) if (f.v >= 2 && f.v < this.maxLaps) shows.push({ at: f.at + 1.5, speed: 1 });

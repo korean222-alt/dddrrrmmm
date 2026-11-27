@@ -311,8 +311,16 @@ export function cleanMap(raw) {
   const out = { name, bpm, bars: [...bars], melody: melody.map((m) => m.trim().replace(/\s+/g, ' ')), prog: prog.map((p) => String(p).trim().replace(/\s+/g, ' ')) };
   // 🎹 타일 맵 (2026-11-26): 멜로디로 피아노 타일을 침 → 음이 적어도 minNotes 개
   if (raw.kind === 'tiles') {
-    if (parseMelody(out.melody).length < MAP_LIMITS.minNotes) return null;
+    // ✍ 직접 놓은 타일(tl): 마디마다 16칸 '.' 또는 줄 '0'~'3' — 있으면 그 수로 셈 (멜로디는 노래로만)
+    let nt = 0;
+    if (Array.isArray(raw.tl) && raw.tl.length === bars.length && raw.tl.every((r) => typeof r === 'string' && /^[.0-3]{16}$/.test(r))) {
+      for (const r of raw.tl) nt += r.replace(/\./g, '').length;
+      if (nt >= MAP_LIMITS.minNotes) out.tl = [...raw.tl];
+    }
+    if (!out.tl && parseMelody(out.melody).length < MAP_LIMITS.minNotes) return null;
     out.kind = 'tiles';
+    const td = Number(raw.tdiff);
+    if (Number.isInteger(td) && td >= 1 && td <= 5) out.tdiff = td;
   }
   // 🎹 왼손(아래 줄, 악보에서) — 있으면 자동 베이스 대신 이걸 침. 이상하면 빼고 맵은 그대로
   const low = raw.low;

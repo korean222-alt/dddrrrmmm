@@ -1532,6 +1532,15 @@ html.s2 #app:has(#screen-home2.active)::after { display: none; }
 /* 🎹 2026-11-26 밤: 유저 맵 타일 표시 · 27일 삭제 안내 · 맵 종류 고르기 · 빈 다이아 */
 .map-kind { display: inline-block; margin-right: 6px; padding: 1px 7px; border-radius: 999px; background: #1f1b2e; color: #fff; font-style: normal; font-size: 12px; vertical-align: 2px; }
 .map-card.tiles { border-color: #1f1b2e; }
+.maps-kind { margin-bottom: 4px; }
+.mk-tdiff { margin-bottom: 10px; }
+.mk-tdiff > b { display: block; font-size: 14px; margin-bottom: 4px; }
+.mk-tlgrid { display: flex; flex-direction: column; gap: 3px; margin: 8px auto; max-width: 280px; padding: 6px; border-radius: 12px; background: #f3f0fa; }
+.mk-tlrow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 3px; }
+.mk-tlrow.beat { border-bottom: 2px solid #d6cde8; padding-bottom: 3px; }
+.mk-tlrow button { height: 34px; border-radius: 6px; border: 1px solid #d6cde8; background: #fff; }
+.mk-tlrow button.on { background: #1d1b26; border-color: #1d1b26; }
+.mk-tlrow button.on.auto { background: #7b7790; }
 .maps-warn { margin: 0 0 4px; padding: 8px 12px; border-radius: 12px; background: #fff3d6; border: 2px solid #f0b43c; color: #7a4a00; font-size: 13px; font-weight: 700; }
 .mk-kind { margin-bottom: 10px; }
 .t-gems .gem-i { width: 14px; height: 14px; }
