@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=d8d1c44063" />
+  <link rel="stylesheet" href="css/style.css?v=5c8d1120d7" />
 </head>
 <body>
   <div id="app">
@@ -1100,14 +1100,24 @@
       <h3><span data-icon="swords" data-e></span> 멀티</h3>
       <div id="room-entry">
         <div class="room-sec room-rush room-tiles s2-only">
+          <div class="vs-scene vs-tiles" aria-hidden="true">
+            <div class="vt-board me"><i class="c0"></i><i class="c1"></i><i class="c2"></i><i class="c3"></i><em class="vt-line"></em><b class="vt-pop">+1</b></div>
+            <span class="vs-badge">VS</span>
+            <div class="vt-board you"><i class="c0"></i><i class="c1"></i><i class="c2"></i><i class="c3"></i><em class="vt-line"></em><b class="vt-pop">+1</b></div>
+          </div>
           <h4>🎹 타일 랜덤 대결 <em class="rush-wait" id="tiles-wait" hidden></em></h4>
-          <p class="muted small">모르는 사람과 같은 피아노 타일 곡을 동시에! 3바퀴 동안 많이 친 사람이 이겨요</p>
+          <p class="muted small">같은 곡 동시에 · 3바퀴 동안 많이 친 사람 승리</p>
           <button class="btn btn-primary btn-big" data-action="tiles-rush-go">🎹 상대 찾기</button>
         </div>
-        <div class="room-sec room-rush">
-          <h4>🎲 랜덤 대결 <em class="rush-wait" id="rush-wait" hidden></em></h4>
-          <p class="muted small">모르는 사람과 바로! 4~18단계 중 무작위 곡 · 둘 다 깨면 다른 곡이 바로 이어져요 · 먼저 목숨을 다 쓰면 져요</p>
-          <button class="btn btn-hot btn-big" data-action="rush-go">🎲 상대 찾기</button>
+        <div class="room-sec room-rush room-drums">
+          <div class="vs-scene vs-drums" aria-hidden="true">
+            <div class="vd-side kong"><img class="vd-drum" src="assets/mascot/drum_kong.webp?v=1" alt="" /><img class="vd-char" src="assets/mascot/kong_hit.webp?v=1" alt="" /><b class="vd-pop">쿵!</b><em class="vd-ring"></em></div>
+            <span class="vs-badge">VS</span>
+            <div class="vd-side jjak"><img class="vd-drum" src="assets/mascot/drum_jjak.webp?v=1" alt="" /><img class="vd-char" src="assets/mascot/jjak_hit.webp?v=1" alt="" /><b class="vd-pop">짝!</b><em class="vd-ring"></em></div>
+          </div>
+          <h4>🥁 드럼 랜덤 대결 <em class="rush-wait" id="rush-wait" hidden></em></h4>
+          <p class="muted small">4~18단계 무작위 곡 · 목숨 먼저 다 쓰면 패배</p>
+          <button class="btn btn-hot btn-big" data-action="rush-go">🥁 상대 찾기</button>
         </div>
         <div class="room-sec">
           <h4><span data-icon="team" data-e></span> 친구랑</h4>
