@@ -106,6 +106,7 @@ function serverApi(boot = null) {
     },
     guest: (name, ig, av) => http('POST', '/api/guest', { name, ig, av }),
     avatar: (av) => http('POST', '/api/avatar', { av }),
+    intro: (intro) => http('POST', '/api/intro', { intro }),
     verifyPassword: (body) => http('POST', '/api/verify/password', body),
     // 📦 내 기록 되받기 (브라우저 바꾸고 로그인했을 때 한 번)
     myBests: () => http('GET', '/api/my-bests'),
@@ -248,6 +249,11 @@ function mockApi(cfg) {
     async me() {
       const p = getPlayer();
       return p ? { verified: !p.guest, guest: !!p.guest, player: p } : { verified: false };
+    },
+    async intro(intro) {
+      const p = { ...(getPlayer() || {}), intro };
+      save('mockPlayer', p);
+      return { verified: false, guest: true, player: p };
     },
     async avatar(av) {
       const p = { ...(getPlayer() || {}), av };

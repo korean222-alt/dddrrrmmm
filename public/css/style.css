@@ -1991,3 +1991,19 @@ html.has-tabs .screen.active:not(#screen-home2) { padding-bottom: calc(96px + va
 .me-tabs button i { position: absolute; top: 1px; right: 3px; font-size: 9px; font-style: normal; }
 .me-body { display: grid; gap: 8px; }
 .me-soon { margin: 0; padding: 12px; border-radius: 16px; background: rgba(255, 255, 255, 0.08); color: #ffe7a8; font-size: 13px; text-align: center; }
+
+/* ---------- 📝 내 프로필 「소개」 탭 · 톱니 (2026-11-27) ---------- */
+.me-gear { width: 44px; height: 44px; border-radius: 50%; background: rgba(255, 255, 255, 0.14); border: 2px solid rgba(255, 255, 255, 0.3); color: #fff; }
+.me-gear [data-icon] svg, .me-gear svg { width: 24px; height: 24px; }
+.me-intro-line { margin: 2px 0 0; max-width: 100%; display: grid; gap: 2px; font-size: 14px; color: #ffe7a8; overflow-wrap: anywhere; }
+.me-intro-line small { font-size: 12px; color: rgba(255, 255, 255, 0.7); }
+.me-introf { padding: 14px; border-radius: 20px; background: rgba(255, 255, 255, 0.08); color: #fff; gap: 14px; }
+.me-f { display: grid; gap: 7px; }
+.me-f > span { display: flex; justify-content: space-between; font-size: 14px; }
+.me-f > span small { opacity: 0.6; }
+.me-f textarea { width: 100%; resize: none; padding: 10px 12px; border-radius: 14px; border: 2px solid rgba(255, 255, 255, 0.3); background: #fff; color: var(--ink); font: inherit; font-size: 16px; }
+.me-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.me-chips button { padding: 7px 12px; border-radius: 99px; background: rgba(255, 255, 255, 0.12); color: #fff; border: 2px solid rgba(255, 255, 255, 0.25); font-size: 14px; }
+.me-chips button[aria-pressed='true'] { background: #ffd24a; color: #3a2608; border-color: #fff; }
+.me-songs { max-height: 150px; overflow-y: auto; }
+.sr-pi { max-width: 100%; font-style: normal; font-size: 11px; color: #ffe7a8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

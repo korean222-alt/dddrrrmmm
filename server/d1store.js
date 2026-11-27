@@ -32,7 +32,7 @@ const val = (v) => (v === undefined ? null : v === true ? 1 : v === false ? 0 : 
  */
 export const D1_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS wallet (igsid TEXT PRIMARY KEY, coins INTEGER NOT NULL DEFAULT 0, t INTEGER NOT NULL DEFAULT 0, tn INTEGER NOT NULL DEFAULT 0, fday TEXT, fn INTEGER NOT NULL DEFAULT 0, init INTEGER NOT NULL DEFAULT 0, owned TEXT, gift TEXT, s2 TEXT) WITHOUT ROWID`,
-  `CREATE TABLE IF NOT EXISTS players (igsid TEXT PRIMARY KEY, username TEXT, follow_verified_at INTEGER, ig TEXT, created_at INTEGER, checked_at INTEGER, hidden_at INTEGER, kakao TEXT, google TEXT)`,
+  `CREATE TABLE IF NOT EXISTS players (igsid TEXT PRIMARY KEY, username TEXT, follow_verified_at INTEGER, ig TEXT, created_at INTEGER, checked_at INTEGER, hidden_at INTEGER, kakao TEXT, google TEXT, intro TEXT)`,
   `CREATE TABLE IF NOT EXISTS scores (igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, grade TEXT, max_combo INTEGER, at INTEGER NOT NULL, chk TEXT, PRIMARY KEY (igsid, level))`,
   `CREATE INDEX IF NOT EXISTS scores_rank ON scores (level, score DESC, at)`,
   `CREATE TABLE IF NOT EXISTS level_tries (igsid TEXT NOT NULL, level INTEGER NOT NULL, starts INTEGER NOT NULL DEFAULT 0, clears INTEGER NOT NULL DEFAULT 0, last_at INTEGER, PRIMARY KEY (igsid, level)) WITHOUT ROWID`,
@@ -97,6 +97,8 @@ export const D1_ALTERS = [
   'ALTER TABLE players ADD COLUMN google TEXT',
   // 🙂 프로필 이미지 id (2026-11-27)
   'ALTER TABLE players ADD COLUMN av TEXT',
+  // 📝 자기소개 JSON (2026-11-27)
+  'ALTER TABLE players ADD COLUMN intro TEXT',
   'ALTER TABLE hall ADD COLUMN msg TEXT',
   // 📊 통계 표본 무게 (2026-11-22 저녁) — 표를 그날 만들었다면 열이 없을 수 있음
   'ALTER TABLE sessions_t ADD COLUMN w INTEGER NOT NULL DEFAULT 1',

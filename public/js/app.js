@@ -19600,6 +19600,7 @@ function serverApi(boot = null) {
     },
     guest: (name, ig, av) => http('POST', '/api/guest', { name, ig, av }),
     avatar: (av) => http('POST', '/api/avatar', { av }),
+    intro: (intro) => http('POST', '/api/intro', { intro }),
     verifyPassword: (body) => http('POST', '/api/verify/password', body),
     // 📦 내 기록 되받기 (브라우저 바꾸고 로그인했을 때 한 번)
     myBests: () => http('GET', '/api/my-bests'),
@@ -19742,6 +19743,11 @@ function mockApi(cfg) {
     async me() {
       const p = getPlayer();
       return p ? { verified: !p.guest, guest: !!p.guest, player: p } : { verified: false };
+    },
+    async intro(intro) {
+      const p = { ...(getPlayer() || {}), intro };
+      save('mockPlayer', p);
+      return { verified: false, guest: true, player: p };
     },
     async avatar(av) {
       const p = { ...(getPlayer() || {}), av };
@@ -20735,6 +20741,16 @@ const AVATAR_IDS = AVATARS.map((a) => a.id);
 const cleanAvatar = (v) => (typeof v === 'string' && AVATAR_IDS.includes(v) ? v : null);
 
 /** 동그란 프로필 HTML (id 없으면 닉네임 첫 글자) */
+/** 📝 자기소개 (2026-11-27): { t: 한 줄 소개(60자), s: 좋아하는 타일 곡 번호, i: 'piano'|'drum'|'both' } — 서버·폰 같이 씀 */
+const INTRO_MAX = 60;
+const INTRO_INST = ['piano', 'drum', 'both'];
+function cleanIntro(v) {
+  if (!v || typeof v !== 'object') return null;
+  const t = String(v.t || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, INTRO_MAX);
+  const s = Number.isInteger(v.s) && v.s > 0 && v.s < 1000 ? v.s : 0;
+  const i = INTRO_INST.includes(v.i) ? v.i : '';
+  return t || s || i ? { t, s, i } : null;
+}
 function avatarHtml(id, name = '', cls = '') {
   const a = AVATARS.find((x) => x.id === id);
   if (!a) return `<span class="av av-none ${cls}" aria-hidden="true">${String(name || '?').slice(0, 1).replace(/[<>&"]/g, '')}</span>`;
@@ -20743,7 +20759,7 @@ function avatarHtml(id, name = '', cls = '') {
   return `<span class="av ${a.svg ? 'av-ico' : ''} ${cls}" ${st} aria-hidden="true">${inner}</span>`;
 }
 
-return { AVATARS, AVATAR_IDS, cleanAvatar, avatarHtml };
+return { AVATARS, AVATAR_IDS, cleanAvatar, INTRO_MAX, INTRO_INST, cleanIntro, avatarHtml };
 })();
 
 // ---- sharecard.js ----
@@ -20934,7 +20950,7 @@ const ICONS = {
   pause: '<path d="M7 4h4v16H7zM13 4h4v16h-4z" fill="currentColor"/>',
   back: '<path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
   close: '<path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"/>',
-  gear: '<path d="M12 8.5a3.5 3.5 0 100 7 3.5 3.5 0 000-7z" fill="none" stroke="currentColor" stroke-width="2"/><path d="M12 2.5v3M12 18.5v3M21.5 12h-3M5.5 12h-3M18.7 5.3l-2.1 2.1M7.4 16.6l-2.1 2.1M18.7 18.7l-2.1-2.1M7.4 7.4L5.3 5.3" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>',
+  gear: '<path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="2"/>',
   trophy: '<path d="M7 4h10v4a5 5 0 01-10 0zM7 6H4v1a3 3 0 003 3M17 6h3v1a3 3 0 01-3 3M12 13v4M8 20h8M9.5 17h5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
   lock: '<rect x="5" y="10.5" width="14" height="10" rx="2.5" fill="currentColor"/><path d="M8 10.5V8a4 4 0 018 0v2.5" stroke="currentColor" stroke-width="2.4" fill="none"/>',
   retry: '<path d="M4 12a8 8 0 108-8 8.2 8.2 0 00-5.7 2.3L4 8.5M4 4v4.5h4.5" stroke="currentColor" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round"/>',
@@ -21104,7 +21120,7 @@ const { RoomClient, roomOutcome, survivalOutcome } = __m_room;
 const { makeReelCover } = __m_cover;
 const { barEnergy, detectBeat, monoOf, songChart } = __m_beatsync;
 const { seasonLeftText, BOARD_LABEL, seasonAt } = __m_season;
-const { AVATARS, avatarHtml, cleanAvatar } = __m_avatars;
+const { AVATARS, avatarHtml, cleanAvatar, cleanIntro, INTRO_MAX } = __m_avatars;
 const { TILE_SONGS, TILE_DIFF, TILE_RPS, DIFF_SPEEDS, buildLap, tileSong, tileId, tileClosed, lapStars, tileLap, mapTileLap, MAP_TILE_LAPS } = __m_tiles;
 const { TileGame } = __m_tilegame;
 const { noteTilePlay, noteDrum, questView, claimQuest, claimCommunity, communityClaimed, attView, noteAttendance } = __m_s2claims;
@@ -28295,7 +28311,7 @@ async function renderS2Rank() {
       .map((i) => {
         const e = top[i];
         return `<div class="sr-pod p${e.rank} ${e.me ? 'me' : ''}">${e.rank === 1 ? '<span class="sr-crown">👑</span>' : ''}<span class="sr-pav">${avatarHtml(e.av, e.username, 'av-lg')}</span>
-          <b class="sr-pn">${escapeHtml(e.username || '')}</b><span class="sr-ps">${fmt(e.score)}</span><small class="sr-pl">${subOf(e)}</small>
+          <b class="sr-pn">${escapeHtml(e.username || '')}</b>${e.intro ? `<em class="sr-pi">“${escapeHtml(e.intro)}”</em>` : ''}<span class="sr-ps">${fmt(e.score)}</span><small class="sr-pl">${subOf(e)}</small>
           <span class="sr-step"><i>${e.rank}</i></span></div>`;
       })
       .join('');
@@ -28746,6 +28762,10 @@ function renderMe() {
   $('#me-name').textContent = has ? pl.username : '게스트';
   $('#me-nick').hidden = !has;
   $('#me-sub').textContent = has ? (loggedIn() ? (state.me.kakao ? '카카오로 로그인 중' : '구글로 로그인 중') : '로그인하면 랭킹에 올라가요') : '프로필을 만들면 랭킹에 올라가요';
+  const it = has ? cleanIntro(pl.intro) : null;
+  const line = it ? [it.i ? { piano: '🎹 피아노', drum: '🥁 드럼', both: '🎹🥁 피아노·드럼' }[it.i] : '', it.s && getLevel(it.s) ? `♥ ${getLevel(it.s).name}` : ''].filter(Boolean).join(' · ') : '';
+  $('#me-intro-line').innerHTML = it ? `${it.t ? `“${escapeHtml(it.t)}”` : ''}${line ? `<small>${escapeHtml(line)}</small>` : ''}` : '';
+  $('#me-intro-line').hidden = !it;
   $('#me-rank').textContent = '-';
   $('#me-score').textContent = '-';
   refreshHome2();
@@ -28761,12 +28781,60 @@ function renderMe() {
       })
       .catch(() => {});
 }
-function openMe() {
+function meTab(t) {
+  $$('.me-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.t === t));
+  $$('#screen-me [data-p]').forEach((el) => (el.hidden = el.dataset.p !== t));
+  if (t === 'intro') renderIntroForm();
+}
+function openMe(tab = 'profile') {
   closeModal('modal-more');
-  $$('.me-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.t === 'profile'));
   show('screen-me');
   renderMe();
+  meTab(tab);
 }
+// 📝 소개 탭: 한 줄 소개 · 주로 치는 것 · 좋아하는 곡 → /api/intro (저장 누를 때만 요청 1번)
+const mi = { t: '', i: '', s: 0 };
+function renderIntroForm() {
+  const it = cleanIntro(state.me && state.me.player && state.me.player.intro) || {};
+  mi.t = it.t || '';
+  mi.i = it.i || '';
+  mi.s = it.s || 0;
+  $('#mi-text').value = mi.t;
+  $('#mi-song').innerHTML = TILE_SONGS.map((t) => `<button data-mi-song="${t.id}">${escapeHtml(getLevel(t.id).name)}</button>`).join('');
+  introMarks();
+}
+function introMarks() {
+  $('#mi-count').textContent = `${$('#mi-text').value.length}/${INTRO_MAX}`;
+  $$('#mi-inst button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.miInst === mi.i)));
+  $$('#mi-song button').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.miSong) === mi.s)));
+}
+async function saveIntro() {
+  if (!meHasAcct()) return askNickname(true);
+  const intro = cleanIntro({ t: $('#mi-text').value, i: mi.i, s: mi.s });
+  const btn = $('#mi-save');
+  btn.disabled = true;
+  try {
+    const me = await state.api.intro(intro);
+    state.me = { ...state.me, ...me, player: { ...(state.me.player || {}), ...(me.player || {}), intro } };
+    toast('📝 소개를 저장했어요', 1800);
+    renderMe();
+    meTab('profile');
+  } catch {
+    toast('지금은 저장이 안 돼요. 잠시 뒤에 다시 해 주세요', 2200);
+  } finally {
+    btn.disabled = false;
+  }
+}
+document.addEventListener('click', (e) => {
+  const b = e.target.closest && e.target.closest('[data-mi-inst],[data-mi-song]');
+  if (!b) return;
+  if (b.dataset.miInst) mi.i = mi.i === b.dataset.miInst ? '' : b.dataset.miInst;
+  else mi.s = mi.s === Number(b.dataset.miSong) ? 0 : Number(b.dataset.miSong);
+  introMarks();
+});
+document.addEventListener('input', (e) => {
+  if (e.target && e.target.id === 'mi-text') introMarks();
+});
 /** 시작 화면의 '🔑 카카오 로그인' 버튼 */
 function refreshLoginCta() {
   const on = loginOn() && state.api && state.api.mode === 'server' && rankLocked();
@@ -28935,8 +29003,12 @@ const ACTIONS = {
   'me-avatar': () => (meHasAcct() ? openAvatar() : askNickname(true)),
   'me-nick': () => askNickname(true),
   'me-tab': (el) => {
-    if (el.dataset.t !== 'profile') toast({ intro: '📝 자기소개', char: '🎨 내 캐릭터 꾸미기', friends: '👥 친구' }[el.dataset.t] + '는 곧 열려요!', 1800);
+    const t = el.dataset.t;
+    if (t === 'char' || t === 'friends') return toast({ char: '🎨 내 캐릭터 꾸미기', friends: '👥 친구' }[t] + '는 곧 열려요!', 1800);
+    if (t === 'intro' && !meHasAcct()) return askNickname(true);
+    meTab(t);
   },
+  'me-intro-save': () => saveIntro(),
   'close-avatar': () => closeModal('modal-avatar'),
   'google-link': () => oauthGo('google', 'link'),
   'google-login': () => oauthGo('google', 'login'),

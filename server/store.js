@@ -141,6 +141,13 @@ export class JsonStore {
   getPlayer(igsid) {
     return this.data.players[igsid] || null;
   }
+  setIntro(igsid, intro) {
+    const p = this.data.players[igsid];
+    if (!p) return;
+    if (intro) p.intro = intro;
+    else delete p.intro;
+    this._save && this._save();
+  }
   upsertPlayer(igsid, patch) {
     const p = this.data.players[igsid] || { igsid, username: null, ig: null, createdAt: Date.now(), checkedAt: null, bests: {} };
     const { ig, av, ...rest } = patch;

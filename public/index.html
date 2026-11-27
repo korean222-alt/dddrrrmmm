@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=9c27ca3f6c" />
+  <link rel="stylesheet" href="css/style.css?v=f01a3586cc" />
 </head>
 <body>
   <div id="app">
@@ -154,13 +154,14 @@
       <header class="bar">
         <button class="icon-btn" data-action="home" aria-label="뒤로"><span data-icon="back"></span></button>
         <h2>내 프로필</h2>
-        <button class="me-gear btn3d" data-action="settings" aria-label="설정"><img src="assets/ui/gear3d.webp" alt="" width="40" height="40" /><i class="dot" id="gear-dot3" hidden></i></button>
+        <button class="me-gear" data-action="settings" aria-label="설정"><span data-icon="gear"></span><i class="dot" id="gear-dot3" hidden></i></button>
       </header>
       <div class="me-wrap">
         <div class="me-card">
           <button class="me-av" data-action="me-avatar" aria-label="프로필 이미지 바꾸기"><span id="me-av"></span><i>✎</i></button>
           <div class="me-name"><b id="me-name"></b><button class="me-edit" data-action="me-nick" id="me-nick" aria-label="닉네임 바꾸기">✎</button></div>
           <p class="me-sub" id="me-sub"></p>
+          <p class="me-intro-line" id="me-intro-line" hidden></p>
           <div class="me-stats">
             <div><small>시즌 2 순위</small><b id="me-rank">-</b></div>
             <div><small>타일 총합</small><b id="me-score">-</b></div>
@@ -171,15 +172,25 @@
         </div>
         <div class="me-tabs">
           <button class="on" data-action="me-tab" data-t="profile">🙂 프로필</button>
-          <button data-action="me-tab" data-t="intro">📝 소개<i>🔒</i></button>
+          <button data-action="me-tab" data-t="intro">📝 소개</button>
           <button data-action="me-tab" data-t="char">🎨 캐릭터<i>🔒</i></button>
           <button data-action="me-tab" data-t="friends">👥 친구<i>🔒</i></button>
         </div>
-        <div class="me-body">
-          <p class="me-soon">📝 자기소개 · 🎨 내 캐릭터 꾸미기 · 👥 친구는 곧 열려요!</p>
+        <div class="me-body" data-p="profile">
+          <p class="me-soon">🎨 내 캐릭터 꾸미기 · 👥 친구는 곧 열려요!</p>
           <button class="btn btn-ghost" data-action="me-avatar">🙂 프로필 이미지 바꾸기</button>
           <button class="btn btn-ghost" data-action="s2-rank">🏆 시즌 2 랭킹 보기</button>
-          <button class="btn btn-ghost" data-action="settings">⚙️ 설정</button>
+          <button class="btn btn-ghost" data-action="settings"><span data-icon="gear"></span> 설정</button>
+        </div>
+        <!-- 📝 소개 탭 (2026-11-27 사용자 '소개 탭까지') -->
+        <div class="me-body me-introf" data-p="intro" hidden>
+          <label class="me-f"><span>한 줄 소개 <small id="mi-count">0/60</small></span><textarea id="mi-text" maxlength="60" rows="2" placeholder="예: 엘리제 지옥+ 깨는 중!"></textarea></label>
+          <div class="me-f"><span>주로 치는 것</span>
+            <div class="me-chips" id="mi-inst"><button data-mi-inst="piano">🎹 피아노</button><button data-mi-inst="drum">🥁 드럼</button><button data-mi-inst="both">🎹🥁 둘 다</button></div>
+          </div>
+          <div class="me-f"><span>좋아하는 곡</span><div class="me-chips me-songs" id="mi-song"></div></div>
+          <button class="btn btn-primary" data-action="me-intro-save" id="mi-save">저장</button>
+          <p class="me-soon">시즌 2 랭킹 1·2·3등이 되면 시상대에 한 줄 소개가 떠요 · 친구 기능이 생기면 친구에게도 보여요</p>
         </div>
       </div>
     </section>
@@ -1480,6 +1491,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=43ecb39c39" defer></script>
+  <script src="js/app.js?v=ae9c8b18ed" defer></script>
 </body>
 </html>

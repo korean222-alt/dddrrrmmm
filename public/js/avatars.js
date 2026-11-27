@@ -29,6 +29,16 @@ export const AVATAR_IDS = AVATARS.map((a) => a.id);
 export const cleanAvatar = (v) => (typeof v === 'string' && AVATAR_IDS.includes(v) ? v : null);
 
 /** 동그란 프로필 HTML (id 없으면 닉네임 첫 글자) */
+/** 📝 자기소개 (2026-11-27): { t: 한 줄 소개(60자), s: 좋아하는 타일 곡 번호, i: 'piano'|'drum'|'both' } — 서버·폰 같이 씀 */
+export const INTRO_MAX = 60;
+export const INTRO_INST = ['piano', 'drum', 'both'];
+export function cleanIntro(v) {
+  if (!v || typeof v !== 'object') return null;
+  const t = String(v.t || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, INTRO_MAX);
+  const s = Number.isInteger(v.s) && v.s > 0 && v.s < 1000 ? v.s : 0;
+  const i = INTRO_INST.includes(v.i) ? v.i : '';
+  return t || s || i ? { t, s, i } : null;
+}
 export function avatarHtml(id, name = '', cls = '') {
   const a = AVATARS.find((x) => x.id === id);
   if (!a) return `<span class="av av-none ${cls}" aria-hidden="true">${String(name || '?').slice(0, 1).replace(/[<>&"]/g, '')}</span>`;

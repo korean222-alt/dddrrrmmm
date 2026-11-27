@@ -3,7 +3,7 @@
 // 저장소(store)는 메서드가 값이나 Promise 를 돌려줘도 되게 전부 await 로 부름
 //   - Node: JsonStore (파일 하나) / Vercel: PgStore (Neon Postgres)
 
-import { cleanAvatar } from '../public/js/avatars.js';
+import { cleanAvatar, cleanIntro } from '../public/js/avatars.js';
 import crypto from 'node:crypto';
 import { sign, unsign, parseCookies, cookie, newId } from './session.js';
 import { buildStats } from './stats.js';
@@ -678,7 +678,7 @@ export function createHandler(cfg, { store, meter = null }) {
   const meOf = (pl) => ({
     verified: false, guest: true, needsIg: !pl.ig && !pl.kakao && !pl.google, checked: isVerified(pl), confirmed: isConfirmed(pl), temp: !NO_PASSWORD && isConfirmed(pl) && pl.checkedAt < 0,
     hidden: pl.hiddenAt ? { deleteAt: pl.hiddenAt + HIDE_KEEP_MS } : null,
-    player: { username: pl.username, ig: pl.ig, av: pl.av || null },
+    player: { username: pl.username, ig: pl.ig, av: pl.av || null, intro: pl.intro || null },
     kakao: !!pl.kakao,
     google: !!pl.google,
     rank: rankOk(pl),
@@ -1039,7 +1039,7 @@ export function createHandler(cfg, { store, meter = null }) {
       if (rec2 && rec2.username) {
         rec = rec2;
         if (request._setCookies) request._setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid: rec2.igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
-        return { igsid: rec.igsid, username: rec.username, ig: rec.ig || null, hiddenAt: rec.hiddenAt || null, checkedAt: rec.checkedAt || null, kakao: !!rec.kakao, google: !!rec.google, av: rec.av || null };
+        return { igsid: rec.igsid, username: rec.username, ig: rec.ig || null, hiddenAt: rec.hiddenAt || null, checkedAt: rec.checkedAt || null, kakao: !!rec.kakao, google: !!rec.google, av: rec.av || null, intro: rec.intro || null };
       }
     }
     if (rec && rec.username) {
@@ -1047,7 +1047,7 @@ export function createHandler(cfg, { store, meter = null }) {
       // 쿠키가 날아간 폰: 헤더로 왔으면 쿠키를 다시 줌
       if (c !== raw && request._setCookies) request._setCookies.push(cookie(PLAYER_COOKIE, raw, { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
     }
-    return rec && rec.username ? { igsid: rec.igsid, username: rec.username, ig: rec.ig || null, hiddenAt: rec.hiddenAt || null, checkedAt: rec.checkedAt || null, kakao: !!rec.kakao, google: !!rec.google, av: rec.av || null } : null;
+    return rec && rec.username ? { igsid: rec.igsid, username: rec.username, ig: rec.ig || null, hiddenAt: rec.hiddenAt || null, checkedAt: rec.checkedAt || null, kakao: !!rec.kakao, google: !!rec.google, av: rec.av || null, intro: rec.intro || null } : null;
   }
 
   // ------------------- API -------------------
@@ -1249,6 +1249,16 @@ export function createHandler(cfg, { store, meter = null }) {
       if (!av) return json(400, { error: 'bad_avatar' });
       const rec = (await store.upsertPlayer(pl.igsid, { av })) || { ...pl, av };
       return json(200, meOf({ ...pl, av: rec.av || av }));
+    }
+
+    // 📝 자기소개 저장 (2026-11-27, 내 프로필 「소개」 탭) — intro: null 이면 지움
+    if (p === '/api/intro' && m === 'POST') {
+      const pl = await getPlayer(request);
+      if (!pl) return json(401, { error: 'no_player' });
+      const body = await readJson(request);
+      const intro = cleanIntro(body.intro);
+      await store.setIntro(pl.igsid, intro);
+      return json(200, meOf({ ...pl, intro }));
     }
 
     if (p === '/api/guest' && m === 'POST') {
@@ -2024,21 +2034,21 @@ export function createHandler(cfg, { store, meter = null }) {
             }
           }
       }
-      // 🙂 타일 총합 1·2·3등 프로필 이미지 (시상대, 2026-11-27) — 3명만, 인스턴스 10분 기억
+      // 🙂 타일 총합 1·2·3등 프로필 이미지 + 한 줄 소개 (시상대, 2026-11-27) — 3명만, 인스턴스 10분 기억
       let avOf = {};
       if (board === 'tiles') {
         const ids = top.slice(0, 3).map((r) => r.igsid).filter(Boolean);
         if (ids.length)
-          avOf = await cached(`hall:av:${ids.join(',')}`, 10 * 60 * 1000, async () => {
+          avOf = await cached(`hall:av2:${ids.join(',')}`, 10 * 60 * 1000, async () => {
             const o = {};
             for (const id of ids) {
               const r = await Promise.resolve().then(() => store.getPlayer(id)).catch(() => null);
-              if (r && r.av) o[id] = r.av;
+              if (r && (r.av || (r.intro && r.intro.t))) o[id] = { av: r.av || null, t: (r.intro && r.intro.t) || '' };
             }
             return o;
           }, { shared: false });
       }
-      return json(200, { season: { n: season.n, end: season.end }, board, levels: LAST_LEVEL_ID, entries: top.map((r) => (avOf[r.igsid] ? { ...hallEntry(r, pl), av: avOf[r.igsid] } : hallEntry(r, pl))), me: mine ? { ...hallEntry(mine, pl), cap: mine.cap || null } : null, hall, finals, finalsMe });
+      return json(200, { season: { n: season.n, end: season.end }, board, levels: LAST_LEVEL_ID, entries: top.map((r) => (avOf[r.igsid] ? { ...hallEntry(r, pl), av: avOf[r.igsid].av, intro: avOf[r.igsid].t || undefined } : hallEntry(r, pl))), me: mine ? { ...hallEntry(mine, pl), cap: mine.cap || null } : null, hall, finals, finalsMe });
     }
     // 명예의 전당에 오른 사람만 자기 칸에 프로필 사진 올리기 / 지우기 (image: null)
     if (p === '/api/hall/photo' && m === 'POST') {

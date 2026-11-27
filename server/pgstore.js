@@ -4,6 +4,14 @@
 
 import { LAST_LEVEL_ID } from '../public/js/charts.js';
 import { TILE_SLOT0, TILE_SLOT_MAX } from '../public/js/tiles.js';
+const parseIntro = (v) => {
+  if (!v) return null;
+  try {
+    return typeof v === 'string' ? JSON.parse(v) : v;
+  } catch {
+    return null;
+  }
+};
 
 /** 시즌 총합 판마다 더하는 기록 (stage = 드럼 단계, endless = 무제한, tiles = 🎹 피아노 타일 곡들) */
 export const boardWhere = (board) => (board === 'endless' ? 's.level <= 0' : board === 'tiles' ? `s.level > ${TILE_SLOT0} AND s.level <= ${TILE_SLOT_MAX}` : `s.level > 0 AND s.level <= ${LAST_LEVEL_ID}`);
@@ -53,6 +61,8 @@ const SCHEMA = [
   `ALTER TABLE players ADD COLUMN IF NOT EXISTS google TEXT`,
   // av = 🙂 프로필 이미지 id (2026-11-27, public/js/avatars.js)
   `ALTER TABLE players ADD COLUMN IF NOT EXISTS av TEXT`,
+  // intro = 📝 자기소개 JSON (2026-11-27)
+  `ALTER TABLE players ADD COLUMN IF NOT EXISTS intro TEXT`,
   `CREATE INDEX IF NOT EXISTS players_google ON players (google) WHERE google IS NOT NULL`,
   `CREATE TABLE IF NOT EXISTS scores (
      igsid TEXT NOT NULL, level INTEGER NOT NULL, score INTEGER NOT NULL, grade TEXT, max_combo INTEGER,
@@ -416,7 +426,11 @@ END $$`);
   // ----- players -----
   async getPlayer(igsid) {
     const r = await this.one('SELECT * FROM players WHERE igsid = $1', [igsid]);
-    return r ? { igsid: r.igsid, username: r.username, ig: r.ig || null, hiddenAt: num(r.hidden_at) ?? null, checkedAt: num(r.checked_at) ?? null, kakao: !!r.kakao, google: !!r.google, av: r.av || null, createdAt: num(r.created_at) ?? null } : null;
+    return r ? { igsid: r.igsid, username: r.username, ig: r.ig || null, hiddenAt: num(r.hidden_at) ?? null, checkedAt: num(r.checked_at) ?? null, kakao: !!r.kakao, google: !!r.google, av: r.av || null, intro: parseIntro(r.intro), createdAt: num(r.created_at) ?? null } : null;
+  }
+  /** 📝 자기소개 (null = 지우기) */
+  async setIntro(igsid, intro) {
+    await this.q('UPDATE players SET intro = $2 WHERE igsid = $1', [igsid, intro ? JSON.stringify(intro) : null]);
   }
   async upsertPlayer(igsid, patch) {
     // 인스타 아이디가 바뀌면 운영자가 팔로우를 다시 확인해야 함 (checked_at 비움)
