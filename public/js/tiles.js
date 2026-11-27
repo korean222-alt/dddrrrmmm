@@ -62,8 +62,10 @@ export const GONE_ROWS = 0.35;
 export const MIN_TAP_SEC = 0.2;
 /** 예전 이름 (첫 바퀴 간격) */
 export const MIN_GAP = MIN_TAP_SEC;
-/** 🪙 코인 파티: 첫 바퀴(별 3개)를 끝내고 빨라지기 전에 한 번 (마디 수, 사용자 11-26) */
-export const PARTY_BARS = 4;
+/** 🪙 코인 파티: 첫 바퀴(별 3개)를 끝내고 빨라지기 전에 한 번 (마디 수, 사용자 11-26)
+ *   앞뒤로 PARTY_GAP 마디씩 비워 둠 (2026-11-27 사용자 '보너스 코인 시작할 때 처음이랑 끝 텀 좀 둬줘') → 코인은 가운데 4마디 */
+export const PARTY_BARS = 6;
+export const PARTY_GAP = 1;
 
 // ---------------------------------------------------------------
 // 곡 전체 (드럼 단계 멜로디가 조각뿐인 곡). 퍼블릭 도메인 곡만. bars = 드럼 단계 마디 번호 또는 새 마디 문자열
@@ -240,7 +242,7 @@ export function buildCourse(lap, { laps = MAX_LAPS, party = true } = {}) {
       // 🪙 코인 파티: 반 줄마다 코인이 마구잡이로 (한두 개씩, 같은 줄은 안 겹치게) — 벌 없음
       const endAt = [-1e9, -1e9, -1e9, -1e9];
       const half = Math.max(1, u / 2);
-      for (let a = a0; a < a0 + P * STEPS_PER_BAR; a += half) {
+      for (let a = a0 + PARTY_GAP * STEPS_PER_BAR; a < a0 + (P - PARTY_GAP) * STEPS_PER_BAR - 1e-9; a += half) {
         const n = rnd() < 0.35 ? 2 : 1;
         for (let j = 0; j < n; j++) {
           const free = [0, 1, 2, 3].filter((x) => endAt[x] <= a + 1e-9);
