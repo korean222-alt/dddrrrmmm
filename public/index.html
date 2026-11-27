@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=f01a3586cc" />
+  <link rel="stylesheet" href="css/style.css?v=5cdbcddbba" />
 </head>
 <body>
   <div id="app">
@@ -972,6 +972,18 @@
   </div>
 
   <!-- 🎹 타일: 틀리면 끝 → 광고 보고 한 번 이어하기 -->
+  <!-- 🖼 곡 표지 누르면: 큰 그림 + 곡 설명 -->
+  <div class="modal" id="modal-tinfo" hidden>
+    <div class="sheet small tinfo-sheet">
+      <button class="icon-btn close" data-action="close-tinfo" aria-label="닫기"><span data-icon="close"></span></button>
+      <img id="tinfo-img" class="tinfo-img" alt="">
+      <h2 id="tinfo-name"></h2>
+      <p class="tinfo-sub" id="tinfo-sub"></p>
+      <p class="tinfo-text" id="tinfo-text"></p>
+      <button class="btn btn-primary btn-big" id="tinfo-play" data-tplay="1">플레이</button>
+    </div>
+  </div>
+
   <div class="modal" id="modal-tiledie" hidden>
     <div class="sheet small cont-sheet">
       <div class="cont-heart" aria-hidden="true"><span data-icon="heartbreak" data-e></span></div>
@@ -1491,6 +1503,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=ae9c8b18ed" defer></script>
+  <script src="js/app.js?v=bd6b8b5f33" defer></script>
 </body>
 </html>

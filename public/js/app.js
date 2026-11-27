@@ -19947,7 +19947,7 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-27s2',
+    id: '2026-11-27s2b',
     date: '11월 27일',
     title: '🎹 시즌 2 업데이트!',
     items: [
@@ -19961,6 +19961,7 @@ const NEWS = [
       '아래 탭 <b>이벤트</b>에 <b>📅 출석 체크 · 🎯 오늘의 퀘스트 · 📣 다 같이 퀘스트</b> — 매일 코인 받아 가세요',
       '<b>🏛 명예의 전당 전시관</b> — 시즌 1 1·2·3등 액자와 한마디, 4~100등, 그리고 <b>내 순위</b>까지',
       '<b>🔑 카카오·구글 로그인</b> — 폰이나 브라우저를 바꿔도 기록·코인·곡 결과가 그대로 · <b>🙂 프로필 이미지</b>도 골라요',
+      '<b>🖼 곡 표지</b> — 18곡마다 쿵콩이·짝콩이 그림! 표지를 누르면 크게 보고 곡 이야기도 읽어요',
       '🥁 드럼은 그대로 즐길 수 있어요 (시즌 1 드럼 기록은 명예의 전당에 보관)',
     ],
   },
@@ -27811,9 +27812,42 @@ function diffBadge(d, mini = false) {
 }
 /** 곡 표지: 곡마다 색이 다른 그라데이션 + 내려오는 타일 무늬 + 음표 */
 const TILE_HUES = [28, 340, 200, 265, 150, 12, 300, 185, 45, 230, 320, 95, 255, 5, 170, 280, 210, 355];
+/** 🖼 곡 표지 그림 (2026-11-27 사용자, ElevenLabs 3D 쿵콩이·짝콩이) + 표지 누르면 곡 설명 */
+const COVER_V = 1;
+const TILE_INFO = {
+  1: '프랑스 민요 「아, 어머니께 말씀드릴게요」 멜로디예요. 모차르트가 이 노래로 변주곡을 만들었고, 영어 동요 「Twinkle Twinkle Little Star」 로 전 세계에 퍼졌어요.',
+  2: '베토벤 교향곡 9번 마지막 악장의 합창 멜로디예요. 귀가 거의 들리지 않던 베토벤이 완성한 곡으로, 지금은 유럽연합의 노래이기도 해요.',
+  3: '1857년 미국의 제임스 로드 피어폰트가 만든 노래예요. 원래는 추수감사절 노래였다는 이야기도 있지만, 지금은 대표 크리스마스 노래가 됐어요.',
+  4: '독일 작곡가 파헬벨이 1700년쯤 쓴 곡이에요. 같은 코드 진행 위로 멜로디가 돌림노래처럼 쌓여서, 결혼식에서 많이 연주돼요.',
+  5: '미국 흑인 영가에서 온 노래로, 뉴올리언스 장례 행렬 밴드가 돌아올 때 신나게 연주하던 곡이에요. 루이 암스트롱의 연주로 유명해졌어요.',
+  6: '모차르트가 1787년에 쓴 현악 합주곡이에요. 이름은 독일어로 「작은 밤의 음악」 이라는 뜻이에요.',
+  7: '스티븐 포스터가 1848년에 만든 노래예요. 미국 서부로 금을 찾아 떠나던 사람들이 즐겨 부르며 널리 퍼졌어요.',
+  8: '베토벤 교향곡 5번의 첫머리 「따따따 따—」 예요. 베토벤이 「운명은 이렇게 문을 두드린다」 고 했다는 이야기에서 「운명」 이라는 이름이 붙었어요.',
+  9: '노르웨이 작곡가 그리그가 연극 「페르 귄트」 를 위해 쓴 곡이에요. 주인공이 산속 트롤 왕의 궁전에 숨어드는 장면이라, 조용히 시작해서 점점 빨라져요.',
+  10: '오펜바흐의 오페레타 「지옥의 오르페우스」 에 나오는 곡이에요. 파리 무대에서 치마를 들고 다리를 높이 차는 캉캉 춤의 음악으로 유명해요.',
+  11: '「래그타임의 왕」 스콧 조플린이 1902년에 쓴 피아노곡이에요. 엇박이 통통 튀는 래그타임 리듬이 특징이에요.',
+  12: '러시아 민요로, 「행상인」 이라는 뜻이에요. 전 세계 사람들에게는 블록 쌓기 게임 음악으로 더 익숙한 멜로디예요.',
+  13: '모차르트 피아노 소나타 11번의 마지막 악장이에요. 그 시절 유행하던 오스만 튀르크 군악대 소리를 피아노로 흉내 냈어요.',
+  14: '림스키코르사코프의 오페라 「술탄 황제 이야기」 에 나오는 곡이에요. 왕자가 벌로 변해 날아가는 장면이라 음이 쉴 새 없이 빠르게 움직여요.',
+  15: '로시니의 마지막 오페라 「윌리엄 텔」 의 서곡이에요. 아들 머리 위 사과를 화살로 맞힌 스위스 영웅 이야기이고, 말 달리는 듯한 끝부분이 유명해요.',
+  16: '모차르트가 세상을 떠나기 3년 전에 쓴 교향곡이에요. 모차르트 교향곡 중 드물게 단조라서 쓸쓸하면서도 급한 느낌이에요.',
+  17: '멕시코 민요로, 「바퀴벌레」 라는 뜻이에요. 멕시코 혁명 때 가사를 바꿔 가며 널리 불렀어요.',
+  18: '베토벤이 1810년쯤 쓴 피아노 소품이에요. 「엘리제」 가 누구인지는 지금도 수수께끼예요. 악보 글씨를 「테레제」 로 잘못 읽었다는 이야기도 있어요.',
+};
 function tileCoverHtml(t, i, big = false) {
   const h = TILE_HUES[i % TILE_HUES.length];
-  return `<span class="t-cover ${big ? 'big' : ''}" style="--h:${h}"><i></i><i></i><i></i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 17.5a2.5 2.5 0 1 1-1.2-2.1V5.6l10-2.1v11.9a2.5 2.5 0 1 1-1.2-2.1V7.1l-7.6 1.6z" fill="#fff"/></svg></span>`;
+  return `<span class="t-cover ${big ? 'big' : ''}" style="--h:${h}" data-tcover="${t.id}"><i></i><i></i><i></i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 17.5a2.5 2.5 0 1 1-1.2-2.1V5.6l10-2.1v11.9a2.5 2.5 0 1 1-1.2-2.1V7.1l-7.6 1.6z" fill="#fff"/></svg><img src="assets/covers/${t.id}.webp?v=${COVER_V}" alt="" loading="lazy" onerror="this.remove()"></span>`;
+}
+function openTileInfo(id) {
+  const song = tileSong(tileId(id));
+  if (!song) return;
+  const t = TILE_SONGS.find((x) => x.id === id);
+  $('#tinfo-img').src = `assets/covers/${id}.webp?v=${COVER_V}`;
+  $('#tinfo-name').textContent = song.level.name;
+  $('#tinfo-sub').innerHTML = `${escapeHtml(song.level.composer)} ${t ? diffBadge(t.diff, true) : ''}`;
+  $('#tinfo-text').textContent = TILE_INFO[id] || '';
+  $('#tinfo-play').dataset.tplay = String(id);
+  openModal('modal-tinfo');
 }
 const tl = { filter: 'all', pick: null };
 /** 내 최고 기록의 별·다이아 (첫 바퀴를 못 돌았으면 그때 받은 별) */
@@ -28347,7 +28381,7 @@ function openS2Q() {
   show('screen-events');
 }
 document.addEventListener('click', (e) => {
-  const t = e.target.closest && e.target.closest('[data-q],[data-cq],[data-tplay],[data-tsong],[data-tview],[data-tfilter],[data-srtab],[data-srsong]');
+  const t = e.target.closest && e.target.closest('[data-tcover],[data-q],[data-cq],[data-tplay],[data-tsong],[data-tview],[data-tfilter],[data-srtab],[data-srsong]');
   if (!t) return;
   if (t.dataset.q) {
     const n = claimQuest(t.dataset.q, isConfirmed());
@@ -28368,7 +28402,11 @@ document.addEventListener('click', (e) => {
     renderS2Q();
     refreshCoins();
     refreshHome2();
-  } else if (t.dataset.tplay) tilePlay(Number(t.dataset.tplay));
+  } else if (t.dataset.tcover) openTileInfo(Number(t.dataset.tcover));
+  else if (t.dataset.tplay) {
+    if (t.id === 'tinfo-play') closeModal('modal-tinfo');
+    tilePlay(Number(t.dataset.tplay));
+  }
   else if (t.dataset.tsong) {
     const song = tileSong(tileId(Number(t.dataset.tsong)));
     if (song && tileTierLocked(song)) tileTierToast(song);
@@ -29261,6 +29299,7 @@ const ACTIONS = {
     closeModal('modal-verify');
     askNickname(true);
   },
+  'close-tinfo': () => closeModal('modal-tinfo'),
   'close-verify': () => {
     state.verifyFor = null;
     closeModal('modal-verify');
