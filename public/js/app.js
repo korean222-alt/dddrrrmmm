@@ -15548,138 +15548,6 @@ class Game {
 return { MAX_LIVES, LIFE_REGEN_COMBO, MAX_CONTINUES, REVIVE_LIVES, Game };
 })();
 
-// ---- ads.js ----
-const __m_ads = (() => {
-// 보상형 광고 (이어하기용)
-//
-// 1순위: 구글 애드센스 'H5 게임 광고'(Ad Placement API)의 보상형 광고 adBreak({ type: 'reward' }).
-//        config.js 의 ads.adsenseClient 에 'ca-pub-…' 를 넣으면 켜집니다. (애드센스 승인 + H5 게임 광고 신청 필요)
-// 2순위: 광고가 없거나(승인 전, 광고 재고 없음, 광고 차단) 실패하면 → 홍보 화면(2주 무료 광고 · 인스타 @ok_aystra 문의)을 몇 초 보여주고 이어하기.
-//        이어하기가 막혀서 답답한 일은 없게 하고, 그 시간에 인스타 팔로우를 유도.
-//
-// showRewarded() → Promise<'rewarded' | 'dismissed'>
-//   rewarded : 끝까지 봄 → 이어하기 줌
-//   dismissed: 중간에 닫음 → 이어하기 없음
-
-let adsense = null; // { ready: bool }
-
-/** 앱 시작할 때 한 번: 애드센스 스크립트를 미리 불러와 광고를 준비시킴 */
-function initAds(cfg) {
-  const a = (cfg && cfg.ads) || {};
-  if (!/^ca-pub-\d{10,}$/.test(a.adsenseClient || '') || adsense) return;
-  adsense = { ready: false };
-  window.adsbygoogle = window.adsbygoogle || [];
-  window.adBreak = window.adConfig = function (o) {
-    window.adsbygoogle.push(o);
-  };
-  const s = document.createElement('script');
-  s.async = true;
-  s.crossOrigin = 'anonymous';
-  s.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${a.adsenseClient}`;
-  if (a.test) s.dataset.adbreakTest = 'on';
-  s.onerror = () => (adsense = { ready: false, failed: true });
-  document.head.appendChild(s);
-  window.adConfig({
-    preloadAdBreaks: 'on',
-    sound: 'on',
-    onReady: () => adsense && (adsense.ready = true),
-  });
-}
-
-/** 애드센스 보상형 광고 1회. 광고가 안 뜨면 'unavailable' */
-function adsenseReward(hooks) {
-  return new Promise((resolve) => {
-    let state = 'waiting'; // waiting → showing → done
-    const finish = (r) => {
-      if (state === 'done') return;
-      state = 'done';
-      resolve(r);
-    };
-    // 광고가 준비 안 돼 있으면 beforeReward 가 안 불림 → 잠깐 기다렸다 대체 광고로
-    const timer = setTimeout(() => state === 'waiting' && finish('unavailable'), 2500);
-    try {
-      window.adBreak({
-        type: 'reward',
-        name: 'continue',
-        beforeAd: () => hooks.beforeAd && hooks.beforeAd(),
-        afterAd: () => hooks.afterAd && hooks.afterAd(),
-        // 사용자가 이미 "광고 보고 이어하기"를 눌렀으니 바로 보여줌
-        beforeReward: (showAdFn) => {
-          if (state !== 'waiting') return;
-          state = 'showing';
-          clearTimeout(timer);
-          showAdFn();
-        },
-        adDismissed: () => finish('dismissed'),
-        adViewed: () => finish('rewarded'),
-        adBreakDone: () => {
-          clearTimeout(timer);
-          finish(state === 'showing' ? 'dismissed' : 'unavailable');
-        },
-      });
-    } catch {
-      clearTimeout(timer);
-      finish('unavailable');
-    }
-  });
-}
-
-/**
- * 대체 광고: 우리 인스타 홍보 화면을 seconds 초 보여줌. 다 보면 '이어하기' 버튼이 켜짐.
- * 화면 요소는 index.html 의 #modal-ad.
- */
-function houseAd({ seconds = 5, handle = '' } = {}) {
-  return new Promise((resolve) => {
-    const $ = (s) => document.querySelector(s);
-    const modal = $('#modal-ad');
-    const btn = $('#ad-continue');
-    const close = $('#ad-close');
-    const count = $('#ad-count');
-    const link = $('#ad-insta');
-    link.href = handle ? `https://www.instagram.com/${handle}/` : 'https://www.instagram.com/';
-    $('#ad-handle').textContent = handle ? '@' + handle : '인스타그램';
-    btn.disabled = true;
-    modal.hidden = false;
-    let left = seconds;
-    const tick = () => {
-      count.textContent = left > 0 ? `${left}초 뒤 이어하기` : '';
-      btn.textContent = left > 0 ? `${left}` : '▶ 이어하기';
-      if (left <= 0) {
-        btn.disabled = false;
-        clearInterval(timer);
-      }
-      left--;
-    };
-    const timer = setInterval(tick, 1000);
-    tick();
-    const done = (r) => {
-      clearInterval(timer);
-      btn.onclick = close.onclick = null;
-      modal.hidden = true;
-      resolve(r);
-    };
-    btn.onclick = () => !btn.disabled && done('rewarded');
-    close.onclick = () => done('dismissed');
-  });
-}
-
-/**
- * 보상형 광고 보여주기.
- * @param {{ ads?: object, instagramHandle?: string }} cfg
- * @param {{ beforeAd?: Function, afterAd?: Function }} hooks 광고 소리 나는 동안 게임 소리 끄기 등
- */
-async function showRewarded(cfg, hooks = {}) {
-  const a = (cfg && cfg.ads) || {};
-  if (adsense && !adsense.failed && typeof window.adBreak === 'function') {
-    const r = await adsenseReward(hooks);
-    if (r !== 'unavailable') return r;
-  }
-  return houseAd({ seconds: a.houseSeconds ?? 5, handle: a.houseHandle || cfg.instagramHandle });
-}
-
-return { initAds, showRewarded };
-})();
-
 // ---- track.js ----
 const __m_track = (() => {
 // 익명 이용 통계: 접속 시간(실제로 화면을 보고 만진 시간)과 곡 시작/끝을 서버에 모읍니다.
@@ -15704,6 +15572,7 @@ let lastSent = -1;
 let lastSentAt = 0;
 let play = null; // 진행 중인 판 { id, level, mode, startedAt }
 const queue = []; // 아직 못 보낸 판 이벤트
+const adQueue = []; // 📣 아직 못 보낸 광고 이벤트 (광고주에게 줄 숫자라 '표본 밖' 때도 버리지 않음)
 
 const rid = () => Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
 
@@ -15740,7 +15609,7 @@ function deviceKind() {
 }
 
 function payloadNow() {
-  const payload = { sid: sess.sid, st: sess.st, active: Math.round(activeMs / 1000), ref: sess.ref, device: deviceKind(), plays: queue.splice(0, 10) };
+  const payload = { sid: sess.sid, st: sess.st, active: Math.round(activeMs / 1000), ref: sess.ref, device: deviceKind(), plays: queue.splice(0, 10), ads: adQueue.splice(0, 10) };
   lastSent = payload.active;
   lastSentAt = Date.now();
   writeStore();
@@ -15759,7 +15628,7 @@ function send() {
   if (!on || !sess) return;
   if (Date.now() < restUntil) {
     queue.length = 0;
-    return;
+    if (!adQueue.length) return; // 광고 이벤트가 있으면 그것만이라도 보냄
   }
   const payload = payloadNow();
   try {
@@ -15799,10 +15668,10 @@ function initTracker({ enabled }) {
   setInterval(() => {
     // 판 시작·점수 요청에 얹어서 방금(5분 안) 보냈으면 건너뜀 → 계속 치는 사람은 따로 안 보냄
     if (Date.now() - lastSentAt < FLUSH_MS - TICK_MS) return;
-    if (!document.hidden && (queue.length || Math.round(activeMs / 1000) !== lastSent)) send();
+    if (!document.hidden && (queue.length || adQueue.length || Math.round(activeMs / 1000) !== lastSent)) send();
   }, FLUSH_MS);
   const leave = () => {
-    if (queue.length || (Date.now() - lastSentAt > HIDE_GAP_MS && Math.round(activeMs / 1000) !== lastSent)) send();
+    if (queue.length || adQueue.length || (Date.now() - lastSentAt > HIDE_GAP_MS && Math.round(activeMs / 1000) !== lastSent)) send();
   };
   document.addEventListener('visibilitychange', () => document.hidden && leave());
   window.addEventListener('pagehide', leave);
@@ -15837,7 +15706,178 @@ function trackPlayEnd(res = {}) {
 
 const hasOpenPlay = () => !!play;
 
-return { takeTrack, initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay };
+// ---------------- 📣 광고 노출 (2026-11-27, 광고주에게 줄 통계: server/adstats.js · admin '📣 광고') ----------------
+// 광고를 보여 줄 때 start · 인스타 버튼을 누르면 click · 끝나면 end(done = 끝까지 봄 / closed = 중간에 닫음, sec = 본 초).
+// 판 통계처럼 다른 요청(판 시작·점수 올리기)에 얹혀 가거나 5분마다·화면을 떠날 때 감 → 따로 요청을 늘리지 않음.
+// 서버가 없는 모드(on=false)에선 아무것도 안 함. 이름·아이디 없이 익명 방문자 쿠키로만 셈.
+const ads = new Map(); // 보고 있는 광고 id → { ad, src, surface, at }
+
+/** 광고 하나 보여 주기 시작. ad = 광고 이름(우리 광고 'house', 애드센스 'adsense'…), surface = 'drum' | 'tile' (어디서 떴나). 반환 = 이 노출의 id */
+function trackAdStart({ ad = 'house', surface = 'other' } = {}) {
+  const id = rid() + rid();
+  if (!on) return id;
+  ads.set(id, { ad, surface, at: Date.now() });
+  adQueue.push({ ev: 'start', id, ad, surface });
+  return id;
+}
+
+/** 광고의 인스타 버튼을 눌렀다 (노출마다 한 번만) */
+function trackAdClick(id) {
+  const a = ads.get(id);
+  if (!on || !a || a.clicked) return;
+  a.clicked = true;
+  adQueue.push({ ev: 'click', id, ad: a.ad, surface: a.surface });
+}
+
+/** 광고가 끝났다. result: 'done'(끝까지 봐서 보상) | 'closed'(중간에 닫음) */
+function trackAdEnd(id, result) {
+  const a = ads.get(id);
+  if (!on || !a) return;
+  ads.delete(id);
+  adQueue.push({ ev: 'end', id, ad: a.ad, surface: a.surface, result: result === 'done' ? 'done' : 'closed', sec: Math.round((Date.now() - a.at) / 1000) });
+}
+
+return { takeTrack, initTracker, trackPlayStart, trackPlayEnd, hasOpenPlay, trackAdStart, trackAdClick, trackAdEnd };
+})();
+
+// ---- ads.js ----
+const __m_ads = (() => {
+// 보상형 광고 (이어하기용)
+//
+// 1순위: 구글 애드센스 'H5 게임 광고'(Ad Placement API)의 보상형 광고 adBreak({ type: 'reward' }).
+//        config.js 의 ads.adsenseClient 에 'ca-pub-…' 를 넣으면 켜집니다. (애드센스 승인 + H5 게임 광고 신청 필요)
+// 2순위: 광고가 없거나(승인 전, 광고 재고 없음, 광고 차단) 실패하면 → 홍보 화면(2주 무료 광고 · 인스타 @ok_aystra 문의)을 몇 초 보여주고 이어하기.
+//        이어하기가 막혀서 답답한 일은 없게 하고, 그 시간에 인스타 팔로우를 유도.
+//
+// showRewarded() → Promise<'rewarded' | 'dismissed'>
+//   rewarded : 끝까지 봄 → 이어하기 줌
+//   dismissed: 중간에 닫음 → 이어하기 없음
+
+const { trackAdStart, trackAdClick, trackAdEnd } = __m_track;
+
+let adsense = null; // { ready: bool }
+
+/** 앱 시작할 때 한 번: 애드센스 스크립트를 미리 불러와 광고를 준비시킴 */
+function initAds(cfg) {
+  const a = (cfg && cfg.ads) || {};
+  if (!/^ca-pub-\d{10,}$/.test(a.adsenseClient || '') || adsense) return;
+  adsense = { ready: false };
+  window.adsbygoogle = window.adsbygoogle || [];
+  window.adBreak = window.adConfig = function (o) {
+    window.adsbygoogle.push(o);
+  };
+  const s = document.createElement('script');
+  s.async = true;
+  s.crossOrigin = 'anonymous';
+  s.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${a.adsenseClient}`;
+  if (a.test) s.dataset.adbreakTest = 'on';
+  s.onerror = () => (adsense = { ready: false, failed: true });
+  document.head.appendChild(s);
+  window.adConfig({
+    preloadAdBreaks: 'on',
+    sound: 'on',
+    onReady: () => adsense && (adsense.ready = true),
+  });
+}
+
+/** 애드센스 보상형 광고 1회. 광고가 안 뜨면 'unavailable' */
+function adsenseReward(hooks) {
+  return new Promise((resolve) => {
+    let state = 'waiting'; // waiting → showing → done
+    let seen = null; // 📣 광고 통계 노출 id (실제로 보여 준 광고만)
+    const finish = (r) => {
+      if (state === 'done') return;
+      state = 'done';
+      if (seen && r !== 'unavailable') trackAdEnd(seen, r === 'rewarded' ? 'done' : 'closed');
+      resolve(r);
+    };
+    // 광고가 준비 안 돼 있으면 beforeReward 가 안 불림 → 잠깐 기다렸다 대체 광고로
+    const timer = setTimeout(() => state === 'waiting' && finish('unavailable'), 2500);
+    try {
+      window.adBreak({
+        type: 'reward',
+        name: 'continue',
+        beforeAd: () => hooks.beforeAd && hooks.beforeAd(),
+        afterAd: () => hooks.afterAd && hooks.afterAd(),
+        // 사용자가 이미 "광고 보고 이어하기"를 눌렀으니 바로 보여줌
+        beforeReward: (showAdFn) => {
+          if (state !== 'waiting') return;
+          state = 'showing';
+          clearTimeout(timer);
+          seen = trackAdStart({ ad: 'adsense', surface: hooks.surface });
+          showAdFn();
+        },
+        adDismissed: () => finish('dismissed'),
+        adViewed: () => finish('rewarded'),
+        adBreakDone: () => {
+          clearTimeout(timer);
+          finish(state === 'showing' ? 'dismissed' : 'unavailable');
+        },
+      });
+    } catch {
+      clearTimeout(timer);
+      finish('unavailable');
+    }
+  });
+}
+
+/**
+ * 대체 광고: 우리 인스타 홍보 화면을 seconds 초 보여줌. 다 보면 '이어하기' 버튼이 켜짐.
+ * 화면 요소는 index.html 의 #modal-ad.
+ */
+function houseAd({ seconds = 5, handle = '', ad = 'house', surface = 'other' } = {}) {
+  return new Promise((resolve) => {
+    const $ = (s) => document.querySelector(s);
+    const modal = $('#modal-ad');
+    const btn = $('#ad-continue');
+    const close = $('#ad-close');
+    const count = $('#ad-count');
+    const link = $('#ad-insta');
+    const seen = trackAdStart({ ad, surface }); // 📣 광고 통계: 노출 1
+    link.onclick = () => trackAdClick(seen); // 인스타 버튼 누름 (노출마다 한 번만 셈)
+    link.href = handle ? `https://www.instagram.com/${handle}/` : 'https://www.instagram.com/';
+    $('#ad-handle').textContent = handle ? '@' + handle : '인스타그램';
+    btn.disabled = true;
+    modal.hidden = false;
+    let left = seconds;
+    const tick = () => {
+      count.textContent = left > 0 ? `${left}초 뒤 이어하기` : '';
+      btn.textContent = left > 0 ? `${left}` : '▶ 이어하기';
+      if (left <= 0) {
+        btn.disabled = false;
+        clearInterval(timer);
+      }
+      left--;
+    };
+    const timer = setInterval(tick, 1000);
+    tick();
+    const done = (r) => {
+      clearInterval(timer);
+      trackAdEnd(seen, r === 'rewarded' ? 'done' : 'closed');
+      btn.onclick = close.onclick = link.onclick = null;
+      modal.hidden = true;
+      resolve(r);
+    };
+    btn.onclick = () => !btn.disabled && done('rewarded');
+    close.onclick = () => done('dismissed');
+  });
+}
+
+/**
+ * 보상형 광고 보여주기.
+ * @param {{ ads?: object, instagramHandle?: string }} cfg
+ * @param {{ beforeAd?: Function, afterAd?: Function, surface?: 'drum'|'tile' }} hooks 광고 소리 나는 동안 게임 소리 끄기 등 (surface = 어디서 떴나, 광고 통계용)
+ */
+async function showRewarded(cfg, hooks = {}) {
+  const a = (cfg && cfg.ads) || {};
+  if (adsense && !adsense.failed && typeof window.adBreak === 'function') {
+    const r = await adsenseReward(hooks);
+    if (r !== 'unavailable') return r;
+  }
+  return houseAd({ seconds: a.houseSeconds ?? 5, handle: a.houseHandle || cfg.instagramHandle, ad: a.houseId || 'house', surface: hooks.surface });
+}
+
+return { initAds, showRewarded };
 })();
 
 // ---- quests.js ----
@@ -16563,6 +16603,8 @@ const CONFIG = {
     houseSeconds: 5,
     // 광고 대신 나오는 홍보 화면에서 팔로우하러 보낼 인스타 아이디 (@ 빼고). 비우면 instagramHandle.
     houseHandle: 'ok_aystra',
+    // 📣 이 광고의 이름 (admin '광고' 통계에서 광고별로 나눠 봄). 광고를 바꾸거나 여러 개 만들 땐 다른 이름으로.
+    houseId: 'house',
   },
 };
 
@@ -17067,6 +17109,8 @@ class RoomClient {
         // 🎲 랜덤 대결: 상대도 끝남 → 서버가 다음 곡을 정했을 테니 바로 물어봄
         if (this.room && this.room.pub === 'rush' && !m.died) setTimeout(() => this.poll(), 400);
       }
+      // 상대가 방을 나감 (나간 게 서버에 적힐 즈음 물어봄)
+      else if (m.t === 'bye') setTimeout(() => this.code && this.poll(), 1200);
     };
     link.onOpen = () => {
       this.onLink(true);
@@ -17156,6 +17200,10 @@ class RoomClient {
   async leave() {
     if (!this.code) return;
     const body = { action: 'leave', code: this.code, slot: this.slot, key: this.key };
+    // ⚡ 실시간 연결 중이면 상대에게 '나가요'를 바로 알림 → 상대가 곧 다시 물어봐서 판을 끝냄 (예전엔 최대 15초 뒤에야 알았음)
+    try {
+      if (this.realtime) this.link.send({ t: 'bye' });
+    } catch {}
     this._stop();
     try {
       await this.api.room(body);
@@ -17391,7 +17439,8 @@ const TILE_ROWS = 3.5;
 //   2026-11-27: 마지막 바퀴(×1.3)에서도 한 줄 = 0.2초 이상이 되게 첫 바퀴를 3.8 까지로 (그래야 바퀴마다 똑같은 타일)
 //   2026-11-27 저녁 사용자 '전체적으로 너무 느려 — 지옥+ = 지금 다이아 2번째 속도, 지옥 = 지옥+ 다이아 1, 어려움 = 지옥 기본':
 //     지옥+ 4.55×1.06 = 4.82 · 지옥 4.55×1.03 = 4.69 · 어려움 4.15 · 보통 3.8(예전 어려움) · 쉬움 3.0
-const TILE_RPS = [0, 3.0, 3.8, 4.15, 4.69, 4.82];
+//   2026-11-27 밤 사용자 '타일 쉬움 속도 3 → 2.6'
+const TILE_RPS = [0, 2.6, 3.8, 4.15, 4.69, 4.82];
 /** 🎹 2026-11-27 사용자 '빠르기 고정, 곡 끝날 때마다 다이아 하나, 더 빠르게 → 다이아 3개' : 바퀴마다 빠르기 (바퀴 안에선 고정) */
 const LAP_SPEEDS = [1, 1.1, 1.2, 1.3];
 /**
@@ -17912,6 +17961,8 @@ const disp = (px, w = 700) => `${w} ${Math.round(px)}px ${DISP}`;
 const ease = (k) => 1 - Math.pow(1 - Math.max(0, Math.min(1, k)), 3);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const BOUNCE_SEC = 0.12;
+/** ⚔️ 상대가 먼저 쓰러지면 「승리!」를 이만큼 보여 준 뒤 결과 */
+const WIN_MS = 3000;
 const GRACE_SEC = 0.35;
 /** 판정선 자리 (화면 높이 비율): 타일 아래 끝이 여기 닿을 때가 그 음 */
 const JUDGE_AT = 0.75;
@@ -18528,8 +18579,14 @@ class TileGame {
     const heard = (a.heardTime ? a.heardTime(pn) : ctx.currentTime) - this.aud0;
     const vis = (pn - this.perf0) / 1000;
     const want = heard - vis;
-    if (Math.abs(want - this.drift) > 0.25) this.drift = want;
-    else this.drift += (want - this.drift) * 0.05;
+    // 🧈 2026-11-27 사용자 '화면이 부드럽지 않고 렉 걸리는 느낌': 소리 시계는 폰마다 뚝뚝 끊겨 흘러서(블루투스는 더)
+    //   매 화면 5%씩 따라가면 타일이 미세하게 빨라졌다 느려졌다 함 → 10ms 안 차이는 그냥 두고,
+    //   당길 땐 시간에 맞춰 천천히(빠르기가 6% 넘게 안 바뀌게). 0.25초 넘게 어긋나면 그때만 한 번에
+    const err = want - this.drift;
+    const fdt = clamp((pn - (this._syncAt || pn)) / 1000, 0, 0.05);
+    this._syncAt = pn;
+    if (Math.abs(err) > 0.25) this.drift = want;
+    else if (Math.abs(err) > 0.01) this.drift += clamp(err * Math.min(1, fdt * 3), -fdt * 0.06, fdt * 0.06);
   }
 
   // ---------- 입력 ----------
@@ -18592,7 +18649,7 @@ class TileGame {
       this._begin(pn, 0.03);
       this.state = 'playing';
       this.lastFrame = pn;
-      this._hit(first, 0, x, y, src, id);
+      this._startHit(first);
       return;
     }
     const t = this._time(tsOk);
@@ -18697,6 +18754,32 @@ class TileGame {
       const a0 = clamp((yb - y) / this.rowH, 0, tl.rows);
       this.holds.push({ tile: tl, src, id, at: t, y0: y, fy: y, a0 });
       tl.fillRows = a0;
+    }
+  }
+
+  /**
+   * 「시작」 타일 (2026-11-27 사용자 '첫 타일 누르면 GREAT 뜨는데 아무것도 안 뜨게' · 건의 '시작 노트를 눌렀는데 없어져요'):
+   *   판정 글자·고리 없이 PERFECT 점수만. 긴 타일(4·6번 곡)이어도 한 번 누르면 끝까지 친 것으로 (예전엔 톡 누르면 바로 옅어져 사라진 것처럼 보임)
+   *   친 뒤엔 회색으로 남아 내려감. 대결은 「시작」을 누르지 않으니 0초에 저절로
+   */
+  _startHit(tl) {
+    tl.hit = true;
+    tl.hitAt = 0;
+    tl.start = true;
+    this.combo++;
+    this.perfect++;
+    this.maxCombo = Math.max(this.maxCombo, this.combo);
+    this.score += tilePoints('perfect', this.combo);
+    this.coins += 1;
+    this.hits++;
+    this.lastHit[tl.lane] = 0;
+    if (tl.hold) {
+      const bonus = tl.rows - 1;
+      tl.done = true;
+      tl.full = true;
+      tl.fillRows = tl.rows;
+      this.score += bonus * HOLD_PTS;
+      this.coins += bonus;
     }
   }
 
@@ -18814,6 +18897,7 @@ class TileGame {
       per: this.lapEnd[0],
       complete: this.lapsDone >= this.maxLaps,
       died: this.hearts <= 0,
+      won: this.won || null,
     };
   }
 
@@ -18834,6 +18918,13 @@ class TileGame {
         this._begin(pn, 0.04, this.pausedT);
         this.state = 'playing';
       } else return this._draw(this.pausedT, dt);
+    }
+    if (this.state === 'won') {
+      // ⚔️ 상대가 먼저 쓰러짐 → 화면 멈추고 「승리!」 3초 뒤 결과 (2026-11-27 사용자 '갑자기 팍 꺼지면 좀 그래')
+      this._draw(this.wonT, dt);
+      this._drawWin(this.g);
+      if (pn - this.wonPerf > WIN_MS) this._finish();
+      return;
     }
     if (this.state === 'dying') {
       this._draw(this.diedAt, dt, true);
@@ -18857,6 +18948,8 @@ class TileGame {
     const t = this._time(pn);
     this.t = t;
     const cur = this._rowAt(t);
+    // ⚔️ 대결은 「시작」을 누르지 않으니 첫 타일은 0초에 저절로 (예전엔 시작하자마자 첫 타일이 지나가 하트 1개라 둘 다 바로 죽었음)
+    if (this.vs && t >= 0 && !this.tiles[0].hit && !this.tiles[0].miss) this._startHit(this.tiles[0]);
     if (t > 0) {
       // 지나간 타일 = 놓침 (바로 전 화면 시각으로 — 폰이 버벅인 뒤 밀린 터치가 먼저 처리되게). 코인 타일은 그냥 사라짐
       const prev = this._curPrev ?? cur;
@@ -18917,7 +19010,92 @@ class TileGame {
         this.vs.onLive(this.live());
       } catch {}
     }
+    // ⚔️ 상대가 먼저 쓰러졌거나 나갔으면 이 판은 바로 끝 → 승리 (2026-11-27 사용자 '상대가 끝나면 바로 끝내야지')
+    if (this.vs && this.vs.other && this.state === 'playing' && t > 0 && pn - (this._oppAt || 0) > 200) {
+      this._oppAt = pn;
+      let o = null;
+      try {
+        o = this.vs.other();
+      } catch {}
+      if (o && (o.died || o.left)) return this._win(t, o.left ? 'left' : 'died');
+    }
     this._draw(t, dt);
+  }
+
+  _win(t, why) {
+    this.state = 'won';
+    this.won = why;
+    this.wonT = t;
+    this.wonPerf = performance.now();
+    this._endHolds();
+    this.press.fill(0);
+    this._hush(0.6);
+    try {
+      this.audio.fanfare();
+    } catch {}
+    this._draw(t, 0);
+    this._drawWin(this.g);
+  }
+
+  /** 「승리!」 화면 (멈춘 판 위에) */
+  _drawWin(g) {
+    const { W, H } = this;
+    const k = (performance.now() - this.wonPerf) / 1000;
+    g.save();
+    g.fillStyle = `rgba(28,16,64,${0.5 * Math.min(1, k / 0.25)})`;
+    g.fillRect(0, 0, W, H);
+    const cy = H * 0.42;
+    // 뒤에서 천천히 도는 빛살
+    g.save();
+    g.translate(W / 2, cy);
+    g.rotate(k * 0.5);
+    g.globalAlpha = 0.16 * Math.min(1, k / 0.3);
+    g.fillStyle = '#fff6c8';
+    const R = Math.max(W, H) * 0.7;
+    for (let i = 0; i < 12; i++) {
+      g.rotate((Math.PI * 2) / 12);
+      g.beginPath();
+      g.moveTo(0, 0);
+      g.lineTo(-R * 0.09, -R);
+      g.lineTo(R * 0.09, -R);
+      g.closePath();
+      g.fill();
+    }
+    g.restore();
+    const rg = g.createRadialGradient(W / 2, cy, 0, W / 2, cy, W * 0.6);
+    rg.addColorStop(0, `rgba(255,236,160,${0.4 * Math.min(1, k / 0.3)})`);
+    rg.addColorStop(1, 'rgba(255,236,160,0)');
+    g.fillStyle = rg;
+    g.fillRect(0, 0, W, H);
+    // 「승리!」 톡 튀어나옴
+    const px = Math.min(88, W * 0.22);
+    const s = k < 0.28 ? 0.4 + 0.8 * ease(k / 0.28) : 1.2 - 0.2 * ease(Math.min(1, (k - 0.28) / 0.25));
+    g.save();
+    g.translate(W / 2, cy);
+    g.scale(s, s);
+    g.font = font(px);
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    const gr = g.createLinearGradient(0, -px * 0.5, 0, px * 0.5);
+    gr.addColorStop(0, '#fff6c8');
+    gr.addColorStop(0.5, '#ffd23f');
+    gr.addColorStop(1, '#ff9f1c');
+    g.lineJoin = 'round';
+    g.lineWidth = px * 0.16;
+    g.strokeStyle = '#3b2a4a';
+    g.strokeText('승리!', 0, 0);
+    g.fillStyle = gr;
+    g.fillText('승리!', 0, 0);
+    g.restore();
+    // 왜 이겼나
+    g.globalAlpha = Math.min(1, Math.max(0, (k - 0.25) / 0.3));
+    g.font = font(Math.min(20, W * 0.05));
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillStyle = '#ffffff';
+    const nm = ((this.vs && this.vs.name) || '상대').slice(0, 10);
+    g.fillText(this.won === 'left' ? '상대가 나갔어요' : `${nm} 님이 먼저 쓰러졌어요`, W / 2, cy + px * 0.85);
+    g.restore();
   }
 
   _finish() {
@@ -19019,6 +19197,11 @@ class TileGame {
           continue;
         }
         g.drawImage(S.coin, x, y, tw, S.th);
+        continue;
+      }
+      if (tl.start && tl.hit) {
+        g.fillStyle = 'rgba(22,18,44,0.3)';
+        g.fillRect(x, y, tw, th);
         continue;
       }
       if (tl.hold) {
@@ -21540,6 +21723,7 @@ async function startLevel(id, opts = {}) {
       }
     });
   const last = { score: -1, p: -1, op: -1, lives: MAX_LIVES, stars: -1, shown: -1 };
+  let vsWon = null; // ⚔️ 상대가 먼저 쓰러져(나가서) 끝난 판 → 「승리!」 3초 뒤 결과
   // 실시간 대결: 상대 점수는 몇 초 늦게 옴 → 내 점수도 '상대가 보낸 진행 위치' 때의 점수로 보여 줘야 같은 지점끼리 비교됨
   const myHist = []; // [진행, 점수] (진행 순)
   const myScoreAt = (p) => {
@@ -21590,6 +21774,7 @@ async function startLevel(id, opts = {}) {
         //   (무제한 서바이벌은 곡 끝이 없으니 상대 판이 끝났다는 건 쓰러졌다는 것)
         const opDown = !o || (o.left && !o.final) || (o.final && (lv.survival || o.final.died));
         if (room.mode === 'versus' && opDown && state.game && state.game.state === 'playing') {
+          vsWon = !o || (o.left && !o.final) ? 'left' : 'died';
           state.game.endNow();
           return;
         }
@@ -21656,6 +21841,7 @@ async function startLevel(id, opts = {}) {
           true
         );
       }
+      if (vsWon && live && !state.studio.active && !res.died && !res.failed) return vsWinThen(vsWon, () => showResult(res));
       return state.studio.active ? studioFinish(res) : showResult(res);
     },
     // 영상 찍기 땐 목숨 없음 (녹화 중에 멈추면 안 되니까). 멀티는 광고 이어하기 없이 그 자리에서 끝
@@ -22002,6 +22188,23 @@ function onDeath(info) {
 }
 
 /** ⚔️ 멀티: 목숨을 다 쓰면 이어하기(광고) 없이 바로 끝 → 결과 (상대 판도 이걸 받고 끝남) */
+/**
+ * ⚔️ 멀티: 상대가 먼저 쓰러져(또는 나가서) 내 판이 끝났을 때 — 바로 결과로 팍 넘어가지 않고
+ *   멈춘 게임 화면 위에 「승리!」 3초 → 결과 (2026-11-27 사용자 '갑자기 팍 꺼지면 좀 그래, 승리! 뜨고 3초 뒤')
+ */
+function vsWinThen(why, done) {
+  const box = $('#vs-win');
+  $('#vs-win-msg').textContent = why === 'left' ? '상대가 나갔어요' : `${roomOtherName()} 님이 먼저 쓰러졌어요`;
+  box.hidden = false;
+  try {
+    audio.fanfare();
+  } catch {}
+  setTimeout(() => {
+    box.hidden = true;
+    if ($('#screen-game').classList.contains('active')) done();
+  }, 3000);
+}
+
 function onRoomDeath() {
   const g = state.game;
   if (g && g.state === 'dead') g.giveUp();
@@ -22014,6 +22217,7 @@ async function continueWithAd() {
   btn.disabled = true;
   closeModal('modal-continue');
   const r = await showRewarded(state.cfg, {
+    surface: 'drum',
     beforeAd: () => audio.setVolumes({ music: 0, sfx: 0 }),
     afterAd: () => audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx }),
   });
@@ -27121,6 +27325,20 @@ function applyS2Mode() {
 const tileView = () => 'tile';
 const tileBests = () => load('tileBest', {}) || {};
 const tileLocked = (song) => state.cfg.gateMode !== 'open' && tileClosed(song) && !isConfirmed() && !freePass();
+/**
+ * 🔓 난이도 단계 열기 (2026-11-27 사용자 '드럼처럼 각 단계마다 1곡을 깨면 다음 단계 — 보통 한 곡 깨면 어려움, 어려움 한 곡 깨면 지옥'):
+ *   쉬움은 처음부터. 바로 아래 단계 곡 하나를 깨면(첫 바퀴 끝 = 별 3개) 다음 단계가 열림.
+ *   그 단계(이상) 곡을 이미 친 기록이 있으면 열린 채로 (예전부터 치던 사람이 갑자기 잠기지 않게). 폰 기록(tileBest)만 봄 — 요청 없음
+ */
+function tileTierOpen(diff, best = tileBests()) {
+  if (diff <= 1) return true;
+  return TILE_SONGS.some((t) => {
+    const b = best[t.id];
+    return !!b && ((t.diff === diff - 1 && b.laps >= 1) || t.diff >= diff);
+  });
+}
+const tileTierLocked = (song, best) => !!song && !tileTierOpen(song.diff, best);
+const tileTierMsg = (d) => `${TILE_DIFF[d - 1]} 한 곡 깨면 열려요`;
 const tp = { song: TILE_SONGS[0].id, game: null, runToken: null, last: null };
 
 function refreshHome2() {
@@ -27232,7 +27450,8 @@ const tl = { filter: 'all', pick: null };
 const bestStars = (b) => (!b ? { stars: 0, gems: 0 } : b.laps >= 2 ? { stars: 3, gems: 3 } : b.laps === 1 ? { stars: 3, gems: Math.min(2, b.gems || 0) } : { stars: Math.min(2, b.stars || 0), gems: 0 });
 /** 오늘의 추천: 날짜로 고른, 이 폰에서 열린 곡 하나 */
 function tileToday() {
-  const open = TILE_SONGS.filter((t) => !tileLocked(tileSong(tileId(t.id))));
+  const best = tileBests();
+  const open = TILE_SONGS.filter((t) => !tileLocked(tileSong(tileId(t.id))) && tileTierOpen(t.diff, best));
   const day = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
   let h = 0;
   for (const ch of day) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
@@ -27263,7 +27482,8 @@ function renderTiles() {
       const song = tileSong(tileId(t.id));
       const lv = song.level;
       const b = best[t.id];
-      const lock = tileLocked(song);
+      const tier = tileTierLocked(song, best);
+      const lock = tier || tileLocked(song);
       const { stars: st, gems } = bestStars(b);
       const tag = lock ? '' : !b ? '<em class="t-tag new">NEW</em>' : '';
       const pips = [1, 2, 3, 4, 5].map((k) => `<i class="${k <= t.diff ? 'on' : ''}"></i>`).join('');
@@ -27271,7 +27491,7 @@ function renderTiles() {
       return `<div class="tl-row d${t.diff} ${lock ? 'locked' : ''} ${tl.pick === t.id ? 'pick' : ''}" data-tsong="${t.id}" role="button" tabindex="0">
       <span class="tl-no">${i + 1}</span>
       ${tileCoverHtml(t, i)}
-      <span class="tl-info"><b>${escapeHtml(lv.name)}${tag}</b><small>${escapeHtml(lv.composer)}</small>${tileStarsHtml(st, gems)}${b ? `<span class="tl-best">최고 ${fmt(b.tiles)}</span>` : ''}</span>
+      <span class="tl-info"><b>${escapeHtml(lv.name)}${tag}</b><small>${escapeHtml(lv.composer)}</small>${tier ? `<span class="tl-lock">${icon('lock')}${tileTierMsg(t.diff)}</span>` : tileStarsHtml(st, gems)}${b ? `<span class="tl-best">최고 ${fmt(b.tiles)}</span>` : ''}</span>
       ${diffBadge(t.diff)}
       <button class="tl-go" data-tplay="${t.id}" aria-label="${escapeHtml(lv.name)} 시작">${lock ? icon('lock') : '플레이'}</button>
     </div>`;
@@ -27361,6 +27581,7 @@ async function tilePlay(songId = tp.song, { room = null, map = null } = {}) {
   const song = map ? null : tileSong(tileId(songId));
   const mlap = map ? mapTileLap(map.data) : null;
   if (!song && !mlap) return;
+  if (!room && song && tileTierLocked(song)) return tileTierToast(song);
   if (!room && song && tileLocked(song)) return openVerify(null);
   if (!map) tp.song = songId;
   tp.map = map;
@@ -27400,17 +27621,26 @@ async function tilePlay(songId = tp.song, { room = null, map = null } = {}) {
   stopTile();
   tpStage();
   const c = state.roomClient;
+  // 마지막으로 본 상대 (랜덤 대결은 상대가 나가면 방에서 아예 빠져서 — 그래도 점수·쓰러짐은 기억)
+  let seen = null;
   const vs = room
     ? {
         name: (c.other && c.other.name) || '상대',
         other: () => {
-          const o = c.active && c.room && c.room.round === room.round ? c.other : null;
-          if (!o) return null;
-          return { score: o.final ? o.final.score : o.live ? o.live.score : 0, lives: o.live ? o.live.lives : null, done: !!o.final || !!o.left };
+          const same = c.active && c.room && c.room.round === room.round;
+          const o = same ? c.other : null;
+          if (!o) {
+            // 같은 판인데 상대가 방에 없음 = 나감 (먼저 쓰러졌다고 보낸 게 있으면 쓰러짐)
+            if (!same || !seen) return seen;
+            return { ...seen, done: true, left: !seen.died };
+          }
+          seen = { score: o.final ? o.final.score : o.live ? o.live.score : 0, lives: o.live ? o.live.lives : null, done: !!o.final || !!o.left, died: !!(o.final && o.final.died), left: !!o.left && !o.final };
+          return seen;
         },
         onLive: (live) => c.active && c.send({ live }),
       }
     : null;
+  tp.vsName = vs ? vs.name : null;
   const hue = song ? TILE_HUES[(song.order - 1) % TILE_HUES.length] : 220;
   const g = new TileGame({ audio, canvas: $('#tp-canvas'), songId: song ? songId : 0, lap: mlap, skin: tileSkin(), hue, onEnd: (r) => tileEnd(r), onDeath: room || map ? null : (info) => tileDeath(info), maxLaps: room ? VS_LAPS : map ? MAP_TILE_LAPS : undefined, vs });
   if (isLocalDev()) window.__tg = g; // 내 컴퓨터에서 시험할 때만
@@ -27418,6 +27648,10 @@ async function tilePlay(songId = tp.song, { room = null, map = null } = {}) {
   trackPlayStart(song ? tileId(songId) : UM_ID);
   // 대결: 서버가 정한 시각에 같이 시작 (그때까지는 'VS 상대' 화면). 혼자면 맨 아래 「시작」 타일을 누르면 시작
   g.start(room ? Math.max(0.35, (room.startAt - Date.now()) / 1000) : 0);
+}
+/** 🔒 아직 안 열린 단계 곡을 누름 */
+function tileTierToast(song) {
+  toast(`🔒 ${TILE_DIFF[song.diff]} 곡은 ${tileTierMsg(song.diff)}`, 2600);
 }
 /** 💔 타일: 한 번 틀리면 끝 → 광고 보고 한 번 이어하기 / 결과 보기 */
 function tileDeath(info) {
@@ -27435,6 +27669,7 @@ async function tileContinueAd() {
   $('#tdie-ad').disabled = true;
   closeModal('modal-tiledie');
   const r = await showRewarded(state.cfg, {
+    surface: 'tile',
     beforeAd: () => audio.setVolumes({ music: 0, sfx: 0 }),
     afterAd: () => audio.setVolumes({ music: state.settings.music, sfx: state.settings.sfx }),
   });
@@ -27618,12 +27853,19 @@ function renderTileVs() {
   let res = null;
   let why = '';
   const theirs = o ? (o.final ? o.final.score : o.live ? o.live.score : 0) : null;
-  if (!c.active || !o || (o.left && !o.final)) {
+  // 먼저 쓰러진 쪽이 짐 (2026-11-27 사용자 '죽으면 승리!'), 둘 다 끝까지 쳤거나 둘 다 쓰러졌으면 친 타일 수로
+  if (r.won === 'died' || (o && o.final && o.final.died && !r.died)) {
+    res = 'win';
+    why = `${escapeHtml((o && o.name) || tp.vsName || '상대')} 님이 먼저 쓰러졌어요`;
+  } else if (r.won === 'left' || !c.active || !o || (o.left && !o.final)) {
     res = 'win';
     why = '상대가 나갔어요';
+  } else if (r.died && !(o.final && o.final.died) && !(o.live && o.live.lives === 0)) {
+    res = 'lose';
+    why = '내가 먼저 쓰러졌어요';
   } else if (o.final) {
     res = r.tiles > o.final.score ? 'win' : r.tiles < o.final.score ? 'lose' : 'draw';
-    why = res === 'draw' ? '친 타일 수가 같아요' : '친 타일 수로';
+    why = res === 'draw' ? '친 타일 수가 같아요' : r.died ? '둘 다 쓰러져서 친 타일 수로' : '친 타일 수로';
   } else {
     box.innerHTML = `<div class="room-word">${escapeHtml(o.name)} 님 아직 치는 중… ${fmt(theirs || 0)}점</div><div class="tvs-row"><span>나 <b>${fmt(r.tiles)}</b></span><span>VS</span><span>${escapeHtml(o.name)} <b>${fmt(theirs || 0)}</b></span></div>` + acts;
     return;
@@ -27633,7 +27875,13 @@ function renderTileVs() {
   tp.vsDone = true;
   vsEndSync(box, r);
   if (res === 'win') setTimeout(() => audio.sfxFile('cheer', 0.6), 300);
-  if (room.pub && c.active) c.leave(); // 랜덤 대결은 판이 끝나면 방에서 나옴
+  // 랜덤 대결은 판이 끝나면 방에서 나옴. 내가 먼저 쓰러져 진 거면 상대가 내 결과(쓰러짐)를 받을 때까지 조금 있다가
+  if (room.pub && c.active) {
+    if (res === 'lose' && r.died && !(o && o.final)) {
+      const code = c.code;
+      setTimeout(() => c.active && c.code === code && c.leave(), 6000);
+    } else c.leave();
+  }
 }
 
 // ----- 🏆 시즌 2 랭킹 -----
@@ -27730,7 +27978,8 @@ document.addEventListener('click', (e) => {
   } else if (t.dataset.tplay) tilePlay(Number(t.dataset.tplay));
   else if (t.dataset.tsong) {
     const song = tileSong(tileId(Number(t.dataset.tsong)));
-    if (song && tileLocked(song)) openVerify(null);
+    if (song && tileTierLocked(song)) tileTierToast(song);
+    else if (song && tileLocked(song)) openVerify(null);
     else tilePreview(Number(t.dataset.tsong));
   } else if (t.dataset.tview) setTileView(t.dataset.tview);
   else if (t.dataset.tfilter) {

@@ -339,6 +339,8 @@ export class RoomClient {
         // 🎲 랜덤 대결: 상대도 끝남 → 서버가 다음 곡을 정했을 테니 바로 물어봄
         if (this.room && this.room.pub === 'rush' && !m.died) setTimeout(() => this.poll(), 400);
       }
+      // 상대가 방을 나감 (나간 게 서버에 적힐 즈음 물어봄)
+      else if (m.t === 'bye') setTimeout(() => this.code && this.poll(), 1200);
     };
     link.onOpen = () => {
       this.onLink(true);
@@ -428,6 +430,10 @@ export class RoomClient {
   async leave() {
     if (!this.code) return;
     const body = { action: 'leave', code: this.code, slot: this.slot, key: this.key };
+    // ⚡ 실시간 연결 중이면 상대에게 '나가요'를 바로 알림 → 상대가 곧 다시 물어봐서 판을 끝냄 (예전엔 최대 15초 뒤에야 알았음)
+    try {
+      if (this.realtime) this.link.send({ t: 'bye' });
+    } catch {}
     this._stop();
     try {
       await this.api.room(body);

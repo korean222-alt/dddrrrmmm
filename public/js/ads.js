@@ -9,6 +9,8 @@
 //   rewarded : 끝까지 봄 → 이어하기 줌
 //   dismissed: 중간에 닫음 → 이어하기 없음
 
+import { trackAdStart, trackAdClick, trackAdEnd } from './track.js';
+
 let adsense = null; // { ready: bool }
 
 /** 앱 시작할 때 한 번: 애드센스 스크립트를 미리 불러와 광고를 준비시킴 */
@@ -38,9 +40,11 @@ export function initAds(cfg) {
 function adsenseReward(hooks) {
   return new Promise((resolve) => {
     let state = 'waiting'; // waiting → showing → done
+    let seen = null; // 📣 광고 통계 노출 id (실제로 보여 준 광고만)
     const finish = (r) => {
       if (state === 'done') return;
       state = 'done';
+      if (seen && r !== 'unavailable') trackAdEnd(seen, r === 'rewarded' ? 'done' : 'closed');
       resolve(r);
     };
     // 광고가 준비 안 돼 있으면 beforeReward 가 안 불림 → 잠깐 기다렸다 대체 광고로
@@ -56,6 +60,7 @@ function adsenseReward(hooks) {
           if (state !== 'waiting') return;
           state = 'showing';
           clearTimeout(timer);
+          seen = trackAdStart({ ad: 'adsense', surface: hooks.surface });
           showAdFn();
         },
         adDismissed: () => finish('dismissed'),
@@ -76,7 +81,7 @@ function adsenseReward(hooks) {
  * 대체 광고: 우리 인스타 홍보 화면을 seconds 초 보여줌. 다 보면 '이어하기' 버튼이 켜짐.
  * 화면 요소는 index.html 의 #modal-ad.
  */
-function houseAd({ seconds = 5, handle = '' } = {}) {
+function houseAd({ seconds = 5, handle = '', ad = 'house', surface = 'other' } = {}) {
   return new Promise((resolve) => {
     const $ = (s) => document.querySelector(s);
     const modal = $('#modal-ad');
@@ -84,6 +89,8 @@ function houseAd({ seconds = 5, handle = '' } = {}) {
     const close = $('#ad-close');
     const count = $('#ad-count');
     const link = $('#ad-insta');
+    const seen = trackAdStart({ ad, surface }); // 📣 광고 통계: 노출 1
+    link.onclick = () => trackAdClick(seen); // 인스타 버튼 누름 (노출마다 한 번만 셈)
     link.href = handle ? `https://www.instagram.com/${handle}/` : 'https://www.instagram.com/';
     $('#ad-handle').textContent = handle ? '@' + handle : '인스타그램';
     btn.disabled = true;
@@ -102,7 +109,8 @@ function houseAd({ seconds = 5, handle = '' } = {}) {
     tick();
     const done = (r) => {
       clearInterval(timer);
-      btn.onclick = close.onclick = null;
+      trackAdEnd(seen, r === 'rewarded' ? 'done' : 'closed');
+      btn.onclick = close.onclick = link.onclick = null;
       modal.hidden = true;
       resolve(r);
     };
@@ -114,7 +122,7 @@ function houseAd({ seconds = 5, handle = '' } = {}) {
 /**
  * 보상형 광고 보여주기.
  * @param {{ ads?: object, instagramHandle?: string }} cfg
- * @param {{ beforeAd?: Function, afterAd?: Function }} hooks 광고 소리 나는 동안 게임 소리 끄기 등
+ * @param {{ beforeAd?: Function, afterAd?: Function, surface?: 'drum'|'tile' }} hooks 광고 소리 나는 동안 게임 소리 끄기 등 (surface = 어디서 떴나, 광고 통계용)
  */
 export async function showRewarded(cfg, hooks = {}) {
   const a = (cfg && cfg.ads) || {};
@@ -122,5 +130,5 @@ export async function showRewarded(cfg, hooks = {}) {
     const r = await adsenseReward(hooks);
     if (r !== 'unavailable') return r;
   }
-  return houseAd({ seconds: a.houseSeconds ?? 5, handle: a.houseHandle || cfg.instagramHandle });
+  return houseAd({ seconds: a.houseSeconds ?? 5, handle: a.houseHandle || cfg.instagramHandle, ad: a.houseId || 'house', surface: hooks.surface });
 }

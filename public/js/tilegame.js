@@ -32,6 +32,8 @@ const disp = (px, w = 700) => `${w} ${Math.round(px)}px ${DISP}`;
 const ease = (k) => 1 - Math.pow(1 - Math.max(0, Math.min(1, k)), 3);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const BOUNCE_SEC = 0.12;
+/** ⚔️ 상대가 먼저 쓰러지면 「승리!」를 이만큼 보여 준 뒤 결과 */
+const WIN_MS = 3000;
 const GRACE_SEC = 0.35;
 /** 판정선 자리 (화면 높이 비율): 타일 아래 끝이 여기 닿을 때가 그 음 */
 const JUDGE_AT = 0.75;
@@ -648,8 +650,14 @@ export class TileGame {
     const heard = (a.heardTime ? a.heardTime(pn) : ctx.currentTime) - this.aud0;
     const vis = (pn - this.perf0) / 1000;
     const want = heard - vis;
-    if (Math.abs(want - this.drift) > 0.25) this.drift = want;
-    else this.drift += (want - this.drift) * 0.05;
+    // 🧈 2026-11-27 사용자 '화면이 부드럽지 않고 렉 걸리는 느낌': 소리 시계는 폰마다 뚝뚝 끊겨 흘러서(블루투스는 더)
+    //   매 화면 5%씩 따라가면 타일이 미세하게 빨라졌다 느려졌다 함 → 10ms 안 차이는 그냥 두고,
+    //   당길 땐 시간에 맞춰 천천히(빠르기가 6% 넘게 안 바뀌게). 0.25초 넘게 어긋나면 그때만 한 번에
+    const err = want - this.drift;
+    const fdt = clamp((pn - (this._syncAt || pn)) / 1000, 0, 0.05);
+    this._syncAt = pn;
+    if (Math.abs(err) > 0.25) this.drift = want;
+    else if (Math.abs(err) > 0.01) this.drift += clamp(err * Math.min(1, fdt * 3), -fdt * 0.06, fdt * 0.06);
   }
 
   // ---------- 입력 ----------
@@ -712,7 +720,7 @@ export class TileGame {
       this._begin(pn, 0.03);
       this.state = 'playing';
       this.lastFrame = pn;
-      this._hit(first, 0, x, y, src, id);
+      this._startHit(first);
       return;
     }
     const t = this._time(tsOk);
@@ -817,6 +825,32 @@ export class TileGame {
       const a0 = clamp((yb - y) / this.rowH, 0, tl.rows);
       this.holds.push({ tile: tl, src, id, at: t, y0: y, fy: y, a0 });
       tl.fillRows = a0;
+    }
+  }
+
+  /**
+   * 「시작」 타일 (2026-11-27 사용자 '첫 타일 누르면 GREAT 뜨는데 아무것도 안 뜨게' · 건의 '시작 노트를 눌렀는데 없어져요'):
+   *   판정 글자·고리 없이 PERFECT 점수만. 긴 타일(4·6번 곡)이어도 한 번 누르면 끝까지 친 것으로 (예전엔 톡 누르면 바로 옅어져 사라진 것처럼 보임)
+   *   친 뒤엔 회색으로 남아 내려감. 대결은 「시작」을 누르지 않으니 0초에 저절로
+   */
+  _startHit(tl) {
+    tl.hit = true;
+    tl.hitAt = 0;
+    tl.start = true;
+    this.combo++;
+    this.perfect++;
+    this.maxCombo = Math.max(this.maxCombo, this.combo);
+    this.score += tilePoints('perfect', this.combo);
+    this.coins += 1;
+    this.hits++;
+    this.lastHit[tl.lane] = 0;
+    if (tl.hold) {
+      const bonus = tl.rows - 1;
+      tl.done = true;
+      tl.full = true;
+      tl.fillRows = tl.rows;
+      this.score += bonus * HOLD_PTS;
+      this.coins += bonus;
     }
   }
 
@@ -934,6 +968,7 @@ export class TileGame {
       per: this.lapEnd[0],
       complete: this.lapsDone >= this.maxLaps,
       died: this.hearts <= 0,
+      won: this.won || null,
     };
   }
 
@@ -954,6 +989,13 @@ export class TileGame {
         this._begin(pn, 0.04, this.pausedT);
         this.state = 'playing';
       } else return this._draw(this.pausedT, dt);
+    }
+    if (this.state === 'won') {
+      // ⚔️ 상대가 먼저 쓰러짐 → 화면 멈추고 「승리!」 3초 뒤 결과 (2026-11-27 사용자 '갑자기 팍 꺼지면 좀 그래')
+      this._draw(this.wonT, dt);
+      this._drawWin(this.g);
+      if (pn - this.wonPerf > WIN_MS) this._finish();
+      return;
     }
     if (this.state === 'dying') {
       this._draw(this.diedAt, dt, true);
@@ -977,6 +1019,8 @@ export class TileGame {
     const t = this._time(pn);
     this.t = t;
     const cur = this._rowAt(t);
+    // ⚔️ 대결은 「시작」을 누르지 않으니 첫 타일은 0초에 저절로 (예전엔 시작하자마자 첫 타일이 지나가 하트 1개라 둘 다 바로 죽었음)
+    if (this.vs && t >= 0 && !this.tiles[0].hit && !this.tiles[0].miss) this._startHit(this.tiles[0]);
     if (t > 0) {
       // 지나간 타일 = 놓침 (바로 전 화면 시각으로 — 폰이 버벅인 뒤 밀린 터치가 먼저 처리되게). 코인 타일은 그냥 사라짐
       const prev = this._curPrev ?? cur;
@@ -1037,7 +1081,92 @@ export class TileGame {
         this.vs.onLive(this.live());
       } catch {}
     }
+    // ⚔️ 상대가 먼저 쓰러졌거나 나갔으면 이 판은 바로 끝 → 승리 (2026-11-27 사용자 '상대가 끝나면 바로 끝내야지')
+    if (this.vs && this.vs.other && this.state === 'playing' && t > 0 && pn - (this._oppAt || 0) > 200) {
+      this._oppAt = pn;
+      let o = null;
+      try {
+        o = this.vs.other();
+      } catch {}
+      if (o && (o.died || o.left)) return this._win(t, o.left ? 'left' : 'died');
+    }
     this._draw(t, dt);
+  }
+
+  _win(t, why) {
+    this.state = 'won';
+    this.won = why;
+    this.wonT = t;
+    this.wonPerf = performance.now();
+    this._endHolds();
+    this.press.fill(0);
+    this._hush(0.6);
+    try {
+      this.audio.fanfare();
+    } catch {}
+    this._draw(t, 0);
+    this._drawWin(this.g);
+  }
+
+  /** 「승리!」 화면 (멈춘 판 위에) */
+  _drawWin(g) {
+    const { W, H } = this;
+    const k = (performance.now() - this.wonPerf) / 1000;
+    g.save();
+    g.fillStyle = `rgba(28,16,64,${0.5 * Math.min(1, k / 0.25)})`;
+    g.fillRect(0, 0, W, H);
+    const cy = H * 0.42;
+    // 뒤에서 천천히 도는 빛살
+    g.save();
+    g.translate(W / 2, cy);
+    g.rotate(k * 0.5);
+    g.globalAlpha = 0.16 * Math.min(1, k / 0.3);
+    g.fillStyle = '#fff6c8';
+    const R = Math.max(W, H) * 0.7;
+    for (let i = 0; i < 12; i++) {
+      g.rotate((Math.PI * 2) / 12);
+      g.beginPath();
+      g.moveTo(0, 0);
+      g.lineTo(-R * 0.09, -R);
+      g.lineTo(R * 0.09, -R);
+      g.closePath();
+      g.fill();
+    }
+    g.restore();
+    const rg = g.createRadialGradient(W / 2, cy, 0, W / 2, cy, W * 0.6);
+    rg.addColorStop(0, `rgba(255,236,160,${0.4 * Math.min(1, k / 0.3)})`);
+    rg.addColorStop(1, 'rgba(255,236,160,0)');
+    g.fillStyle = rg;
+    g.fillRect(0, 0, W, H);
+    // 「승리!」 톡 튀어나옴
+    const px = Math.min(88, W * 0.22);
+    const s = k < 0.28 ? 0.4 + 0.8 * ease(k / 0.28) : 1.2 - 0.2 * ease(Math.min(1, (k - 0.28) / 0.25));
+    g.save();
+    g.translate(W / 2, cy);
+    g.scale(s, s);
+    g.font = font(px);
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    const gr = g.createLinearGradient(0, -px * 0.5, 0, px * 0.5);
+    gr.addColorStop(0, '#fff6c8');
+    gr.addColorStop(0.5, '#ffd23f');
+    gr.addColorStop(1, '#ff9f1c');
+    g.lineJoin = 'round';
+    g.lineWidth = px * 0.16;
+    g.strokeStyle = '#3b2a4a';
+    g.strokeText('승리!', 0, 0);
+    g.fillStyle = gr;
+    g.fillText('승리!', 0, 0);
+    g.restore();
+    // 왜 이겼나
+    g.globalAlpha = Math.min(1, Math.max(0, (k - 0.25) / 0.3));
+    g.font = font(Math.min(20, W * 0.05));
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.fillStyle = '#ffffff';
+    const nm = ((this.vs && this.vs.name) || '상대').slice(0, 10);
+    g.fillText(this.won === 'left' ? '상대가 나갔어요' : `${nm} 님이 먼저 쓰러졌어요`, W / 2, cy + px * 0.85);
+    g.restore();
   }
 
   _finish() {
@@ -1139,6 +1268,11 @@ export class TileGame {
           continue;
         }
         g.drawImage(S.coin, x, y, tw, S.th);
+        continue;
+      }
+      if (tl.start && tl.hit) {
+        g.fillStyle = 'rgba(22,18,44,0.3)';
+        g.fillRect(x, y, tw, th);
         continue;
       }
       if (tl.hold) {

@@ -74,6 +74,13 @@ export const D1_SCHEMA = [
   `CREATE TABLE IF NOT EXISTS poll_votes (poll TEXT NOT NULL, igsid TEXT NOT NULL, choice TEXT NOT NULL, at INTEGER NOT NULL, PRIMARY KEY (poll, igsid)) WITHOUT ROWID`,
 ];
 
+/**
+ * 📣 광고 노출 통계 표 (2026-11-27): 날짜·광고·방문자마다 한 줄 (방문자가 광고를 볼 때마다 쓰기 1줄 — 주 키가 곧 표라 색인 쓰기 없음)
+ *   ⚠ D1_SCHEMA 에 안 넣고 처음 쓸 때 만듦(서버 인스턴스마다 1번, 이미 있으면 아무것도 안 함):
+ *     처음 init 문장이 이미 39개라(요청당 50번 제한, 시험 40 미만) 하나만 더해도 아슬아슬해서
+ */
+const AD_TABLE = `CREATE TABLE IF NOT EXISTS ad_vday (day TEXT NOT NULL, ad TEXT NOT NULL, vid TEXT NOT NULL, shows INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0, closed INTEGER NOT NULL DEFAULT 0, clicks INTEGER NOT NULL DEFAULT 0, sec INTEGER NOT NULL DEFAULT 0, s_drum INTEGER NOT NULL DEFAULT 0, s_tile INTEGER NOT NULL DEFAULT 0, at INTEGER NOT NULL, PRIMARY KEY (day, ad, vid)) WITHOUT ROWID`;
+
 /** 이미 있는 표에 열 더하기 — SQLite 엔 'IF NOT EXISTS' 가 없어서 하나씩 해 보고, 이미 있으면 오류를 그냥 넘김 */
 export const D1_ALTERS = [
   // 핵 의심 확인용 JSON (2026-11-21, pgstore SCHEMA 와 같음)
@@ -170,6 +177,21 @@ export class D1Store extends PgStore {
   /** 여러 문장을 한 번에 (한 트랜잭션). [[pg 문장, params], …] */
   batch(list) {
     return this.db.batch(list.map(([t, p = []]) => [toSqlite(t), p]));
+  }
+
+  _adTable() {
+    return (this._adReady ||= this.db.q(AD_TABLE, []).catch((e) => {
+      this._adReady = null;
+      throw e;
+    }));
+  }
+  async trackAds(a) {
+    await this._adTable();
+    return super.trackAds(a);
+  }
+  async adStats(from, to) {
+    await this._adTable();
+    return super.adStats(from, to);
   }
 
   /** D1_ALTERS 중 아직 없는 열만 추가. 실패하면 던짐 (init 이 '했음'을 안 적게) */

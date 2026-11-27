@@ -35,6 +35,7 @@
     .tabs { display: flex; gap: 8px; margin: 4px 0 14px; }
     .tabs button { background: #fff; color: var(--ink); border: 1px solid #cfc6db; }
     .tabs button.on { background: var(--ink); color: #fff; border-color: var(--ink); }
+    #main-tabs { flex-wrap: wrap; }
     .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 10px; margin-bottom: 14px; }
     .kpi { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; }
     .kpi b { display: block; font-size: 24px; line-height: 1.2; font-variant-numeric: tabular-nums; }
@@ -76,7 +77,24 @@
         <button type="button" data-tab="recover">되찾기 요청</button>
         <button type="button" data-tab="hall">명예의 전당</button>
         <button type="button" data-tab="sus">🕵 핵 의심</button>
+        <button type="button" data-tab="ads">📣 광고</button>
       </div>
+      <section id="tab-ads" hidden>
+        <div class="tabs" id="ad-ranges">
+          <button type="button" data-days="1">오늘</button>
+          <button type="button" data-days="7" class="on">7일</button>
+          <button type="button" data-days="30">30일</button>
+          <button type="button" data-days="90">90일</button>
+          <button type="button" data-days="365">전체</button>
+        </div>
+        <div class="kpis" id="ad-kpis"></div>
+        <div id="ad-list"></div>
+        <div class="card"><div class="head"><b>📤 광고주에게 줄 자료</b></div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap"><button type="button" id="ad-copy">요약 복사 (카톡·DM 용)</button><button type="button" class="ghost" id="ad-csv">표로 받기 (CSV · 엑셀)</button><button type="button" class="ghost" id="ad-reload">새로고침</button></div>
+          <div class="msg" id="ad-msg"></div>
+        </div>
+        <p class="note" id="ad-note"></p>
+      </section>
       <section id="tab-sus" hidden>
         <div class="card"><div class="head"><b>🔎 한 사람 지표 보기</b></div>
           <p class="muted" style="margin:6px 0">의심받는 사람이 생기면 닉네임이나 인스타 아이디로 찾아서 기록을 자세히 보세요. (랭킹 참여자 탭의 <b>🕵 지표</b> 버튼으로도 열려요)</p>
@@ -444,6 +462,105 @@
       $('#s2-msg').textContent = r.status === 200 ? '저장했어요 (폰엔 1분 안에)' : '저장 실패';
       loadS2();
     });
+
+    // ---------- 📣 광고 (광고주에게 줄 통계) ----------
+    // 폰이 광고를 보여 줄 때마다 {노출·인스타 버튼 클릭·끝까지/닫음} 을 익명 방문자별로 모음 (server/adstats.js)
+    let adDays = 7, adData = null;
+    const AD_NAME = { house: '오케이스트라 홍보 (우리 광고)', adsense: '구글 애드센스' };
+    const adName = (id) => AD_NAME[id] || id;
+    const pc = (v) => (v == null ? '-' : v + '%');
+    async function loadAds(fresh) {
+      $('#ad-msg').textContent = '';
+      const r = await call('GET', `/api/admin/ads?days=${adDays}${fresh ? '&fresh=1' : ''}`);
+      if (r.status === 401) return logout('비밀번호가 맞지 않아요.');
+      if (r.status !== 200) {
+        $('#ad-kpis').innerHTML = '';
+        $('#ad-list').innerHTML = '<div class="card"><div class="empty">불러오지 못했어요.</div></div>';
+        return;
+      }
+      adData = r.data;
+      const t = adData.total;
+      const kpi = (v, label) => `<div class="kpi"><b>${v}</b><span>${label}</span></div>`;
+      $('#ad-kpis').innerHTML = [
+        kpi(fmtN(t.shows), '광고가 뜬 횟수'),
+        kpi(fmtN(t.viewers), '본 사람 (브라우저 기준)'),
+        kpi(t.perViewer + '번', `한 명이 평균 (가운데값 ${t.median}번 · 최대 ${t.max}번)`),
+        kpi(pc(t.doneRate), `끝까지 본 비율 (${fmtN(t.done)}번)`),
+        kpi(fmtN(t.clicks) + '번', `인스타 버튼 클릭 (클릭률 ${pc(t.ctr)})`),
+        kpi(t.avgSec + '초', '한 번 볼 때 평균 시청'),
+      ].join('');
+      if (!adData.ads.length) {
+        $('#ad-list').innerHTML = '<div class="card"><div class="empty">아직 광고 기록이 없어요. 유저가 죽어서 「광고 보고 이어하기」를 누르면 쌓여요.</div></div>';
+      } else {
+        $('#ad-list').innerHTML = adData.ads.map((a) => {
+          const row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
+          const maxD = Math.max(1, ...a.dist.map((x) => x.viewers));
+          return `<div class="card"><h2>${esc(adName(a.ad))} <span class="meta">${esc(a.ad)}</span></h2>
+            <div class="scroll"><table>${
+              row('노출 (광고가 뜬 횟수)', fmtN(a.shows)) +
+              row('본 사람 (순 시청자)', fmtN(a.viewers) + '명') +
+              row('한 명이 평균', `<b>${a.perViewer}번</b> <span class="meta">(가운데값 ${a.median} · 최대 ${a.max})</span>`) +
+              row('2번 이상 본 사람', `${fmtN(a.repeatViewers)}명 (${pc(a.repeatRate)})`) +
+              row('이틀 이상 본 사람', fmtN(a.multiDayViewers) + '명') +
+              row('끝까지 봄', `${fmtN(a.done)}번 (${pc(a.doneRate)})`) +
+              row('중간에 닫음', fmtN(a.closed) + '번') +
+              row('그냥 나감 (끝·닫기 기록 없이)', fmtN(a.drop) + '번') +
+              row('한 번 볼 때 평균 시청', a.avgSec + '초') +
+              row('인스타 버튼 클릭', `${fmtN(a.clicks)}번 (클릭률 ${pc(a.ctr)}) · 누른 사람 ${fmtN(a.clickers)}명`) +
+              row('어디서 떴나', `드럼 이어하기 ${fmtN(a.drum)} · 피아노 타일 이어하기 ${fmtN(a.tile)}`)
+            }</table></div>
+            <h2 style="margin-top:14px">한 명이 몇 번 봤나</h2>
+            <div class="scroll"><table><tr><th>본 횟수</th><th>사람</th><th>비율</th><th></th></tr>${a.dist.map((x) => `<tr><td>${x.label}</td><td>${fmtN(x.viewers)}</td><td>${pct(x.viewers, a.viewers)}</td><td style="text-align:left">${bar(x.viewers, maxD)}</td></tr>`).join('')}</table></div>
+            <h2 style="margin-top:14px">날짜별</h2>
+            <div class="scroll"><table><tr><th>날짜</th><th>본 사람</th><th>노출</th><th>1인당</th><th>끝까지</th><th>닫음</th><th>클릭</th><th>평균 시청</th></tr>${
+              a.perDay.slice().reverse().map((x) => `<tr><td>${x.day.slice(5)}</td><td>${fmtN(x.viewers)}</td><td>${fmtN(x.shows)}</td><td>${x.perViewer}</td><td>${fmtN(x.done)}</td><td>${fmtN(x.closed)}</td><td>${fmtN(x.clicks)}</td><td>${x.avgSec}초</td></tr>`).join('') || '<tr><td class="empty" colspan="8">-</td></tr>'
+            }</table></div></div>`;
+        }).join('');
+      }
+      $('#ad-note').textContent = `기간 ${adData.from} ~ ${adData.to} (한국시간) · 본 사람 = 브라우저(기기) 기준 익명 번호라 같은 사람이 다른 브라우저로 보면 따로 셈 · 노출 = 「광고 보고 이어하기」를 눌러 광고 화면이 뜬 횟수 · 끝까지 = 보상받을 때까지 본 것 · 광고 통계는 이용 통계와 달리 표본 없이 전부 기록 · 2026-11-27 부터 쌓임 · ${new Date(adData.at || Date.now()).toLocaleTimeString('ko-KR')} 기준 (10분마다 새로)`;
+    }
+    $('#ad-ranges').addEventListener('click', (e) => {
+      const b = e.target.closest('[data-days]');
+      if (!b) return;
+      adDays = Number(b.dataset.days);
+      document.querySelectorAll('#ad-ranges [data-days]').forEach((x) => x.classList.toggle('on', x === b));
+      loadAds();
+    });
+    $('#ad-reload').addEventListener('click', () => loadAds(true));
+    // 카톡·DM 에 붙여 넣는 요약 글
+    $('#ad-copy').addEventListener('click', async () => {
+      if (!adData || !adData.ads.length) { $('#ad-msg').textContent = '복사할 기록이 아직 없어요.'; return; }
+      const lines = [`📣 광고 노출 리포트 (${adData.from} ~ ${adData.to})`];
+      for (const a of adData.ads) {
+        lines.push('', `■ ${adName(a.ad)}`,
+          `· 노출 ${fmtN(a.shows)}회 / 본 사람 ${fmtN(a.viewers)}명`,
+          `· 한 명이 평균 ${a.perViewer}번 (가운데값 ${a.median}번, 2번 이상 본 사람 ${pc(a.repeatRate)})`,
+          `· 끝까지 본 비율 ${pc(a.doneRate)} (평균 ${a.avgSec}초 시청)`,
+          `· 인스타 버튼 클릭 ${fmtN(a.clicks)}회 (클릭률 ${pc(a.ctr)}, 누른 사람 ${fmtN(a.clickers)}명)`);
+      }
+      const text = lines.join('\n');
+      try { await navigator.clipboard.writeText(text); $('#ad-msg').textContent = '복사했어요. 붙여 넣으세요.'; }
+      catch { prompt('복사해서 쓰세요', text); }
+    });
+    // 엑셀로 여는 표 (날짜별 + 광고별 합계)
+    $('#ad-csv').addEventListener('click', () => {
+      if (!adData || !adData.ads.length) { $('#ad-msg').textContent = '받을 기록이 아직 없어요.'; return; }
+      const q = (v) => '"' + String(v ?? '').replace(/"/g, '""') + '"';
+      const rows = [['구분', '날짜', '광고', '본 사람', '노출', '한 명이 평균', '끝까지', '닫음', '클릭', '평균 시청(초)', '드럼에서', '타일에서']];
+      for (const a of adData.ads) {
+        for (const x of a.perDay) rows.push(['날짜별', x.day, adName(a.ad), x.viewers, x.shows, x.perViewer, x.done, x.closed, x.clicks, x.avgSec, x.drum, x.tile]);
+        rows.push(['기간 합계', `${adData.from}~${adData.to}`, adName(a.ad), a.viewers, a.shows, a.perViewer, a.done, a.closed, a.clicks, a.avgSec, a.drum, a.tile]);
+      }
+      const csv = '﻿' + rows.map((r) => r.map(q).join(',')).join('\r\n');
+      const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `광고통계_${adData.from}_${adData.to}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 5000);
+    });
     // ---------- 🏛 명예의 전당 ----------
     const BOARD = { stage: '🎵 단계 총합', endless: '💎 무제한 총합' };
     const esc = (v) => String(v ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
@@ -500,7 +617,9 @@
       $('#tab-recover').hidden = b.dataset.tab !== 'recover';
       $('#tab-hall').hidden = b.dataset.tab !== 'hall';
       $('#tab-sus').hidden = b.dataset.tab !== 'sus';
-      if (b.dataset.tab === 'sus') loadSuspects();
+      $('#tab-ads').hidden = b.dataset.tab !== 'ads';
+      if (b.dataset.tab === 'ads') loadAds();
+      else if (b.dataset.tab === 'sus') loadSuspects();
       else if (b.dataset.tab === 'hall') loadHall();
       else if (b.dataset.tab === 'suggest') loadSuggestions();
       else if (b.dataset.tab === 'recover') loadRecovers();
