@@ -7041,8 +7041,8 @@ function refreshOauth(pv) {
   if (!box) return;
   box.hidden = !oaOn(pv);
   const vk = $(`#verify-${pv}`);
-  // 구글은 인스타·카톡 앱 안 브라우저에서 로그인을 막아서 거기선 내 계정 찾기 버튼을 안 보임
-  if (vk) vk.hidden = !oaOn(pv) || (pv === 'google' && isInApp());
+  // 구글은 인스타·카톡 앱 안에선 로그인이 막혀도 버튼은 보임(누르면 사파리·크롬 안내, oauthGo)
+  if (vk) vk.hidden = !oaOn(pv);
   if (box.hidden) return;
   const linked = !!(state.me && state.me[pv]);
   box.classList.toggle('on', linked);
@@ -7101,7 +7101,7 @@ function openLogin({ why = '', rank = false } = {}) {
   $('#login-desc').innerHTML = old
     ? '이제 <b>랭킹은 로그인한 사람만</b> 올라가요.<br>로그인하면 지금 기록·코인 그대로 이어져요.'
     : `${why ? `<b>${escapeHtml(why)}</b> · ` : ''}카카오·구글로 로그인하면 <b>코인·기록이 저장</b>되고 <b>랭킹</b>에 올라가요.`;
-  { const g = $('#login-google'); if (g) g.hidden = !oaOn('google') || isInApp(); }
+  { const g = $('#login-google'); if (g) g.hidden = !oaOn('google'); }
   $('#login-guest').textContent = old ? '나중에 할게요' : '게스트로 하기';
   $('#login-guest-note').innerHTML = old ? '안 하면 <b>랭킹에 못 올라가요</b>' : '게스트는 <b>코인·기록이 저장되지 않고</b> <b>랭킹에도 못 올라가요</b>';
   openModal('modal-login');
