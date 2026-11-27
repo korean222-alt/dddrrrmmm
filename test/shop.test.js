@@ -69,3 +69,16 @@ test('🥇 시즌 1 한정 세트: 11/27 까지 팖(등급 한정), 산 사람�
   assert.deepEqual(cleanOwned(['ui:s1']), ['ui:s1']);
   assert.equal(buyItem({ coins: 0, owned: ['ui:s1'] }, 'ui:s1', end + 1000).already, true);
 });
+
+test('💎 라이브 세트 = 코인 + 다이아 3개 (2026-11-27)', () => {
+  const w = { coins: 30000, owned: [] };
+  assert.equal(buyItem(w, 'ui:live').error, 'not_enough_gems');
+  assert.equal(buyItem({ ...w, s2: { gm: 2 } }, 'ui:live').error, 'not_enough_gems');
+  const r = buyItem({ ...w, s2: { gm: 5, ad: 'x' } }, 'ui:live');
+  assert.equal(r.ok, true);
+  assert.equal(r.wallet.coins, 5000);
+  assert.equal(r.wallet.s2.gm, 2);
+  assert.equal(r.wallet.s2.ad, 'x', '다른 s2 칸은 그대로');
+  // 다른 물건은 다이아 안 씀
+  assert.equal(buyItem({ coins: 5000, owned: [] }, 'notes:flame').ok, true);
+});

@@ -1900,3 +1900,8 @@ html.has-tabs .screen.active:not(#screen-home2) { padding-bottom: calc(96px + va
   .h2-top .h2-res { padding: 0 9px 0 5px; gap: 4px; font-size: 16px; }
   .h2-top .h2-res b { min-width: 18px; }
 }
+/* 💎 상점 다이아 값 (2026-11-27 라이브 세트 = 코인 + 다이아 3) */
+.shop-item .gem-i, #shopitem-buy .gem-i, .shop-gems .gem-i { width: 1.05em; height: 1.05em; vertical-align: -0.18em; display: inline-block; }
+.shop-gems .gem-i { width: 20px; height: 20px; margin-right: 3px; }
+.shop-item span:has(.gem-cost) { flex-wrap: wrap; justify-content: center; }
+.shop-item .gem-cost { flex-basis: 100%; display: flex; align-items: center; justify-content: center; gap: 2px; font-style: normal; font-size: 0.92em; color: #1d6fa3; }

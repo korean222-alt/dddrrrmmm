@@ -10,7 +10,7 @@ import {
 } from './charts.js';
 import { todayMission, missionDone, streakView, markDone } from './daily.js';
 import { PianoPreview, P2_SONGS } from './piano2.js';
-import { DECO_THEMES, NOTE_FREE, SHOP_ITEMS, RARITY, RARITY_NAME, priceOf, legacyRefund, LIMITED, onSale } from './shop.js';
+import { DECO_THEMES, NOTE_FREE, SHOP_ITEMS, RARITY, RARITY_NAME, priceOf, gemPriceOf, legacyRefund, LIMITED, onSale } from './shop.js';
 import { startShopPreview, stopShopPreview, drawKitCloseup } from './shoppreview.js';
 import { separateVocals, resample } from './vocalsep.js';
 import { transcribeSong } from './songmap.js';
@@ -2238,6 +2238,7 @@ function syncCoinAccount() {
   const fresh = Number.isFinite(me.coins) && !me._coinsUsed;
   if (fresh) me._coinsUsed = true;
   setCoinAccount(isConfirmed(), fresh ? me.coins : undefined, fresh ? me.gems : undefined);
+  gemSync(me);
   if (me.gift && !giftShown) setTimeout(() => showGift(me.gift), 600);
 }
 
@@ -2550,7 +2551,7 @@ function renderShop() {
     const own = decoOpen(type, key);
     const using = own && decoPick(type) === key;
     const tag = rare ? RARITY_NAME[rare] : '무료';
-    const label = using ? '✓ 장착 중' : !rare ? '' : own ? '보유' : `<i class="coin-ico"></i>${fmt(price)}`;
+    const label = using ? '✓ 장착 중' : !rare ? '' : own ? '보유' : `<i class="coin-ico"></i>${fmt(price)}${gemPriceOf(id) ? `<em class="gem-cost">+ ${GEM_SVG}${gemPriceOf(id)}</em>` : ''}`;
     return `<button class="shop-item ${rare ? 'r-' + rare : 'r-free'} ${own ? 'owned' : ''} ${using ? 'using' : ''}" data-shop="${id}">
       <em class="rar">${tag}</em>
       <i style="background:${shopSwatch(type, key)}"></i><b>${escapeHtml(shopName(type, key))}</b>
@@ -2598,10 +2599,10 @@ function previewShop(id) {
     b.innerHTML = '판매가 끝나서 이제 못 사요';
     b.disabled = true;
   } else if (!shopIsOpen()) {
-    b.innerHTML = `🔒 판매 준비 중 · <i class="coin-ico"></i> ${fmt(priceOf(id))}`;
+    b.innerHTML = `🔒 판매 준비 중 · <i class="coin-ico"></i> ${fmt(priceOf(id))}${gemPriceOf(id) ? ` + ${GEM_SVG}${gemPriceOf(id)}` : ''}`;
     b.disabled = true;
   } else {
-    b.innerHTML = `<i class="coin-ico"></i> ${fmt(priceOf(id))} 사기`;
+    b.innerHTML = `<i class="coin-ico"></i> ${fmt(priceOf(id))}${gemPriceOf(id) ? ` + ${GEM_SVG}${gemPriceOf(id)}` : ''} 사기`;
     b.disabled = false;
   }
   openModal('modal-shopitem');
@@ -2648,6 +2649,8 @@ async function buyShop(id) {
   if (!shopIsOpen()) return toast('🔒 상점은 곧 열려요 · 지금은 구경만 돼요', 2400);
   if (!onSale(id)) return toast('판매가 끝나서 이제 못 사요', 2400);
   if (getCoins() < price) return toast(`🪙 코인이 ${fmt(price - getCoins())}개 모자라요 · 콩을 맞히면 쌓여요`, 2600);
+  const gemNeed = gemPriceOf(id);
+  if (gemTotal() < gemNeed) return toast(`💎 다이아가 ${gemNeed - gemTotal()}개 모자라요 · 🎹 타일 곡에서 다이아 바퀴를 끝내면 모여요`, 3000);
   const name = shopName(type, key);
   const account = isConfirmed() && state.api && state.api.mode === 'server';
   if (account) {
@@ -2657,6 +2660,7 @@ async function buyShop(id) {
       save('decoOwned', [...new Set([...(load('decoOwned', []) || []), ...(r.owned || []), id])]);
     } catch (e) {
       if (e && e.status === 402) return renderShop(), toast('🪙 코인이 모자라요', 2200);
+      if (e && e.data && e.data.error === 'not_enough_gems') return renderShop(), toast('💎 다이아가 모자라요 · 🎹 타일 곡에서 모여요', 2600);
       if (e && e.data && e.data.error === 'season_over') return renderShop(), toast('판매가 끝나서 이제 못 사요', 2400);
       if (e && e.data && e.data.error === 'shop_closed') {
         state.cfg.shopOpen = false;
@@ -2668,7 +2672,10 @@ async function buyShop(id) {
   } else {
     const have = Number(load('coins', 0)) || 0;
     if (have < price) return toast('🪙 코인이 모자라요', 2200);
+    const gHave = Number(load('gems', 0)) || 0;
+    if (gHave < gemNeed) return toast('💎 다이아가 모자라요', 2200);
     save('coins', have - price);
+    if (gemNeed) save('gems', gHave - gemNeed);
     save('decoOwned', [...new Set([...(load('decoOwned', []) || []), id])]);
   }
   refreshCoins();
@@ -2677,6 +2684,36 @@ async function buyShop(id) {
   audio.unlock().then(() => audio.sfxFile('buy', 0.9)).catch(() => {}); // 🔔 구매
   if (shopPrevId === id) previewShop(id);
   toast(`🎉 ${name} 샀어요! 바로 적용했어요`, 2400);
+}
+/**
+ * 💎 곡마다 받은 다이아 수 맞추기 (2026-11-27): 계정 = 서버가 준 곡별 수(gemSongs)를 이 폰 gemGot 에 합침
+ *   계정 없는 폰 = 다이아 재화 생기기 전 이 폰 타일 기록(tileBest)의 다이아를 한 번 넣음 (계정 생기면 ginit 으로 올라감)
+ */
+function gemSync(me) {
+  const got = load('gemGot', {}) || {};
+  let ch = false;
+  const put = (id, n) => {
+    if (n > (got[id] || 0)) {
+      got[id] = Math.min(3, n);
+      ch = true;
+    }
+  };
+  if (isConfirmed() && me && me.gemSongs && typeof me.gemSongs === 'object') {
+    for (const [k, n] of Object.entries(me.gemSongs)) if (/^t\d+$/.test(k)) put(Number(k.slice(1)), Number(n) || 0);
+  } else if (!isConfirmed() && !load('gemBack', false)) {
+    save('gemBack', true);
+    let add = 0;
+    for (const [id, b] of Object.entries(tileBests())) {
+      const n = Math.min(3, (b && b.gems) || 0) - (got[id] || 0);
+      if (n > 0) {
+        add += n;
+        put(id, (got[id] || 0) + n);
+      }
+    }
+    if (add) save('gems', (Number(load('gems', 0)) || 0) + add);
+  }
+  if (ch) save('gemGot', got);
+  refreshCoins();
 }
 /** 상점 개편 전에 이 폰 코인으로 산 것(이제 무료) 값 돌려주기 — 인증 전 폰만, 한 번 */
 function refundLegacyLocal() {

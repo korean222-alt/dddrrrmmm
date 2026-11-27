@@ -75,8 +75,12 @@ export function cleanOwned(list) {
   return Array.isArray(list) ? [...new Set(list.filter((x) => typeof x === 'string' && priceOf(x) != null))] : [];
 }
 
+/** 💎 코인 말고 다이아도 같이 내야 하는 것 (2026-11-27 사용자 '라이브 세트는 다이아 3개도') */
+export const SHOP_GEMS = { 'ui:live': 3 };
+export const gemPriceOf = (id) => SHOP_GEMS[id] || 0;
+
 /**
- * 사기: 지갑 { coins, owned } → { ok, wallet, error }
+ * 사기: 지갑 { coins, owned, s2: { gm 다이아 } } → { ok, wallet, error }
  *   이미 있으면 ok(돈 안 냄), 모자라면 not_enough
  */
 export function buyItem(w, id, now = Date.now()) {
@@ -86,7 +90,10 @@ export function buyItem(w, id, now = Date.now()) {
   if (owned.includes(id)) return { ok: true, already: true, wallet: { ...w, owned } };
   if (!onSale(id, now)) return { ok: false, error: 'season_over', wallet: { ...w, owned } };
   if ((w.coins || 0) < price) return { ok: false, error: 'not_enough', wallet: { ...w, owned } };
-  return { ok: true, wallet: { ...w, coins: w.coins - price, owned: [...owned, id] } };
+  const gems = gemPriceOf(id);
+  const s2 = (w.s2 && typeof w.s2 === 'object' && w.s2) || {};
+  if (gems && (s2.gm || 0) < gems) return { ok: false, error: 'not_enough_gems', wallet: { ...w, owned } };
+  return { ok: true, wallet: { ...w, coins: w.coins - price, owned: [...owned, id], ...(gems ? { s2: { ...s2, gm: s2.gm - gems } } : {}) } };
 }
 
 // ---------------- 🏆 시즌 보상 (2026-11-22, 사용자 결정) ----------------

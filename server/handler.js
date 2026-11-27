@@ -56,6 +56,27 @@ export const GEM_SONG_MAX = 3;
 export const GEM_TOKEN_MAX = 60;
 export const GEM_LAP_MS = 20 * 1000;
 export const GEM_INIT_MAX = GEM_SONG_MAX * TILE_SONGS.length;
+/**
+ * 💎 다이아 재화 생기기 전에 얻은 다이아 (2026-11-27 사용자 '지금까지 얻은 것도 쳐 줘'): 랭킹 기록(scores 타일 칸)의 바퀴 수로
+ *   곡마다 다이아(lapStars) → 이미 받은 곡별 수(gs)보다 많으면 그 차이만 더함. 계정마다 한 번(gb)
+ */
+export function gemBackfill(w0, rows) {
+  const w = { coins: 0, ...(w0 || {}) };
+  const s2 = s2Of(w);
+  if (s2.gb) return { wallet: w, added: 0 };
+  const gs = { ...(s2.gs && typeof s2.gs === 'object' ? s2.gs : {}) };
+  let added = 0;
+  for (const [id, b] of Object.entries(tileBestsFromScores(rows))) {
+    const key = 't' + id;
+    const n = Math.min(GEM_SONG_MAX, b.gems || 0) - (gs[key] || 0);
+    if (n > 0) {
+      gs[key] = (gs[key] || 0) + n;
+      added += n;
+    }
+  }
+  w.s2 = { ...s2, gs, gm: (s2.gm || 0) + added, gb: 1 };
+  return { wallet: w, added };
+}
 // 폰이 코인을 10분에 한 번 모아 보내고 한동안 안 들어올 수도 있어서 넉넉히 (판 순서 t 로 같은 판 두 번은 안 받음)
 const COIN_TOKEN_AGE = 14 * 24 * 3600 * 1000;
 const coinInt = (v, max) => (Number.isFinite(v) ? Math.max(0, Math.min(max, Math.floor(v))) : 0);
@@ -755,8 +776,14 @@ export function createHandler(cfg, { store, meter = null }) {
       await store.giveCoins(pl.igsid, refund, gift);
       w = { ...w, coins: (w.coins || 0) + refund, owned: keep, gift };
     }
+    // 💎 예전에 얻은 다이아 한 번 넣기 (계정마다 읽기 1번·쓰기 1줄, 한도 브레이크 1단계부터는 미룸)
+    if (!s2Of(w).gb && brake() < 1) {
+      const r = gemBackfill(w, await store.scoresOf(pl.igsid));
+      await store.putWallet(pl.igsid, { coins: 0, t: 0, tn: 0, fday: '', fn: 0, init: 0, owned: [], ...r.wallet });
+      w = r.wallet;
+    }
     const s2 = s2Of(w);
-    return { coins: w.coins, gems: s2.gm || 0, owned: cleanOwned(w.owned), ...(w.gift ? { gift: giftOut(w.gift) } : {}), ...(s2.ad ? { att: { day: s2.ad, streak: s2.as } } : {}) };
+    return { coins: w.coins, gems: s2.gm || 0, gemSongs: s2.gs || {}, owned: cleanOwned(w.owned), ...(w.gift ? { gift: giftOut(w.gift) } : {}), ...(s2.ad ? { att: { day: s2.ad, streak: s2.as } } : {}) };
   };
   // 🎹 시즌 2 (2026-11-26): 운영자가 admin 에서 열기 전엔 미리보기(?s2=okay 기기)만 — 그동안 타일 기록은 랭킹에 안 올림
   //   커뮤니티 퀘스트(팔로워 2천 등)는 admin 에서 숫자·달성 처리. 인스턴스마다 1분 기억
@@ -1883,7 +1910,7 @@ export function createHandler(cfg, { store, meter = null }) {
       const r = buyItem(w1, String(body.item || ''));
       if (r.ok && !r.already) await store.putWallet(pl.igsid, r.wallet);
       else if (changed) await store.putWallet(pl.igsid, { ...w1, owned: r.wallet.owned });
-      const out = { coins: r.wallet.coins, gems: s2Of(w1).gm || 0, owned: r.wallet.owned, ...cr };
+      const out = { coins: r.wallet.coins, gems: s2Of(r.wallet).gm || 0, owned: r.wallet.owned, ...cr };
       if (!r.ok) return json(r.error === 'not_enough' ? 402 : 400, { error: r.error, ...out });
       return json(200, { ok: true, ...out });
     }

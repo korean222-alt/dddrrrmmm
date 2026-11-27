@@ -7,7 +7,7 @@ import fs from 'node:fs';
 
 import { loadConfig } from '../server/config.js';
 import { createApp } from '../server/app.js';
-import { applyCoins, coinCap, COIN_FREE_DAY, setNoPassword, GEM_INIT_MAX } from '../server/handler.js';
+import { applyCoins, coinCap, COIN_FREE_DAY, setNoPassword, GEM_INIT_MAX, gemBackfill } from '../server/handler.js';
 setNoPassword(false); // 이 파일은 예전 팔로워 암호 동작을 시험 (2026-11-26 부터 사이트는 암호 없음 → test/nopass.test.js)
 import { sign } from '../server/session.js';
 import { getLevel, noteCount, pointsFor } from '../public/js/charts.js';
@@ -890,6 +890,19 @@ test('💎 다이아: 타일 곡 판 토큰만 · 친 시간만큼 · 토큰마�
   assert.equal(gi.s2.gm, GEM_INIT_MAX);
   gi = applyCoins(gi, { ginit: 50 }, secret, now).wallet;
   assert.equal(gi.s2.gm, GEM_INIT_MAX);
+});
+
+test('💎 예전 다이아 넣기: 랭킹 기록 바퀴 수로 곡마다 · 이미 받은 만큼 빼고 · 한 번만', () => {
+  // 곡 3: 4바퀴(다이아 3) · 곡 4: 2바퀴(다이아 1) · 곡 5: 1바퀴(0) · 드럼 기록은 무시
+  const rows = [{ level: 3003, score: 500, grade: 'L4' }, { level: 3004, score: 200, grade: 'L2' }, { level: 3005, score: 90, grade: 'L1' }, { level: 5, score: 100000, grade: 'S' }];
+  const r = gemBackfill({ coins: 7, s2: { gm: 1, gs: { t3: 1 }, ad: 'd' } }, rows);
+  assert.equal(r.added, 3);
+  assert.equal(r.wallet.s2.gm, 4);
+  assert.deepEqual(r.wallet.s2.gs, { t3: 3, t4: 1 });
+  assert.equal(r.wallet.s2.ad, 'd');
+  assert.equal(r.wallet.coins, 7);
+  assert.equal(gemBackfill(r.wallet, rows).added, 0, '두 번째는 안 함');
+  assert.equal(gemBackfill(null, []).wallet.s2.gb, 1);
 });
 
 test('📱 기기 옮기기: 코드 만들기 → 새 기기에서 넣으면 기록 + 랭킹 계정(인증 포함) · 한 번만 · 틀린 코드 거부', async () => {
