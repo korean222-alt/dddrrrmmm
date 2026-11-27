@@ -15,7 +15,7 @@ import { googleAuthUrl, googleUserId, googleHash } from './google.js';
 import { cleanMap, mapDifficulty, mapLevel } from '../public/js/usermap.js';
 import { buyItem, cleanOwned, legacyRefund, seasonRewards } from '../public/js/shop.js';
 import { seasonAt, endedSeasons, HALL_BOARDS, hallBoardsOf, cleanHallImage, SEASONS } from '../public/js/season.js';
-import { tileSong, tileSlot, tileClosed, checkTileRun, lapGrade, gradeLaps, TILE_SONGS, mapTileMax } from '../public/js/tiles.js';
+import { tileSong, tileSlot, tileClosed, checkTileRun, lapGrade, gradeLaps, TILE_SONGS, mapTileMax, isTileSlot, TILE_SLOT0, tileLap, lapStars } from '../public/js/tiles.js';
 import { applyS2, cleanCommunity, COMMUNITY_DEFAULT, s2Of } from '../public/js/quests.js';
 import { LEVELS, LAST_LEVEL_ID, getLevel, levelDuration, noteCount, maxScore, scoreBounds, gradeFor, COUNT_IN_BARS, barDur, ENDLESS_ID, ROUND_BARS, roundBpm, pointsFor, levelEndlessBase, LEVEL_ENDLESS_STEP, needsVerify, isClosed, diamondsFor } from '../public/js/charts.js';
 
@@ -174,6 +174,25 @@ export const setNoPassword = (on) => (NO_PASSWORD = !!on);
 const FREE_FOREVER = Date.UTC(2099, 11, 31, 14, 59, 59);
 const playerSeen = new WeakMap(); // 요청마다 알아본 로그인 열쇠 (X-Player 돌려줄지)
 const TRANSFER_TTL_MS = 10 * 60 * 1000;
+/**
+ * 🎹 랭킹 기록(scores 3000+곡) → 폰의 타일 '내 기록'(tileBest) 모양. 브라우저를 바꾸고 로그인했을 때 곡 목록 결과를 되살리려고 (2026-11-27)
+ *   별·다이아는 DB 에 없어서 바퀴 수(grade 'L바퀴')로 어림, 첫 바퀴도 못 끝낸 판은 친 타일 수 / 한 바퀴 타일 수로 별
+ */
+export function tileBestsFromScores(rows) {
+  const out = {};
+  for (const r of rows || []) {
+    if (!isTileSlot(r.level) || !(r.score > 0)) continue;
+    const id = r.level - TILE_SLOT0;
+    const lap = tileLap(id);
+    if (!lap) continue;
+    const laps = gradeLaps(r.grade);
+    const per = lap.tiles ? lap.tiles.length : 0;
+    const { stars, gems } = lapStars(laps, laps > 0 || !per ? 0 : Math.min(1, r.score / per));
+    out[id] = { tiles: r.score, laps, stars, gems, at: 0 };
+  }
+  return out;
+}
+
 /**
  * 기기 옮기기로 넘길 것만 골라 정리: 단계별 기록(bests) + 닉네임들 + 설정 일부.
  *   싱크 보정(offsetMs)은 폰마다 달라서 안 넘김. 이상하거나 너무 크면 null
@@ -1035,6 +1054,15 @@ export function createHandler(cfg, { store, meter = null }) {
     }
 
     // 랭킹 닉네임이 있으면 guest:true (인스타 아이디 인증은 없어짐)
+    // 📦 내 기록 되받기 (2026-11-27): 브라우저를 바꾸고 로그인하면 곡 목록 결과(단계·무제한·타일)가 비어 보이던 것
+    //   폰이 계정마다·브라우저마다 한 번만 부름 (scores 한 사람 줄만 읽음)
+    if (p === '/api/my-bests' && m === 'GET') {
+      const pl = await getPlayer(request);
+      if (!pl) return json(401, { error: 'verify_required' });
+      const rows = await store.scoresOf(pl.igsid);
+      return json(200, { bests: bestsFromScores(rows.filter((r) => !isTileSlot(r.level))), tiles: tileBestsFromScores(rows) });
+    }
+
     if (p === '/api/me' && m === 'GET') {
       await expireTempMaybe();
       const pl = await getPlayer(request);

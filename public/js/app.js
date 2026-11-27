@@ -16232,6 +16232,8 @@ function serverApi(boot = null) {
     guest: (name, ig, av) => http('POST', '/api/guest', { name, ig, av }),
     avatar: (av) => http('POST', '/api/avatar', { av }),
     verifyPassword: (body) => http('POST', '/api/verify/password', body),
+    // 📦 내 기록 되받기 (브라우저 바꾸고 로그인했을 때 한 번)
+    myBests: () => http('GET', '/api/my-bests'),
     // 이용 통계는 따로 안 보내고 이 요청들에 얹어 보냄 (요청 수 아끼기)
     // 🪙 코인도 얹어 보냄 (coins.js). 응답에 잔액이 오면 받은 것, 아니면 다음에 다시
     // 🎟 점수를 올리면 서버가 '같은 단계·다음 단계' 판 토큰을 미리 줌 → 깬 뒤 바로 다시·다음 판은 /api/runs 요청 없이 (Worker 요청 아끼기)
@@ -18579,10 +18581,17 @@ class TileGame {
     const x = (cx - r.left) * (r.width ? this.W / r.width : 1);
     const y = (cy - r.top) * (r.height ? this.H / r.height : 1);
     const pn = performance.now();
-    // touchstart 와 pointerdown 이 같은 손가락으로 둘 다 오면 한 번만
-    if (this.recent.length > 8) this.recent = this.recent.filter((p) => pn - p.at < 120);
-    for (const p of this.recent) if (pn - p.at < 80 && Math.abs(p.x - x) < 24 && Math.abs(p.y - y) < 24) return;
-    this.recent.push({ x, y, at: pn });
+    // touchstart 와 pointerdown 이 같은 손가락으로 둘 다 오면 한 번만.
+    //   느린 폰은 앞 이벤트 처리(시작 타일 = 노래 예약, 빽빽한 곳 = 화면)가 길어 둘째가 80ms 넘게 늦게 처리됨 →
+    //   처리 시각으로 재면 같은 터치가 두 번 쳐져 '안 눌렀는데 눌림'(2026-11-27 건의: 터키 행진곡·시작 타일 사라짐).
+    //   폰이 붙인 이벤트 시각(같은 손가락이면 거의 같음)으로 잼, 못 믿을 값이면 처리 시각
+    const ev = ts > 0 && Math.abs(pn - ts) < 1000 ? ts : pn;
+    if (this.recent.length > 8) this.recent = this.recent.filter((p) => pn - p.at < 1200);
+    for (const p of this.recent) {
+      if (p.src === src || Math.abs(p.x - x) >= 24 || Math.abs(p.y - y) >= 24) continue;
+      if (Math.abs(p.ev - ev) < 80 || pn - p.at < 80) return;
+    }
+    this.recent.push({ x, y, at: pn, ev, src });
     if (y < this.topNo) return;
     const lane = clamp(Math.floor(x / this.laneW), 0, 3);
     const tsOk = ts > 0 && Math.abs(pn - ts) < 300 ? ts : pn;
@@ -21056,6 +21065,7 @@ function reconnectServer({ force = false } = {}) {
       } catch {}
       refreshTitle();
       renderLevels();
+      syncServerBests();
       return true;
     } catch {
       return false;
@@ -22867,6 +22877,45 @@ function openSettings() {
 // ---------------- 📱 다른 폰으로 옮기기 (계정 연동) ----------------
 //   옛 폰: 기록을 서버에 올리고 6자리 코드(10분, 한 번만) → 새 폰: 코드를 넣으면 기록을 합치고 랭킹 계정(인증 포함)도 이어받음
 //   버튼 누를 때만 요청 1번씩 (주기적 호출 없음)
+/**
+ * 📦 서버에 있는 내 기록을 이 브라우저로 (2026-11-27 DM '브라우저 바꾸니까 플레이했던 곡 결과가 안 떠요')
+ *   곡 목록 결과(단계·무제한·🎹 타일)는 폰 저장소에만 있어서 새 브라우저에선 비어 보였음 → 로그인한 계정마다 브라우저당 한 번 받아 합침
+ */
+let bestSyncing = false;
+async function syncServerBests({ force = false } = {}) {
+  const me = state.me || {};
+  if (bestSyncing || !state.api || state.api.mode !== 'server' || !state.api.myBests) return;
+  if (!me.player || !me.player.username || me.verified === false) return;
+  const key = `${me.player.username}|${me.player.ig || ''}|${me.kakao ? 'k' : ''}${me.google ? 'g' : ''}`;
+  if (!force && load('bestSync', '') === key) return;
+  bestSyncing = true;
+  try {
+    const r = await state.api.myBests();
+    if (r && r.bests && Object.keys(r.bests).length) save('bests', mergeBests(loadBests(), r.bests));
+    if (r && r.tiles && Object.keys(r.tiles).length) {
+      const tb = load('tileBest', {}) || {};
+      const srv = load('tileSrvBest2', {}) || {};
+      for (const [id, t] of Object.entries(r.tiles)) {
+        const o = tb[id];
+        tb[id] = o
+          ? { tiles: Math.max(o.tiles || 0, t.tiles || 0), laps: Math.max(o.laps || 0, t.laps || 0), stars: Math.max(o.stars || 0, t.stars || 0), gems: Math.max(o.gems || 0, t.gems || 0), at: o.at || t.at || 0 }
+          : t;
+        srv[id] = Math.max(srv[id] || 0, t.tiles || 0);
+      }
+      save('tileBest', tb);
+      save('tileSrvBest2', srv);
+    }
+    save('bestSync', key);
+    renderLevels();
+    try {
+      if ($('#screen-tiles').classList.contains('active')) renderTiles();
+      refreshHome2();
+    } catch {}
+  } catch {
+  } finally {
+    bestSyncing = false;
+  }
+}
 /** 두 기록 합치기: 단계마다 점수 높은 쪽 + 별·다이아·깬 단계는 큰 값 */
 function mergeBests(mine, theirs) {
   const out = { ...mine };
@@ -29156,6 +29205,8 @@ async function boot() {
     if (!$$('.modal').some((m) => !m.hidden)) openLogin();
   }, 600);
   refreshLoginCta();
+  // 📦 서버에 있는 내 기록을 이 브라우저로 (로그인하고 막 돌아왔으면 한 번 더)
+  syncServerBests({ force: !!oauthBack && oauthBack !== 'new' });
   // 🛒 운영자 시험: /?shoptest=okay 면 이 기기에서만 상점 물건을 전부 써 봄 (산 것으로 안 침, 서버 안 감), ?shoptest=off 면 끔
   const shopTest = params.get('shoptest');
   if (shopTest === 'okay' || shopTest === 'off') {

@@ -206,6 +206,7 @@ function reconnectServer({ force = false } = {}) {
       } catch {}
       refreshTitle();
       renderLevels();
+      syncServerBests();
       return true;
     } catch {
       return false;
@@ -2017,6 +2018,45 @@ function openSettings() {
 // ---------------- 📱 다른 폰으로 옮기기 (계정 연동) ----------------
 //   옛 폰: 기록을 서버에 올리고 6자리 코드(10분, 한 번만) → 새 폰: 코드를 넣으면 기록을 합치고 랭킹 계정(인증 포함)도 이어받음
 //   버튼 누를 때만 요청 1번씩 (주기적 호출 없음)
+/**
+ * 📦 서버에 있는 내 기록을 이 브라우저로 (2026-11-27 DM '브라우저 바꾸니까 플레이했던 곡 결과가 안 떠요')
+ *   곡 목록 결과(단계·무제한·🎹 타일)는 폰 저장소에만 있어서 새 브라우저에선 비어 보였음 → 로그인한 계정마다 브라우저당 한 번 받아 합침
+ */
+let bestSyncing = false;
+async function syncServerBests({ force = false } = {}) {
+  const me = state.me || {};
+  if (bestSyncing || !state.api || state.api.mode !== 'server' || !state.api.myBests) return;
+  if (!me.player || !me.player.username || me.verified === false) return;
+  const key = `${me.player.username}|${me.player.ig || ''}|${me.kakao ? 'k' : ''}${me.google ? 'g' : ''}`;
+  if (!force && load('bestSync', '') === key) return;
+  bestSyncing = true;
+  try {
+    const r = await state.api.myBests();
+    if (r && r.bests && Object.keys(r.bests).length) save('bests', mergeBests(loadBests(), r.bests));
+    if (r && r.tiles && Object.keys(r.tiles).length) {
+      const tb = load('tileBest', {}) || {};
+      const srv = load('tileSrvBest2', {}) || {};
+      for (const [id, t] of Object.entries(r.tiles)) {
+        const o = tb[id];
+        tb[id] = o
+          ? { tiles: Math.max(o.tiles || 0, t.tiles || 0), laps: Math.max(o.laps || 0, t.laps || 0), stars: Math.max(o.stars || 0, t.stars || 0), gems: Math.max(o.gems || 0, t.gems || 0), at: o.at || t.at || 0 }
+          : t;
+        srv[id] = Math.max(srv[id] || 0, t.tiles || 0);
+      }
+      save('tileBest', tb);
+      save('tileSrvBest2', srv);
+    }
+    save('bestSync', key);
+    renderLevels();
+    try {
+      if ($('#screen-tiles').classList.contains('active')) renderTiles();
+      refreshHome2();
+    } catch {}
+  } catch {
+  } finally {
+    bestSyncing = false;
+  }
+}
 /** 두 기록 합치기: 단계마다 점수 높은 쪽 + 별·다이아·깬 단계는 큰 값 */
 function mergeBests(mine, theirs) {
   const out = { ...mine };
@@ -8306,6 +8346,8 @@ async function boot() {
     if (!$$('.modal').some((m) => !m.hidden)) openLogin();
   }, 600);
   refreshLoginCta();
+  // 📦 서버에 있는 내 기록을 이 브라우저로 (로그인하고 막 돌아왔으면 한 번 더)
+  syncServerBests({ force: !!oauthBack && oauthBack !== 'new' });
   // 🛒 운영자 시험: /?shoptest=okay 면 이 기기에서만 상점 물건을 전부 써 봄 (산 것으로 안 침, 서버 안 감), ?shoptest=off 면 끔
   const shopTest = params.get('shoptest');
   if (shopTest === 'okay' || shopTest === 'off') {
