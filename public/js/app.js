@@ -14021,7 +14021,7 @@ const sendEvery = () => (Number(load('coinSlowUntil', 0)) > Date.now() ? SLOW_MS
 const int = (v) => (Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
 const queue = () => {
   const q = load('coinQ', []);
-  return Array.isArray(q) ? q.filter((x) => x && typeof x.tok === 'string' && x.n > 0) : [];
+  return Array.isArray(q) ? q.filter((x) => x && typeof x.tok === 'string' && (x.n > 0 || x.g > 0)) : [];
 };
 
 function coinsInit({ changed } = {}) {
@@ -14036,9 +14036,10 @@ function coinsInit({ changed } = {}) {
 }
 
 /** 인증 상태가 바뀌면 (me 받을 때마다) */
-function setCoinAccount(on, serverCoins) {
+function setCoinAccount(on, serverCoins, serverGems) {
   account = !!on;
   if (account && Number.isFinite(serverCoins)) save('coinSrv', int(serverCoins));
+  if (account && Number.isFinite(serverGems)) save('gemSrv', int(serverGems));
   onChange();
 }
 
@@ -14053,16 +14054,30 @@ function coinTotal() {
   return int(load('coinSrv', 0)) + pend + inFlight + int(load('s2Bonus', 0)) + (load('coinInit', false) ? 0 : local);
 }
 
-/** 판 하나 끝: n 코인 (tok = 그 판의 서버 판 토큰, 없으면 null) */
-function addRunCoins(n, tok) {
+/** 💎 화면에 보일 다이아 (2026-11-27: 🎹 타일 다이아 바퀴에서 얻은 것, 코인처럼 서버 지갑에) */
+function gemTotal() {
+  const local = int(load('gems', 0));
+  if (!account) return local;
+  const sending = load('coinSending', null);
+  const sum = (rs) => (rs || []).reduce((a, x) => a + int(x.g), 0);
+  return int(load('gemSrv', 0)) + sum(queue()) + (sending ? sum(sending.runs) : 0) + (load('gemInit', false) ? 0 : local);
+}
+
+/** 판 하나 끝: n 코인 (tok = 그 판의 서버 판 토큰, 없으면 null) · g = 💎 다이아 (판 토큰 있는 타일 곡 판만 서버가 받음) */
+function addRunCoins(n, tok, g = 0) {
   n = int(n);
-  if (!n) return;
-  if (!account) save('coins', int(load('coins', 0)) + n);
-  else if (tok) {
+  g = tok || !account ? int(g) : 0;
+  if (!n && !g) return;
+  if (!account) {
+    if (n) save('coins', int(load('coins', 0)) + n);
+    if (g) save('gems', int(load('gems', 0)) + g);
+  } else if (tok) {
     const q = queue();
     const same = q.find((x) => x.tok === tok);
-    if (same) same.n += n;
-    else q.push({ tok, n });
+    if (same) {
+      same.n = int(same.n) + n;
+      same.g = int(same.g) + g;
+    } else q.push(g ? { tok, n, g } : { tok, n });
     save('coinQ', q.slice(-40));
   }
   else save('coinFree', int(load('coinFree', 0)) + n);
@@ -14078,11 +14093,15 @@ function takeCoins({ force = false } = {}) {
   const runs = queue();
   const free = int(load('coinFree', 0));
   const init = load('coinInit', false) ? null : int(load('coins', 0));
-  if (!runs.length && !free && init == null) return undefined;
+  const ginit = load('gemInit', false) ? 0 : int(load('gems', 0));
+  if (!runs.length && !free && init == null && !ginit) return undefined;
   const last = Number(load('coinSentAt', 0)) || 0;
-  if (!force && init == null && Date.now() - last < sendEvery() && runs.length < 25) return undefined;
+  // 💎 다이아가 든 판은 기다리지 않고 바로
+  const gemRun = runs.some((x) => x.g > 0);
+  if (!force && init == null && !ginit && !gemRun && Date.now() - last < sendEvery() && runs.length < 25) return undefined;
   const c = { runs, free };
   if (init != null) c.init = init;
+  if (ginit) c.ginit = ginit;
   save('coinSending', c);
   save('coinQ', []);
   save('coinFree', 0);
@@ -14100,8 +14119,13 @@ function coinsResult(data) {
   const s = load('coinSending', null);
   if (data && Number.isFinite(data.coins)) {
     save('coinSrv', int(data.coins));
+    if (Number.isFinite(data.gems)) save('gemSrv', int(data.gems));
     if (s) save('coinSentAt', Date.now());
     if (s && s.init != null) save('coinInit', true);
+    if (s && s.ginit) {
+      save('gemInit', true);
+      save('gems', 0);
+    }
     save('coinSending', null);
     // 오늘 한도(하루 5000)를 넘어 서버가 못 받은 만큼 → 다시 모아 뒀다가 다음 날 (2026-11-23)
     if (data.coinSlow) save('coinSlowUntil', Date.now() + 60 * 60 * 1000);
@@ -14111,7 +14135,7 @@ function coinsResult(data) {
   onChange();
 }
 
-return { coinsInit, setCoinAccount, coinTotal, addRunCoins, takeCoins, addServerCoins, coinsResult };
+return { coinsInit, setCoinAccount, coinTotal, gemTotal, addRunCoins, takeCoins, addServerCoins, coinsResult };
 })();
 
 // ---- season.js ----
@@ -20951,7 +20975,7 @@ const { videoToAac } = __m_mp4audio;
 const { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmonize, autoDrums, cleanMap, mapLevel, MAP_DECO } = __m_usermap;
 const { AudioEngine, playMetronome } = __m_audio;
 const { Renderer, NOTE_PALETTES, LANE, applyNoteColors } = __m_render;
-const { coinsInit, setCoinAccount, coinTotal, addRunCoins, addServerCoins } = __m_coins;
+const { coinsInit, setCoinAccount, coinTotal, gemTotal, addRunCoins, addServerCoins } = __m_coins;
 const { queueOffline, backupOffline } = __m_offrec;
 const { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } = __m_game;
 const { initAds, showRewarded } = __m_ads;
@@ -23168,7 +23192,7 @@ function syncCoinAccount() {
   }
   const fresh = Number.isFinite(me.coins) && !me._coinsUsed;
   if (fresh) me._coinsUsed = true;
-  setCoinAccount(isConfirmed(), fresh ? me.coins : undefined);
+  setCoinAccount(isConfirmed(), fresh ? me.coins : undefined, fresh ? me.gems : undefined);
   if (me.gift && !giftShown) setTimeout(() => showGift(me.gift), 600);
 }
 
@@ -23249,6 +23273,7 @@ function refreshCoins() {
   const el = $('#coin-num');
   if (el) el.textContent = fmt(getCoins());
   $$('.coin-num2').forEach((x) => (x.textContent = fmt(getCoins())));
+  $$('.gem-num').forEach((x) => (x.textContent = fmt(gemTotal())));
 }
 /** 이 판에서 번 코인: PERFECT 2 · GREAT·GOOD·연타 1 (자동 연주·영상 찍기는 0) · 🎹 유저 맵은 PERFECT 1 만 */
 function runCoins(g) {
@@ -27377,6 +27402,7 @@ const tp = { song: TILE_SONGS[0].id, game: null, runToken: null, last: null };
 function refreshHome2() {
   if (!s2On()) return;
   $$('.coin-num2').forEach((el) => (el.textContent = fmt(getCoins())));
+  $$('.gem-num').forEach((el) => (el.textContent = fmt(gemTotal())));
   const gd = $('#gear-dot');
   if (gd) $('#gear-dot2').hidden = gd.hidden;
   const sn = seasonAt();
@@ -27757,7 +27783,10 @@ async function tileEnd(r) {
   const song = map ? null : tileSong(tileId(r.songId));
   // 🪙 타일 하나 = 1코인 + 코인 파티 (유저 맵 타일은 반) · 퀘스트 진행 · 출석
   const coins = map ? Math.floor(r.coins / 2) : r.coins;
-  if (coins > 0) addRunCoins(coins, !map && !room && tp.runToken && !String(tp.runToken).startsWith('mock.') ? tp.runToken : null);
+  // 💎 다이아 바퀴에서 얻은 다이아도 코인처럼 지갑에 (곡 판만 — 유저 맵·대결은 안 셈)
+  const gemTok = !map && !room && tp.runToken && !String(tp.runToken).startsWith('mock.') ? tp.runToken : null;
+  const gems = !map && !room ? Math.max(0, Math.min(3, r.gems || 0)) : 0;
+  if (coins > 0 || gems > 0) addRunCoins(coins, gemTok, gems);
   noteTilePlay(map ? { ...r, songId: 'm' + map.id } : r);
   const att = noteAttendance(isConfirmed());
   // 내 최고 기록 (폰)
@@ -27781,6 +27810,7 @@ async function tileEnd(r) {
   if (room) renderTileVs();
   const gifts = [];
   if (coins > 0) gifts.push(`🪙 +${fmt(coins)}${r.partyCoins ? ` <small>(코인 파티 ${fmt(map ? Math.floor(r.partyCoins / 2) : r.partyCoins)})</small>` : ''}`);
+  if (gems > 0 && (gemTok || !isConfirmed())) gifts.push(`💎 +${gems}`);
   if (att) gifts.push(`📅 출석 ${att.streak}일째 +${att.reward}`);
   $('#tp-res-gift').hidden = !gifts.length;
   $('#tp-res-gift').innerHTML = gifts.join(' · ');
@@ -28357,6 +28387,7 @@ const ACTIONS = {
   'room-next': roomNext,
   'news-open': openNews,
   'shop-open': () => openShop(),
+  'gem-info': () => toast(`💎 다이아 ${fmt(gemTotal())}개 · 🎹 타일에서 별 3개 뒤 다이아 바퀴를 끝내면 모여요`, 2800),
   'close-shop': () => closeShop(),
   'close-shopitem': () => closeShopPreview(),
   'a2hs-open': openA2hs,

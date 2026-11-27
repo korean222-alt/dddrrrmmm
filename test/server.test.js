@@ -7,7 +7,7 @@ import fs from 'node:fs';
 
 import { loadConfig } from '../server/config.js';
 import { createApp } from '../server/app.js';
-import { applyCoins, coinCap, COIN_FREE_DAY, setNoPassword } from '../server/handler.js';
+import { applyCoins, coinCap, COIN_FREE_DAY, setNoPassword, GEM_LAP_MS, GEM_TOKEN_MAX, GEM_INIT_MAX } from '../server/handler.js';
 setNoPassword(false); // 이 파일은 예전 팔로워 암호 동작을 시험 (2026-11-26 부터 사이트는 암호 없음 → test/nopass.test.js)
 import { sign } from '../server/session.js';
 import { getLevel, noteCount, pointsFor } from '../public/js/charts.js';
@@ -856,6 +856,34 @@ test('🪙 코인 계산: 곡 콩 수·시간 상한 · 토큰 없는 코인 하
   assert.equal(f.coins, COIN_FREE_DAY + 100, '다음 날 다시');
   // 3일 지난 토큰은 안 받음
   assert.equal(applyCoins(null, { runs: [{ tok: tok(now - 15 * 24 * 3600 * 1000), n: 5 }] }, secret, now).changed, false); // 14일 지난 판 토큰은 안 받음
+});
+
+test('💎 다이아: 타일 곡 판 토큰만 · 친 시간만큼 · 토큰마다 상한 · 계정 전 다이아 한 번', () => {
+  const secret = 'test-secret';
+  const now = Date.parse('2026-11-27T20:00:00+09:00');
+  const tok = (t, l = 't3') => sign({ l, t, n: String(t) }, secret);
+  // 드럼 판 토큰엔 다이아 없음
+  assert.equal(applyCoins(null, { runs: [{ tok: tok(now - 600000, 5), n: 1, g: 3 }] }, secret, now).wallet.s2, undefined);
+  // 2분 친 타일 판: 3개 그대로 (지갑 s2.gm)
+  let w = applyCoins(null, { runs: [{ tok: tok(now - 120000), n: 10, g: 3 }] }, secret, now).wallet;
+  assert.equal(w.s2.gm, 3);
+  assert.equal(w.coins, 10);
+  // 같은 토큰 다시 쓴 판(기록 못 넘음): 시간 안이면 더
+  w = applyCoins(w, { runs: [{ tok: tok(now - 120000), n: 0, g: 3 }] }, secret, now + 120000).wallet;
+  assert.equal(w.s2.gm, 6);
+  // 50초 된 판에 3개는 못 받음 (바퀴를 그만큼 못 침)
+  const fast = applyCoins(null, { runs: [{ tok: tok(now - 50000), n: 1, g: 3 }] }, secret, now).wallet;
+  assert.equal(fast.s2.gm, 1);
+  // 오래된 토큰도 토큰마다 최대까지
+  assert.equal(applyCoins(null, { runs: [{ tok: tok(now - 3 * 24 * 3600 * 1000), n: 1, g: 1e6 }] }, secret, now).wallet.s2.gm, GEM_TOKEN_MAX);
+  // 지난 토큰은 안 받음
+  const old = applyCoins(w, { runs: [{ tok: tok(now - 600000), n: 0, g: 3 }] }, secret, now + 120000).wallet;
+  assert.equal(old.s2.gm, 6);
+  // 계정 전 폰 다이아: 한 번, 상한까지
+  let gi = applyCoins(null, { ginit: 1e6 }, secret, now).wallet;
+  assert.equal(gi.s2.gm, GEM_INIT_MAX);
+  gi = applyCoins(gi, { ginit: 50 }, secret, now).wallet;
+  assert.equal(gi.s2.gm, GEM_INIT_MAX);
 });
 
 test('📱 기기 옮기기: 코드 만들기 → 새 기기에서 넣으면 기록 + 랭킹 계정(인증 포함) · 한 번만 · 틀린 코드 거부', async () => {

@@ -48,6 +48,12 @@ export const POLLS = { piano2: ['a', 'b'] };
 /** 🗳 처음 투표하면 코인 (계정마다 한 번, 표를 바꿔도 다시 안 줌) — 2026-11-23 사용자 */
 export const POLL_BONUS = 500;
 export const COIN_INIT_MAX = 20000;
+/** 💎 한 판에 다이아 최대 3개(폰이 보낼 때) · 판 토큰 하나(기록 못 넘은 판은 토큰을 30분 다시 씀)로 받는 최대
+ *   · 다이아 하나 = 바퀴 하나 끝까지(이 시간보다 빨리는 못 침, 첫 바퀴 몫 하나 뺌) · 계정 전 폰 다이아 한 번 */
+export const GEM_RUN_MAX = 3;
+export const GEM_TOKEN_MAX = 60;
+export const GEM_LAP_MS = 20 * 1000;
+export const GEM_INIT_MAX = 300;
 // 폰이 코인을 10분에 한 번 모아 보내고 한동안 안 들어올 수도 있어서 넉넉히 (판 순서 t 로 같은 판 두 번은 안 받음)
 const COIN_TOKEN_AGE = 14 * 24 * 3600 * 1000;
 const coinInt = (v, max) => (Number.isFinite(v) ? Math.max(0, Math.min(max, Math.floor(v))) : 0);
@@ -74,9 +80,36 @@ export function applyCoins(w0, c, secret, now = Date.now()) {
   for (const r of Array.isArray(c.runs) ? c.runs.slice(0, 40) : []) {
     const run = r && unsign(r.tok, secret);
     if (!run || !Number.isFinite(run.t) || run.t < w.t || run.t > now || now - run.t >= COIN_TOKEN_AGE) continue;
-    const e = byT.get(run.t) || { run, n: 0 };
+    const e = byT.get(run.t) || { run, n: 0, g: 0 };
     e.n += coinInt(r.n, 1e6);
+    e.g += coinInt(r.g, GEM_TOKEN_MAX);
     byT.set(run.t, e);
+  }
+  // 💎 다이아 (2026-11-27): 🎹 타일 곡 판 토큰만, 그만큼 친 시간 안에서 — 지갑 s2 칸(gm 잔액, gt·gn 이 토큰에 준 것)
+  const s2 = s2Of(w);
+  let gemsChanged = false;
+  for (const { run, g } of [...byT.values()].sort((a, b) => a.run.t - b.run.t)) {
+    if (!g || !tileSong(run.l) || run.t < (s2.gt || 0)) continue;
+    if (run.t > (s2.gt || 0)) {
+      s2.gt = run.t;
+      s2.gn = 0;
+    }
+    const byTime = Math.max(0, Math.floor((now - run.t) / GEM_LAP_MS) - 1);
+    const give = Math.max(0, Math.min(g, GEM_TOKEN_MAX - (s2.gn || 0), byTime - (s2.gn || 0)));
+    if (give > 0) {
+      s2.gm = (s2.gm || 0) + give;
+      s2.gn = (s2.gn || 0) + give;
+      gemsChanged = true;
+    }
+  }
+  if (Number.isFinite(c.ginit) && !s2.gi) {
+    s2.gm = (s2.gm || 0) + coinInt(c.ginit, GEM_INIT_MAX);
+    s2.gi = 1;
+    gemsChanged = true;
+  }
+  if (gemsChanged) {
+    w.s2 = s2;
+    changed = true;
   }
   for (const { run, n } of [...byT.values()].sort((a, b) => a.run.t - b.run.t)) {
     if (run.t > w.t) {
@@ -638,7 +671,7 @@ export function createHandler(cfg, { store, meter = null }) {
       s2out = r.out;
     }
     if (changed) await store.putWallet(pl.igsid, wallet);
-    const out = { coins: wallet.coins };
+    const out = { coins: wallet.coins, gems: s2Of(wallet).gm || 0 };
     if (s2out) out.s2 = s2out;
     if (rest > 0) out.coinRest = rest;
     // 🧯 D1 쓰기가 많은 날(브레이크 1단계~)엔 폰이 다시 10분에 한 번 모아 보내게 (2026-11-23)
@@ -717,7 +750,7 @@ export function createHandler(cfg, { store, meter = null }) {
       w = { ...w, coins: (w.coins || 0) + refund, owned: keep, gift };
     }
     const s2 = s2Of(w);
-    return { coins: w.coins, owned: cleanOwned(w.owned), ...(w.gift ? { gift: giftOut(w.gift) } : {}), ...(s2.ad ? { att: { day: s2.ad, streak: s2.as } } : {}) };
+    return { coins: w.coins, gems: s2.gm || 0, owned: cleanOwned(w.owned), ...(w.gift ? { gift: giftOut(w.gift) } : {}), ...(s2.ad ? { att: { day: s2.ad, streak: s2.as } } : {}) };
   };
   // 🎹 시즌 2 (2026-11-26): 운영자가 admin 에서 열기 전엔 미리보기(?s2=okay 기기)만 — 그동안 타일 기록은 랭킹에 안 올림
   //   커뮤니티 퀘스트(팔로워 2천 등)는 admin 에서 숫자·달성 처리. 인스턴스마다 1분 기억
@@ -952,12 +985,14 @@ export function createHandler(cfg, { store, meter = null }) {
   async function moveWallet(from, to) {
     if (from === to || !store.getWallet) return;
     const a = await store.getWallet(from);
-    if (!a || (!a.coins && !(a.owned && a.owned.length))) return;
+    const ag = (a && s2Of(a).gm) || 0; // 💎 다이아도 같이
+    if (!a || (!a.coins && !ag && !(a.owned && a.owned.length))) return;
     const b = (await store.getWallet(to)) || { coins: 0, t: 0, tn: 0, fday: '', fn: 0, init: 0, owned: [] };
     const owned = [...new Set([...(b.owned || []), ...(a.owned || [])])];
     const later = (a.t || 0) > (b.t || 0);
-    await store.putWallet(to, { ...b, coins: (b.coins || 0) + (a.coins || 0), t: later ? a.t : b.t, tn: later ? a.tn : b.tn, init: Math.max(a.init || 0, b.init || 0), owned });
-    await store.putWallet(from, { coins: 0, t: a.t || 0, tn: a.tn || 0, fday: a.fday || '', fn: a.fn || 0, init: a.init || 0, owned: [] });
+    const bs2 = s2Of(b);
+    await store.putWallet(to, { ...b, coins: (b.coins || 0) + (a.coins || 0), t: later ? a.t : b.t, tn: later ? a.tn : b.tn, init: Math.max(a.init || 0, b.init || 0), owned, ...(ag ? { s2: { ...bs2, gm: (bs2.gm || 0) + ag } } : {}) });
+    await store.putWallet(from, { coins: 0, t: a.t || 0, tn: a.tn || 0, fday: a.fday || '', fn: a.fn || 0, init: a.init || 0, owned: [], ...(ag ? { s2: { ...s2Of(a), gm: 0 } } : {}) });
   }
   async function getPlayer(request) {
     const { raw, c, hd } = playerRaw(request);
@@ -1837,12 +1872,12 @@ export function createHandler(cfg, { store, meter = null }) {
       // 상점이 닫혀 있으면 못 삼 (보낸 코인은 받아 둠)
       if (!(await shopOpen(false, pl))) {
         if (changed) await store.putWallet(pl.igsid, w1);
-        return json(403, { error: 'shop_closed', coins: w1.coins, owned: cleanOwned(w1.owned), ...cr });
+        return json(403, { error: 'shop_closed', coins: w1.coins, gems: s2Of(w1).gm || 0, owned: cleanOwned(w1.owned), ...cr });
       }
       const r = buyItem(w1, String(body.item || ''));
       if (r.ok && !r.already) await store.putWallet(pl.igsid, r.wallet);
       else if (changed) await store.putWallet(pl.igsid, { ...w1, owned: r.wallet.owned });
-      const out = { coins: r.wallet.coins, owned: r.wallet.owned, ...cr };
+      const out = { coins: r.wallet.coins, gems: s2Of(w1).gm || 0, owned: r.wallet.owned, ...cr };
       if (!r.ok) return json(r.error === 'not_enough' ? 402 : 400, { error: r.error, ...out });
       return json(200, { ok: true, ...out });
     }

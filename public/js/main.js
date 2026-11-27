@@ -20,7 +20,7 @@ import { videoToAac } from './mp4audio.js';
 import { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmonize, autoDrums, cleanMap, mapLevel, MAP_DECO } from './usermap.js';
 import { AudioEngine, playMetronome } from './audio.js';
 import { Renderer, NOTE_PALETTES, LANE, applyNoteColors } from './render.js';
-import { coinsInit, setCoinAccount, coinTotal, addRunCoins, addServerCoins } from './coins.js';
+import { coinsInit, setCoinAccount, coinTotal, gemTotal, addRunCoins, addServerCoins } from './coins.js';
 import { queueOffline, backupOffline } from './offrec.js';
 import { Game, MAX_LIVES, LIFE_REGEN_COMBO, REVIVE_LIVES } from './game.js';
 import { initAds, showRewarded } from './ads.js';
@@ -2237,7 +2237,7 @@ function syncCoinAccount() {
   }
   const fresh = Number.isFinite(me.coins) && !me._coinsUsed;
   if (fresh) me._coinsUsed = true;
-  setCoinAccount(isConfirmed(), fresh ? me.coins : undefined);
+  setCoinAccount(isConfirmed(), fresh ? me.coins : undefined, fresh ? me.gems : undefined);
   if (me.gift && !giftShown) setTimeout(() => showGift(me.gift), 600);
 }
 
@@ -2318,6 +2318,7 @@ function refreshCoins() {
   const el = $('#coin-num');
   if (el) el.textContent = fmt(getCoins());
   $$('.coin-num2').forEach((x) => (x.textContent = fmt(getCoins())));
+  $$('.gem-num').forEach((x) => (x.textContent = fmt(gemTotal())));
 }
 /** 이 판에서 번 코인: PERFECT 2 · GREAT·GOOD·연타 1 (자동 연주·영상 찍기는 0) · 🎹 유저 맵은 PERFECT 1 만 */
 function runCoins(g) {
@@ -6446,6 +6447,7 @@ const tp = { song: TILE_SONGS[0].id, game: null, runToken: null, last: null };
 function refreshHome2() {
   if (!s2On()) return;
   $$('.coin-num2').forEach((el) => (el.textContent = fmt(getCoins())));
+  $$('.gem-num').forEach((el) => (el.textContent = fmt(gemTotal())));
   const gd = $('#gear-dot');
   if (gd) $('#gear-dot2').hidden = gd.hidden;
   const sn = seasonAt();
@@ -6826,7 +6828,10 @@ async function tileEnd(r) {
   const song = map ? null : tileSong(tileId(r.songId));
   // 🪙 타일 하나 = 1코인 + 코인 파티 (유저 맵 타일은 반) · 퀘스트 진행 · 출석
   const coins = map ? Math.floor(r.coins / 2) : r.coins;
-  if (coins > 0) addRunCoins(coins, !map && !room && tp.runToken && !String(tp.runToken).startsWith('mock.') ? tp.runToken : null);
+  // 💎 다이아 바퀴에서 얻은 다이아도 코인처럼 지갑에 (곡 판만 — 유저 맵·대결은 안 셈)
+  const gemTok = !map && !room && tp.runToken && !String(tp.runToken).startsWith('mock.') ? tp.runToken : null;
+  const gems = !map && !room ? Math.max(0, Math.min(3, r.gems || 0)) : 0;
+  if (coins > 0 || gems > 0) addRunCoins(coins, gemTok, gems);
   noteTilePlay(map ? { ...r, songId: 'm' + map.id } : r);
   const att = noteAttendance(isConfirmed());
   // 내 최고 기록 (폰)
@@ -6850,6 +6855,7 @@ async function tileEnd(r) {
   if (room) renderTileVs();
   const gifts = [];
   if (coins > 0) gifts.push(`🪙 +${fmt(coins)}${r.partyCoins ? ` <small>(코인 파티 ${fmt(map ? Math.floor(r.partyCoins / 2) : r.partyCoins)})</small>` : ''}`);
+  if (gems > 0 && (gemTok || !isConfirmed())) gifts.push(`💎 +${gems}`);
   if (att) gifts.push(`📅 출석 ${att.streak}일째 +${att.reward}`);
   $('#tp-res-gift').hidden = !gifts.length;
   $('#tp-res-gift').innerHTML = gifts.join(' · ');
@@ -7426,6 +7432,7 @@ const ACTIONS = {
   'room-next': roomNext,
   'news-open': openNews,
   'shop-open': () => openShop(),
+  'gem-info': () => toast(`💎 다이아 ${fmt(gemTotal())}개 · 🎹 타일에서 별 3개 뒤 다이아 바퀴를 끝내면 모여요`, 2800),
   'close-shop': () => closeShop(),
   'close-shopitem': () => closeShopPreview(),
   'a2hs-open': openA2hs,

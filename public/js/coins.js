@@ -18,7 +18,7 @@ const sendEvery = () => (Number(load('coinSlowUntil', 0)) > Date.now() ? SLOW_MS
 const int = (v) => (Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
 const queue = () => {
   const q = load('coinQ', []);
-  return Array.isArray(q) ? q.filter((x) => x && typeof x.tok === 'string' && x.n > 0) : [];
+  return Array.isArray(q) ? q.filter((x) => x && typeof x.tok === 'string' && (x.n > 0 || x.g > 0)) : [];
 };
 
 export function coinsInit({ changed } = {}) {
@@ -33,9 +33,10 @@ export function coinsInit({ changed } = {}) {
 }
 
 /** 인증 상태가 바뀌면 (me 받을 때마다) */
-export function setCoinAccount(on, serverCoins) {
+export function setCoinAccount(on, serverCoins, serverGems) {
   account = !!on;
   if (account && Number.isFinite(serverCoins)) save('coinSrv', int(serverCoins));
+  if (account && Number.isFinite(serverGems)) save('gemSrv', int(serverGems));
   onChange();
 }
 
@@ -50,16 +51,30 @@ export function coinTotal() {
   return int(load('coinSrv', 0)) + pend + inFlight + int(load('s2Bonus', 0)) + (load('coinInit', false) ? 0 : local);
 }
 
-/** 판 하나 끝: n 코인 (tok = 그 판의 서버 판 토큰, 없으면 null) */
-export function addRunCoins(n, tok) {
+/** 💎 화면에 보일 다이아 (2026-11-27: 🎹 타일 다이아 바퀴에서 얻은 것, 코인처럼 서버 지갑에) */
+export function gemTotal() {
+  const local = int(load('gems', 0));
+  if (!account) return local;
+  const sending = load('coinSending', null);
+  const sum = (rs) => (rs || []).reduce((a, x) => a + int(x.g), 0);
+  return int(load('gemSrv', 0)) + sum(queue()) + (sending ? sum(sending.runs) : 0) + (load('gemInit', false) ? 0 : local);
+}
+
+/** 판 하나 끝: n 코인 (tok = 그 판의 서버 판 토큰, 없으면 null) · g = 💎 다이아 (판 토큰 있는 타일 곡 판만 서버가 받음) */
+export function addRunCoins(n, tok, g = 0) {
   n = int(n);
-  if (!n) return;
-  if (!account) save('coins', int(load('coins', 0)) + n);
-  else if (tok) {
+  g = tok || !account ? int(g) : 0;
+  if (!n && !g) return;
+  if (!account) {
+    if (n) save('coins', int(load('coins', 0)) + n);
+    if (g) save('gems', int(load('gems', 0)) + g);
+  } else if (tok) {
     const q = queue();
     const same = q.find((x) => x.tok === tok);
-    if (same) same.n += n;
-    else q.push({ tok, n });
+    if (same) {
+      same.n = int(same.n) + n;
+      same.g = int(same.g) + g;
+    } else q.push(g ? { tok, n, g } : { tok, n });
     save('coinQ', q.slice(-40));
   }
   else save('coinFree', int(load('coinFree', 0)) + n);
@@ -75,11 +90,15 @@ export function takeCoins({ force = false } = {}) {
   const runs = queue();
   const free = int(load('coinFree', 0));
   const init = load('coinInit', false) ? null : int(load('coins', 0));
-  if (!runs.length && !free && init == null) return undefined;
+  const ginit = load('gemInit', false) ? 0 : int(load('gems', 0));
+  if (!runs.length && !free && init == null && !ginit) return undefined;
   const last = Number(load('coinSentAt', 0)) || 0;
-  if (!force && init == null && Date.now() - last < sendEvery() && runs.length < 25) return undefined;
+  // 💎 다이아가 든 판은 기다리지 않고 바로
+  const gemRun = runs.some((x) => x.g > 0);
+  if (!force && init == null && !ginit && !gemRun && Date.now() - last < sendEvery() && runs.length < 25) return undefined;
   const c = { runs, free };
   if (init != null) c.init = init;
+  if (ginit) c.ginit = ginit;
   save('coinSending', c);
   save('coinQ', []);
   save('coinFree', 0);
@@ -97,8 +116,13 @@ export function coinsResult(data) {
   const s = load('coinSending', null);
   if (data && Number.isFinite(data.coins)) {
     save('coinSrv', int(data.coins));
+    if (Number.isFinite(data.gems)) save('gemSrv', int(data.gems));
     if (s) save('coinSentAt', Date.now());
     if (s && s.init != null) save('coinInit', true);
+    if (s && s.ginit) {
+      save('gemInit', true);
+      save('gems', 0);
+    }
     save('coinSending', null);
     // 오늘 한도(하루 5000)를 넘어 서버가 못 받은 만큼 → 다시 모아 뒀다가 다음 날 (2026-11-23)
     if (data.coinSlow) save('coinSlowUntil', Date.now() + 60 * 60 * 1000);

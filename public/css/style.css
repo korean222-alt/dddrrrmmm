@@ -1565,6 +1565,8 @@ html.s2 #app:has(#screen-home2.active)::after { display: none; }
 .h2-res { display: flex; align-items: center; gap: 6px; height: 38px; padding: 0 4px 0 5px; border-radius: 99px; background: rgba(18, 12, 60, 0.62); border: 2px solid rgba(255, 255, 255, 0.28); color: #fff; font: inherit; font-size: 17px; font-variant-numeric: tabular-nums; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px); }
 .h2-res .coin-ico { width: 26px; height: 26px; border-width: 2px; }
 .h2-res b { font-weight: 400; min-width: 28px; text-align: center; }
+.h2-gem { padding: 0 10px 0 6px; }
+.h2-gem .gem-i { width: 24px; height: 24px; flex: none; }
 .h2-plus { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: rgba(255, 255, 255, 0.2); color: #fff; font-size: 18px; line-height: 1; }
 .h2-fire-ico { width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: radial-gradient(circle at 35% 30%, #ffd37a, #ff6a3d); }
 .h2-fire-ico svg { width: 16px; height: 16px; color: #fff; }
@@ -1890,3 +1892,11 @@ html.has-tabs .screen.active:not(#screen-home2) { padding-bottom: calc(96px + va
 .av-pick-btn i { position: absolute; right: -2px; bottom: -2px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-style: normal; color: #fff; background: #7a4cff; border: 2px solid #fff; }
 .sr-row { grid-template-columns: 34px auto 1fr auto; }
 .verify-mascots:empty { display: none; }
+/* 💎 다이아 칩이 생겨서 (2026-11-27) 좁은 폰에선 위 줄을 줄임: 칩끼리 공간 나눔 · + 동그라미 숨김 */
+.h2-top > .h2-res { flex: 0 1 auto; min-width: 0; }
+@media (max-width: 430px) {
+  .h2-top { gap: 6px; }
+  .h2-top .h2-plus { display: none; }
+  .h2-top .h2-res { padding: 0 9px 0 5px; gap: 4px; font-size: 16px; }
+  .h2-top .h2-res b { min-width: 18px; }
+}
