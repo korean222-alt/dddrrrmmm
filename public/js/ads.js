@@ -86,6 +86,8 @@ function houseAd({ seconds = 5, handle = '' } = {}) {
     const link = $('#ad-insta');
     link.href = handle ? `https://www.instagram.com/${handle}/` : 'https://www.instagram.com/';
     $('#ad-handle').textContent = handle ? '@' + handle : '인스타그램';
+    const h2 = $('#ad-handle2');
+    if (h2) h2.textContent = handle ? '@' + handle : '인스타그램';
     btn.disabled = true;
     modal.hidden = false;
     let left = seconds;
