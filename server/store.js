@@ -143,8 +143,9 @@ export class JsonStore {
   }
   upsertPlayer(igsid, patch) {
     const p = this.data.players[igsid] || { igsid, username: null, ig: null, createdAt: Date.now(), checkedAt: null, bests: {} };
-    const { ig, ...rest } = patch;
+    const { ig, av, ...rest } = patch;
     Object.assign(p, rest);
+    if (av) p.av = av;
     // 인스타 아이디가 바뀌거나, 랭킹에서 내려진 사람이 아이디를 다시 넣으면 → 다시 랭킹에 + 운영자가 다시 확인
     if (ig && (ig !== p.ig || p.hiddenAt)) {
       p.ig = ig;
@@ -242,7 +243,7 @@ export class JsonStore {
     const rows = [];
     for (const p of Object.values(this.data.players)) {
       const b = p.bests[level];
-      if (b && p.username && !p.hiddenAt && p.checkedAt) rows.push({ igsid: p.igsid, username: p.username, score: b.score, grade: b.grade, at: b.at });
+      if (b && p.username && !p.hiddenAt && p.checkedAt) rows.push({ igsid: p.igsid, username: p.username, av: p.av || null, score: b.score, grade: b.grade, at: b.at });
     }
     rows.sort((a, b) => b.score - a.score || a.at - b.at);
     rows.forEach((r, i) => (r.rank = i + 1));

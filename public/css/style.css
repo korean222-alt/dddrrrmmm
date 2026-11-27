@@ -1619,12 +1619,29 @@ html.s2 #app:has(#screen-home2.active)::after { display: none; }
 .tl-row .t-stars i { color: rgba(255, 255, 255, 0.28); }
 .tl-row .t-stars i.on { color: #ffd23f; }
 .tl-row .tl-info .t-stars { font-size: 17px; margin-top: 2px; }
-.tl-ribbon { position: absolute; top: 0; right: 0; padding: 2px 12px 2px 16px; font-style: normal; font-size: 12px; letter-spacing: 1px; color: #fff; clip-path: polygon(10px 0, 100% 0, 100% 100%, 0 100%); background: #1fb6a0; }
-.tl-row.d2 .tl-ribbon { background: #2f8cff; }
-.tl-row.d3 .tl-ribbon { background: #ff8a2b; }
-.tl-row.d4 .tl-ribbon { background: #ff3d6e; }
-.tl-row.d5 .tl-ribbon { background: linear-gradient(90deg, #ff3d6e, #8a2be2); }
-.tl-row .tl-go { width: auto; height: 46px; padding: 0 16px; margin-top: 14px; border-radius: 12px; gap: 4px; display: inline-flex; align-items: center; font: inherit; font-size: 17px; color: #4a2a00; background: linear-gradient(180deg, #fff8e0, #ffd99a); border: 2px solid #fff; box-shadow: 0 3px 0 #b67a1a; }
+/* 🏷 난이도 뱃지 (2026-11-27 사용자 '난이도 표시 멋지게') — 아이콘 + 글자 + 칸, 난이도마다 색·빛 */
+.diff-badge { --c1: #3ed991; --c2: #149a5c; --gl: rgba(62, 217, 145, 0.55); position: relative; display: inline-flex; align-items: center; gap: 4px; padding: 3px 9px 3px 5px; border-radius: 99px; font-style: normal; font-size: 12px; line-height: 1; color: #fff; white-space: nowrap; vertical-align: middle;
+  background: linear-gradient(180deg, var(--c1), var(--c2)); border: 1.5px solid rgba(255, 255, 255, 0.85); box-shadow: 0 2px 0 rgba(0, 0, 0, 0.28), 0 0 10px var(--gl); text-shadow: 0 1px 1px rgba(0, 0, 0, 0.35); overflow: hidden; }
+.diff-badge::after { content: ''; position: absolute; inset: 0 0 50% 0; border-radius: 99px 99px 0 0; background: linear-gradient(180deg, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0.05)); pointer-events: none; }
+.diff-badge svg { width: 15px; height: 15px; flex: none; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.3)); }
+.diff-badge b { font-weight: 800; letter-spacing: 0.5px; }
+.diff-badge .db-pips { display: inline-flex; gap: 2px; margin-left: 2px; }
+.diff-badge .db-pips i { width: 4px; height: 9px; border-radius: 2px; background: rgba(0, 0, 0, 0.25); transform: skewX(-12deg); }
+.diff-badge .db-pips i.on { background: #fff; box-shadow: 0 0 4px rgba(255, 255, 255, 0.9); }
+.diff-badge.d2 { --c1: #5cb4ff; --c2: #2a66e8; --gl: rgba(70, 150, 255, 0.55); }
+.diff-badge.d3 { --c1: #ffb347; --c2: #f06212; --gl: rgba(255, 140, 40, 0.6); }
+.diff-badge.d4 { --c1: #ff4f6e; --c2: #b3002d; --gl: rgba(255, 40, 80, 0.7); }
+.diff-badge.d5 { --c1: #3a0a52; --c2: #12001f; --gl: rgba(255, 40, 120, 0.8); border-color: transparent; background: linear-gradient(180deg, #3a0a52, #12001f) padding-box, conic-gradient(from var(--db-a, 0deg), #ff2e5f, #ffb800, #b14dff, #00e5ff, #ff2e5f) border-box; animation: dbSpin 2.4s linear infinite; }
+.diff-badge.d5 b { background: linear-gradient(90deg, #ff6b8b, #ffd36b, #d38bff); -webkit-background-clip: text; background-clip: text; color: transparent; text-shadow: none; filter: drop-shadow(0 0 3px rgba(255, 60, 120, 0.8)); }
+.diff-badge.d5 svg { color: #ff7aa0; filter: drop-shadow(0 0 4px rgba(255, 50, 110, 0.9)); }
+.diff-badge.d5 .db-pips i.on { background: #ff5f8a; box-shadow: 0 0 5px #ff2e5f; }
+@property --db-a { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+@keyframes dbSpin { to { --db-a: 360deg; } }
+.diff-badge.mini { padding: 2px 7px 2px 4px; font-size: 11px; margin-left: 2px; }
+.diff-badge.mini svg { width: 12px; height: 12px; }
+.tl-row > .diff-badge { position: absolute; top: 7px; right: 9px; }
+@media (prefers-reduced-motion: reduce) { .diff-badge.d5 { animation: none; } }
+.tl-row .tl-go { width: auto; height: 46px; padding: 0 16px; margin-top: 24px; border-radius: 12px; gap: 4px; display: inline-flex; align-items: center; font: inherit; font-size: 17px; color: #4a2a00; background: linear-gradient(180deg, #fff8e0, #ffd99a); border: 2px solid #fff; box-shadow: 0 3px 0 #b67a1a; }
 .tl-row .tl-go svg { width: 16px; height: 16px; margin: 0; }
 .tl-row.locked .tl-go { background: #cfc8e0; color: #5b5470; box-shadow: none; }
 .tl-row .tl-info .tl-best { font-size: 12px; color: #ffe27a; }
@@ -1720,6 +1737,30 @@ html.has-tabs .screen.active:not(#screen-home2) { padding-bottom: calc(96px + va
   background: radial-gradient(ellipse 80% 16% at 50% 100%, rgba(255, 190, 120, 0.16), rgba(255, 190, 120, 0) 70%);
 }
 
+/* 🌙 첫 화면 은은한 장식 (2026-11-27 사용자 '배경 심심해, 화려한 건 말고 심심하지 않게만') — 전부 옅게, 천천히 */
+#screen-home2 > .h2-deco { position: absolute; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+.h2-stars { position: absolute; left: 0; top: 0; width: 2px; height: 2px; border-radius: 50%; background: transparent; animation: h2tw 5s ease-in-out infinite;
+  box-shadow: 12vw 8vh rgba(255,255,255,.7), 27vw 15vh rgba(255,255,255,.45), 41vw 6vh rgba(255,255,255,.6), 63vw 11vh rgba(255,255,255,.5), 82vw 7vh rgba(255,255,255,.7), 91vw 19vh rgba(255,255,255,.4), 7vw 24vh rgba(255,255,255,.4), 74vw 27vh rgba(255,255,255,.45), 18vw 36vh rgba(255,255,255,.3), 88vw 38vh rgba(255,255,255,.35), 54vw 3vh rgba(255,255,255,.55), 34vw 29vh rgba(255,255,255,.3); }
+.h2-stars.s2 { animation-delay: -2.5s; animation-duration: 6.5s; transform: translate(4vw, 3vh) scale(1.3);
+  box-shadow: 5vw 14vh rgba(200,190,255,.6), 22vw 4vh rgba(200,190,255,.5), 47vw 18vh rgba(255,230,200,.45), 69vw 4vh rgba(200,190,255,.55), 78vw 16vh rgba(255,230,200,.4), 58vw 31vh rgba(200,190,255,.3), 13vw 44vh rgba(200,190,255,.25), 93vw 30vh rgba(255,230,200,.3); }
+@keyframes h2tw { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+.h2-staff { position: absolute; left: -10%; width: 120%; top: 50%; height: 120px; color: rgba(190, 175, 255, 0.09); animation: h2staff 26s ease-in-out infinite alternate; }
+@keyframes h2staff { from { transform: translateX(-3%); } to { transform: translateX(3%); } }
+.h2-notes i { position: absolute; bottom: -40px; font-style: normal; font-size: 22px; color: rgba(210, 200, 255, 0.16); animation: h2note 18s linear infinite; }
+.h2-notes i:nth-child(1) { left: 8%; animation-delay: 0s; }
+.h2-notes i:nth-child(2) { left: 26%; font-size: 17px; animation-delay: -6s; animation-duration: 22s; }
+.h2-notes i:nth-child(3) { left: 47%; font-size: 15px; animation-delay: -12s; }
+.h2-notes i:nth-child(4) { left: 66%; font-size: 24px; animation-delay: -3s; animation-duration: 21s; }
+.h2-notes i:nth-child(5) { left: 84%; font-size: 18px; animation-delay: -9s; }
+.h2-notes i:nth-child(6) { left: 93%; font-size: 14px; animation-delay: -15s; animation-duration: 24s; }
+@keyframes h2note { 0% { transform: translate(0, 0) rotate(-8deg); opacity: 0; } 10% { opacity: 1; } 50% { transform: translate(14px, -50vh) rotate(8deg); } 85% { opacity: 1; } 100% { transform: translate(-6px, -100vh) rotate(-6deg); opacity: 0; } }
+.h2-keys { position: absolute; left: -4%; right: -4%; bottom: calc(70px + var(--safe-bottom)); height: 74px; opacity: 0.11; transform: perspective(300px) rotateX(38deg); transform-origin: bottom;
+  background:
+    linear-gradient(90deg, transparent 0 10.3%, #0b0a1d 10.3% 18.3%, transparent 18.3% 24.6%, #0b0a1d 24.6% 32.6%, transparent 32.6% 53.1%, #0b0a1d 53.1% 61.1%, transparent 61.1% 67.4%, #0b0a1d 67.4% 75.4%, transparent 75.4% 81.7%, #0b0a1d 81.7% 89.7%, transparent 89.7%) 0 0 / 50% 60% repeat-x,
+    linear-gradient(90deg, #fff 0 93%, transparent 93%) 0 0 / 7.143% 100% repeat-x;
+  -webkit-mask-image: linear-gradient(180deg, transparent, #000 60%); mask-image: linear-gradient(180deg, transparent, #000 60%); }
+@media (prefers-reduced-motion: reduce) { .h2-stars, .h2-staff, .h2-notes i { animation: none; } .h2-notes { display: none; } }
+
 /* ---------- 2026-11-27 멀티 랜덤 대결 카드: 대결 장면 애니메이션 (타일 = 타일 두 판, 드럼 = 쿵콩이 vs 짝콩이) ---------- */
 .room-rush { overflow: hidden; }
 .vs-scene { position: relative; height: 118px; margin: -10px -12px 10px; display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 6px; padding: 10px 18px; overflow: hidden; }
@@ -1799,3 +1840,24 @@ html.has-tabs .screen.active:not(#screen-home2) { padding-bottom: calc(96px + va
 .gal-pod em { font-size: 12px; line-height: 1.35; color: #ffe7c0; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
 .gal-podium:not([hidden]) ~ .gal-nav { display: none; }
 #screen-home2 .login-cta { width: calc(100% - 24px); margin: 14px auto 0; border-radius: 22px; }
+
+/* 🙂 프로필 이미지 (2026-11-27) */
+.av { position: relative; flex: none; display: inline-grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; overflow: hidden; border: 2px solid #fff; box-shadow: 0 2px 0 rgba(0, 0, 0, 0.18); vertical-align: middle; }
+.av img { width: 112%; height: 112%; object-fit: cover; margin-top: 8%; }
+.av.av-ico svg { width: 62%; height: 62%; filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.3)); }
+.av.av-none { background: linear-gradient(180deg, #8f80c8, #5b4d96); color: #fff; font-size: 0.5em; font-weight: 800; }
+.av-sm { width: 30px; height: 30px; border-width: 1.5px; font-size: 26px; }
+.av-md { width: 52px; height: 52px; font-size: 40px; }
+.av-lg { width: 100%; height: auto; aspect-ratio: 1; font-size: 50px; }
+.av-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+.av-opt { padding: 0; border-radius: 50%; background: none; border: 0; transition: transform 0.12s; }
+.av-opt .av { border-width: 3px; }
+.av-opt.on { transform: scale(1.08); }
+.av-opt.on .av { border-color: #ffd23f; box-shadow: 0 0 0 3px #7a4cff, 0 3px 8px rgba(80, 40, 200, 0.4); }
+.av-opt:active { transform: scale(0.94); }
+@media (max-width: 340px) { .av-grid { grid-template-columns: repeat(4, 1fr); } }
+#settings-account { display: flex; align-items: center; gap: 10px; }
+.av-pick-btn { position: relative; padding: 0; border: 0; background: none; border-radius: 50%; }
+.av-pick-btn i { position: absolute; right: -2px; bottom: -2px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-style: normal; color: #fff; background: #7a4cff; border: 2px solid #fff; }
+.sr-row { grid-template-columns: 34px auto 1fr auto; }
+.verify-mascots:empty { display: none; }

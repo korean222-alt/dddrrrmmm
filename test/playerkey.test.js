@@ -93,3 +93,18 @@ test('합쳐서 지운 계정의 열쇠 → 남긴 계정으로 이어 주고 �
   const nt = r2.headers.get('x-player');
   assert.equal(JSON.parse(Buffer.from(nt.split('.')[0], 'base64url').toString()).igsid, 'g_keep');
 });
+
+// 🙂 프로필 이미지 (2026-11-27): 가입 때 같이 · 나중에 바꾸기 · 이상한 값 거절 · 랭킹 줄에 보임
+test('프로필 이미지: 가입 때 av · /api/avatar 로 바꿈 · 이상한 값 400', async () => {
+  const r1 = await call('/api/guest', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: '프로필시험', ig: 'av_test1', av: 'jjak2' }) });
+  assert.equal((await r1.clone().json()).player.av, 'jjak2');
+  const tok = r1.headers.get('x-player');
+  const r2 = await call('/api/avatar', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Player': tok }, body: JSON.stringify({ av: 'crown' }) });
+  assert.equal((await r2.json()).player.av, 'crown');
+  const r3 = await call('/api/avatar', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Player': tok }, body: JSON.stringify({ av: '<img>' }) });
+  assert.equal(r3.status, 400);
+  const me = await (await call('/api/me', { headers: { 'X-Player': tok } })).json();
+  assert.equal(me.player.av, 'crown');
+  const r4 = await call('/api/avatar', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ av: 'kong' }) });
+  assert.equal(r4.status, 401);
+});

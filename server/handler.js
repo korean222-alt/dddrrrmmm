@@ -3,6 +3,7 @@
 // 저장소(store)는 메서드가 값이나 Promise 를 돌려줘도 되게 전부 await 로 부름
 //   - Node: JsonStore (파일 하나) / Vercel: PgStore (Neon Postgres)
 
+import { cleanAvatar } from '../public/js/avatars.js';
 import crypto from 'node:crypto';
 import { sign, unsign, parseCookies, cookie, newId } from './session.js';
 import { buildStats } from './stats.js';
@@ -546,7 +547,7 @@ export function createHandler(cfg, { store, meter = null }) {
   const meOf = (pl) => ({
     verified: false, guest: true, needsIg: !pl.ig && !pl.kakao && !pl.google, checked: isVerified(pl), confirmed: isConfirmed(pl), temp: !NO_PASSWORD && isConfirmed(pl) && pl.checkedAt < 0,
     hidden: pl.hiddenAt ? { deleteAt: pl.hiddenAt + HIDE_KEEP_MS } : null,
-    player: { username: pl.username, ig: pl.ig },
+    player: { username: pl.username, ig: pl.ig, av: pl.av || null },
     kakao: !!pl.kakao,
     google: !!pl.google,
     rank: rankOk(pl),
@@ -899,7 +900,7 @@ export function createHandler(cfg, { store, meter = null }) {
       if (rec2 && rec2.username) {
         rec = rec2;
         if (request._setCookies) request._setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid: rec2.igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
-        return { igsid: rec.igsid, username: rec.username, ig: rec.ig || null, hiddenAt: rec.hiddenAt || null, checkedAt: rec.checkedAt || null, kakao: !!rec.kakao, google: !!rec.google };
+        return { igsid: rec.igsid, username: rec.username, ig: rec.ig || null, hiddenAt: rec.hiddenAt || null, checkedAt: rec.checkedAt || null, kakao: !!rec.kakao, google: !!rec.google, av: rec.av || null };
       }
     }
     if (rec && rec.username) {
@@ -907,7 +908,7 @@ export function createHandler(cfg, { store, meter = null }) {
       // 쿠키가 날아간 폰: 헤더로 왔으면 쿠키를 다시 줌
       if (c !== raw && request._setCookies) request._setCookies.push(cookie(PLAYER_COOKIE, raw, { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
     }
-    return rec && rec.username ? { igsid: rec.igsid, username: rec.username, ig: rec.ig || null, hiddenAt: rec.hiddenAt || null, checkedAt: rec.checkedAt || null, kakao: !!rec.kakao, google: !!rec.google } : null;
+    return rec && rec.username ? { igsid: rec.igsid, username: rec.username, ig: rec.ig || null, hiddenAt: rec.hiddenAt || null, checkedAt: rec.checkedAt || null, kakao: !!rec.kakao, google: !!rec.google, av: rec.av || null } : null;
   }
 
   // ------------------- API -------------------
@@ -1086,6 +1087,17 @@ export function createHandler(cfg, { store, meter = null }) {
     // 랭킹용 닉네임 + 인스타 아이디. 이미 있으면 새 이름/아이디로 바꿈 (기록은 그대로)
     //   인스타 아이디는 운영자가 팔로우했는지 직접 확인하는 데만 쓰고, 랭킹에는 안 보임.
     //   (처음 만드는 사람은 꼭 필요. 예전에 아이디 없이 참여한 사람은 한 번 채워 넣으면 됨)
+    // 🙂 프로필 이미지 바꾸기 (2026-11-27): { av } → 내 정보. 쓰기 1줄
+    if (p === '/api/avatar' && m === 'POST') {
+      const pl = await getPlayer(request);
+      if (!pl) return json(401, { error: 'no_player' });
+      const body = await readJson(request);
+      const av = cleanAvatar(body.av);
+      if (!av) return json(400, { error: 'bad_avatar' });
+      const rec = (await store.upsertPlayer(pl.igsid, { av })) || { ...pl, av };
+      return json(200, meOf({ ...pl, av: rec.av || av }));
+    }
+
     if (p === '/api/guest' && m === 'POST') {
       if (!limitGuest(ip)) return json(429, { error: 'rate_limited' });
       const body = await readJson(request);
@@ -1105,7 +1117,7 @@ export function createHandler(cfg, { store, meter = null }) {
         if (o) return json(409, { error: 'old_account', username: o.username });
       }
       const igsid = pl ? pl.igsid : 'g_' + newId().replace(/[^A-Za-z0-9]/g, '').slice(0, 16);
-      let rec = await store.upsertPlayer(igsid, { username: name, ig });
+      let rec = await store.upsertPlayer(igsid, { username: name, ig, av: cleanAvatar(body.av) });
       // 🔓 암호를 없앤 뒤(11-26): 이용 등록·아이디 바꾸기 = 바로 인증 완료 (예전엔 아이디를 바꾸면 암호로 다시 인증)
       if (NO_PASSWORD && rec && !rec.checkedAt && (await store.setChecked(igsid, true))) rec = await store.getPlayer(igsid);
       if (nw) {
@@ -1116,7 +1128,7 @@ export function createHandler(cfg, { store, meter = null }) {
         rec = await store.getPlayer(igsid);
       }
       if (!pl) setCookies.push(cookie(PLAYER_COOKIE, sign({ igsid, v: Date.now() }, cfg.sessionSecret), { maxAge: PLAYER_MAX_AGE, secure: cfg.cookieSecure }));
-      return json(200, meOf({ username: name, ig: (rec && rec.ig) || ig, checkedAt: rec && rec.checkedAt, hiddenAt: rec && rec.hiddenAt, kakao: !!(rec && rec.kakao), google: !!(rec && rec.google) }));
+      return json(200, meOf({ username: name, ig: (rec && rec.ig) || ig, av: rec && rec.av, checkedAt: rec && rec.checkedAt, hiddenAt: rec && rec.hiddenAt, kakao: !!(rec && rec.kakao), google: !!(rec && rec.google) }));
     }
 
     // 팔로워 암호로 인증: 키티챗이 팔로워에게만 DM 으로 준 암호를 적으면 바로 '인증 완료'(운영자 확인과 같음)
@@ -1930,7 +1942,7 @@ export function createHandler(cfg, { store, meter = null }) {
       const slot = tileSlot(lbTile.id);
       const pl = await getPlayer(request);
       const lb = await boardOf(slot);
-      const entries = lb.rows.map((r) => ({ rank: r.rank, username: r.username, score: r.score, laps: gradeLaps(r.grade), me: pl ? r.igsid === pl.igsid : false }));
+      const entries = lb.rows.map((r) => ({ rank: r.rank, username: r.username, av: r.av || null, score: r.score, laps: gradeLaps(r.grade), me: pl ? r.igsid === pl.igsid : false }));
       const inTop = pl && lb.rows.find((r) => r.igsid === pl.igsid);
       const mine = inTop ? { rank: inTop.rank, score: inTop.score } : pl && brake() < 1 ? await myRank(slot, pl.igsid) : null;
       return json(200, { level: lbTile.key, entries, me: mine ? { rank: mine.rank, over: !!mine.over, score: mine.score } : null });
@@ -1950,7 +1962,7 @@ export function createHandler(cfg, { store, meter = null }) {
       if (!level) return json(400, { error: 'bad_level' });
       const pl = await getPlayer(request);
       const lb = await boardOf(level.id);
-      const entries = lb.rows.map((r) => ({ rank: r.rank, username: r.username, score: r.score, grade: r.grade, me: pl ? r.igsid === pl.igsid : false }));
+      const entries = lb.rows.map((r) => ({ rank: r.rank, username: r.username, av: r.av || null, score: r.score, grade: r.grade, me: pl ? r.igsid === pl.igsid : false }));
       const inTop = pl && lb.rows.find((r) => r.igsid === pl.igsid);
       const mine = inTop ? { rank: inTop.rank, score: inTop.score } : pl && brake() < 1 ? await myRank(level.id, pl.igsid) : null;
       return json(200, { level: level.id, entries, me: mine ? { rank: mine.rank, over: !!mine.over, score: mine.score } : null });

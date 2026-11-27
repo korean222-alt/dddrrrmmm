@@ -19,9 +19,15 @@ import { parseMelody, parseChord, noteToMidi, STEPS_PER_BAR, getLevel, TempoMap,
 export const TILE_ROWS = 3.5;
 /** 난이도별 첫 바퀴 빠르기 (초당 줄 수) */
 //   2026-11-27: 마지막 바퀴(×1.3)에서도 한 줄 = 0.2초 이상이 되게 첫 바퀴를 3.8 까지로 (그래야 바퀴마다 똑같은 타일)
-export const TILE_RPS = [0, 2.6, 2.9, 3.2, 3.5, 3.8];
+export const TILE_RPS = [0, 2.6, 3.4, 3.8, 4.15, 4.55];
 /** 🎹 2026-11-27 사용자 '빠르기 고정, 곡 끝날 때마다 다이아 하나, 더 빠르게 → 다이아 3개' : 바퀴마다 빠르기 (바퀴 안에선 고정) */
 export const LAP_SPEEDS = [1, 1.1, 1.2, 1.3];
+/**
+ * 🏎 난이도별 바퀴 빠르기 (2026-11-27 사용자 '난이도가 쉬워, 지옥+ 인데 느려 · 쉬움 빼고 전체적으로 더 빠르게'):
+ *   이웃 타일 0.2초 규칙은 '제일 빠른 바퀴' 기준이라, 첫 바퀴를 빠르게 하려면 바퀴마다 빨라지는 폭을 줄여야 함
+ *   (첫 바퀴 초당 줄 × 마지막 배수 ≤ 5). 쉬움은 예전 그대로.
+ */
+export const DIFF_SPEEDS = [null, LAP_SPEEDS, [1, 1.06, 1.12, 1.18], [1, 1.05, 1.1, 1.15], [1, 1.04, 1.08, 1.12], [1, 1.03, 1.06, 1.09]];
 /** 긴 타일 덤 (줄 하나 더 누를 때마다) */
 export const HOLD_PTS = 500;
 
@@ -160,7 +166,7 @@ export function rowUnit(notes) {
  *   → { u, bpm, bars, steps, notes, prog, first, pattern, tiles, points }
  *   notes = 노래(반주가 치는 멜로디 전부), pattern = 한 바퀴 타일 (모든 바퀴가 똑같음 — 2026-11-27 사용자 '띄엄띄엄 이상해')
  */
-export function buildLap(melody, prog, rps) {
+export function buildLap(melody, prog, rps, speeds = LAP_SPEEDS) {
   const parsed = parseMelody(melody).map((n) => ({ ...n, at: n.bar * STEPS_PER_BAR + n.step }));
   const uniq = [];
   for (const n of parsed) {
@@ -174,7 +180,7 @@ export function buildLap(melody, prog, rps) {
   const bars = melody.length;
   const steps = bars * STEPS_PER_BAR;
   // 📱 제일 빠른 바퀴(×1.3)에서도 한 줄이 0.2초 이상이 되게 빠르기 상한
-  const maxSp = LAP_SPEEDS[LAP_SPEEDS.length - 1];
+  const maxSp = speeds[speeds.length - 1];
   rps = Math.min(rps, 1 / (MIN_TAP_SEC * maxSp) - 1e-6);
   const bpm = 15 * u * rps;
   const fastStep = 15 / (bpm * maxSp); // 제일 빠른 바퀴의 16분 한 칸(초)
@@ -204,7 +210,7 @@ export function buildLap(melody, prog, rps) {
     const prev = pat[pat.length - 2].lane;
     last.lane = [0, 1, 2, 3].find((x) => x !== prev && x !== pat[0].lane && Math.abs(x - last.lane) <= 2) ?? last.lane;
   }
-  const lap = { u, bpm, bars, steps, notes: uniq.map((n) => ({ at: n.at, bar: n.bar, len: n.len, midi: n.midi })), prog: melody.map((_, i) => String(prog[i] || 'C')), first: pat[0].at, pattern: pat };
+  const lap = { speeds, u, bpm, bars, steps, notes: uniq.map((n) => ({ at: n.at, bar: n.bar, len: n.len, midi: n.midi })), prog: melody.map((_, i) => String(prog[i] || 'C')), first: pat[0].at, pattern: pat };
   const two = buildCourse(lap, { laps: 2, party: true });
   lap.tiles = two.tiles.filter((t) => t.k === 0);
   lap.points = two.lapPts[0];
@@ -226,10 +232,11 @@ export function buildCourse(lap, { laps = MAX_LAPS, party = true } = {}) {
   const segs = [{ kind: 'lap', k: 0, bar0: 0, bars: B }];
   if (P) segs.push({ kind: 'party', k: -1, bar0: B, bars: P });
   for (let k = 1; k < laps; k++) segs.push({ kind: 'lap', k, bar0: B + P + (k - 1) * B, bars: B });
+  const sp = lap.speeds || LAP_SPEEDS;
   const speedAt = (bar) => {
-    if (bar < B) return lapSpeed(0);
-    if (bar < B + P) return lapSpeed(1);
-    return lapSpeed(1 + Math.floor((bar - B - P) / B));
+    if (bar < B) return lapSpeed(0, sp);
+    if (bar < B + P) return lapSpeed(1, sp);
+    return lapSpeed(1 + Math.floor((bar - B - P) / B), sp);
   };
   const tempo = new TempoMap((bar) => lap.bpm * speedAt(bar));
   const t0 = tempo.stepTime(lap.first);
@@ -343,13 +350,13 @@ export function tileLap(songId) {
   if (_laps.has(songId)) return _laps.get(songId);
   const s = TILE_SONGS.find((x) => x.id === songId);
   const src = s && tileSource(songId);
-  let lap = src ? buildLap(src.melody, src.prog, TILE_RPS[s.diff]) : null;
+  let lap = src ? buildLap(src.melody, src.prog, TILE_RPS[s.diff], DIFF_SPEEDS[s.diff]) : null;
   if (lap && lapSec(lap) < LAP_MIN_SEC) {
     // 짧은 곡: 두 번째는 한 옥타브 위(너무 높으면 아래)로 — 반짝이는 변주처럼
     const ns = parseMelody(src.melody);
     const hi = Math.max(...ns.map((n) => n.midi));
     const sh = hi + 12 <= 88 ? 12 : -12;
-    lap = buildLap([...src.melody, ...src.melody.map((b) => transposeBar(b, sh))], [...src.prog, ...src.prog], TILE_RPS[s.diff]);
+    lap = buildLap([...src.melody, ...src.melody.map((b) => transposeBar(b, sh))], [...src.prog, ...src.prog], TILE_RPS[s.diff], DIFF_SPEEDS[s.diff]);
   }
   if (lap) lap.songId = songId;
   _laps.set(songId, lap);
@@ -376,8 +383,8 @@ export const mapTileMax = (map) => {
 };
 
 /** 바퀴 k(0부터)의 빠르기 배수: 첫 곡은 그대로, 그 뒤 바퀴마다 +0.12 */
-export function lapSpeed(k) {
-  return LAP_SPEEDS[Math.max(0, Math.min(LAP_SPEEDS.length - 1, k))];
+export function lapSpeed(k, sp = LAP_SPEEDS) {
+  return sp[Math.max(0, Math.min(sp.length - 1, k))];
 }
 /**
  * 별 · 다이아: 첫 바퀴에서 별 3개가 차오름 (frac = 그 바퀴 진행 0~1, 1/3·2/3·끝), 둘째 바퀴에서 다이아 3개가 똑같이

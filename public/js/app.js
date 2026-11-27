@@ -16229,7 +16229,8 @@ function serverApi(boot = null) {
       }
       return http('GET', '/api/me');
     },
-    guest: (name, ig) => http('POST', '/api/guest', { name, ig }),
+    guest: (name, ig, av) => http('POST', '/api/guest', { name, ig, av }),
+    avatar: (av) => http('POST', '/api/avatar', { av }),
     verifyPassword: (body) => http('POST', '/api/verify/password', body),
     // 이용 통계는 따로 안 보내고 이 요청들에 얹어 보냄 (요청 수 아끼기)
     // 🪙 코인도 얹어 보냄 (coins.js). 응답에 잔액이 오면 받은 것, 아니면 다음에 다시
@@ -16371,8 +16372,13 @@ function mockApi(cfg) {
       const p = getPlayer();
       return p ? { verified: !p.guest, guest: !!p.guest, player: p } : { verified: false };
     },
-    async guest(name, ig) {
-      const p = { username: String(name).trim(), ig, guest: true };
+    async avatar(av) {
+      const p = { ...(getPlayer() || {}), av };
+      save('mockPlayer', p);
+      return { verified: false, guest: true, player: p };
+    },
+    async guest(name, ig, av) {
+      const p = { username: String(name).trim(), ig, av, guest: true };
       save('mockPlayer', p);
       return { verified: false, guest: true, player: p };
     },
@@ -17300,6 +17306,50 @@ async function makeReelCover({ lv, title, sub, bottom, deco = null }) {
 return { splitTitle, makeReelCover };
 })();
 
+// ---- avatars.js ----
+const __m_avatars = (() => {
+// 🙂 프로필 이미지 (2026-11-27 사용자 '프로필 이미지도 관련된 게 있으면 좋겠어')
+//   쿵콩이·짝콩이 표정 8개(assets/avatar/*.webp, 128px — 마스코트 그림을 잘라 줄임) + 악기 그림 4개(직접 그린 SVG)
+//   계정에 id 만 저장(players.av) → 랭킹 줄·설정·첫 가입 창에 보임. 서버는 AVATAR_IDS 로만 검사 (폰·서버 같이 씀)
+
+const SVG = {
+  piano: '<rect x="3" y="5" width="18" height="14" rx="2.5" fill="#fff"/><path d="M7.5 5v14M12 5v14M16.5 5v14" stroke="#c9c3dd" stroke-width="1"/><rect x="6" y="5" width="3" height="8" rx="1" fill="#1d1a29"/><rect x="10.5" y="5" width="3" height="8" rx="1" fill="#1d1a29"/><rect x="15" y="5" width="3" height="8" rx="1" fill="#1d1a29"/>',
+  drum: '<ellipse cx="12" cy="9" rx="8" ry="3.2" fill="#fff"/><path d="M4 9v6.5c0 1.8 3.6 3.2 8 3.2s8-1.4 8-3.2V9c0 1.8-3.6 3.2-8 3.2S4 10.8 4 9z" fill="#ff5a6e"/><path d="M6 11.6l2 6M10 12.2l1 6.3M14 12.2l-1 6.3M18 11.6l-2 6" stroke="#ffd86b" stroke-width="1.2"/><path d="M5 2.5l6 6M19 2.5l-6 6" stroke="#ffe0b0" stroke-width="1.8" stroke-linecap="round"/>',
+  note: '<path d="M9 17.5a3 3 0 1 1-1.4-2.5V4.5l11-2.2v12.4a3 3 0 1 1-1.4-2.5V6.6L9 8.2z" fill="#fff"/>',
+  crown: '<path d="M3.5 8l4.2 3.6L12 4.5l4.3 7.1L20.5 8l-1.8 10H5.3z" fill="#ffd54a" stroke="#fff3c0" stroke-width="1" stroke-linejoin="round"/><circle cx="12" cy="13.6" r="1.6" fill="#ff4f8f"/><rect x="5.3" y="18.2" width="13.4" height="2" rx="1" fill="#ffb800"/>',
+};
+
+/** 고를 수 있는 프로필 (순서 = 고르기 창 순서) */
+const AVATARS = [
+  { id: 'kong', img: 'kong_idle', bg: ['#ffcf9a', '#ff8a3d'] },
+  { id: 'jjak', img: 'jjak_idle', bg: ['#b8f0c8', '#3cc47a'] },
+  { id: 'kong2', img: 'kong_cheer', bg: ['#ffe28a', '#ffad1f'] },
+  { id: 'jjak2', img: 'jjak_cheer', bg: ['#a8e4ff', '#3a9bff'] },
+  { id: 'kong3', img: 'kong_hit', bg: ['#ffb3d4', '#ff5f9a'] },
+  { id: 'jjak3', img: 'jjak_hit', bg: ['#d6c2ff', '#8a5cff'] },
+  { id: 'kong4', img: 'kong_miss', bg: ['#c6cdea', '#6a78b0'] },
+  { id: 'jjak4', img: 'jjak_miss', bg: ['#b5f5ea', '#1fb6a0'] },
+  { id: 'piano', svg: 'piano', bg: ['#4a3d9a', '#1a1340'] },
+  { id: 'drum', svg: 'drum', bg: ['#ffb070', '#e8501f'] },
+  { id: 'note', svg: 'note', bg: ['#ff9fd6', '#c34dff'] },
+  { id: 'crown', svg: 'crown', bg: ['#3a4bb0', '#141a52'] },
+];
+const AVATAR_IDS = AVATARS.map((a) => a.id);
+/** 서버·폰 공통: 이상한 값은 null */
+const cleanAvatar = (v) => (typeof v === 'string' && AVATAR_IDS.includes(v) ? v : null);
+
+/** 동그란 프로필 HTML (id 없으면 닉네임 첫 글자) */
+function avatarHtml(id, name = '', cls = '') {
+  const a = AVATARS.find((x) => x.id === id);
+  if (!a) return `<span class="av av-none ${cls}" aria-hidden="true">${String(name || '?').slice(0, 1).replace(/[<>&"]/g, '')}</span>`;
+  const st = `style="background:radial-gradient(circle at 35% 28%, ${a.bg[0]}, ${a.bg[1]})"`;
+  const inner = a.img ? `<img src="assets/avatar/${a.img}.webp" alt="" loading="lazy" width="128" height="128">` : `<svg viewBox="0 0 24 24">${SVG[a.svg]}</svg>`;
+  return `<span class="av ${a.svg ? 'av-ico' : ''} ${cls}" ${st} aria-hidden="true">${inner}</span>`;
+}
+
+return { AVATARS, AVATAR_IDS, cleanAvatar, avatarHtml };
+})();
+
 // ---- tiles.js ----
 const __m_tiles = (() => {
 // 🎹 시즌 2 피아노 타일 — 브라우저와 서버가 같이 씀
@@ -17323,9 +17373,15 @@ const { parseMelody, parseChord, noteToMidi, STEPS_PER_BAR, getLevel, TempoMap, 
 const TILE_ROWS = 3.5;
 /** 난이도별 첫 바퀴 빠르기 (초당 줄 수) */
 //   2026-11-27: 마지막 바퀴(×1.3)에서도 한 줄 = 0.2초 이상이 되게 첫 바퀴를 3.8 까지로 (그래야 바퀴마다 똑같은 타일)
-const TILE_RPS = [0, 2.6, 2.9, 3.2, 3.5, 3.8];
+const TILE_RPS = [0, 2.6, 3.4, 3.8, 4.15, 4.55];
 /** 🎹 2026-11-27 사용자 '빠르기 고정, 곡 끝날 때마다 다이아 하나, 더 빠르게 → 다이아 3개' : 바퀴마다 빠르기 (바퀴 안에선 고정) */
 const LAP_SPEEDS = [1, 1.1, 1.2, 1.3];
+/**
+ * 🏎 난이도별 바퀴 빠르기 (2026-11-27 사용자 '난이도가 쉬워, 지옥+ 인데 느려 · 쉬움 빼고 전체적으로 더 빠르게'):
+ *   이웃 타일 0.2초 규칙은 '제일 빠른 바퀴' 기준이라, 첫 바퀴를 빠르게 하려면 바퀴마다 빨라지는 폭을 줄여야 함
+ *   (첫 바퀴 초당 줄 × 마지막 배수 ≤ 5). 쉬움은 예전 그대로.
+ */
+const DIFF_SPEEDS = [null, LAP_SPEEDS, [1, 1.06, 1.12, 1.18], [1, 1.05, 1.1, 1.15], [1, 1.04, 1.08, 1.12], [1, 1.03, 1.06, 1.09]];
 /** 긴 타일 덤 (줄 하나 더 누를 때마다) */
 const HOLD_PTS = 500;
 
@@ -17464,7 +17520,7 @@ function rowUnit(notes) {
  *   → { u, bpm, bars, steps, notes, prog, first, pattern, tiles, points }
  *   notes = 노래(반주가 치는 멜로디 전부), pattern = 한 바퀴 타일 (모든 바퀴가 똑같음 — 2026-11-27 사용자 '띄엄띄엄 이상해')
  */
-function buildLap(melody, prog, rps) {
+function buildLap(melody, prog, rps, speeds = LAP_SPEEDS) {
   const parsed = parseMelody(melody).map((n) => ({ ...n, at: n.bar * STEPS_PER_BAR + n.step }));
   const uniq = [];
   for (const n of parsed) {
@@ -17478,7 +17534,7 @@ function buildLap(melody, prog, rps) {
   const bars = melody.length;
   const steps = bars * STEPS_PER_BAR;
   // 📱 제일 빠른 바퀴(×1.3)에서도 한 줄이 0.2초 이상이 되게 빠르기 상한
-  const maxSp = LAP_SPEEDS[LAP_SPEEDS.length - 1];
+  const maxSp = speeds[speeds.length - 1];
   rps = Math.min(rps, 1 / (MIN_TAP_SEC * maxSp) - 1e-6);
   const bpm = 15 * u * rps;
   const fastStep = 15 / (bpm * maxSp); // 제일 빠른 바퀴의 16분 한 칸(초)
@@ -17508,7 +17564,7 @@ function buildLap(melody, prog, rps) {
     const prev = pat[pat.length - 2].lane;
     last.lane = [0, 1, 2, 3].find((x) => x !== prev && x !== pat[0].lane && Math.abs(x - last.lane) <= 2) ?? last.lane;
   }
-  const lap = { u, bpm, bars, steps, notes: uniq.map((n) => ({ at: n.at, bar: n.bar, len: n.len, midi: n.midi })), prog: melody.map((_, i) => String(prog[i] || 'C')), first: pat[0].at, pattern: pat };
+  const lap = { speeds, u, bpm, bars, steps, notes: uniq.map((n) => ({ at: n.at, bar: n.bar, len: n.len, midi: n.midi })), prog: melody.map((_, i) => String(prog[i] || 'C')), first: pat[0].at, pattern: pat };
   const two = buildCourse(lap, { laps: 2, party: true });
   lap.tiles = two.tiles.filter((t) => t.k === 0);
   lap.points = two.lapPts[0];
@@ -17530,10 +17586,11 @@ function buildCourse(lap, { laps = MAX_LAPS, party = true } = {}) {
   const segs = [{ kind: 'lap', k: 0, bar0: 0, bars: B }];
   if (P) segs.push({ kind: 'party', k: -1, bar0: B, bars: P });
   for (let k = 1; k < laps; k++) segs.push({ kind: 'lap', k, bar0: B + P + (k - 1) * B, bars: B });
+  const sp = lap.speeds || LAP_SPEEDS;
   const speedAt = (bar) => {
-    if (bar < B) return lapSpeed(0);
-    if (bar < B + P) return lapSpeed(1);
-    return lapSpeed(1 + Math.floor((bar - B - P) / B));
+    if (bar < B) return lapSpeed(0, sp);
+    if (bar < B + P) return lapSpeed(1, sp);
+    return lapSpeed(1 + Math.floor((bar - B - P) / B), sp);
   };
   const tempo = new TempoMap((bar) => lap.bpm * speedAt(bar));
   const t0 = tempo.stepTime(lap.first);
@@ -17647,13 +17704,13 @@ function tileLap(songId) {
   if (_laps.has(songId)) return _laps.get(songId);
   const s = TILE_SONGS.find((x) => x.id === songId);
   const src = s && tileSource(songId);
-  let lap = src ? buildLap(src.melody, src.prog, TILE_RPS[s.diff]) : null;
+  let lap = src ? buildLap(src.melody, src.prog, TILE_RPS[s.diff], DIFF_SPEEDS[s.diff]) : null;
   if (lap && lapSec(lap) < LAP_MIN_SEC) {
     // 짧은 곡: 두 번째는 한 옥타브 위(너무 높으면 아래)로 — 반짝이는 변주처럼
     const ns = parseMelody(src.melody);
     const hi = Math.max(...ns.map((n) => n.midi));
     const sh = hi + 12 <= 88 ? 12 : -12;
-    lap = buildLap([...src.melody, ...src.melody.map((b) => transposeBar(b, sh))], [...src.prog, ...src.prog], TILE_RPS[s.diff]);
+    lap = buildLap([...src.melody, ...src.melody.map((b) => transposeBar(b, sh))], [...src.prog, ...src.prog], TILE_RPS[s.diff], DIFF_SPEEDS[s.diff]);
   }
   if (lap) lap.songId = songId;
   _laps.set(songId, lap);
@@ -17680,8 +17737,8 @@ const mapTileMax = (map) => {
 };
 
 /** 바퀴 k(0부터)의 빠르기 배수: 첫 곡은 그대로, 그 뒤 바퀴마다 +0.12 */
-function lapSpeed(k) {
-  return LAP_SPEEDS[Math.max(0, Math.min(LAP_SPEEDS.length - 1, k))];
+function lapSpeed(k, sp = LAP_SPEEDS) {
+  return sp[Math.max(0, Math.min(sp.length - 1, k))];
 }
 /**
  * 별 · 다이아: 첫 바퀴에서 별 3개가 차오름 (frac = 그 바퀴 진행 0~1, 1/3·2/3·끝), 둘째 바퀴에서 다이아 3개가 똑같이
@@ -17782,7 +17839,7 @@ const gradeLaps = (g) => {
   return m ? Number(m[1]) : 0;
 };
 
-return { TILE_ROWS, TILE_RPS, LAP_SPEEDS, HOLD_PTS, TILE_SONGS, TILE_DIFF, TILE_FREE, TILE_SLOT0, TILE_SLOT_MAX, MAX_LAPS, TILE_HEARTS, GONE_ROWS, MIN_TAP_SEC, MIN_GAP, PARTY_BARS, PARTY_GAP, TILE_MEL, tileSource, rowUnit, buildLap, tilePoints, buildCourse, assignLanes, LAP_MIN_SEC, transposeBar, tileLap, mapTileLap, MAP_TILE_LAPS, mapTileMax, lapSpeed, lapStars, tileId, tileSong, tileSlot, isTileSlot, tileClosed, tileCourse, tileTimes, tilesWithin, checkTileRun, lapGrade, gradeLaps };
+return { TILE_ROWS, TILE_RPS, LAP_SPEEDS, DIFF_SPEEDS, HOLD_PTS, TILE_SONGS, TILE_DIFF, TILE_FREE, TILE_SLOT0, TILE_SLOT_MAX, MAX_LAPS, TILE_HEARTS, GONE_ROWS, MIN_TAP_SEC, MIN_GAP, PARTY_BARS, PARTY_GAP, TILE_MEL, tileSource, rowUnit, buildLap, tilePoints, buildCourse, assignLanes, LAP_MIN_SEC, transposeBar, tileLap, mapTileLap, MAP_TILE_LAPS, mapTileMax, lapSpeed, lapStars, tileId, tileSong, tileSlot, isTileSlot, tileClosed, tileCourse, tileTimes, tilesWithin, checkTileRun, lapGrade, gradeLaps };
 })();
 
 // ---- tilegame.js ----
@@ -17833,6 +17890,39 @@ const GREAT_SEC = [-0.15, 0.17];
 /** 🎯 PERFECT 자리 (줄): 타일 아래 끝이 판정선을 이만큼 지난 때가 한가운데 (2026-11-27 사용자 '선 중간에 맞춰 누르는데 PERFECT 가 안 떠, 좀만 내려')
  *   = 타일이 판정선에 걸쳐 있을 때. 소리(그 음)는 그대로 아래 끝이 선에 닿을 때 */
 const PERFECT_ROWS = 0.3;
+
+/**
+ * 🎨 판정 글자 색 = 스킨 컨셉 (2026-11-27 사용자 '세트 스킨들은 PERFECT 도 컨셉에 맞게 색 바뀌게, 라이브 세트는 최대한 비슷하게')
+ *   → { perfect·great·good: 그라데이션 색, stroke: 테두리, shadow, glass: 유리 조각 물(r,g,b), gloss, italic, fx, combo, comboFill }
+ *   🎤 라이브 = 리듬게임 라이브 무대 느낌: 기울인 글씨 + 핑크→노랑→하늘→보라 파스텔, 하얀 빛 테두리, 빛줄기, 가운데 「COMBO」 숫자
+ *   (특정 게임 이름·로고·그림은 안 베낌 — 장르에서 흔한 모양만)
+ */
+function judgeTheme(key, palette) {
+  const base = { perfect: ['#d98bff', '#ff8fcf', '#ffb07a'], great: ['#7fe6ff', '#6aa6ff', '#8f86ff'], good: ['#8ff0c8', '#5ccfb4', '#4fb7d8'], stroke: '#ffffff', shadow: 'rgba(170,70,200,0.45)', glass: '255,220,250', gloss: 0.45, italic: false, fx: 'glass', combo: 'x', comboFill: '#ffffff' };
+  switch (key) {
+    case 'live':
+      return { ...base, perfect: ['#ff6fd8', '#ffb3e6', '#ffe86b', '#8ff6ff', '#b58cff'], great: ['#ff9fe3', '#ff6fc8', '#ff9fe3'], good: ['#9fe8ff', '#5cc8ff', '#9fe8ff'], shadow: 'rgba(255,150,240,0.95)', gloss: 0.55, italic: true, fx: 'streak', combo: 'live' };
+    case 's1':
+      return { ...base, perfect: ['#fff6c8', '#ffd54a', '#e09a12', '#ffe680'], great: ['#c9d4ff', '#8fa2ff', '#5c6fe0'], good: ['#b8c2e8', '#8a97c8', '#6a76a8'], stroke: '#1b2560', shadow: 'rgba(20,28,90,0.55)', glass: '255,214,90', gloss: 0.6, comboFill: '#ffe27a' };
+    case 'gold':
+      return { ...base, perfect: ['#ffe680', '#ffb300', '#e07a00', '#ffd04a'], great: ['#ffe39a', '#f2b23a', '#d98a10'], shadow: 'rgba(150,90,0,0.6)', glass: '255,210,90', gloss: 0.6, comboFill: '#fff3c4' };
+    case 'flame':
+    case 'fire':
+      return { ...base, perfect: ['#ffe27a', '#ff9a1f', '#ff4a2e'], great: ['#ffd27a', '#ff8a3a', '#ff6a4a'], shadow: 'rgba(200,60,0,0.5)', glass: '255,150,60' };
+    case 'ice':
+      return { ...base, perfect: ['#bff3ff', '#3ec8ff', '#4f7bff'], great: ['#9fe6ff', '#5cb8ff', '#7f9cff'], shadow: 'rgba(30,90,200,0.55)', glass: '150,230,255', gloss: 0.6 };
+    case 'heart':
+      return { ...base, perfect: ['#ffb3d9', '#ff5fa2', '#e86bff'], great: ['#ffc2e0', '#ff8fc8', '#f2a0ff'], shadow: 'rgba(220,40,130,0.45)', glass: '255,140,200' };
+    case 'cyber':
+      return { ...base, perfect: ['#00f0ff', '#c6ff00', '#ff2bd6'], great: ['#00f0ff', '#8c5cff'], good: ['#00ff9c', '#00b0c0'], stroke: '#0b0f2a', shadow: 'rgba(0,240,255,0.7)', glass: '0,240,255', italic: true, comboFill: '#b8fcff' };
+    case 'galaxy':
+      return { ...base, perfect: ['#5cffc8', '#4fd8ff', '#b26bff', '#ff7ad9'], great: ['#9fb0ff', '#b26bff'], shadow: 'rgba(110,60,220,0.55)', glass: '180,120,255' };
+    default:
+      // 색 콩(사탕·네온·바다·불꽃): 그 스킨의 색 셋으로
+      if (palette && key !== 'mono' && palette.length >= 3) return { ...base, perfect: [palette[0][0], palette[1][0], palette[2][0]] };
+      return base;
+  }
+}
 /** 👆 타일 아래 끝보다 이만큼(줄) 아래를 눌러도 그 타일 (손가락이 닿는 사이 타일이 내려옴) — 더 밑은 빈 칸 */
 const TAP_BELOW = 0.3;
 /** 🪙 떨어지는 코인 (드럼처럼) 수명 */
@@ -19171,8 +19261,10 @@ class TileGame {
     const k = (t - j.at) / life;
     if (k < 0 || k > 1) return;
     const { W, H } = this;
-    const px = Math.min(46, W * 0.115);
-    const y = Math.max(76, H * 0.105) + Math.min(56, W * 0.135) + px * 0.9;
+    const th = judgeTheme(this.skin.key, this.skin.palette);
+    // 2026-11-27 사용자 'PERFECT 글씨 너무 커' → 예전(46·W×0.115)의 3/4쯤
+    const px = Math.min(34, W * 0.084);
+    const y = Math.max(76, H * 0.105) + Math.min(56, W * 0.135) + px * 1.1;
     const a = k > 0.7 ? (1 - k) / 0.3 : 1;
     const k1 = clamp(k / 0.16, 0, 1);
     const s = (per ? 1 : 0.85) * (k1 < 1 ? 0.6 + 0.5 * ease(k1) - 0.1 * Math.max(0, k1 - 0.6) / 0.4 : 1 + 0.02 * (k - 0.16));
@@ -19180,12 +19272,37 @@ class TileGame {
     g.globalAlpha = a;
     g.translate(W / 2, y);
     g.scale(s, s);
+    if (th.italic) g.transform(1, 0, -0.2, 1, 0, 0); // 기울인 글씨 (라이브 세트·사이버)
     g.font = disp(px);
     g.textAlign = 'center';
     g.textBaseline = 'middle';
     const tw = g.measureText(j.word).width;
-    // 유리 조각 (판정마다 모양이 조금씩 다름): 글자 뒤에서 살짝 퍼짐
-    if (per) {
+    if (per && th.fx === 'streak') {
+      // 🎤 라이브: 글자 뒤로 하얀 빛줄기가 가로로 스치고, 작은 마름모 반짝이
+      const sk = ease(clamp(k / 0.35, 0, 1));
+      const len = tw * (0.7 + 0.6 * sk);
+      const lg = g.createLinearGradient(-len, 0, len, 0);
+      lg.addColorStop(0, 'rgba(255,255,255,0)');
+      lg.addColorStop(0.5, `rgba(255,255,255,${0.75 * (1 - k)})`);
+      lg.addColorStop(1, 'rgba(255,255,255,0)');
+      g.fillStyle = lg;
+      g.fillRect(-len, -px * 0.07, len * 2, px * 0.14);
+      for (const [dx, dy, r] of [[-0.62, -0.62, 0.16], [0.58, 0.5, 0.12], [0.66, -0.7, 0.09]]) {
+        const rr = px * r * (0.6 + 0.6 * Math.sin(Math.PI * clamp(k * 1.6, 0, 1)));
+        g.save();
+        g.translate(tw * dx, px * dy);
+        g.fillStyle = '#ffffff';
+        g.beginPath();
+        g.moveTo(0, -rr * 1.6);
+        g.lineTo(rr * 0.5, 0);
+        g.lineTo(0, rr * 1.6);
+        g.lineTo(-rr * 0.5, 0);
+        g.closePath();
+        g.fill();
+        g.restore();
+      }
+    } else if (per) {
+      // 유리 조각 (판정마다 모양이 조금씩 다름): 글자 뒤에서 살짝 퍼짐 — 스킨 색으로 물듦
       let seed = Math.floor(j.at * 977) % 233280 || 7;
       const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
       const spread = ease(k / 0.5);
@@ -19207,68 +19324,93 @@ class TileGame {
         g.closePath();
         const sgr = g.createLinearGradient(-sz, -sz * 0.4, sz, sz * 0.4);
         sgr.addColorStop(0, 'rgba(255,255,255,0.42)');
-        sgr.addColorStop(1, 'rgba(255,220,250,0.08)');
+        sgr.addColorStop(1, `rgba(${th.glass},0.14)`);
         g.fillStyle = sgr;
         g.fill();
         g.strokeStyle = 'rgba(255,255,255,0.85)';
-        g.lineWidth = 1.6;
+        g.lineWidth = 1.4;
         g.lineJoin = 'round';
         g.stroke();
         g.restore();
       }
     }
-    const gr = g.createLinearGradient(-tw / 2, 0, tw / 2, 0);
-    const cs = per ? ['#d98bff', '#ff8fcf', '#ffb07a'] : j.word === 'GREAT' ? ['#7fe6ff', '#6aa6ff', '#8f86ff'] : ['#8ff0c8', '#5ccfb4', '#4fb7d8'];
-    gr.addColorStop(0, cs[0]);
-    gr.addColorStop(0.5, cs[1]);
-    gr.addColorStop(1, cs[2]);
+    const gr = g.createLinearGradient(-tw / 2, -px * 0.3, tw / 2, px * 0.3);
+    const cs = per ? th.perfect : j.word === 'GREAT' ? th.great : th.good;
+    cs.forEach((c, i) => gr.addColorStop(i / (cs.length - 1), c));
     g.lineJoin = 'round';
-    g.shadowColor = per ? 'rgba(170,70,200,0.45)' : 'rgba(40,60,160,0.35)';
-    g.shadowBlur = 10;
-    g.shadowOffsetY = 2;
-    g.lineWidth = px * 0.14;
-    g.strokeStyle = '#ffffff';
+    g.shadowColor = per ? th.shadow : 'rgba(40,60,160,0.35)';
+    g.shadowBlur = per && th.fx === 'streak' ? 14 : 10;
+    g.shadowOffsetY = th.fx === 'streak' ? 0 : 2;
+    g.lineWidth = px * 0.15;
+    g.strokeStyle = th.stroke;
     g.strokeText(j.word, 0, 0);
     g.shadowColor = 'transparent';
     g.fillStyle = gr;
     g.fillText(j.word, 0, 0);
     // 윗면 광택
     const hg = g.createLinearGradient(0, -px * 0.45, 0, px * 0.1);
-    hg.addColorStop(0, 'rgba(255,255,255,0.45)');
+    hg.addColorStop(0, `rgba(255,255,255,${th.gloss})`);
     hg.addColorStop(1, 'rgba(255,255,255,0)');
     g.fillStyle = hg;
     g.fillText(j.word, 0, 0);
     if (!per) {
       // 빨라요 / 늦어요 (왜 PERFECT 가 아닌지)
-      g.font = font(px * 0.42);
+      g.font = font(px * 0.44);
       g.shadowColor = 'rgba(30,20,80,0.4)';
       g.shadowBlur = 4;
       g.fillStyle = '#ffffff';
-      g.fillText(j.late ? '늦어요' : '빨라요', 0, px * 0.85);
+      g.fillText(j.late ? '늦어요' : '빨라요', 0, px * 0.88);
       g.shadowColor = 'transparent';
     }
     g.restore();
-    // ×연속: 글자 오른쪽 아래에 하얀 숫자
-    if (j.n >= 2) {
-      const ck = clamp(k / 0.14, 0, 1);
-      const cs2 = 0.7 + 0.3 * ease(ck) + 0.12 * Math.sin(ck * Math.PI);
-      g.save();
-      g.globalAlpha = a;
-      g.translate(W / 2 + (tw * s) * 0.22, y + px * 0.92);
+    if (j.n < 2) return;
+    const ck = clamp(k / 0.14, 0, 1);
+    const cs2 = 0.7 + 0.3 * ease(ck) + 0.12 * Math.sin(ck * Math.PI);
+    g.save();
+    g.globalAlpha = a;
+    if (th.combo === 'live') {
+      // 🎤 라이브: 판정 글자 밑에 「COMBO」 + 큰 기울인 숫자 (파스텔 그라데이션 · 하얀 빛)
+      g.translate(W / 2, y + px * 1.35);
       g.scale(cs2, cs2);
-      g.textAlign = 'left';
+      g.transform(1, 0, -0.2, 1, 0, 0);
+      g.textAlign = 'center';
       g.textBaseline = 'middle';
-      g.shadowColor = 'rgba(150,60,190,0.45)';
-      g.shadowBlur = 8;
-      g.shadowOffsetY = 2;
+      g.font = disp(px * 0.36, 600);
+      g.shadowColor = 'rgba(255,255,255,0.9)';
+      g.shadowBlur = 6;
       g.fillStyle = '#ffffff';
-      g.font = disp(px * 0.5, 600);
-      g.fillText('×', 0, px * 0.04);
-      const xw = g.measureText('×').width;
-      g.font = disp(px * 0.82);
-      g.fillText(String(j.n), xw + px * 0.06, 0);
+      g.fillText('C O M B O', 0, -px * 0.02);
+      g.font = disp(px * 1.05);
+      const nw = g.measureText(String(j.n)).width;
+      const ng = g.createLinearGradient(-nw / 2, 0, nw / 2, 0);
+      th.perfect.forEach((c, i) => ng.addColorStop(i / (th.perfect.length - 1), c));
+      g.shadowColor = th.shadow;
+      g.shadowBlur = 12;
+      g.lineWidth = px * 0.13;
+      g.strokeStyle = '#ffffff';
+      g.lineJoin = 'round';
+      g.strokeText(String(j.n), 0, px * 0.72);
+      g.shadowColor = 'transparent';
+      g.fillStyle = ng;
+      g.fillText(String(j.n), 0, px * 0.72);
       g.restore();
+      return;
     }
+    // ×연속: 글자 오른쪽 아래에 숫자 (스킨 색 그림자)
+    g.translate(W / 2 + (tw * s) * 0.22, y + px * 0.95);
+    g.scale(cs2, cs2);
+    g.textAlign = 'left';
+    g.textBaseline = 'middle';
+    g.shadowColor = th.shadow;
+    g.shadowBlur = 8;
+    g.shadowOffsetY = 2;
+    g.fillStyle = th.comboFill;
+    g.font = disp(px * 0.5, 600);
+    g.fillText('×', 0, px * 0.04);
+    const xw = g.measureText('×').width;
+    g.font = disp(px * 0.82);
+    g.fillText(String(j.n), xw + px * 0.06, 0);
+    g.restore();
   }
 
   /** ⚔️ 대결: 나 vs 상대 막대 */
@@ -20163,7 +20305,7 @@ function gem(g, cx, cy, r) {
   g.fill();
 }
 
-return { TileGame, coin, gemOutline, gem };
+return { judgeTheme, TileGame, coin, gemOutline, gem };
 })();
 
 // ---- sharecard.js ----
@@ -20524,6 +20666,7 @@ const { RoomClient, roomOutcome, survivalOutcome } = __m_room;
 const { makeReelCover } = __m_cover;
 const { barEnergy, detectBeat, monoOf, songChart } = __m_beatsync;
 const { seasonLeftText, BOARD_LABEL, seasonAt } = __m_season;
+const { AVATARS, avatarHtml, cleanAvatar } = __m_avatars;
 const { TILE_SONGS, TILE_DIFF, tileSong, tileId, tileClosed, lapStars, tileLap, mapTileLap, MAP_TILE_LAPS } = __m_tiles;
 const { TileGame } = __m_tilegame;
 const { noteTilePlay, noteDrum, questView, claimQuest, claimCommunity, communityClaimed, attView, noteAttendance } = __m_s2claims;
@@ -22478,7 +22621,7 @@ function openSettings() {
   updateSettingLabels();
   renderDeco();
   $('#settings-account').innerHTML = state.me.guest
-    ? `랭킹 닉네임: <b>${escapeHtml(state.me.player?.username)}</b> · <button class="link" data-action="logout">닉네임 지우기</button>`
+    ? `<button class="av-pick-btn" data-action="avatar-open" aria-label="프로필 이미지 바꾸기">${avatarHtml(state.me.player?.av, state.me.player?.username, 'av-md')}<i>✎</i></button><span>랭킹 닉네임: <b>${escapeHtml(state.me.player?.username)}</b> · <button class="link" data-action="logout">닉네임 지우기</button></span>`
     : `랭킹은 팔로워 인증을 받은 사람만 올라가요 · <button class="link" data-action="rank-join">팔로워 인증 받기</button>`;
   $('#transfer-code').hidden = true;
   openModal('modal-settings');
@@ -26787,7 +26930,7 @@ function renderHomeToday() {
       ${tileCoverHtml(hot, i, true)}
       <span class="h2-today-info">
         <b>${escapeHtml(song.level.name)}</b>
-        <small>${escapeHtml(song.level.composer)} · ${TILE_DIFF[hot.diff]}</small>
+        <small>${escapeHtml(song.level.composer)} ${diffBadge(hot.diff, true)}</small>
         <span class="h2-today-score"><em>최고</em><strong>${b ? fmt(b.tiles) : 0}</strong></span>
         <span class="h2-today-stars">${tileStarsHtml(st.stars, st.gems)}</span>
       </span>
@@ -26833,6 +26976,22 @@ const GEM_EMPTY_SVG = '<svg viewBox="0 0 24 24" class="gem-i empty" aria-hidden=
 function tileStarsHtml(stars, gems) {
   return `<span class="t-stars">${[0, 1, 2].map((i) => `<i class="${i < stars ? 'on' : ''}">★</i>`).join('')}</span>${stars >= 3 ? `<span class="t-gems">${[0, 1, 2].map((i) => (i < gems ? GEM_SVG : GEM_EMPTY_SVG)).join('')}</span>` : ''}`;
 }
+/**
+ * 🏷 난이도 뱃지 (2026-11-27 사용자 '난이도 표시를 멋지게'): 아이콘 + 글자 + 칸(1~5), 난이도마다 색·빛
+ *   쉬움 새싹 · 보통 별 · 어려움 불꽃 · 지옥 해골 · 지옥+ 뿔 달린 해골(무지개 테두리가 돎)
+ */
+const DIFF_ICO = [
+  '',
+  '<path d="M12 21v-8M12 13c0-4 2.5-7 7-7 0 4.5-3 7-7 7zM12 15c0-3-2-5.5-6-5.5 0 3.5 2.5 5.5 6 5.5z" fill="currentColor" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>',
+  '<path d="M12 2.8l2.7 6 6.5.6-4.9 4.3 1.5 6.4L12 16.8 6.2 20.1l1.5-6.4L2.8 9.4l6.5-.6z" fill="currentColor"/>',
+  '<path d="M12 2c1 4 6 6 6 12a6 6 0 0 1-12 0c0-3 1.5-4.5 3-6 0 2 1 3 2 3 0-3-1-6 1-9z" fill="currentColor"/><path d="M12 13c1.5 1.5 3 2.5 3 4.5a3 3 0 0 1-6 0c0-1.5 1-2.5 3-4.5z" fill="rgba(255,255,255,0.55)"/>',
+  '<path d="M12 2.5c-4.7 0-8 3.2-8 7.6 0 2.6 1.2 4.4 3 5.4V19a1.5 1.5 0 0 0 1.5 1.5H10v-2h1.2v2h1.6v-2H14v2h1.5A1.5 1.5 0 0 0 17 19v-3.5c1.8-1 3-2.8 3-5.4 0-4.4-3.3-7.6-8-7.6z" fill="currentColor"/><circle cx="8.8" cy="10.8" r="2.1" fill="#3a0010"/><circle cx="15.2" cy="10.8" r="2.1" fill="#3a0010"/><path d="M12 13.2l-1.2 2.2h2.4z" fill="#3a0010"/>',
+  '<path d="M3 2.5c.5 3 1.8 4.8 3.8 5.6M21 2.5c-.5 3-1.8 4.8-3.8 5.6" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" fill="none"/><path d="M12 5c-4.4 0-7.5 3-7.5 7.1 0 2.4 1.1 4.1 2.8 5V20a1.3 1.3 0 0 0 1.3 1.3h1.5v-1.8h1.2v1.8h1.4v-1.8h1.2v1.8h1.5a1.3 1.3 0 0 0 1.3-1.3v-2.9c1.7-.9 2.8-2.6 2.8-5C19.5 8 16.4 5 12 5z" fill="currentColor"/><path d="M7.2 11.2l3.3 1.4-.4 1.2-2.2-.3zM16.8 11.2l-3.3 1.4.4 1.2 2.2-.3z" fill="#ff2e5f"/><path d="M12 14.6l-1 1.8h2z" fill="#2a0030"/>',
+];
+function diffBadge(d, mini = false) {
+  const pips = mini ? '' : `<span class="db-pips">${[1, 2, 3, 4, 5].map((k) => `<i class="${k <= d ? 'on' : ''}"></i>`).join('')}</span>`;
+  return `<em class="diff-badge d${d}${mini ? ' mini' : ''}"><svg viewBox="0 0 24 24" aria-hidden="true">${DIFF_ICO[d] || ''}</svg><b>${TILE_DIFF[d]}</b>${pips}</em>`;
+}
 /** 곡 표지: 곡마다 색이 다른 그라데이션 + 내려오는 타일 무늬 + 음표 */
 const TILE_HUES = [28, 340, 200, 265, 150, 12, 300, 185, 45, 230, 320, 95, 255, 5, 170, 280, 210, 355];
 function tileCoverHtml(t, i, big = false) {
@@ -26865,7 +27024,7 @@ function renderTiles() {
       <span class="tl-hero-fall"><i></i><i></i><i></i><i></i><i></i><i></i></span>
       <span class="tl-hero-tag"><span class="live-dot"></span>오늘의 노래 · 시즌 2 랭킹 중</span>
       <b class="tl-hero-name">${escapeHtml(hs.level.name)}</b>
-      <small class="tl-hero-sub">${escapeHtml(hs.level.composer)} · ${TILE_DIFF[hot.diff]}${hb ? ` · 내 최고 ${fmt(hb.tiles)}` : ''}</small>
+      <small class="tl-hero-sub">${escapeHtml(hs.level.composer)} ${diffBadge(hot.diff, true)}${hb ? ` · 내 최고 ${fmt(hb.tiles)}` : ''}</small>
       <span class="tl-hero-stars">${tileStarsHtml(hst.stars, hst.gems)}</span>
       <span class="tl-hero-play"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>플레이</span>
     </button>`;
@@ -26884,7 +27043,7 @@ function renderTiles() {
       <span class="tl-no">${i + 1}</span>
       ${tileCoverHtml(t, i)}
       <span class="tl-info"><b>${escapeHtml(lv.name)}${tag}</b><small>${escapeHtml(lv.composer)}</small>${tileStarsHtml(st, gems)}${b ? `<span class="tl-best">최고 ${fmt(b.tiles)}</span>` : ''}</span>
-      <em class="tl-ribbon">${TILE_DIFF[t.diff]}</em>
+      ${diffBadge(t.diff)}
       <button class="tl-go" data-tplay="${t.id}" aria-label="${escapeHtml(lv.name)} 시작">${lock ? icon('lock') : '플레이'}</button>
     </div>`;
     })
@@ -27281,11 +27440,11 @@ async function renderS2Rank() {
         const { stars, gems } = lapStars(e.laps || 0);
         return e.laps ? tileStarsHtml(stars, gems) : '';
       })();
-      return `<div class="sr-row ${e.me || mine ? 'me' : ''} ${e.rank <= 3 ? 'top' + e.rank : ''}"><span class="r">${e.rank ? medal(e.rank) : '-'}</span><span class="n">${escapeHtml(e.username || '')}</span><span class="s">${fmt(e.score)}<small>${sub}</small></span></div>`;
+      return `<div class="sr-row ${e.me || mine ? 'me' : ''} ${e.rank <= 3 ? 'top' + e.rank : ''}"><span class="r">${e.rank ? medal(e.rank) : '-'}</span>${avatarHtml(e.av, e.username, 'av-sm')}<span class="n">${escapeHtml(e.username || '')}</span><span class="s">${fmt(e.score)}<small>${sub}</small></span></div>`;
     };
     const entries = d.entries || [];
     let html = entries.length ? entries.map((e) => row(e)).join('') : `<p class="sr-empty">${s2On() && !state.cfg.s2Open ? '👀 미리보기 · 시즌 2 가 열리면 여기에 순위가 떠요' : '아직 기록 없음'}</p>`;
-    if (d.me && !entries.some((e) => e.me)) html += `<div class="sr-mine">${row({ ...d.me, username: state.me.player?.username || '나', rank: d.me.rank || (d.me.cap ? `${d.me.cap}+` : null) }, true)}</div>`;
+    if (d.me && !entries.some((e) => e.me)) html += `<div class="sr-mine">${row({ ...d.me, username: state.me.player?.username || '나', av: state.me.player?.av, rank: d.me.rank || (d.me.cap ? `${d.me.cap}+` : null) }, true)}</div>`;
     list.innerHTML = html;
   } catch {
     list.innerHTML = '<p class="sr-empty">순위를 못 불러왔어요. 잠시 뒤에 다시 해 주세요</p>';
@@ -27584,11 +27743,19 @@ function askLogin() {
   state.loginAskedRank = true;
   openLogin({ rank: true });
 }
+/** 🙂 프로필 고르기 칸 (첫 가입 창·프로필 창이 같이 씀) */
+function avatarGridHtml(cur) {
+  return AVATARS.map((a) => `<button type="button" class="av-opt ${a.id === cur ? 'on' : ''}" data-av="${a.id}" aria-label="프로필 ${a.id}" aria-pressed="${a.id === cur}">${avatarHtml(a.id, '', 'av-lg')}</button>`).join('');
+}
+let loginAv = 'kong';
 function openLoginName() {
-  $('#login-mascots').innerHTML = buddiesHTML('cheer', 'cheer');
+  $('#login-mascots').innerHTML = '';
   $('#login-choose').hidden = true;
   $('#login-name-form').hidden = false;
   $('#login-err').hidden = true;
+  loginAv = load('lastAv', null) || AVATARS[Math.floor(Math.random() * 8)].id;
+  $('#login-av').innerHTML = avatarGridHtml(loginAv);
+  $('#login-ig').value = load('lastIg', '');
   $('#login-name').value = load('lastNick', '');
   openModal('modal-login');
   setTimeout(() => $('#login-name').focus(), 50);
@@ -27601,9 +27768,17 @@ async function submitLoginName() {
   };
   if ([...name].length < 2) return err('닉네임을 2자 이상으로 써 주세요.');
   if (!/^[\p{L}\p{N}_. ]+$/u.test(name)) return err('닉네임은 한글·영문·숫자·_ . 만 쓸 수 있어요.');
+  // 인스타 아이디 (선택): @ 나 주소를 붙여 넣어도 아이디만
+  let ig = $('#login-ig').value.trim().toLowerCase();
+  const im = ig.match(/instagram\.com\/([^/?#\s]+)/);
+  if (im) ig = im[1];
+  ig = ig.replace(/^@+/, '');
+  if (ig && !/^[a-z0-9._]{1,30}$/.test(ig)) return err('인스타 아이디는 영문·숫자·_ . 만 돼요 (안 적어도 돼요)');
   try {
-    state.me = await state.api.guest(name);
+    state.me = await state.api.guest(name, ig || undefined, loginAv);
     save('lastNick', name);
+    save('lastAv', loginAv);
+    if (ig) save('lastIg', ig);
     closeModal('modal-login');
     refreshTitle();
     refreshKakao();
@@ -27616,6 +27791,24 @@ async function submitLoginName() {
       return toast('로그인 시간이 지났어요 · 카카오로 다시 로그인해 주세요', 3000);
     }
     err('지금은 등록이 안 돼요. 잠시 뒤 다시 해 주세요.');
+  }
+}
+/** 🙂 프로필 이미지 바꾸기 창 (설정에서) */
+function openAvatar() {
+  $('#avatar-grid').innerHTML = avatarGridHtml(state.me.player?.av);
+  openModal('modal-avatar');
+}
+async function pickAvatar(id) {
+  if (!cleanAvatar(id) || id === state.me.player?.av) return closeModal('modal-avatar');
+  try {
+    const me = await state.api.avatar(id);
+    state.me = { ...state.me, ...me, player: { ...(state.me.player || {}), ...(me.player || {}), av: id } };
+    save('lastAv', id);
+    closeModal('modal-avatar');
+    if (!$('#modal-settings').hidden) openSettings();
+    toast('🙂 프로필을 바꿨어요', 1800);
+  } catch {
+    toast('지금은 못 바꿔요. 잠시 뒤에 다시 해 주세요', 2200);
   }
 }
 /** 시작 화면의 '🔑 카카오 로그인' 버튼 */
@@ -27774,6 +27967,8 @@ const ACTIONS = {
   },
   'kakao-link': () => kakaoGo('link'),
   'kakao-login': () => kakaoGo('login'),
+  'avatar-open': () => openAvatar(),
+  'close-avatar': () => closeModal('modal-avatar'),
   'google-link': () => oauthGo('google', 'link'),
   'google-login': () => oauthGo('google', 'login'),
   'p2-play': (el) => p2Play(el.dataset.style),
@@ -28097,6 +28292,20 @@ function bindActions() {
   $('#login-name-form').addEventListener('submit', (e) => {
     e.preventDefault();
     submitLoginName();
+  });
+  // 🙂 프로필 고르기: 첫 가입 창은 표시만 바꿈(가입 때 같이 보냄), 설정의 프로필 창은 바로 저장
+  $('#login-av').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-av]');
+    if (!b) return;
+    loginAv = b.dataset.av;
+    $$('#login-av .av-opt').forEach((x) => {
+      x.classList.toggle('on', x === b);
+      x.setAttribute('aria-pressed', String(x === b));
+    });
+  });
+  $('#avatar-grid').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-av]');
+    if (b) pickAvatar(b.dataset.av);
   });
   $('#join-form').addEventListener('submit', (e) => {
     e.preventDefault();
