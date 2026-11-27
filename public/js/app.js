@@ -15875,7 +15875,7 @@ function todayQuests(day) {
 
 /** 커뮤니티 퀘스트 기본값 (운영자가 admin 에서 숫자·달성을 바꿈) */
 //   2026-11-26 사용자: 팔로워 2천 명이 되면 모두에게 2천 코인
-const COMMUNITY_DEFAULT = [{ id: 'f2000', icon: '📸', title: '오케이스트라 인스타 팔로워 2,000명', goal: 2000, now: 0, reward: 2000, done: false }];
+const COMMUNITY_DEFAULT = [{ id: 'f2000', icon: '📸', title: '오케이스트라 인스타 팔로워 2,000명', goal: 2000, now: 1920, reward: 2222, done: false }];
 
 /** admin 이 보낸 커뮤니티 퀘스트 목록 검사 */
 function cleanCommunity(list) {
