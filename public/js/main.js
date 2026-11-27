@@ -2403,8 +2403,8 @@ function shopName(type, key) {
   return (THEMES[key] || {}).name || key;
 }
 const SHOP_DESC = {
-  notes: '콩 모양에 질감 + 꼬리 + 반짝이가 붙어요',
-  bg: '상점에서만 파는 무대예요',
+  notes: '드럼 콩엔 질감 + 꼬리 + 반짝이 · 🎹 타일엔 타일 무늬가 붙어요',
+  bg: '상점에서만 파는 무대예요 (🥁 드럼 화면)',
   kit: '상점에서만 파는 드럼 세트예요',
   photo: '내 사진을 무대 배경으로 깔아요',
   ui: '판정선·콩·판정 글자·콤보·무대·버튼 소리가 리듬게임 라이브 화면처럼 한 번에 바뀌어요',
@@ -6438,36 +6438,13 @@ function stopTile() {
 }
 /** ⚔️ 타일 대결은 3바퀴까지 (점수 = 친 타일 수) */
 const VS_LAPS = 3;
-/** 🎨 상점에서 장착한 것 → 타일 스킨 (콩 스킨 = 타일 색, 무대 = 배경, 세트는 세트 것) */
-const tileImgs = {};
-function tileImg(src) {
-  if (tileImgs[src]) return tileImgs[src];
-  const img = new Image();
-  img.onload = () => tp.game && tp.game.refreshSkin();
-  img.src = src;
-  tileImgs[src] = img;
-  return img;
-}
+/** 🎨 상점에서 장착한 것 → 타일 스킨 (2026-11-27 사용자 '스킨 껴도 배경은 안 바뀌게, 대신 스킨은 타일을 꾸며줘'):
+ *   배경은 늘 밝은 기본 (무대·사진 안 씀), 콩 스킨·세트 → 타일 무늬 (tilegame _paintTile) */
 function tileSkin() {
   const ui = decoPick('ui');
-  const live = ui === 'live';
-  const s1 = ui === 's1';
-  const bgKey = live ? 'livestage' : s1 ? 's1stage' : decoPick('bg');
-  const notesKey = live ? 'basic' : s1 ? 's1' : decoPick('notes');
-  const np = NOTE_PALETTES[notesKey] || {};
-  const skin = { palette: np.c || null, fx: np.fx || null };
-  if (bgKey === 'photo') {
-    if (renderer.bgPhoto) {
-      skin.img = renderer.bgPhoto;
-      skin.dim = Math.max(0.35, state.settings.photoDim ?? 0.4);
-    }
-  } else if (bgKey && bgKey !== 'auto' && THEMES[bgKey]) {
-    const th = THEMES[bgKey];
-    skin.sky = th.sky || null;
-    if (th.img) skin.img = tileImg(th.img);
-    skin.dim = Math.max(0.4, th.imgDim ?? 0.4);
-  }
-  return skin;
+  const key = ui === 'live' ? 'live' : ui === 's1' ? 's1' : decoPick('notes');
+  const np = NOTE_PALETTES[key] || {};
+  return { key, palette: np.c || null, fx: np.fx || null };
 }
 /** 🎹 타일 치기: songId(시즌 2 곡) 또는 map(유저 맵 타일 { id, name, data }) */
 async function tilePlay(songId = tp.song, { room = null, map = null } = {}) {
@@ -8043,7 +8020,7 @@ async function boot() {
     else toast('도전장 링크가 깨졌어요. 다시 받아 주세요!', 3000);
   }
   document.documentElement.dataset.api = state.api.mode;
-  if (devParam('debug') === '1') window.__kk = { state, audio, renderer, startLevel };
+  if (devParam('debug') === '1') window.__kk = { state, audio, renderer, startLevel, tilePlay };
 }
 
 boot();

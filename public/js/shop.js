@@ -38,7 +38,9 @@ export const SHOP_ITEMS = [
 export const S1_SALE_END = Date.UTC(2026, 10, 27, 14, 59, 59);
 export const LIMITED = { 'ui:s1': S1_SALE_END };
 /** 지금 살 수 있나 (한정 물건 기간 확인) */
-export const onSale = (id, now = Date.now()) => !(LIMITED[id] && now > LIMITED[id]);
+/** 판매 끝 (산 사람은 계속 씀): 📷 내 사진 — 2026-11-27 사용자 '내 사진 넣기 스킨 빼고' */
+export const RETIRED = new Set(['bg:photo']);
+export const onSale = (id, now = Date.now()) => !RETIRED.has(id) && !(LIMITED[id] && now > LIMITED[id]);
 const PRICE = new Map(SHOP_ITEMS.map(([id, p]) => [id, p]));
 export const RARITY = Object.fromEntries(SHOP_ITEMS.map(([id, , r]) => [id, r]));
 export const RARITY_NAME = { rare: '레어', epic: '에픽', legend: '전설', limited: '한정' };
