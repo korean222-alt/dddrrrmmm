@@ -18315,6 +18315,10 @@ class TileGame {
     const lag = Math.max(0, ctx.currentTime - heard);
     this.perf0 = pn + (lead + lag - from) * 1000;
     this.drift = 0;
+    // 🧷 2026-11-27 사용자 '시작 타일 누르면 위로 두 번 튐': 소리가 (lead + 출력 지연) 뒤에 들리게 맞추느라 곡 시각이 잠깐 음수 →
+    //   멈춰 있던 화면(0초)이 뒤로 갔다가 내려옴. 그동안 화면은 시작 자리에 멈춰 둠 (대결의 카운트다운은 그대로)
+    this.floorT = this.vs && from === 0 && lead > 0.5 ? null : from;
+    this._resyncAt = pn;
     this._lastCtx = ctx.currentTime;
     this._lastCtxAt = pn;
     this._newBus();
@@ -18585,8 +18589,30 @@ class TileGame {
     const err = want - this.drift;
     const fdt = clamp((pn - (this._syncAt || pn)) / 1000, 0, 0.05);
     this._syncAt = pn;
-    if (Math.abs(err) > 0.25) this.drift = want;
+    if (err < -0.25) {
+      // 소리가 늦음(소리 엔진이 막 깨어남 등) → 화면을 뒤로 당기면 타일이 위로 튐(시작 때 두 번째 튐). 화면은 그대로 두고 소리를 화면 시각에 다시 맞춤
+      if (pn - (this._resyncAt || 0) > 800) this._resyncAudio(pn);
+      return;
+    }
+    if (err > 0.25) this.drift = want;
     else if (Math.abs(err) > 0.01) this.drift += clamp(err * Math.min(1, fdt * 3), -fdt * 0.06, fdt * 0.06);
+  }
+
+  /** 화면 시각은 그대로 두고, 지금 화면 시각의 소리가 지금 들리게 소리 예약만 다시 */
+  _resyncAudio(pn) {
+    const a = this.audio;
+    const ctx = a.ctx;
+    this._resyncAt = pn;
+    const from = this._time(pn);
+    const heard = a.heardTime ? a.heardTime(pn) : ctx.currentTime;
+    const lag = Math.max(0, ctx.currentTime - heard);
+    this.aud0 = ctx.currentTime - lag - from;
+    this._hush(0.04);
+    this._newBus();
+    this._musicFrom(from + lag + 0.03);
+    this._lastCtx = ctx.currentTime;
+    this._lastCtxAt = pn;
+    this._schedule();
   }
 
   // ---------- 입력 ----------
@@ -19019,7 +19045,7 @@ class TileGame {
       } catch {}
       if (o && (o.died || o.left)) return this._win(t, o.left ? 'left' : 'died');
     }
-    this._draw(t, dt);
+    this._draw(this.floorT != null && t < this.floorT ? this.floorT : t, dt);
   }
 
   _win(t, why) {
