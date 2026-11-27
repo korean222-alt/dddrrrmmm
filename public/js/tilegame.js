@@ -92,7 +92,9 @@ export class TileGame {
    *           maxLaps?:number, skin?:object, vs?:{ name:string, other:()=>({score,lives,done}|null), onLive?:(live)=>void } }} o
    *   lap 을 주면 그걸로 (유저 맵 타일), 아니면 songId 의 곡
    */
-  constructor({ audio, canvas, songId = 0, lap = null, onEnd, onLap, maxLaps = MAX_LAPS, vs = null, skin = null, hue = null }) {
+  constructor({ audio, canvas, songId = 0, lap = null, onEnd, onLap, onDeath = null, maxLaps = MAX_LAPS, vs = null, skin = null, hue = null }) {
+    this.onDeath = onDeath;
+    this.continues = 0;
     this.audio = audio;
     this.canvas = canvas;
     this.g = canvas.getContext('2d');
@@ -343,7 +345,7 @@ export class TileGame {
   _loop() {
     cancelAnimationFrame(this.raf);
     const loop = () => {
-      if (this.state === 'stopped' || this.state === 'ended' || this.state === 'paused') return;
+      if (this.state === 'stopped' || this.state === 'ended' || this.state === 'paused' || this.state === 'dead') return;
       this._tick();
       this.raf = requestAnimationFrame(loop);
     };
@@ -370,6 +372,25 @@ export class TileGame {
     this.countUntil = performance.now() + 1500;
     this.lastFrame = performance.now();
     this._loop();
+  }
+
+  /** 광고 보고 이어하기: 하트 1개로 틀린 자리에서 3·2·1 뒤 다시 (한 판에 한 번) */
+  revive() {
+    if (this.state !== 'dead' || this.continues >= 1) return false;
+    this.continues++;
+    this.hearts = 1;
+    this.failTile = null;
+    this._curPrev = null;
+    this.lastHurt = this.diedAt;
+    this.hurtFx = { at: this.diedAt, heal: true, heart: 0 };
+    this.state = 'paused';
+    this.resume();
+    return true;
+  }
+
+  /** 이어하기 안 함 → 결과 */
+  giveUp() {
+    if (this.state === 'dead') this._finish();
   }
 
   stop() {
@@ -880,7 +901,19 @@ export class TileGame {
     }
     if (this.state === 'dying') {
       this._draw(this.diedAt, dt, true);
-      if (pn - this.diedPerf > 1300) this._finish();
+      if (pn - this.diedPerf > 1300) {
+        // 틀리면 끝 — 광고 보고 한 번만 이어하기 (끝까지 돈 판·대결은 바로 끝)
+        if (this.onDeath && !this.complete && this.hearts <= 0 && this.continues < 1) {
+          this.state = 'dead';
+          cancelAnimationFrame(this.raf);
+          this.pausedT = this.diedAt;
+          try {
+            this.onDeath({ score: this.score, canContinue: true });
+          } catch {
+            this._finish();
+          }
+        } else this._finish();
+      }
       return;
     }
     this._syncClock(pn);

@@ -61,7 +61,8 @@ export const TILE_SLOT_MAX = 3999;
 /** 이 바퀴까지 돌면 끝 (그 전에 사람은 못 버팀) */
 /** 첫 바퀴(별 3개) + 다이아 3바퀴 = 4바퀴에서 끝 (2026-11-27) */
 export const MAX_LAPS = 4;
-export const TILE_HEARTS = 3;
+/** 2026-11-27 사용자: 한 번 틀리면 끝 (광고 보고 한 번 이어하기만) */
+export const TILE_HEARTS = 1;
 /** 이만큼(줄) 화면 아래로 지나가면 놓침 */
 export const GONE_ROWS = 0.35;
 /** 📱 이웃한 두 타일 사이는 늘(빨라져도) 적어도 이만큼(초) — 아이폰 터치 빠짐 (tasks/채보-만들때-주의.md) */
@@ -470,7 +471,7 @@ export function checkTileRun(songId, body, elapsedSec) {
   // 그 시간 안에 화면에 들어올 수 있는 타일 점수보다 많이 칠 순 없음
   if (tiles > tilesWithin(songId, elapsedSec)) return { ok: false, error: 'too_fast' };
   // 바퀴 수: 다 돈 바퀴의 타일(놓친 건 하트 3개 + 바퀴마다 회복분까지만)을 가장 낮은 판정(GOOD 400)으로 쳤을 때보다 적을 순 없음
-  if (laps > 0 && tiles < (c.lapEnd[laps - 1] - TILE_HEARTS * (laps + 1)) * 400) return { ok: false, error: 'bad_score' };
+  if (laps > 0 && tiles < (c.lapEnd[laps - 1] - 3 * (laps + 1)) * 400) return { ok: false, error: 'bad_score' };
   // 지금 치던 바퀴까지의 점수보다 많이 칠 순 없음
   if (tiles > c.lapPts[Math.min(laps, MAX_LAPS - 1)]) return { ok: false, error: 'bad_score' };
   const maxCombo = Number.isInteger(body.maxCombo) ? Math.max(0, Math.min(body.maxCombo, c.lapEnd[MAX_LAPS - 1])) : 0;
