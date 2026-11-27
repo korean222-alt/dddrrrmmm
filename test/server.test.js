@@ -1167,6 +1167,12 @@ test('🏛 명예의 전당 API: 이번 시즌 단계·무제한 총합 · 시�
     assert.ok(rows.every((r) => !('igsid' in r) && typeof r.me === 'boolean'));
   }
   if (endedSeasons().includes(1)) assert.ok(Object.keys(hf.finals).every((k) => /^1:(stage|endless)$/.test(k)));
+  // 🏛 맨 밑 한 칸 = 내 순위 (2026-11-27)
+  for (const k of Object.keys(hf.finals)) {
+    const me = hf.finalsMe && hf.finalsMe[k];
+    assert.ok(me && me.username === '전당후보');
+    if (me.rank) assert.ok(me.rank >= 1 && Number.isFinite(me.score));
+  }
   const en = (await c('GET', '/api/hall?board=endless')).json;
   assert.equal(en.board, 'endless');
   assert.ok(en.entries.every((e) => e.score < 1_000_000_000));

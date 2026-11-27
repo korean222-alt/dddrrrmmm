@@ -336,6 +336,48 @@ export function createHandler(cfg, { store, meter = null }) {
   // 🏛 끝난 시즌의 1·2·3등을 명예의 전당에 넣기: 시즌이 끝난 뒤 처음 오는 점수 등록·명예의 전당 요청 때 한 번
   //   (점수 등록보다 먼저 해야 끝난 시즌 기록이 새 점수로 덮이지 않음). 인스턴스마다 한 번 확인하면 기억
   const hallDone = new Set();
+  // 🏛 끝난 시즌 '내 순위' (2026-11-27 사용자 '100등 밑에 난 몇 등인지 한 칸 더'):
+  //   끝난 시즌 전체 순위를 settings 한 줄(hallfinalall:N:board = { igsid: [등수, 점수, 단계 수, Lv] })에 한 번만 만들어 둠
+  //   위 100명은 hallfinal 그대로, 그 밑은 지금 시즌 총합 순서로 101등부터 (표 통째 읽기는 시즌·판마다 한 번)
+  async function buildFinalAll(n, bd, top) {
+    const key = `hallfinalall:${n}:${bd}`;
+    const out = {};
+    for (const r of top) if (r.igsid) out[r.igsid] = [r.rank, r.score, r.n ?? null, r.rounds ?? null];
+    let k = top.reduce((m, r) => Math.max(m, r.rank || 0), 0);
+    const all = await store.seasonBoard(n, bd, 50000);
+    for (const r of all.rows) if (!(r.igsid in out)) out[r.igsid] = [++k, r.score, r.n ?? null, r.rounds ?? null];
+    const raw = JSON.stringify(out);
+    await store.setSetting(key, raw);
+    return raw;
+  }
+  async function finalMine(n, bd, pl) {
+    if (!pl) return null;
+    const key = `hallfinalall:${n}:${bd}`;
+    const raw = await cached(
+      key,
+      30 * 60 * 1000,
+      async () => {
+        const have = await store.getSetting(key);
+        if (have) return have;
+        if (brake() >= 1) return '';
+        let top = [];
+        try {
+          top = JSON.parse((await store.getSetting(`hallfinal:${n}:${bd}`)) || '[]');
+        } catch {}
+        return buildFinalAll(n, bd, top);
+      },
+      { shared: false }
+    );
+    if (!raw) return null;
+    let map;
+    try {
+      map = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+    const r = map[pl.igsid];
+    return r ? { rank: r[0], username: pl.username, score: r[1], n: r[2], rounds: r[3] } : { rank: null, username: pl.username };
+  }
   async function ensureHall(now = Date.now()) {
     for (const n of endedSeasons(now)) {
       if (hallDone.has(n)) continue;
@@ -348,6 +390,11 @@ export function createHandler(cfg, { store, meter = null }) {
           // 🏛 끝난 시즌 최종 순위 100등까지 (전시관 「4~100등」, 2026-11-27) — 끝난 뒤 기록이 올라도 안 바뀜
           await store.setSetting(`hallfinal:${n}:${board}`, JSON.stringify(top.rows.map((r) => ({ rank: r.rank, igsid: r.igsid, username: r.username, score: r.score, n: r.n, rounds: r.rounds }))));
           await store.hallInsert(top.rows.filter((r) => r.rank <= 3).map((r) => ({ ...r, season: n, board })));
+          try {
+            await buildFinalAll(n, board, top.rows);
+          } catch (e) {
+            console.error('[hallfinalall]', e);
+          }
         }
         // 🏆 시즌 보상 (2026-11-22): 위 100명에게 코인 + 다음 접속 때 팝업(1·2·3등은 한마디·사진 칸). 다른 인스턴스와 겹쳐도 한 번만(claimSetting)
         if (await store.claimSetting(`reward:done:${n}`, String(now))) {
@@ -1839,6 +1886,7 @@ export function createHandler(cfg, { store, meter = null }) {
       const hall = (await hallListCached()).map((h) => ({ ...hallEntry(h, pl), season: h.season, board: h.board, image: h.image, msg: h.msg || null }));
       // ?final=1 (전시관만): 끝난 시즌 최종 순위 100등까지 — settings 한 줄씩, 인스턴스 10분 기억
       let finals;
+      let finalsMe;
       if (url.searchParams.get('final')) {
         finals = {};
         for (const n of endedSeasons())
@@ -1849,9 +1897,17 @@ export function createHandler(cfg, { store, meter = null }) {
               rows = raw ? JSON.parse(raw) : [];
             } catch {}
             if (rows.length) finals[`${n}:${bd}`] = rows.map((r) => ({ rank: r.rank, username: r.username, score: r.score, n: r.n, rounds: r.rounds, me: pl ? r.igsid === pl.igsid : false }));
+            if (rows.length && pl) {
+              try {
+                const fm = await finalMine(n, bd, pl);
+                if (fm) (finalsMe || (finalsMe = {}))[`${n}:${bd}`] = fm;
+              } catch (e) {
+                console.error('[finalMine]', e);
+              }
+            }
           }
       }
-      return json(200, { season: { n: season.n, end: season.end }, board, levels: LAST_LEVEL_ID, entries: top.map((r) => hallEntry(r, pl)), me: mine ? { ...hallEntry(mine, pl), cap: mine.cap || null } : null, hall, finals });
+      return json(200, { season: { n: season.n, end: season.end }, board, levels: LAST_LEVEL_ID, entries: top.map((r) => hallEntry(r, pl)), me: mine ? { ...hallEntry(mine, pl), cap: mine.cap || null } : null, hall, finals, finalsMe });
     }
     // 명예의 전당에 오른 사람만 자기 칸에 프로필 사진 올리기 / 지우기 (image: null)
     if (p === '/api/hall/photo' && m === 'POST') {

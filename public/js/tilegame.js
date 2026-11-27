@@ -21,7 +21,7 @@
 //   👆 타일 자리를 눌러야 침 (빈 칸 = 하트), PERFECT 한가운데 = 타일이 판정선에 걸칠 때 (PERFECT_ROWS)
 //   ⚔️ 대결(vs): 상대 점수 막대, maxLaps 바퀴(기본 3)에서 끝, 코인 파티 없음
 
-import { STEPS_PER_BAR, parseChord } from './charts.js';
+import { STEPS_PER_BAR, parseChord, getLevel } from './charts.js';
 import { tileLap, tileCourse, buildCourse, lapStars, MAX_LAPS, TILE_HEARTS, TILE_ROWS, tilePoints, HOLD_PTS } from './tiles.js';
 
 const FONT = "Jua, 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif";
@@ -173,14 +173,23 @@ export class TileGame {
     return { a, b, t0: T(sg.bar0 * STEPS_PER_BAR), t1: T((sg.bar0 + sg.bars) * STEPS_PER_BAR), c0: this.tiles[a].t, c1: this.tiles[b].t };
   }
 
-  // ---------- 🎵 노래 (멜로디 + 왼손 반주) ----------
-  /** 판 전체 소리 목록 (시각 순): 바퀴 = 곡 멜로디 + 쿵·짝 왼손, 코인 파티 = 반짝이는 펼친 화음 */
+  // ---------- 🎵 노래 (멜로디 + 반주 + 드럼 + 현악) ----------
+  /**
+   * 판 전체 소리 목록 (시각 순)
+   *   2026-11-27 저녁 사용자 '건반만 있으니 심심해, 드럼처럼 사운드 풍부하게':
+   *   바퀴 = 멜로디(피아노 + 긴 음은 바이올린) · 베이스(피아노 + 첼로) · 화음 · 현악 패드 · 드럼(쿵·짝·하이햇·크래시)
+   *     첫 바퀴 앞 2마디는 가볍게(하이햇·베이스) → 드럼 → 다이아 바퀴는 금관·팀파니까지 (바퀴마다 더 꽉 참)
+   *   코인 파티 = 곡과 같은 조·코드로 신나는 쿵쿵 + 반짝이 (예전엔 곡과 상관없는 C 장조라 '관련없는 노래'처럼 들림)
+   *   현악·금관은 오케스트라 소리를 받았을 때만 (_schedule 에서 확인), 못 받으면 피아노 + 드럼
+   */
   _musicEvents() {
     const lap = this.lap;
     const T = (abs) => this.tempo.stepTime(abs) - this.t0;
     const ev = [];
+    const lv = this.songId ? getLevel(this.songId) : null;
+    const hatPat = lv && lv.song && typeof lv.song.hat === 'string' && lv.song.hat.length === 16 ? lv.song.hat : 'x.x.x.x.x.x.x.x.';
     const chordsOf = (bar) =>
-      String(lap.prog[bar % lap.bars] || 'C')
+      String(lap.prog[((bar % lap.bars) + lap.bars) % lap.bars] || 'C')
         .trim()
         .split(/\s+/)
         .map((p) => {
@@ -190,52 +199,106 @@ export class TileGame {
             return null;
           }
         });
+    const chordAtStep = (bar, e) => {
+      const chs = chordsOf(bar);
+      return chs[Math.min(chs.length - 1, Math.floor((e * chs.length) / 16))] || chs.find(Boolean);
+    };
+    const timp = (root) => {
+      let m = root;
+      while (m > 44) m -= 12;
+      while (m < 33) m += 12;
+      return m;
+    };
+    const vs = !!this.vs;
+    let lapNo = 0;
     for (const sg of this.course.segs) {
       const a0 = sg.bar0 * STEPS_PER_BAR;
-      const party = sg.kind === 'party';
-      if (party) {
-        // 🎉 코인 파티 (2026-11-27 '노래가 멈추고 축하 브금'): 곡과 다른 밝은 C 장조 — 쿵짝 + 반짝이 16분 + 환호
-        const prog = [[60, 64, 67], [65, 69, 72], [67, 71, 74], [60, 64, 67]];
+      if (sg.kind === 'party') {
+        // 🎉 코인 파티: 곡의 코드를 그대로 돌며 쿵쿵(4박 내내)·짝·하이햇 8분 + 반짝이 + 환호
         ev.push({ t: T(a0), sfx: 'cheer' });
+        ev.push({ t: T(a0), crash: true, v: 0.45 });
         for (let b = 0; b < sg.bars; b++) {
-          const ch = prog[b % prog.length];
           for (let e = 0; e < 16; e++) {
             const abs = a0 + b * STEPS_PER_BAR + e;
             const t = T(abs);
             const d = T(abs + 1) - t;
-            if (e % 4 === 0) ev.push({ t, m: ch[0] - 24, d: d * 3.5, v: 0.6, bass: true });
-            if (e % 8 === 4) for (const m of ch) ev.push({ t, m, d: d * 2, v: 0.32 });
-            if (e % 2 === 0) ev.push({ t, hat: true, v: e % 4 === 0 ? 0.5 : 0.3 });
-            ev.push({ t, glock: ch[[0, 1, 2, 1][e % 4]] + 12 + (e >= 8 ? 12 : 0), v: 0.8 });
+            const ch = chordAtStep(b, e);
+            if (!ch) continue;
+            const tri = ch.notes.slice(0, 3);
+            if (e % 4 === 0) ev.push({ t, kick: true, v: 0.75 });
+            if (e === 4 || e === 12) ev.push({ t, snare: true, v: 0.5 });
+            if (e % 2 === 0) ev.push({ t, hat: true, v: e % 4 === 2 ? 0.45 : 0.25, open: e % 4 === 2 });
+            if (e % 4 === 0) ev.push({ t, m: ch.root - 24, d: d * 3.5, v: 0.6, bass: true });
+            if (e === 0 || e === 8) {
+              for (const m of tri) ev.push({ t, m, d: d * 6, v: 0.26 });
+              for (const m of tri) ev.push({ t, orch: 'vln', m: m + 12, d: d * 7.5, v: 0.3, at: 0.02, rel: 0.2 });
+            }
+            ev.push({ t, glock: tri[[0, 1, 2, 1][e % 4]] + 12 + (e >= 8 ? 12 : 0), v: 0.7 });
           }
         }
+        ev.push({ t: T(a0 + sg.bars * STEPS_PER_BAR), crash: true, v: 0.5 });
         continue;
       }
+      const k = lapNo++;
+      // heat: 0 = 첫 바퀴 앞부분(가볍게), 1 = 첫 바퀴, 2 = 다이아 바퀴(금관·팀파니), 대결은 1 그대로
       for (let b = 0; b < sg.bars; b++) {
-        const chs = chordsOf(party ? b : b);
-        const n = chs.length;
+        const heat = k === 0 ? (b < 2 ? 0 : 1) : vs ? 1 : 2;
         const ab = a0 + b * STEPS_PER_BAR;
-        for (let e = 0; e < 8; e++) {
-          const beat = e >> 1;
-          const ch = chs[Math.min(n - 1, Math.floor((beat * n) / 4))];
-          if (!ch) continue;
-          const abs = ab + e * 2;
+        const chs = chordsOf(b);
+        const parts = chs.length || 1;
+        const partLen = STEPS_PER_BAR / parts;
+        if (T(ab) < -0.02 && b > 0) continue;
+        // 바퀴 시작(첫 바퀴 빼고)·8마디마다 크래시
+        if ((b === 0 && k > 0) || (b > 0 && b % 8 === 0 && heat >= 1)) ev.push({ t: T(ab), crash: true, v: heat >= 2 ? 0.5 : 0.4 });
+        for (let e = 0; e < 16; e++) {
+          const abs = ab + e;
           const t = T(abs);
           if (t < -0.02) continue;
-          const d = T(abs + 2) - t;
-          if (e % 2 === 0) {
-            // 정박: 1·3박 = 낮은 음(뿌리·5도), 2·4박 = 화음
-            if (beat % 2 === 0) ev.push({ t, m: ch.root - 24 + (beat === 2 && n === 1 ? 7 : 0), d: d * 3.6, v: 0.5, bass: true });
-            else for (const m of ch.notes.slice(0, 3)) ev.push({ t, m: m - 12, d: d * 1.6, v: party ? 0.22 : 0.26 });
+          const d = T(abs + 1) - t;
+          const ch = chordAtStep(b, e);
+          if (!ch) continue;
+          // 🥁 드럼: 쿵(1·3박, 달아오르면 3박 앞 엇박도) · 짝(2·4박) · 하이햇(곡 무늬)
+          if (heat >= 1) {
+            if (e === 0 || e === 8 || (heat >= 2 && (e === 10 || e === 6 && b % 2 === 1))) ev.push({ t, kick: true, v: e === 0 ? 0.8 : 0.65 });
+            if (e === 4 || e === 12) ev.push({ t, snare: true, v: 0.42 });
+            // 4마디째 끝: 짝 연타로 다음 마디로 넘어감
+            if (b % 4 === 3 && e >= 13 && heat >= 1) ev.push({ t, snare: true, v: 0.18 + (e - 13) * 0.07 });
+          }
+          const hc = hatPat[e];
+          if (hc === 'x' || hc === 'o') ev.push({ t, hat: true, v: (e % 4 === 0 ? 0.5 : 0.3) * (heat ? 1 : 0.7), open: hc === 'o' });
+          // 베이스 + 화음 (정박 피아노)
+          if (e % 4 === 0) {
+            const beat = e >> 2;
+            if (beat % 2 === 0) {
+              const m = ch.root - 24 + (beat === 2 && parts === 1 ? 7 : 0);
+              ev.push({ t, m, d: d * 7, v: 0.5, bass: true });
+              ev.push({ t, orch: 'vc', m: m + 12, d: d * 7, v: 0.35 + 0.1 * heat, at: 0.01, rel: 0.12 });
+            } else for (const m of ch.notes.slice(0, 3)) ev.push({ t, m: m - 12, d: d * 3.2, v: 0.24 });
+          }
+          // 🎻 현악 패드: 코드 바뀌는 자리마다 (첫 바퀴 앞 2마디 빼고)
+          if (heat >= 1 && e % partLen === 0) {
+            const pd = partLen * d;
+            for (const m of ch.notes.slice(0, 3)) ev.push({ t, orch: 'vln', m, d: pd, v: 0.2 + 0.06 * heat, at: Math.min(0.12, pd * 0.25), rel: 0.25 });
+            // 🎺 다이아 바퀴: 금관 + 팀파니 + 튜바
+            if (heat >= 2) {
+              for (const m of [ch.root - 12, ch.notes[1] - 12, ch.notes[2] - 12]) ev.push({ t, orch: 'br', m, d: pd * 0.95, v: 0.3, at: 0.04, rel: 0.2 });
+              if (e === 0) {
+                ev.push({ t, orch: 'tuba', m: ch.root - 24, d: d * 13, v: 0.45, at: 0.02, rel: 0.2 });
+                ev.push({ t, orch: 'timp', m: timp(ch.root), d: 1.2, v: 0.5, at: 0, rel: 0.4 });
+              }
+            }
           }
         }
-        if (!party)
-          for (const nt of lap.notes) {
-            if (nt.bar !== b) continue;
-            const t = T(a0 + nt.at);
-            if (t < -0.05) continue;
-            ev.push({ t, m: nt.midi, d: Math.max(0.12, (T(a0 + nt.at + nt.len) - t) * 0.95), v: 0.9 });
-          }
+        // 멜로디: 피아노 + 긴 음은 바이올린이 같이 (다이아 바퀴는 짧은 음도 살짝)
+        for (const nt of lap.notes) {
+          if (nt.bar !== b) continue;
+          const t = T(a0 + nt.at);
+          if (t < -0.05) continue;
+          const dur = Math.max(0.12, (T(a0 + nt.at + nt.len) - t) * 0.95);
+          ev.push({ t, m: nt.midi, d: dur, v: 0.9 });
+          if (heat >= 1 && nt.len >= 4) ev.push({ t, orch: 'vln', m: nt.midi, d: dur, v: 0.32 + 0.08 * heat, at: 0.03, rel: 0.15 });
+          else if (heat >= 2) ev.push({ t, orch: 'vln', m: nt.midi, d: Math.max(0.15, dur), v: 0.2, at: 0.006, rel: 0.06 });
+        }
       }
     }
     ev.sort((x, y) => x.t - y.t);
@@ -293,7 +356,12 @@ export class TileGame {
       try {
         const tt = Math.max(at, now);
         if (e.sfx) a.sfxFile(e.sfx, 0.55);
-        else if (e.hat) a.hat(tt, e.v, false, this.bus);
+        else if (e.orch) {
+          if (a.orchestra) a.orchNote(e.orch, tt, e.m, e.d, e.v, this.bus, e.at, e.rel);
+        } else if (e.kick) a.kick(tt, e.v, this.bus);
+        else if (e.snare) a.snare(tt, e.v, this.bus);
+        else if (e.crash) a.crash(tt, this.bus, e.v);
+        else if (e.hat) a.hat(tt, e.v, !!e.open, this.bus);
         else if (e.glock) a.glock(tt, e.glock, this.bus, e.v);
         else if (e.bass) a.pianoOr('bass', tt, e.m, e.d, this.bus, e.v);
         else a.pianoOr('lead', tt, e.m, e.d, this.bus, e.v);

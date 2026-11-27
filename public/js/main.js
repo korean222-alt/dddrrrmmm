@@ -6515,6 +6515,8 @@ async function tilePlay(songId = tp.song, { room = null, map = null } = {}) {
   audio.ensure();
   await audio.unlock();
   await Promise.race([audio.loadPiano(), new Promise((r) => setTimeout(r, 3000))]);
+  // 🎻 현악·금관 반주 (2026-11-27 '건반만 있어서 심심해') — 기다리지 않음, 받아지면 그때부터 같이
+  if (audio.orchOn) audio.loadOrch().catch(() => {});
   // 랭킹에 올릴 수 있는 사람만 판 토큰 (요청 아끼기). 시즌 2 를 열기 전엔 서버가 기록을 안 올림(미리보기)
   tp.runToken = null;
   if (song && !room && state.api && state.api.mode === 'server' && isConfirmed()) {
@@ -6913,11 +6915,13 @@ async function openGallery() {
   $('#gal-tabs').innerHTML = '';
   let hall = [];
   gal.finals = {};
+  gal.finalsMe = {};
   try {
     if (state.api && state.api.hall) {
       const d = await state.api.hall('tiles', true);
       hall = d.hall || [];
       gal.finals = d.finals || {};
+      gal.finalsMe = d.finalsMe || {};
     }
   } catch {}
   gal.all = hall.slice().sort((a, b) => b.season - a.season || (GAL_ORDER[a.board] ?? 9) - (GAL_ORDER[b.board] ?? 9) || a.rank - b.rank);
@@ -6985,7 +6989,14 @@ function galRest() {
       (e) => `<div class="rank-row ${e.me ? 'me' : ''}"><span class="r">${e.rank}</span><span class="u">${escapeHtml(e.username)}</span>
         <span class="s">${fmt(e.score)}</span><span class="g small">${endless ? `Lv.${fmt(e.rounds)}` : `${e.n}${lv}`}</span></div>`
     )
-    .join('')}</div></div>`;
+    .join('')}</div>${galMine(endless, lv)}</div>`;
+}
+// 맨 밑 한 칸: 내 순위 (2026-11-27 사용자) — 로그인 안 했으면 안 보임
+function galMine(endless, lv) {
+  const e = gal.finalsMe && gal.finalsMe[gal.key];
+  if (!e) return '';
+  return `<div class="rank-list gal-mine"><div class="rank-row me"><span class="r">${e.rank ? e.rank : '-'}</span><span class="u">나 · ${escapeHtml(e.username || '')}</span>
+    <span class="s">${e.rank ? fmt(e.score) : '기록 없음'}</span><span class="g small">${e.rank ? (endless ? `Lv.${fmt(e.rounds || 0)}` : `${e.n || 0}${lv}`) : ''}</span></div></div>`;
 }
 function renderGallery() {
   const track = $('#gal-track');

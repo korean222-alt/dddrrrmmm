@@ -1825,6 +1825,7 @@ html.has-tabs .screen.active:not(#screen-home2) { padding-bottom: calc(96px + va
 .gal-pods { display: grid; grid-template-columns: 1fr 1.25fr 1fr; align-items: start; gap: 8px; }
 .gal-rank { margin-top: 18px; padding: 12px 10px; border-radius: 18px; background: #fff; color: var(--ink); }
 .gal-rank h4 { margin: 0 0 10px; font-weight: 400; font-size: 17px; text-align: center; }
+.gal-mine { margin-top: 10px; padding-top: 10px; border-top: 2px dashed #ddd; }
 .gal-pod { display: grid; justify-items: center; align-content: end; gap: 4px; text-align: center; color: #fff3d6; min-width: 0; }
 .gal-pod .gal-frame { display: block; width: 100%; padding: 7px; }
 .gal-pod .gal-mat { display: grid; padding: 4px; }
