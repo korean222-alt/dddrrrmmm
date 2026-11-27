@@ -26954,10 +26954,19 @@ document.addEventListener('visibilitychange', () => {
 function s2On() {
   if (load('s2Preview', false)) return true;
   if (state.cfg.s2Open != null) return !!state.cfg.s2Open;
-  return !!load('s2OpenSeen', false);
+  // 2026-11-27 시즌 2 공개: 서버 답을 받기 전에도 새 첫 화면 (시즌 1 화면이 잠깐 떴다 사라지던 것). 서버가 '닫힘'이라 한 적 있는 폰만 예전 화면
+  return load('s2OpenSeen', true) !== false;
 }
 function applyS2Mode() {
-  document.documentElement.classList.toggle('s2', s2On());
+  const on = s2On();
+  document.documentElement.classList.toggle('s2', on);
+  if (!on) {
+    // 서버가 시즌 2 를 닫았으면(운영자가 되돌림) 예전 첫 화면으로
+    const tabs = $('#s2-tabs');
+    if (tabs) tabs.hidden = true;
+    document.documentElement.classList.remove('has-tabs');
+    if ($('#screen-home2').classList.contains('active')) show('screen-title');
+  }
 }
 // 🎹 원근 보기는 11-26 밤 사진처럼 다시 만들며 없앰 (클래식 타일만)
 const tileView = () => 'tile';
