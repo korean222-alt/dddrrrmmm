@@ -1451,14 +1451,14 @@ export function createHandler(cfg, { store, meter = null }) {
           if (!rankOk(pl)) return json(403, { error: 'login_required' });
           // 🏆 판이 끝날 때 한 번: mode 'free'(무적) / 'hearts'(하트 5개, 끝까지 살아남은 판만) / 'tiles'(🎹 타일 맵)
           const b = await readJson(request);
-          const mode = ['hearts', 'free', 'tiles'].includes(b.mode) ? b.mode : null;
+          const mode = ['hearts', 'free', 'tiles', 'tfree'].includes(b.mode) ? b.mode : null;
           const score = Math.floor(Number(b.score));
           if (!mode || !Number.isFinite(score) || score < 0) return json(400, { error: 'bad_score' });
           const r = await store.getMap(id);
           if (!r) return json(404, { error: 'not_found' });
           const map = cleanMap(r.data);
-          if (!map || (mode === 'tiles') !== (map.kind === 'tiles')) return json(400, { error: 'bad_score' });
-          if (score > (mode === 'tiles' ? mapTileMax(map) : maxScore(mapLevel(map)))) return json(400, { error: 'bad_score' });
+          if (!map || (mode === 'tiles' || mode === 'tfree') !== (map.kind === 'tiles')) return json(400, { error: 'bad_score' });
+          if (score > (mode === 'tiles' || mode === 'tfree' ? mapTileMax(map) : maxScore(mapLevel(map)))) return json(400, { error: 'bad_score' });
           const s = await store.addMapScore(id, pl.igsid, pl.username, mode, score);
           if (!s) return json(404, { error: 'not_found' });
           memo.delete('maptop:' + id);

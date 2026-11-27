@@ -94,8 +94,9 @@ export class TileGame {
    *           maxLaps?:number, skin?:object, vs?:{ name:string, other:()=>({score,lives,done}|null), onLive?:(live)=>void } }} o
    *   lap 을 주면 그걸로 (유저 맵 타일), 아니면 songId 의 곡
    */
-  constructor({ audio, canvas, songId = 0, lap = null, onEnd, onLap, onDeath = null, maxLaps = MAX_LAPS, vs = null, skin = null, hue = null }) {
+  constructor({ audio, canvas, songId = 0, lap = null, onEnd, onLap, onDeath = null, invincible = false, maxLaps = MAX_LAPS, vs = null, skin = null, hue = null }) {
     this.onDeath = onDeath;
+    this.invincible = invincible; // 🛡 유저 맵 무적: 틀려도 안 죽음
     this.continues = 0;
     this.audio = audio;
     this.canvas = canvas;
@@ -954,7 +955,7 @@ export class TileGame {
   }
 
   _hurt(t, lane, tl = null) {
-    this.hearts--;
+    if (!this.invincible) this.hearts--;
     this.lastHurt = t;
     this.hurtFx = { at: t, heart: this.hearts };
     try {

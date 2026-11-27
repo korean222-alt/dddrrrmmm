@@ -3200,8 +3200,12 @@ async function playMap(id) {
   if (!map) return toast('맵이 이상해요', 2000);
   um.mapId = id;
   um.top = r.top || null;
-  // 🎹 타일 맵: 피아노 타일로 (모드 고르기 없음, 하트 3개)
-  if (map.kind === 'tiles') return tilePlay(0, { map: { id, name: map.name, by: r.map.nick || '', data: map, from: 'list' } });
+  // 🎹 타일 맵: 🛡 무적 / ❤ 목숨 1개 고르기 (2026-11-27 사용자)
+  if (map.kind === 'tiles') {
+    um.tileMap = { id, name: map.name, by: r.map.nick || '', data: map, from: 'list' };
+    return openMapMode(r.map.name, true);
+  }
+  um.tileMap = null;
   um.level = mapLevel(map, { id: UM_ID, by: r.map.nick || '', mapId: id });
   um.from = 'list';
   openMapMode(r.map.name);
@@ -3212,10 +3216,11 @@ function mapTopHTML(list) {
   const medal = ['🥇', '🥈', '🥉'];
   return list.map((r, i) => `<li><span>${medal[i]}</span><em>${escapeHtml(r.nick || '익명')}</em><b>${fmt(r.score)}</b></li>`).join('');
 }
-function openMapMode(name) {
+function openMapMode(name, tiles = false) {
   $('#mm-name').textContent = name || '유저 맵';
+  $('#mm-hearts-label').textContent = tiles ? '❤ 목숨 1개' : '❤ 하트 5개';
   for (const mode of ['free', 'hearts']) {
-    $(`#mm-top-${mode}`).innerHTML = mapTopHTML(um.top && um.top[mode]);
+    $(`#mm-top-${mode}`).innerHTML = mapTopHTML(um.top && um.top[tiles ? (mode === 'free' ? 'tfree' : 'tiles') : mode]);
     $(`#modal-mapmode [data-mm="${mode}"]`).setAttribute('aria-pressed', String(um.mode === mode));
   }
   openModal('modal-mapmode');
@@ -3224,6 +3229,7 @@ async function startMapMode(mode) {
   um.mode = mode === 'hearts' ? 'hearts' : 'free';
   save('mapMode', um.mode);
   closeModal('modal-mapmode');
+  if (um.tileMap) return tilePlay(0, { map: { ...um.tileMap, mode: um.mode === 'free' ? 'tfree' : 'tiles' } });
   await startLevel(UM_ID);
 }
 /** ❤ 하트 모드: 다 쓰면 이어하기 없이 바로 끝 (기록 안 남음) */
@@ -6738,7 +6744,7 @@ async function tilePlay(songId = tp.song, { room = null, map = null } = {}) {
     : null;
   tp.vsName = vs ? vs.name : null;
   const hue = song ? TILE_HUES[(song.order - 1) % TILE_HUES.length] : 220;
-  const g = new TileGame({ audio, canvas: $('#tp-canvas'), songId: song ? songId : 0, lap: mlap, skin: tileSkin(), hue, onEnd: (r) => tileEnd(r), onDeath: room || map ? null : (info) => tileDeath(info), maxLaps: room ? VS_LAPS : map ? MAP_TILE_LAPS : undefined, vs });
+  const g = new TileGame({ audio, canvas: $('#tp-canvas'), songId: song ? songId : 0, lap: mlap, skin: tileSkin(), hue, onEnd: (r) => tileEnd(r), onDeath: room || map ? null : (info) => tileDeath(info), invincible: !!(map && map.mode === 'tfree'), maxLaps: room ? VS_LAPS : map ? MAP_TILE_LAPS : undefined, vs });
   if (isLocalDev()) window.__tg = g; // 내 컴퓨터에서 시험할 때만
   tp.game = g;
   trackPlayStart(song ? tileId(songId) : UM_ID);
@@ -6916,17 +6922,18 @@ async function tileEnd(r) {
 /** 🎹 유저 맵 타일: 1~3등 (판마다 요청 1번, 만들면서 쳐 본 판은 안 올림) */
 function tileMapRank(map, r) {
   const ol = $('#tp-res-maptop');
-  ol.innerHTML = mapTopHTML(um.top && um.top.tiles);
+  const mode = map.mode === 'tfree' ? 'tfree' : 'tiles';
+  ol.innerHTML = mapTopHTML(um.top && um.top[mode]);
   if (!map.id || !state.api.mapScore || r.tiles <= 0) return;
   if (rankLocked()) return void (ol.innerHTML = '<li class="mm-empty">🔑 카카오 로그인하면 기록이 올라가요</li>');
   ol.innerHTML = '<li class="mm-empty">기록 올리는 중…</li>';
   state.api
-    .mapScore(map.id, 'tiles', r.tiles)
+    .mapScore(map.id, mode, r.tiles)
     .then((x) => {
       um.top = x.top || um.top;
       if (tp.last !== r) return;
-      ol.innerHTML = mapTopHTML(um.top && um.top.tiles);
-      const rank = (um.top && um.top.tiles ? um.top.tiles : []).findIndex((y) => y.nick === (state.me && state.me.player && state.me.player.username) && y.score === r.tiles);
+      ol.innerHTML = mapTopHTML(um.top && um.top[mode]);
+      const rank = (um.top && um.top[mode] ? um.top[mode] : []).findIndex((y) => y.nick === (state.me && state.me.player && state.me.player.username) && y.score === r.tiles);
       if (rank >= 0) toast(`${['🥇 1등', '🥈 2등', '🥉 3등'][rank]}! 이 맵 랭킹에 올랐어요`, 2600);
     })
     .catch(() => {
