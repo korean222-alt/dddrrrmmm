@@ -5387,6 +5387,41 @@ function renderRoomResult() {
   else if (res.room.rush) renderRushResult();
   else if (res.room.sum) renderSumResult();
   else renderFriendResult();
+  vsEndSync($('#res-room'), res);
+}
+
+// ----- ⚔️ 멀티 끝 → 점수 창 (2026-11-27 사용자 '바로 끝나니까 잘못 눌려서 다시 멀티를 돌린다') -----
+// 판이 끝나 '새 상대 찾기·한 판 더' 버튼이 뜨는 순간 점수 창을 먼저 덮음 → 치던 손가락이 버튼을 못 누름.
+// 확인을 눌러 창을 닫은 뒤에도 잠깐은 결과 버튼을 무시.
+const VSEND_OK_MS = 900; // 창이 뜬 뒤 이 시간 동안은 '확인'도 안 눌림
+const VSEND_AFTER_MS = 700; // 창을 닫은 뒤 이 시간 동안 결과 버튼 무시
+const vsEnd = { key: null, openedAt: -Infinity, closedAt: -Infinity };
+const VSEND_BTNS = ['room-again', 'room-next', 'room-leave', 'rush-next', 'tvs-leave', 'tvs-rush', 'tvs-again'];
+/** box 안에 결과 버튼이 떠 있으면(= 최종 결과) 점수 창을 띄우고, 이미 떠 있으면 내용만 새로 */
+function vsEndSync(box, key) {
+  if (!box || !key || !box.querySelector('.room-acts, .tp-res-btns')) return;
+  const modal = $('#modal-vsend');
+  if (vsEnd.key !== key) {
+    vsEnd.key = key;
+    vsEnd.openedAt = performance.now();
+    modal.hidden = false;
+    const ok = $('#vsend-ok');
+    ok.disabled = true;
+    setTimeout(() => (ok.disabled = false), VSEND_OK_MS);
+  } else if (modal.hidden) return; // 이미 확인하고 닫았음 → 다시 안 띄움
+  const body = $('#vsend-body');
+  body.innerHTML = box.innerHTML;
+  body.querySelectorAll('.room-acts, .tp-res-btns').forEach((x) => x.remove());
+}
+function vsEndClose() {
+  if (performance.now() - vsEnd.openedAt < VSEND_OK_MS) return;
+  $('#modal-vsend').hidden = true;
+  vsEnd.closedAt = performance.now();
+}
+/** 점수 창이 떠 있거나 막 닫은 직후면 결과 버튼 입력을 막음 */
+function vsEndBlocks(action) {
+  if (!VSEND_BTNS.includes(action)) return false;
+  return !$('#modal-vsend').hidden || performance.now() - vsEnd.closedAt < VSEND_AFTER_MS;
 }
 /** 🎵 결과 화면: 3곡 합산 (곡 사이엔 다음 곡 기다림, 3곡 끝나면 합계로 승패) */
 function renderSumResult() {
@@ -5621,6 +5656,7 @@ function renderFriendRoom(room) {
     const startAt = c.toLocal(room.startAt);
     if (startAt - Date.now() > -2000) {
       closeModal('modal-room');
+      closeModal('modal-vsend');
       // 🎹 타일 곡이면 타일 대결 (시즌 2)
       if (tileSong(room.level)) {
         stopWaitTimer();
@@ -6779,6 +6815,7 @@ function renderTileVs() {
   const word = { win: '승리! 🎉', lose: '아쉽게 패배…', draw: '무승부!' };
   box.innerHTML = `<div class="room-word ${res}">${word[res]}</div><div class="room-why">${why}</div><div class="tvs-row"><span>나 <b>${fmt(r.tiles)}</b></span><span>VS</span><span>${escapeHtml((o && o.name) || '상대')} <b>${theirs == null ? '-' : fmt(theirs)}</b></span></div>` + acts;
   tp.vsDone = true;
+  vsEndSync(box, r);
   if (res === 'win') setTimeout(() => audio.sfxFile('cheer', 0.6), 300);
   if (room.pub && c.active) c.leave(); // 랜덤 대결은 판이 끝나면 방에서 나옴
 }
@@ -7211,6 +7248,7 @@ const ACTIONS = {
   'ranked-go': rankedGo,
   'rush-go': rushGo,
   'rush-next': rushNext,
+  'vsend-ok': vsEndClose,
   'room-create': roomCreate,
   'room-join': roomJoin,
   'room-ready': roomReady,
@@ -7786,6 +7824,7 @@ function bindActions() {
       e.preventDefault();
       // 이어하기 창이 막 뜬 직후에는 버튼 입력 무시 (이미 누르고 있던 손가락이 버튼을 치는 것 방지)
       if (a.closest('#modal-continue') && performance.now() - contOpenedAt < CONT_GUARD_MS) return;
+      if (vsEndBlocks(a.dataset.action)) return; // ⚔️ 멀티 점수 창 (위)
       // 🎹 시즌 2 '더보기'·'고르기' 창에서 다른 곳으로 가면 창은 닫음
       if (a.closest('#modal-more') && a.dataset.action !== 'close-more') closeModal('modal-more');
       ACTIONS[a.dataset.action](a);
@@ -7794,7 +7833,7 @@ function bindActions() {
   // 모달 바깥 탭 → 닫기 (일시정지 모달 제외)
   $$('.modal').forEach((m) =>
     m.addEventListener('click', (e) => {
-      if (e.target !== m || m.id === 'modal-pause' || m.id === 'modal-continue' || m.id === 'modal-ad' || (m.id === 'modal-calibrate' && calib.required)) return;
+      if (e.target !== m || m.id === 'modal-pause' || m.id === 'modal-continue' || m.id === 'modal-vsend' || m.id === 'modal-ad' || (m.id === 'modal-calibrate' && calib.required)) return;
       m.hidden = true;
     })
   );

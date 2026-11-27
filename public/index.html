@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=de065e8594" />
+  <link rel="stylesheet" href="css/style.css?v=279f7f6282" />
 </head>
 <body>
   <div id="app">
@@ -873,6 +873,15 @@
     </div>
   </div>
 
+  <!-- ⚔️ 멀티 판이 끝나면 점수부터 보여 주는 창 (치던 손가락이 결과 버튼을 잘못 누르는 것 방지) -->
+  <div class="modal" id="modal-vsend" hidden>
+    <div class="sheet small vsend-sheet">
+      <h3>🏁 대결 끝!</h3>
+      <div class="res-room vsend-body" id="vsend-body"></div>
+      <button class="btn btn-primary btn-big" data-action="vsend-ok" id="vsend-ok">확인</button>
+    </div>
+  </div>
+
   <!-- 🎹 타일: 틀리면 끝 → 광고 보고 한 번 이어하기 -->
   <div class="modal" id="modal-tiledie" hidden>
     <div class="sheet small cont-sheet">
@@ -1390,6 +1399,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=92a2e3687b" defer></script>
+  <script src="js/app.js?v=a976922a19" defer></script>
 </body>
 </html>

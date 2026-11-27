@@ -416,6 +416,11 @@ input[type='range'] { width: 100%; accent-color: var(--grass); height: 28px; }
 
 /* ---------- 이어하기 ---------- */
 .cont-sheet { text-align: center; }
+.vsend-sheet { text-align: center; z-index: 70; }
+.vsend-body { margin: 6px auto 12px; border: 0; padding: 0; }
+.vsend-body .tvs-row { margin: 8px 0; }
+#modal-vsend { z-index: 70; }
+#vsend-ok:disabled { opacity: .45; }
 .pause-stuck { text-align: left; font-size: 14px; line-height: 1.5; background: rgba(255, 200, 80, 0.15); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; }
 .pause-stuck ol { margin: 6px 0 0; padding-left: 20px; }
 .pause-stuck li { margin: 2px 0; }
