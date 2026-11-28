@@ -11160,11 +11160,12 @@ class TileGame {
    *           maxLaps?:number, skin?:object, vs?:{ name:string, other:()=>({score,lives,done}|null), onLive?:(live)=>void } }} o
    *   lap 을 주면 그걸로 (유저 맵 타일), 아니면 songId 의 곡
    */
-  constructor({ audio, canvas, songId = 0, lap = null, onEnd, onLap, onDeath = null, invincible = false, maxLaps = MAX_LAPS, vs = null, skin = null, hue = null, auto = false, mute = false, reel = null }) {
+  constructor({ audio, canvas, songId = 0, lap = null, onEnd, onLap, onDeath = null, invincible = false, maxLaps = MAX_LAPS, vs = null, skin = null, hue = null, auto = false, mute = false, reel = null, dpr = null }) {
     // 🎬 auto = 저절로 PERFECT 로 침 (영상 찍기 자동 연주·상점 미리보기), mute = 소리 없음(상점 미리보기), reel = 릴스 문구 { top, bottom, label }
     this.auto = auto;
     this.mute = mute;
     this.reel = reel;
+    this.fixedDpr = dpr; // 🖼 썸네일: 1080 너비로 그리게 고정
     if (auto) invincible = true;
     this.onDeath = onDeath;
     this.invincible = invincible; // 🛡 유저 맵 무적: 틀려도 안 죽음
@@ -11595,7 +11596,7 @@ class TileGame {
     const c = this.canvas;
     this.W = c.clientWidth || window.innerWidth;
     // 🎬 릴스는 1080 너비쯤으로 (영상이 흐리지 않게)
-    const dpr = this.reel ? clamp(1080 / Math.max(1, this.W), 2, 3) : Math.min(2, window.devicePixelRatio || 1);
+    const dpr = this.fixedDpr ? this.fixedDpr : this.reel ? clamp(1080 / Math.max(1, this.W), 2, 3) : Math.min(2, window.devicePixelRatio || 1);
     this.dpr = dpr;
     this.H = c.clientHeight || window.innerHeight;
     c.width = Math.round(this.W * dpr);
@@ -12698,7 +12699,8 @@ class TileGame {
       else {
         const k = Math.min(this.lapsDone, this.lapEnd.length - 1);
         const lapP = clamp((this.doneSong - this.lapEnd[k - 1]) / Math.max(1, this.lapEnd[k] - this.lapEnd[k - 1]), 0, 1);
-        p = clamp((this.lapsDone - 1 + (this.lapsDone >= this.maxLaps ? 0 : lapP)) / Math.max(1, Math.min(3, this.maxLaps - 1)), 0, 1);
+        // 줄은 다이아 칸 3개 기준 (2바퀴 영상이면 다이아 1개 자리까지만, 2026-11-28 사용자 '다이아 한 개만 차야 하는데 끝까지 감')
+        p = clamp((this.lapsDone - 1 + (this.lapsDone >= this.maxLaps ? 0 : lapP)) / 3, 0, 1);
       }
     }
     // 진행 줄 (사진 느낌, 2026-11-27): 가는 하얀 선 + 빛나는 점, 지난 만큼 금빛으로 빛남
@@ -20751,6 +20753,7 @@ const __m_cover = (() => {
 
 const { Renderer, preloadShopBg } = __m_render;
 const { levelLanes, buildNotes, tempoOf, COUNT_IN_BARS } = __m_charts;
+const { TileGame } = __m_tilegame;
 
 const FONT = '"Jua", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif';
 const INK = '#2B1D3A';
@@ -20844,40 +20847,100 @@ async function makeReelCover({ lv, title, sub, bottom, deco = null }) {
     rt += 0.06;
     r.draw(st, rt);
 
-    // ---- 글씨 ----
-    const ctx = cv.getContext('2d');
-    ctx.setTransform(3, 0, 0, 3, 0, 0);
-    // 위쪽을 살짝 어둡게 (글씨가 잘 보이게)
-    const shade = ctx.createLinearGradient(0, 0, 0, H * 0.5);
-    shade.addColorStop(0, 'rgba(10,6,24,0.72)');
-    shade.addColorStop(0.7, 'rgba(10,6,24,0.25)');
-    shade.addColorStop(1, 'rgba(10,6,24,0)');
-    ctx.fillStyle = shade;
-    ctx.fillRect(0, 0, W, H * 0.5);
-    const lines = splitTitle(title);
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.lineJoin = 'round';
-    let y = lines.length > 1 ? 118 : 140;
-    lines.forEach((line, i) => {
-      const fs = fit(ctx, line, W * 0.9, 50);
-      ctx.lineWidth = fs * 0.2;
-      ctx.strokeStyle = INK;
-      ctx.strokeText(line, W / 2, y);
-      // 두 번째 줄(또는 한 줄이면 그 줄)은 노란색으로 강조
-      ctx.fillStyle = i === lines.length - 1 ? '#FFD84A' : '#FFFFFF';
-      ctx.fillText(line, W / 2, y);
-      y += fs * 1.12;
-    });
-    if (sub) pill(ctx, sub, W / 2, y + 14, 15, '#FFFFFF', '#E2541F');
-    if (bottom) pill(ctx, bottom, W / 2, H * 0.905, 16, '#FF8A4C', '#FFFFFF');
+    drawCoverText(cv, { title, sub, bottom });
     return cv;
   } finally {
     cv.remove();
   }
 }
 
-return { splitTitle, makeReelCover };
+/** 표지 위 글씨 (큰 훅 두 줄 · 곡 배지 · 아래 유도) — 드럼·타일 같이 씀 */
+function drawCoverText(cv, { title, sub, bottom }) {
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(3, 0, 0, 3, 0, 0);
+  // 위쪽을 살짝 어둡게 (글씨가 잘 보이게)
+  const shade = ctx.createLinearGradient(0, 0, 0, H * 0.5);
+  shade.addColorStop(0, 'rgba(10,6,24,0.72)');
+  shade.addColorStop(0.7, 'rgba(10,6,24,0.25)');
+  shade.addColorStop(1, 'rgba(10,6,24,0)');
+  ctx.fillStyle = shade;
+  ctx.fillRect(0, 0, W, H * 0.5);
+  const lines = splitTitle(title);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  let y = lines.length > 1 ? 118 : 140;
+  lines.forEach((line, i) => {
+    const fs = fit(ctx, line, W * 0.9, 50);
+    ctx.lineWidth = fs * 0.2;
+    ctx.strokeStyle = INK;
+    ctx.strokeText(line, W / 2, y);
+    // 두 번째 줄(또는 한 줄이면 그 줄)은 노란색으로 강조
+    ctx.fillStyle = i === lines.length - 1 ? '#FFD84A' : '#FFFFFF';
+    ctx.fillText(line, W / 2, y);
+    y += fs * 1.12;
+  });
+  if (sub) pill(ctx, sub, W / 2, y + 14, 15, '#FFFFFF', '#E2541F');
+  if (bottom) pill(ctx, bottom, W / 2, H * 0.905, 16, '#FF8A4C', '#FFFFFF');
+}
+
+/**
+ * 🎹 타일 썸네일 (2026-11-28 사용자 '타일 썸네일도 드럼처럼'): 진짜 타일 판을 자동 연주로 첫 바퀴 중간까지 돌려
+ *   (별 하나 찬 때, 막 PERFECT 친 순간) 1080×1920 으로 찍고 같은 글씨를 얹음. 소리 없음, 화면 시계만 빨리 돌림
+ * @param {{ audio, songId, skin, hue, title, sub, bottom }} o
+ */
+async function makeTileCover({ audio, songId, skin, hue, title, sub, bottom }) {
+  try {
+    await Promise.race([
+      Promise.all([document.fonts.load(`40px ${FONT.split(',')[0]}`, `${title}${sub || ''}${bottom || ''}0123456789`), document.fonts.load('700 40px "Fredoka"', '0123456789PERFECT')]),
+      new Promise((r) => setTimeout(r, 3000)),
+    ]);
+  } catch {}
+  const cv = document.createElement('canvas');
+  cv.style.cssText = `position:fixed;left:-20000px;top:0;width:${W}px;height:${H}px;pointer-events:none`;
+  document.body.appendChild(cv);
+  const realNow = performance.now;
+  let fake = realNow.call(performance);
+  let g = null;
+  try {
+    g = new TileGame({ audio, canvas: cv, songId, skin, hue, auto: true, mute: true, maxLaps: 1, dpr: 3 });
+    // 첫 바퀴 25~70% 중 화면에 타일이 가장 많은 순간 → 그 타일을 친 바로 뒤 (PERFECT 글자가 막 뜬 때, 별 하나 찬 쯤)
+    const song = g.tiles.filter((x) => !x.coin && x.k === 0);
+    let pick = song[Math.floor(song.length * 0.45)] || song[0];
+    let most = -1;
+    for (let i = Math.floor(song.length * 0.25); i < Math.floor(song.length * 0.7); i++) {
+      const r0 = song[i].row;
+      const n = song.filter((x) => x.row > r0 && x.row < r0 + 2.6).length - (song[i].hold ? 0.5 : 0);
+      if (n > most) {
+        most = n;
+        pick = song[i];
+      }
+    }
+    const target = (pick ? pick.t : 5) + 0.14;
+    performance.now = () => fake;
+    g.start();
+    cancelAnimationFrame(g.raf);
+    clearInterval(g.timer);
+    for (let k = 0; k < 20000 && g.state !== 'ended' && g.state !== 'stopped'; k++) {
+      fake += 1000 / 30;
+      g._tick();
+      if (g.state === 'playing' && g.t >= target) break;
+    }
+    g.stop();
+    // 찍은 화면을 새 캔버스로 복사 (타일 판은 글꼴이 늦게 받아지면 첫 화면을 다시 그려서 덮어씀)
+    const out = document.createElement('canvas');
+    out.width = cv.width;
+    out.height = cv.height;
+    out.getContext('2d').drawImage(cv, 0, 0);
+    drawCoverText(out, { title, sub, bottom });
+    return out;
+  } finally {
+    performance.now = realNow;
+    cv.remove();
+  }
+}
+
+return { splitTitle, makeReelCover, makeTileCover };
 })();
 
 // ---- avatars.js ----
@@ -21367,7 +21430,7 @@ const { buddyUrl, loadBuddies } = __m_buddies;
 const { groupStarting, THEMES, SHOP_KITS } = __m_themes;
 const { newsFor } = __m_news;
 const { RoomClient, roomOutcome, survivalOutcome } = __m_room;
-const { makeReelCover } = __m_cover;
+const { makeReelCover, makeTileCover } = __m_cover;
 const { barEnergy, detectBeat, monoOf, songChart } = __m_beatsync;
 const { seasonLeftText, BOARD_LABEL, seasonAt } = __m_season;
 const { AVATARS, avatarHtml, cleanAvatar, cleanIntro, INTRO_MAX, PROF_BGS, profBg, profBgStyle } = __m_avatars;
@@ -25987,6 +26050,7 @@ function renderStudioLevels() {
 /** 🥁 드럼 / 🎹 타일 바꾸기: 기본 문구 그대로였으면 그 게임 기본 문구로 */
 function pickStudioGame(game) {
   const st = state.studio;
+  const prevSub = curCoverSub();
   st.game = game === 'tile' ? 'tile' : 'drum';
   if (st.game === 'tile') {
     const top = $('#studio-top');
@@ -25999,6 +26063,7 @@ function pickStudioGame(game) {
     renderStudioLevels();
     pickStudioLevel(st.level);
   }
+  refreshCoverSub(prevSub);
 }
 function pickStudioFormat(f) {
   const st = state.studio;
@@ -26514,27 +26579,40 @@ function beatTap(e) {
 // ---------------- 🖼 릴스 썸네일 (운영자 전용, /?thumb=okay) ----------------
 const coverOn = () => load('thumbTool', false) === true;
 const coverSubOf = (lv) => (!lv ? '' : isQuizFormat() ? '노래 맞히기 퀴즈' : lv.beat ? `${lv.songName} · ${beatStyleName(lv.beatStyle, lv.beatDiff)}` : lv.challenge ? `${lv.composer} ${lv.songName} · 레벨업 챌린지` : `${lv.composer} ${lv.name}`);
+/** 🎹 타일이면 고른 타일 곡 이름 배지 */
+const tileCoverSub = (id = state.studio.tileSong) => {
+  const lv = tileLevel(id);
+  return lv ? `${lv.composer} ${lv.name} · 피아노 타일` : '';
+};
+/** 지금 고른 것(드럼 단계 / 타일 곡)의 자동 곡 배지 */
+const curCoverSub = () => (isTileStudio() ? tileCoverSub() : coverSubOf(playable(state.studio.level)));
+/** 곡·게임을 바꿀 때: 배지가 자동 값(prev)이었으면 새 자동 값으로 (직접 고쳤으면 그대로) */
+function refreshCoverSub(prev) {
+  if (!coverOn()) return;
+  const sub = $('#cover-sub');
+  if (!sub.value.trim() || sub.value.trim() === prev) sub.value = curCoverSub();
+}
 /** 썸네일 칸 채우기: 직접 쓴 문구는 기억, 곡 배지는 곡을 바꾸면 따라 바뀜(직접 고쳤으면 그대로) */
 function fillCoverForm() {
   $('#cover-block').hidden = !coverOn();
   if (!coverOn()) return;
   const saved = load('coverText', null) || { l1: '엄지 두 개로', l2: '따라 쳐봐!', bottom: '프로필 링크에서 바로 해보기' };
-  const lv = playable(state.studio.level);
   $('#cover-l1').value = saved.l1 ?? '';
   $('#cover-l2').value = saved.l2 ?? '';
   $('#cover-bottom').value = saved.bottom ?? '';
-  $('#cover-sub').value = saved.subFixed ? saved.sub || '' : coverSubOf(lv);
+  $('#cover-sub').value = saved.subFixed ? saved.sub || '' : curCoverSub();
 }
 function saveCoverForm() {
-  const lv = playable(state.studio.level);
   const sub = $('#cover-sub').value.trim();
-  save('coverText', { l1: $('#cover-l1').value.trim(), l2: $('#cover-l2').value.trim(), bottom: $('#cover-bottom').value.trim(), sub, subFixed: sub !== coverSubOf(lv) });
+  save('coverText', { l1: $('#cover-l1').value.trim(), l2: $('#cover-l2').value.trim(), bottom: $('#cover-bottom').value.trim(), sub, subFixed: sub !== curCoverSub() });
 }
 /** 🖼 릴스 썸네일: 고른 곡의 게임 화면 + 직접 쓴 문구로 1080×1920 표지 */
 async function studioCover() {
   const st = state.studio;
-  const lv = playable(st.level);
-  if (!lv) return;
+  const tile = isTileStudio();
+  const song = tile ? tileSong(tileId(st.tileSong)) || tileSong(tileId(TILE_SONGS[0].id)) : null;
+  const lv = tile ? null : playable(st.level);
+  if (tile ? !song : !lv) return;
   saveCoverForm();
   const l1 = $('#cover-l1').value.trim();
   const l2 = $('#cover-l2').value.trim();
@@ -26548,15 +26626,21 @@ async function studioCover() {
     const skin = $('#studio-skin').checked;
     applyDeco(); // 장착한 것 최신으로 (첫 판 전이면 아직 안 불렸을 수 있음)
     const deco = skin ? { bgPick: renderer.bgPick, kitPick: renderer.kitPick, photoDim: renderer.photoDim, bgPhoto: renderer.bgPhoto, uiStyle: renderer.uiStyle } : null;
-    if (!skin) applyNoteColors('basic');
     let canvas;
-    try {
-      canvas = await makeReelCover({ lv, title: top, sub, bottom, deco });
-    } finally {
-      if (!skin) applyDeco();
+    if (tile) {
+      // 🎹 타일 썸네일: 「꾸미기」 체크면 장착한 타일 스킨, 끄면 기본 타일
+      const tskin = skin ? tileSkin() : { key: 'basic', palette: null, fx: null };
+      canvas = await makeTileCover({ audio, songId: song.id, skin: tskin, hue: TILE_HUES[(song.order - 1) % TILE_HUES.length], title: top, sub, bottom });
+    } else {
+      if (!skin) applyNoteColors('basic');
+      try {
+        canvas = await makeReelCover({ lv, title: top, sub, bottom, deco });
+      } finally {
+        if (!skin) applyDeco();
+      }
     }
     const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
-    const file = new File([blob], `okaystra-cover-${lv.id}.png`, { type: 'image/png' });
+    const file = new File([blob], `okaystra-cover-${tile ? 'tile-' + song.id : lv.id}.png`, { type: 'image/png' });
     if (navigator.canShare && navigator.canShare({ files: [file] })) {
       try {
         await navigator.share({ files: [file] });
@@ -30151,7 +30235,9 @@ function bindActions() {
     }
     const stt = e.target.closest('[data-studio-tile]');
     if (stt) {
+      const prevSub = curCoverSub();
       state.studio.tileSong = Number(stt.dataset.studioTile);
+      refreshCoverSub(prevSub);
       $$('#studio-levels button').forEach((b) => b.setAttribute('aria-pressed', String(b === stt)));
       return;
     }

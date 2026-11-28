@@ -3,6 +3,7 @@
 
 import { Renderer, preloadShopBg } from './render.js';
 import { levelLanes, buildNotes, tempoOf, COUNT_IN_BARS } from './charts.js';
+import { TileGame } from './tilegame.js';
 
 const FONT = '"Jua", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif';
 const INK = '#2B1D3A';
@@ -96,35 +97,95 @@ export async function makeReelCover({ lv, title, sub, bottom, deco = null }) {
     rt += 0.06;
     r.draw(st, rt);
 
-    // ---- 글씨 ----
-    const ctx = cv.getContext('2d');
-    ctx.setTransform(3, 0, 0, 3, 0, 0);
-    // 위쪽을 살짝 어둡게 (글씨가 잘 보이게)
-    const shade = ctx.createLinearGradient(0, 0, 0, H * 0.5);
-    shade.addColorStop(0, 'rgba(10,6,24,0.72)');
-    shade.addColorStop(0.7, 'rgba(10,6,24,0.25)');
-    shade.addColorStop(1, 'rgba(10,6,24,0)');
-    ctx.fillStyle = shade;
-    ctx.fillRect(0, 0, W, H * 0.5);
-    const lines = splitTitle(title);
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.lineJoin = 'round';
-    let y = lines.length > 1 ? 118 : 140;
-    lines.forEach((line, i) => {
-      const fs = fit(ctx, line, W * 0.9, 50);
-      ctx.lineWidth = fs * 0.2;
-      ctx.strokeStyle = INK;
-      ctx.strokeText(line, W / 2, y);
-      // 두 번째 줄(또는 한 줄이면 그 줄)은 노란색으로 강조
-      ctx.fillStyle = i === lines.length - 1 ? '#FFD84A' : '#FFFFFF';
-      ctx.fillText(line, W / 2, y);
-      y += fs * 1.12;
-    });
-    if (sub) pill(ctx, sub, W / 2, y + 14, 15, '#FFFFFF', '#E2541F');
-    if (bottom) pill(ctx, bottom, W / 2, H * 0.905, 16, '#FF8A4C', '#FFFFFF');
+    drawCoverText(cv, { title, sub, bottom });
     return cv;
   } finally {
+    cv.remove();
+  }
+}
+
+/** 표지 위 글씨 (큰 훅 두 줄 · 곡 배지 · 아래 유도) — 드럼·타일 같이 씀 */
+function drawCoverText(cv, { title, sub, bottom }) {
+  const ctx = cv.getContext('2d');
+  ctx.setTransform(3, 0, 0, 3, 0, 0);
+  // 위쪽을 살짝 어둡게 (글씨가 잘 보이게)
+  const shade = ctx.createLinearGradient(0, 0, 0, H * 0.5);
+  shade.addColorStop(0, 'rgba(10,6,24,0.72)');
+  shade.addColorStop(0.7, 'rgba(10,6,24,0.25)');
+  shade.addColorStop(1, 'rgba(10,6,24,0)');
+  ctx.fillStyle = shade;
+  ctx.fillRect(0, 0, W, H * 0.5);
+  const lines = splitTitle(title);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  let y = lines.length > 1 ? 118 : 140;
+  lines.forEach((line, i) => {
+    const fs = fit(ctx, line, W * 0.9, 50);
+    ctx.lineWidth = fs * 0.2;
+    ctx.strokeStyle = INK;
+    ctx.strokeText(line, W / 2, y);
+    // 두 번째 줄(또는 한 줄이면 그 줄)은 노란색으로 강조
+    ctx.fillStyle = i === lines.length - 1 ? '#FFD84A' : '#FFFFFF';
+    ctx.fillText(line, W / 2, y);
+    y += fs * 1.12;
+  });
+  if (sub) pill(ctx, sub, W / 2, y + 14, 15, '#FFFFFF', '#E2541F');
+  if (bottom) pill(ctx, bottom, W / 2, H * 0.905, 16, '#FF8A4C', '#FFFFFF');
+}
+
+/**
+ * 🎹 타일 썸네일 (2026-11-28 사용자 '타일 썸네일도 드럼처럼'): 진짜 타일 판을 자동 연주로 첫 바퀴 중간까지 돌려
+ *   (별 하나 찬 때, 막 PERFECT 친 순간) 1080×1920 으로 찍고 같은 글씨를 얹음. 소리 없음, 화면 시계만 빨리 돌림
+ * @param {{ audio, songId, skin, hue, title, sub, bottom }} o
+ */
+export async function makeTileCover({ audio, songId, skin, hue, title, sub, bottom }) {
+  try {
+    await Promise.race([
+      Promise.all([document.fonts.load(`40px ${FONT.split(',')[0]}`, `${title}${sub || ''}${bottom || ''}0123456789`), document.fonts.load('700 40px "Fredoka"', '0123456789PERFECT')]),
+      new Promise((r) => setTimeout(r, 3000)),
+    ]);
+  } catch {}
+  const cv = document.createElement('canvas');
+  cv.style.cssText = `position:fixed;left:-20000px;top:0;width:${W}px;height:${H}px;pointer-events:none`;
+  document.body.appendChild(cv);
+  const realNow = performance.now;
+  let fake = realNow.call(performance);
+  let g = null;
+  try {
+    g = new TileGame({ audio, canvas: cv, songId, skin, hue, auto: true, mute: true, maxLaps: 1, dpr: 3 });
+    // 첫 바퀴 25~70% 중 화면에 타일이 가장 많은 순간 → 그 타일을 친 바로 뒤 (PERFECT 글자가 막 뜬 때, 별 하나 찬 쯤)
+    const song = g.tiles.filter((x) => !x.coin && x.k === 0);
+    let pick = song[Math.floor(song.length * 0.45)] || song[0];
+    let most = -1;
+    for (let i = Math.floor(song.length * 0.25); i < Math.floor(song.length * 0.7); i++) {
+      const r0 = song[i].row;
+      const n = song.filter((x) => x.row > r0 && x.row < r0 + 2.6).length - (song[i].hold ? 0.5 : 0);
+      if (n > most) {
+        most = n;
+        pick = song[i];
+      }
+    }
+    const target = (pick ? pick.t : 5) + 0.14;
+    performance.now = () => fake;
+    g.start();
+    cancelAnimationFrame(g.raf);
+    clearInterval(g.timer);
+    for (let k = 0; k < 20000 && g.state !== 'ended' && g.state !== 'stopped'; k++) {
+      fake += 1000 / 30;
+      g._tick();
+      if (g.state === 'playing' && g.t >= target) break;
+    }
+    g.stop();
+    // 찍은 화면을 새 캔버스로 복사 (타일 판은 글꼴이 늦게 받아지면 첫 화면을 다시 그려서 덮어씀)
+    const out = document.createElement('canvas');
+    out.width = cv.width;
+    out.height = cv.height;
+    out.getContext('2d').drawImage(cv, 0, 0);
+    drawCoverText(out, { title, sub, bottom });
+    return out;
+  } finally {
+    performance.now = realNow;
     cv.remove();
   }
 }

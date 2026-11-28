@@ -96,11 +96,12 @@ export class TileGame {
    *           maxLaps?:number, skin?:object, vs?:{ name:string, other:()=>({score,lives,done}|null), onLive?:(live)=>void } }} o
    *   lap 을 주면 그걸로 (유저 맵 타일), 아니면 songId 의 곡
    */
-  constructor({ audio, canvas, songId = 0, lap = null, onEnd, onLap, onDeath = null, invincible = false, maxLaps = MAX_LAPS, vs = null, skin = null, hue = null, auto = false, mute = false, reel = null }) {
+  constructor({ audio, canvas, songId = 0, lap = null, onEnd, onLap, onDeath = null, invincible = false, maxLaps = MAX_LAPS, vs = null, skin = null, hue = null, auto = false, mute = false, reel = null, dpr = null }) {
     // 🎬 auto = 저절로 PERFECT 로 침 (영상 찍기 자동 연주·상점 미리보기), mute = 소리 없음(상점 미리보기), reel = 릴스 문구 { top, bottom, label }
     this.auto = auto;
     this.mute = mute;
     this.reel = reel;
+    this.fixedDpr = dpr; // 🖼 썸네일: 1080 너비로 그리게 고정
     if (auto) invincible = true;
     this.onDeath = onDeath;
     this.invincible = invincible; // 🛡 유저 맵 무적: 틀려도 안 죽음
@@ -531,7 +532,7 @@ export class TileGame {
     const c = this.canvas;
     this.W = c.clientWidth || window.innerWidth;
     // 🎬 릴스는 1080 너비쯤으로 (영상이 흐리지 않게)
-    const dpr = this.reel ? clamp(1080 / Math.max(1, this.W), 2, 3) : Math.min(2, window.devicePixelRatio || 1);
+    const dpr = this.fixedDpr ? this.fixedDpr : this.reel ? clamp(1080 / Math.max(1, this.W), 2, 3) : Math.min(2, window.devicePixelRatio || 1);
     this.dpr = dpr;
     this.H = c.clientHeight || window.innerHeight;
     c.width = Math.round(this.W * dpr);
@@ -1634,7 +1635,8 @@ export class TileGame {
       else {
         const k = Math.min(this.lapsDone, this.lapEnd.length - 1);
         const lapP = clamp((this.doneSong - this.lapEnd[k - 1]) / Math.max(1, this.lapEnd[k] - this.lapEnd[k - 1]), 0, 1);
-        p = clamp((this.lapsDone - 1 + (this.lapsDone >= this.maxLaps ? 0 : lapP)) / Math.max(1, Math.min(3, this.maxLaps - 1)), 0, 1);
+        // 줄은 다이아 칸 3개 기준 (2바퀴 영상이면 다이아 1개 자리까지만, 2026-11-28 사용자 '다이아 한 개만 차야 하는데 끝까지 감')
+        p = clamp((this.lapsDone - 1 + (this.lapsDone >= this.maxLaps ? 0 : lapP)) / 3, 0, 1);
       }
     }
     // 진행 줄 (사진 느낌, 2026-11-27): 가는 하얀 선 + 빛나는 점, 지난 만큼 금빛으로 빛남
