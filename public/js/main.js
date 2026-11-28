@@ -35,7 +35,7 @@ import { makeReelCover, makeTileCover } from './cover.js';
 import { barEnergy, detectBeat, monoOf, songChart, songTiles } from './beatsync.js';
 import { seasonLeftText, BOARD_LABEL, seasonAt } from './season.js';
 import { AVATARS, avatarHtml, cleanAvatar, cleanIntro, INTRO_MAX, PROF_BGS, profBg, profBgStyle } from './avatars.js';
-import { chatWindow, CHAT_MAX } from './chat.js';
+import { chatWindow, chatHoursText, CHAT_MAX } from './chat.js';
 import { TILE_SONGS, TILE_DIFF, TILE_RPS, DIFF_SPEEDS, buildLap, tileSong, tileId, tileClosed, lapStars, tileLap, mapTileLap, MAP_TILE_LAPS, hasPplus, tileLevel, songTileLap } from './tiles.js';
 import { TileGame } from './tilegame.js';
 import { noteTilePlay, noteDrum, questView, claimQuest, claimCommunity, communityClaimed, attView, noteAttendance } from './s2claims.js';
@@ -8149,7 +8149,7 @@ const ch = { last: 0, timer: 0, newAt: 0, touchedAt: 0, msgs: new Map(), every: 
 function chatSub() {
   const w = chatWindow(Date.now());
   const el = $('#h2-chat-sub');
-  if (el) el.textContent = w.open ? '● 지금 열림!' : '매일 저녁 6시~8시';
+  if (el) el.textContent = w.open ? '● 지금 열림!' : `매일 ${chatHoursText()}`;
   $('.h2-chat')?.classList.toggle('live', w.open);
 }
 function openChat() {
@@ -8173,7 +8173,7 @@ function chatActive() {
 function chatClosedHtml(next) {
   const mins = Math.max(0, Math.round((next - Date.now()) / 60000));
   const left = mins >= 60 ? `${Math.floor(mins / 60)}시간 ${mins % 60}분` : `${mins}분`;
-  return `<div class="chat-closed"><b>💬 채팅은 매일 저녁 6시~8시에 열려요</b><small>${left} 뒤에 열려요</small></div>`;
+  return `<div class="chat-closed"><b>💬 채팅은 매일 ${chatHoursText()}에 열려요</b><small>${left} 뒤에 열려요</small></div>`;
 }
 async function chatPoll() {
   clearTimeout(ch.timer);
