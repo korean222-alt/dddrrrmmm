@@ -4455,7 +4455,7 @@ async function mkTranscribe() {
   // confirm() 은 앱 안 브라우저에서 안 뜰 수 있어서 묻지 않음 (↩ 되돌리기 가능)
   mkSnap();
   mk.mel = t.bars;
-  mk.low = null;
+  mk.low = Array.isArray(t.low) && t.low.length === bars ? t.low : null; // 🎸 노래에서 딴 베이스 줄 (없으면 자동 베이스)
   mk.bpm = Math.round(bpm);
   // 코드·드럼도 노래에서 (곡의 진짜 코드 · 곡의 쿵짝 자리)
   mk.prog = Array.isArray(t.prog) && t.prog.length === bars ? t.prog : null;
@@ -4477,7 +4477,7 @@ async function mkTranscribe() {
   st.innerHTML =
     `<b>${bars}마디</b>(약 ${mmss(sec)})에서 음 <b>${t.found}개</b>를 땄어요 · ${mk.bpm} BPM` +
     `<br>${t.vocalRatio < 0.12 ? '목소리가 거의 없는 곡이라 악기 멜로디를 땄어요' : t.leadShare > 0.05 ? '노래 부분은 목소리, 전주·간주는 악기 멜로디를 땄어요' : '목소리 멜로디를 땄어요'}` +
-    ([mk.prog && '코드', mk.drumsAuto === 'song' && '드럼'].filter(Boolean).join('·') ? `<br>${[mk.prog && '코드', mk.drumsAuto === 'song' && '드럼'].filter(Boolean).join('·')}도 노래에서 땄어요` : '') +
+    ([mk.prog && '코드', mk.low && '베이스', mk.drumsAuto === 'song' && '드럼'].filter(Boolean).join('·') ? `<br>${[mk.prog && '코드', mk.low && '베이스', mk.drumsAuto === 'song' && '드럼'].filter(Boolean).join('·')}도 노래에서 땄어요` : '') +
     (lenSel !== 'all' && want > bars ? `<br>노래가 짧아서 ${bars}마디까지만 땄어요` : '') +
     '<br>「처음부터 듣기」로 들어 보고, 틀린 음은 손으로 고쳐 주세요';
 }
