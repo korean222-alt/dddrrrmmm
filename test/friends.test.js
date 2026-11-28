@@ -146,12 +146,17 @@ test('🎮 친구 초대 · 🖼 프로필 배경(그림은 산 사람만)', asy
 
 test('💬 채팅: 열린 시간에만 · 로그인 계정만 · 연락처 막음 · 신고 3번이면 가림', async () => {
   const { chatWindow, chatClean } = await import('../public/js/chat.js');
-  // 한국 18시~20시
+  // 한국 18시~24시 (기본)
+  const { chatHoursText } = await import('../public/js/chat.js');
   const day = Date.UTC(2026, 10, 28) - 9 * 3600e3;
   assert.equal(chatWindow(day + 17.9 * 3600e3).open, false);
   assert.equal(chatWindow(day + 18.5 * 3600e3).open, true);
-  assert.equal(chatWindow(day + 20 * 3600e3).open, false);
-  assert.equal(chatWindow(day + 21 * 3600e3).next, day + 42 * 3600e3);
+  assert.equal(chatWindow(day + 23.9 * 3600e3).open, true);
+  assert.equal(chatWindow(day + 24.1 * 3600e3).open, false);
+  assert.equal(chatWindow(day + 20 * 3600e3, '18-20').open, false);
+  assert.equal(chatWindow(day + 21 * 3600e3, '18-20').next, day + 42 * 3600e3);
+  assert.equal(chatHoursText('18-24'), '저녁 6시~밤 12시');
+  assert.equal(chatHoursText('18-20'), '저녁 6시~저녁 8시');
   assert.equal(chatClean('안녕 https://x.com').error, 'contact');
   assert.equal(chatClean('내 번호 010-1234-5678').error, 'contact');
   assert.equal(chatClean('오픈채팅 들어와').error, 'contact');

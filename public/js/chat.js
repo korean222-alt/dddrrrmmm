@@ -1,8 +1,20 @@
-// 💬 채팅 (2026-11-28 사용자 '채팅 18:00~20시까지만') — 서버·폰 같이 씀
+// 💬 채팅 (2026-11-28 사용자 '채팅 18:00~20시까지만' → 같은 날 '서버 괜찮으면 24시까지') — 서버·폰 같이 씀
 //   열리는 시간(한국 시각)·글 검사(길이·링크·연락처·욕)만. 저장·폴링은 server/handler.js · main.js
 export const CHAT_MAX = 80;
-export const CHAT_HOURS = '18-20';
+export const CHAT_HOURS = '18-24';
 const KST = 9 * 3600 * 1000;
+
+/** '18-24' → '저녁 6시~밤 12시' (화면 글자) */
+export function chatHoursText(hours = CHAT_HOURS) {
+  const m = /^(\d{1,2})-(\d{1,2})$/.exec(String(hours || CHAT_HOURS)) || /^(\d+)-(\d+)$/.exec(CHAT_HOURS);
+  const h = (n) => {
+    n = Number(n) % 24;
+    if (n === 0) return '밤 12시';
+    if (n === 12) return '낮 12시';
+    return (n < 6 ? '새벽 ' : n < 12 ? '오전 ' : n < 18 ? '오후 ' : n < 21 ? '저녁 ' : '밤 ') + (n > 12 ? n - 12 : n) + '시';
+  };
+  return `${h(m[1])}~${h(m[2])}`;
+}
 
 /** 지금 채팅이 열렸나 { open, start, end, next } — hours = '18-20' (한국 시각, 끝 시각은 안 들어감) */
 export function chatWindow(now = Date.now(), hours = CHAT_HOURS) {
