@@ -4543,6 +4543,8 @@ const STUDIO_TEXT = {
   fail: { top: '이 정도는 쉽지 ㅋㅋ', bottom: '이거 깰 수 있는 사람?' },
   tile: { top: '이 속도 버틸 수 있음?', bottom: '프로필 링크에서 직접 쳐보기' },
 };
+/** 🎹 타일 영상 끝 문구 기본값 (실패 영상처럼 끝에 크게, 2026-11-28 사용자) */
+const TILE_END = { big: '너도 이거 깰 수 있음?', sub: '프로필 링크에서 도전' };
 /** 🎹 영상 찍기를 피아노 타일로 (2026-11-27 사용자 '타일로 릴스 찍고 싶어') */
 const isTileStudio = () => state.studio.game === 'tile';
 const isQuizFormat = () => state.studio.format === 'quiz';
@@ -4621,6 +4623,7 @@ function renderStudioLevels() {
   $$('#studio-game button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.sgame === (tile ? 'tile' : 'drum'))));
   $('#screen-studio .studio').classList.toggle('tile-on', tile);
   $('#tile-laps-wrap').hidden = !tile;
+  $('#tile-end-wrap').hidden = !tile;
   if (tile) {
     if (!TILE_SONGS.some((t) => t.id === st.tileSong)) st.tileSong = TILE_SONGS[0].id;
     $('#tile-laps').value = String([1, 2, 4].includes(st.tileLaps) ? st.tileLaps : 1);
@@ -4706,6 +4709,8 @@ function openStudio() {
   $$('#studio-mode button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.mode === st.mode));
   $('#studio-top').value = st.top;
   $('#studio-bottom').value = st.bottom;
+  $('#studio-end').value = st.endText ?? TILE_END.big;
+  $('#studio-endsub').value = st.endSub ?? TILE_END.sub;
   const ok = canRecordFile();
   $('#studio-file').disabled = !ok;
   $('#studio-file').checked = ok && st.file;
@@ -5264,12 +5269,14 @@ async function studioStart() {
   const st = state.studio;
   st.top = $('#studio-top').value.trim();
   st.bottom = $('#studio-bottom').value.trim();
+  st.endText = $('#studio-end').value.trim();
+  st.endSub = $('#studio-endsub').value.trim();
   st.file = $('#studio-file').checked;
   st.skin = $('#studio-skin').checked;
   st.quizBars = Number($('#quiz-bars').value || st.quizBars || 8);
   st.failSec = Number($('#fail-secs').value || st.failSec || 12);
   st.tileLaps = Number($('#tile-laps').value || st.tileLaps || 1);
-  save('studio', { level: st.level, mode: st.mode, top: st.top, bottom: st.bottom, file: st.file, skin: st.skin, format: st.format || 'play', quizBars: st.quizBars, failSec: st.failSec, game: st.game || 'drum', tileSong: st.tileSong, tileLaps: st.tileLaps });
+  save('studio', { level: st.level, mode: st.mode, top: st.top, bottom: st.bottom, file: st.file, skin: st.skin, format: st.format || 'play', quizBars: st.quizBars, failSec: st.failSec, game: st.game || 'drum', tileSong: st.tileSong, tileLaps: st.tileLaps, endText: st.endText, endSub: st.endSub });
   if (isTileStudio()) return studioTileStart();
   const playId = studioPlayId();
   closeModal('modal-studio-done');
@@ -5438,7 +5445,7 @@ async function studioTileStart() {
   await Promise.race([audio.loadPiano(), new Promise((r) => setTimeout(r, 3000))]);
   if (audio.orchOn) audio.loadOrch().catch(() => {});
   const label = `🎹 ${song.level.composer} ${song.level.name}`;
-  await fontsReady(`${st.top}${st.bottom}${label}`);
+  await fontsReady(`${st.top}${st.bottom}${label}${st.endText || ''}${st.endSub || ''}별개클리어다이아달성완주에서탈락%…0123456789`);
   if (!st.active) return;
   const skin = st.skin !== false ? tileSkin() : { key: 'basic', palette: null, fx: null };
   const g = new TileGame({
@@ -5448,7 +5455,7 @@ async function studioTileStart() {
     skin,
     hue: TILE_HUES[(song.order - 1) % TILE_HUES.length],
     auto: st.mode === 'auto',
-    reel: { top: st.top, bottom: st.bottom, label },
+    reel: { top: st.top, bottom: st.bottom, label, end: st.endText || st.endSub ? { big: st.endText, sub: st.endSub } : null },
     maxLaps: [1, 2, 4].includes(st.tileLaps) ? st.tileLaps : 1,
     onEnd: (r) => studioTileFinish(r),
   });
@@ -5473,8 +5480,8 @@ async function studioTileFinish(r) {
   const st = state.studio;
   if (tp.game) tp.game = null;
   if (!st.active) return;
-  // 마지막 장면(별·다이아)을 잠깐 더 담기
-  await new Promise((res) => setTimeout(res, 1200));
+  // 마지막 장면(별·다이아 / 끝 문구)을 잠깐 더 담기 — 끝 문구는 판이 이미 3.8초 보여 줌
+  await new Promise((res) => setTimeout(res, st.endText || st.endSub ? 400 : 1200));
   const blob = await stopRecorder();
   st.active = false;
   const video = $('#studio-video');

@@ -12375,7 +12375,8 @@ class TileGame {
     }
     if (this.state === 'dying') {
       this._draw(this.diedAt, dt, true);
-      if (pn - this.diedPerf > 1300) {
+      // 🎬 릴스 끝 문구가 있으면 끝 화면을 더 오래 (문구가 톡 뜨고 읽을 시간)
+      if (pn - this.diedPerf > (this.reel && this.reel.end ? 3800 : 1300)) {
         // 틀리면 끝 — 광고 보고 한 번만 이어하기 (끝까지 돈 판·대결은 바로 끝)
         if (this.onDeath && !this.complete && this.hearts <= 0 && this.continues < 1) {
           this.state = 'dead';
@@ -12584,8 +12585,10 @@ class TileGame {
     this._drawJudge(g, t);
     this._drawCount(g, t);
     this._drawLapFx(g, t);
-    if (this.reel) this._drawReel(g);
-    if (frozen) this._drawDying(g);
+    const endCard = frozen && this.reel && this.reel.end;
+    if (this.reel) this._drawReel(g, endCard);
+    if (endCard) this._drawReelEnd(g);
+    else if (frozen) this._drawDying(g);
     g.restore();
     // 지난 효과 치우기 (가끔만)
     if (++this._gc > 30) {
@@ -12597,7 +12600,7 @@ class TileGame {
 
   /** 🎬 릴스 문구 (2026-11-28 사용자 '자막이 화면 가려, 드럼처럼'): 띠 없이 테두리 글씨만, 맨 위·맨 아래 가장자리에 작게.
    *  위 문구는 처음 5초만 보이다 사라짐(드럼 영상처럼) — 타일·점수·판정 글자 자리는 안 가림 */
-  _drawReel(g) {
+  _drawReel(g, endCard = false) {
     const { W, H } = this;
     const r = this.reel;
     if (this._reelAt == null) this._reelAt = this.realT;
@@ -12622,7 +12625,82 @@ class TileGame {
     const fade = clamp((5 - age) / 0.6, 0, 1);
     line(r.top, H * 0.026, Math.min(26, W * 0.058), '#fff', fade);
     if (r.label) line(r.label, H * 0.026 + Math.min(26, W * 0.058) * 1.05, Math.min(15, W * 0.034), '#FFD84A', fade);
-    line(r.bottom, H * 0.972, Math.min(20, W * 0.045), '#fff', 0.9);
+    if (!endCard) line(r.bottom, H * 0.972, Math.min(20, W * 0.045), '#fff', 0.9);
+  }
+  /** 🎬 릴스 끝 문구 (2026-11-28 사용자 '실패 영상처럼 마지막에 문구, 바꿀 수 있게'):
+   *  ① 결과 한 줄(별 3개 클리어! / 다이아 N개 달성! / N%에서 탈락…) → ② 큰 문구가 톡 → ③ 주황 버튼 문구 */
+  _drawReelEnd(g) {
+    const { W, H } = this;
+    const e = this.reel.end;
+    const age = (performance.now() - this.diedPerf) / 1000;
+    const k = clamp(age / 0.5, 0, 1);
+    g.fillStyle = `rgba(16,10,36,${0.55 * k})`;
+    g.fillRect(0, 0, W, H);
+    const fitPx = (txt, maxW, px) => {
+      g.font = font(px);
+      return px * Math.min(1, maxW / Math.max(1, g.measureText(txt).width));
+    };
+    g.save();
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    g.lineJoin = 'round';
+    g.strokeStyle = 'rgba(20,14,48,0.95)';
+    let head;
+    if (this.complete) head = this.maxLaps <= 1 ? '별 3개 클리어!' : this.maxLaps >= MAX_LAPS ? '다이아 3개 완주!' : `다이아 ${this.maxLaps - 1}개 달성!`;
+    else head = `${Math.round(clamp(this.doneSong / Math.max(1, this.lapEnd[this.lapEnd.length - 1]), 0, 1) * 100)}%에서 탈락…`;
+    const hs = fitPx(head, W * 0.8, W * 0.085);
+    const y0 = H * 0.3;
+    g.globalAlpha = clamp((age - 0.15) / 0.2, 0, 1);
+    g.font = font(hs);
+    g.lineWidth = hs * 0.2;
+    g.strokeText(head, W / 2, y0);
+    g.fillStyle = this.complete ? '#FFD84A' : '#FF5A6E';
+    g.fillText(head, W / 2, y0);
+    g.globalAlpha = 1;
+    const a2 = age - 0.6;
+    const words = String(e.big || '').trim();
+    let lines = [words];
+    if (words.length > 9) {
+      const sp = [...words.matchAll(/ /g)].map((m) => m.index);
+      if (sp.length) {
+        const cut = sp.reduce((b, i) => (Math.abs(i - words.length / 2) < Math.abs(b - words.length / 2) ? i : b), sp[0]);
+        lines = [words.slice(0, cut), words.slice(cut + 1)];
+      }
+    }
+    const fs = words ? Math.min(...lines.map((l) => fitPx(l, W * 0.92, W * 0.15))) : 0;
+    const yc = y0 + hs * 0.9 + (fs * 1.15 * lines.length) / 2;
+    if (words && a2 > 0) {
+      const pop = a2 < 0.3 ? 0.6 + 0.4 * ease(a2 / 0.3) + Math.sin((a2 / 0.3) * Math.PI) * 0.15 : 1 + Math.sin(a2 * 5) * 0.02;
+      g.save();
+      g.translate(W / 2, yc);
+      g.scale(pop, pop);
+      g.font = font(fs);
+      g.lineWidth = fs * 0.18;
+      lines.forEach((l, i) => {
+        const y = (i - (lines.length - 1) / 2) * fs * 1.15;
+        g.strokeText(l, 0, y);
+        g.fillStyle = '#FFFFFF';
+        g.fillText(l, 0, y);
+      });
+      g.restore();
+    }
+    const sub = String(e.sub || '').trim();
+    if (sub && a2 > 0.5) {
+      const bs = fitPx(sub, W * 0.8, W * 0.05);
+      g.font = font(bs);
+      g.globalAlpha = clamp((a2 - 0.5) / 0.3, 0, 1);
+      const tw = g.measureText(sub).width + bs * 1.4;
+      const by = (words ? yc + (fs * 1.15 * lines.length) / 2 : y0 + hs) + bs * 1.6;
+      g.beginPath();
+      g.roundRect(W / 2 - tw / 2, by - bs, tw, bs * 2, bs);
+      g.fillStyle = '#FF8A4C';
+      g.fill();
+      g.lineWidth = Math.max(2, bs * 0.12);
+      g.stroke();
+      g.fillStyle = '#FFFFFF';
+      g.fillText(sub, W / 2, by + bs * 0.05);
+    }
+    g.restore();
   }
 
   _drawTiles(g, t) {
@@ -26151,6 +26229,8 @@ const STUDIO_TEXT = {
   fail: { top: '이 정도는 쉽지 ㅋㅋ', bottom: '이거 깰 수 있는 사람?' },
   tile: { top: '이 속도 버틸 수 있음?', bottom: '프로필 링크에서 직접 쳐보기' },
 };
+/** 🎹 타일 영상 끝 문구 기본값 (실패 영상처럼 끝에 크게, 2026-11-28 사용자) */
+const TILE_END = { big: '너도 이거 깰 수 있음?', sub: '프로필 링크에서 도전' };
 /** 🎹 영상 찍기를 피아노 타일로 (2026-11-27 사용자 '타일로 릴스 찍고 싶어') */
 const isTileStudio = () => state.studio.game === 'tile';
 const isQuizFormat = () => state.studio.format === 'quiz';
@@ -26229,6 +26309,7 @@ function renderStudioLevels() {
   $$('#studio-game button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.sgame === (tile ? 'tile' : 'drum'))));
   $('#screen-studio .studio').classList.toggle('tile-on', tile);
   $('#tile-laps-wrap').hidden = !tile;
+  $('#tile-end-wrap').hidden = !tile;
   if (tile) {
     if (!TILE_SONGS.some((t) => t.id === st.tileSong)) st.tileSong = TILE_SONGS[0].id;
     $('#tile-laps').value = String([1, 2, 4].includes(st.tileLaps) ? st.tileLaps : 1);
@@ -26314,6 +26395,8 @@ function openStudio() {
   $$('#studio-mode button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.mode === st.mode));
   $('#studio-top').value = st.top;
   $('#studio-bottom').value = st.bottom;
+  $('#studio-end').value = st.endText ?? TILE_END.big;
+  $('#studio-endsub').value = st.endSub ?? TILE_END.sub;
   const ok = canRecordFile();
   $('#studio-file').disabled = !ok;
   $('#studio-file').checked = ok && st.file;
@@ -26872,12 +26955,14 @@ async function studioStart() {
   const st = state.studio;
   st.top = $('#studio-top').value.trim();
   st.bottom = $('#studio-bottom').value.trim();
+  st.endText = $('#studio-end').value.trim();
+  st.endSub = $('#studio-endsub').value.trim();
   st.file = $('#studio-file').checked;
   st.skin = $('#studio-skin').checked;
   st.quizBars = Number($('#quiz-bars').value || st.quizBars || 8);
   st.failSec = Number($('#fail-secs').value || st.failSec || 12);
   st.tileLaps = Number($('#tile-laps').value || st.tileLaps || 1);
-  save('studio', { level: st.level, mode: st.mode, top: st.top, bottom: st.bottom, file: st.file, skin: st.skin, format: st.format || 'play', quizBars: st.quizBars, failSec: st.failSec, game: st.game || 'drum', tileSong: st.tileSong, tileLaps: st.tileLaps });
+  save('studio', { level: st.level, mode: st.mode, top: st.top, bottom: st.bottom, file: st.file, skin: st.skin, format: st.format || 'play', quizBars: st.quizBars, failSec: st.failSec, game: st.game || 'drum', tileSong: st.tileSong, tileLaps: st.tileLaps, endText: st.endText, endSub: st.endSub });
   if (isTileStudio()) return studioTileStart();
   const playId = studioPlayId();
   closeModal('modal-studio-done');
@@ -27046,7 +27131,7 @@ async function studioTileStart() {
   await Promise.race([audio.loadPiano(), new Promise((r) => setTimeout(r, 3000))]);
   if (audio.orchOn) audio.loadOrch().catch(() => {});
   const label = `🎹 ${song.level.composer} ${song.level.name}`;
-  await fontsReady(`${st.top}${st.bottom}${label}`);
+  await fontsReady(`${st.top}${st.bottom}${label}${st.endText || ''}${st.endSub || ''}별개클리어다이아달성완주에서탈락%…0123456789`);
   if (!st.active) return;
   const skin = st.skin !== false ? tileSkin() : { key: 'basic', palette: null, fx: null };
   const g = new TileGame({
@@ -27056,7 +27141,7 @@ async function studioTileStart() {
     skin,
     hue: TILE_HUES[(song.order - 1) % TILE_HUES.length],
     auto: st.mode === 'auto',
-    reel: { top: st.top, bottom: st.bottom, label },
+    reel: { top: st.top, bottom: st.bottom, label, end: st.endText || st.endSub ? { big: st.endText, sub: st.endSub } : null },
     maxLaps: [1, 2, 4].includes(st.tileLaps) ? st.tileLaps : 1,
     onEnd: (r) => studioTileFinish(r),
   });
@@ -27081,8 +27166,8 @@ async function studioTileFinish(r) {
   const st = state.studio;
   if (tp.game) tp.game = null;
   if (!st.active) return;
-  // 마지막 장면(별·다이아)을 잠깐 더 담기
-  await new Promise((res) => setTimeout(res, 1200));
+  // 마지막 장면(별·다이아 / 끝 문구)을 잠깐 더 담기 — 끝 문구는 판이 이미 3.8초 보여 줌
+  await new Promise((res) => setTimeout(res, st.endText || st.endSub ? 400 : 1200));
   const blob = await stopRecorder();
   st.active = false;
   const video = $('#studio-video');
