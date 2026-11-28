@@ -35,7 +35,7 @@ import { makeReelCover } from './cover.js';
 import { barEnergy, detectBeat, monoOf, songChart } from './beatsync.js';
 import { seasonLeftText, BOARD_LABEL, seasonAt } from './season.js';
 import { AVATARS, avatarHtml, cleanAvatar, cleanIntro, INTRO_MAX } from './avatars.js';
-import { TILE_SONGS, TILE_DIFF, TILE_RPS, DIFF_SPEEDS, buildLap, tileSong, tileId, tileClosed, lapStars, tileLap, mapTileLap, MAP_TILE_LAPS, hasPplus } from './tiles.js';
+import { TILE_SONGS, TILE_DIFF, TILE_RPS, DIFF_SPEEDS, buildLap, tileSong, tileId, tileClosed, lapStars, tileLap, mapTileLap, MAP_TILE_LAPS, hasPplus, tileLevel } from './tiles.js';
 import { TileGame } from './tilegame.js';
 import { noteTilePlay, noteDrum, questView, claimQuest, claimCommunity, communityClaimed, attView, noteAttendance } from './s2claims.js';
 import { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder, resetOldLevel18, photoSave, photoLoad, photoDelete } from './storage.js';
@@ -4624,7 +4624,7 @@ function renderStudioLevels() {
     if (!TILE_SONGS.some((t) => t.id === st.tileSong)) st.tileSong = TILE_SONGS[0].id;
     $('#tile-laps').value = String([1, 2, 4].includes(st.tileLaps) ? st.tileLaps : 1);
     $('#studio-levels').innerHTML = TILE_SONGS.map((t, i) => {
-      const lv = getLevel(t.id);
+      const lv = tileLevel(t.id);
       return lv ? `<button data-studio-tile="${t.id}" aria-pressed="${t.id === st.tileSong}">${i + 1}. ${escapeHtml(lv.name)} · ${TILE_DIFF[t.diff]}</button>` : '';
     }).join('');
     $('#quiz-len').hidden = true;
@@ -7247,7 +7247,7 @@ async function renderS2Rank() {
   const songs = $('#sr-songs');
   songs.hidden = sr.tab !== 'song';
   if (sr.tab === 'song') {
-    songs.innerHTML = TILE_SONGS.map((t) => `<button data-srsong="${t.id}" aria-pressed="${t.id === sr.song}">${escapeHtml(getLevel(t.id).name)}</button>`).join('');
+    songs.innerHTML = TILE_SONGS.map((t) => (tileLevel(t.id) ? `<button data-srsong="${t.id}" aria-pressed="${t.id === sr.song}">${escapeHtml(tileLevel(t.id).name)}</button>` : '')).join('');
     const on = songs.querySelector('[aria-pressed="true"]');
     if (on) on.scrollIntoView({ block: 'nearest', inline: 'center' });
   }
@@ -7267,7 +7267,7 @@ async function renderS2Rank() {
         const { stars, gems } = lapStars(e.laps || 0);
         return e.laps ? tileStarsHtml(stars, gems) : '';
       })();
-      return `<div class="sr-row ${e.me || mine ? 'me' : ''} ${e.rank <= 3 ? 'top' + e.rank : ''}"><span class="r">${e.rank ? medal(e.rank) : '-'}</span>${avatarHtml(e.av, e.username, 'av-sm')}<span class="n">${escapeHtml(e.username || '')}</span><span class="s">${fmt(e.score)}<small>${sub}</small></span></div>`;
+      return `<div class="sr-row ${e.me || mine ? 'me' : ''} ${e.rank <= 3 ? 'top' + e.rank : ''}" ${mine ? '' : `data-pu="${escapeHtml(e.username || '')}"`}><span class="r">${e.rank ? medal(e.rank) : '-'}</span>${avatarHtml(e.av, e.username, 'av-sm')}<span class="n">${escapeHtml(e.username || '')}</span><span class="s">${fmt(e.score)}<small>${sub}</small></span></div>`;
     };
     const entries = d.entries || [];
     // 🏆 1·2·3등은 위에 시상대로 따로 (2026-11-27 사용자 '전에처럼 1·2·3등 따로 위에 멋지게')
@@ -7277,7 +7277,7 @@ async function renderS2Rank() {
       .filter((i) => top[i])
       .map((i) => {
         const e = top[i];
-        return `<div class="sr-pod p${e.rank} ${e.me ? 'me' : ''}">${e.rank === 1 ? '<span class="sr-crown">👑</span>' : ''}<span class="sr-pav">${avatarHtml(e.av, e.username, 'av-lg')}</span>
+        return `<div class="sr-pod p${e.rank} ${e.me ? 'me' : ''}" data-pu="${escapeHtml(e.username || '')}">${e.rank === 1 ? '<span class="sr-crown">👑</span>' : ''}<span class="sr-pav">${avatarHtml(e.av, e.username, 'av-lg')}</span>
           <b class="sr-pn">${escapeHtml(e.username || '')}</b>${e.intro ? `<em class="sr-pi">“${escapeHtml(e.intro)}”</em>` : ''}<span class="sr-ps">${fmt(e.score)}</span><small class="sr-pl">${subOf(e)}</small>
           <span class="sr-step"><i>${e.rank}</i></span></div>`;
       })
@@ -7734,8 +7734,7 @@ function renderMe() {
   $('#me-nick').hidden = !has;
   $('#me-sub').textContent = has ? (loggedIn() ? (state.me.kakao ? '카카오로 로그인 중' : '구글로 로그인 중') : '로그인하면 랭킹에 올라가요') : '프로필을 만들면 랭킹에 올라가요';
   const it = has ? cleanIntro(pl.intro) : null;
-  const line = it ? [it.i ? { piano: '🎹 피아노', drum: '🥁 드럼', both: '🎹🥁 피아노·드럼' }[it.i] : '', it.s && getLevel(it.s) ? `♥ ${getLevel(it.s).name}` : ''].filter(Boolean).join(' · ') : '';
-  $('#me-intro-line').innerHTML = it ? `${it.t ? `“${escapeHtml(it.t)}”` : ''}${line ? `<small>${escapeHtml(line)}</small>` : ''}` : '';
+  $('#me-intro-line').innerHTML = introHtml(it);
   $('#me-intro-line').hidden = !it;
   $('#me-rank').textContent = '-';
   $('#me-score').textContent = '-';
@@ -7752,11 +7751,117 @@ function renderMe() {
       })
       .catch(() => {});
 }
+/** 한 줄 소개 + 「🎹 피아노 · ♥ 좋아하는 곡」 */
+function introHtml(it) {
+  if (!it) return '';
+  const lv = it.s ? tileLevel(it.s) : null;
+  const line = [it.i ? { piano: '🎹 피아노', drum: '🥁 드럼', both: '🎹🥁 피아노·드럼' }[it.i] : '', lv ? `♥ ${lv.name}` : ''].filter(Boolean).join(' · ');
+  return `${it.t ? `“${escapeHtml(it.t)}”` : ''}${line ? `<small>${escapeHtml(line)}</small>` : ''}`;
+}
 function meTab(t) {
   $$('.me-tabs button').forEach((b) => b.classList.toggle('on', b.dataset.t === t));
   $$('#screen-me [data-p]').forEach((el) => (el.hidden = el.dataset.p !== t));
   if (t === 'intro') renderIntroForm();
+  if (t === 'friends') renderFriends();
 }
+// ----- 🙂👥 남의 프로필 · 친구 (2026-11-28 사용자 '프로필 누르면 그 사람 프로필 · 친구 추가') -----
+//   랭킹에서 프로필을 누르면 /api/profile 한 번 (그 판 + 닉네임으로 서버가 찾음, igsid 는 폰에 안 옴)
+//   친구 = 한쪽만 추가(팔로우처럼), 최대 30명 · 친구 탭 = 친구들 시즌 2 타일 총합 순위 (+ 나)
+const pf = { cur: null, b: '' };
+const fr = { list: null, at: 0, max: 30 };
+function serverOn() {
+  return !!(state.api && state.api.mode === 'server' && state.api.profile);
+}
+async function openProfile(b, u) {
+  if (!u) return;
+  if (meHasAcct() && u === state.me.player.username) return openMe();
+  if (!serverOn()) return toast('서버에 연결되면 볼 수 있어요', 1800);
+  pf.cur = null;
+  pf.b = b;
+  $('#prof-body').innerHTML = '<p class="sr-empty">불러오는 중…</p>';
+  openModal('modal-prof');
+  try {
+    const d = await state.api.profile(b, u);
+    if (pf.b !== b) return;
+    pf.cur = d.p;
+    renderProf();
+  } catch {
+    $('#prof-body').innerHTML = '<p class="sr-empty">프로필을 못 불러왔어요</p>';
+  }
+}
+function renderProf() {
+  const c = pf.cur;
+  if (!c) return;
+  const it = cleanIntro(c.intro);
+  const rank = c.rank ? (String(c.rank).endsWith('+') ? `${c.rank.replace('+', '')}등 밖` : `${c.rank}등`) : '-';
+  $('#prof-body').innerHTML = `<div class="prof-top"><span class="prof-av">${avatarHtml(c.av, c.username, 'av-lg')}</span><h2>${escapeHtml(c.username)}</h2>${it ? `<p class="me-intro-line">${introHtml(it)}</p>` : '<p class="prof-none">아직 소개가 없어요</p>'}</div>
+    <div class="me-stats prof-stats"><div><small>시즌 2 순위</small><b>${rank}</b></div><div><small>타일 총합</small><b>${fmt(c.score || 0)}</b></div><div><small>친 곡</small><b>${c.n || 0}곡</b></div></div>
+    ${c.me ? '' : c.friend ? '<button class="btn btn-ghost prof-fr on" data-action="prof-friend">👥 친구예요 ✓ <small>누르면 끊기</small></button>' : '<button class="btn btn-primary prof-fr" data-action="prof-friend">👥 친구 추가</button>'}`;
+}
+async function profFriend(btn) {
+  const c = pf.cur;
+  if (!c) return;
+  if (!meHasAcct()) {
+    closeModal('modal-prof');
+    return askNickname(true);
+  }
+  if (btn) btn.disabled = true;
+  try {
+    const d = await state.api.friendEdit(c.friend ? { del: -1, u: c.username } : { add: { b: pf.b, u: c.username } });
+    c.friend = !c.friend && d.friend !== false;
+    toast(c.friend ? `👥 ${c.username} 님을 친구로 추가했어요` : '친구를 끊었어요', 1800);
+    fr.at = 0;
+    renderProf();
+    if (!$('#screen-me').classList.contains('active')) return;
+    renderFriends(true);
+  } catch (e) {
+    toast(e && e.message === 'full' ? `친구는 ${fr.max}명까지예요` : '지금은 안 돼요. 잠시 뒤에 다시 해 주세요', 2000);
+    if (btn) btn.disabled = false;
+  }
+}
+async function renderFriends(force) {
+  const box = $('#fr-list');
+  if (!meHasAcct()) return void (box.innerHTML = '<p class="sr-empty">프로필을 만들면 친구를 추가할 수 있어요</p>');
+  if (!serverOn()) return void (box.innerHTML = '<p class="sr-empty">서버에 연결되면 보여요</p>');
+  if (force || !fr.list || Date.now() - fr.at > 2 * 60_000) {
+    if (!fr.list) box.innerHTML = '<p class="sr-empty">불러오는 중…</p>';
+    try {
+      const d = await state.api.friends();
+      fr.list = d.list || [];
+      fr.max = d.max || 30;
+      fr.at = Date.now();
+    } catch {
+      if (!fr.list) return void (box.innerHTML = '<p class="sr-empty">친구 목록을 못 불러왔어요</p>');
+    }
+  }
+  const others = fr.list.filter((c) => !c.me);
+  $('#fr-count').textContent = `${others.length}/${fr.max}`;
+  if (!others.length) {
+    box.innerHTML = '<p class="sr-empty">아직 친구가 없어요<br><small>시즌 2 랭킹에서 프로필을 누르고 「친구 추가」</small></p><button class="btn btn-ghost" data-action="s2-rank">🏆 시즌 2 랭킹 보기</button>';
+    return;
+  }
+  box.innerHTML = fr.list
+    .map((c, i) => {
+      const it = cleanIntro(c.intro);
+      return `<button class="sr-row fr-row ${c.me ? 'me' : ''}" data-fr="${i}"><span class="r">${i + 1}</span>${avatarHtml(c.av, c.username, 'av-sm')}<span class="n">${escapeHtml(c.username)}${it && it.t ? `<small>${escapeHtml(it.t)}</small>` : ''}</span><span class="s">${fmt(c.score || 0)}<small>${c.rank ? (String(c.rank).endsWith('+') ? `시즌 ${String(c.rank).replace('+', '')}등 밖` : `시즌 ${c.rank}등`) : `${c.n || 0}곡`}</small></span></button>`;
+    })
+    .join('');
+}
+document.addEventListener('click', (e) => {
+  const t = e.target.closest && e.target.closest('[data-pu],[data-fr],.sr-mine');
+  if (!t) return;
+  if (t.dataset.fr != null) {
+    const c = fr.list && fr.list[Number(t.dataset.fr)];
+    if (!c) return;
+    if (c.me) return meTab('profile');
+    pf.cur = c;
+    pf.b = 'fr';
+    renderProf();
+    openModal('modal-prof');
+  } else if (t.dataset.pu) openProfile(sr.tab === 'total' ? 'tiles' : tileId(sr.song), t.dataset.pu);
+  else if (meHasAcct()) openMe();
+});
+
 function openMe(tab = 'profile') {
   closeModal('modal-more');
   show('screen-me');
@@ -7771,7 +7876,7 @@ function renderIntroForm() {
   mi.i = it.i || '';
   mi.s = it.s || 0;
   $('#mi-text').value = mi.t;
-  $('#mi-song').innerHTML = TILE_SONGS.map((t) => `<button data-mi-song="${t.id}">${escapeHtml(getLevel(t.id).name)}</button>`).join('');
+  $('#mi-song').innerHTML = TILE_SONGS.map((t) => (tileLevel(t.id) ? `<button data-mi-song="${t.id}">${escapeHtml(tileLevel(t.id).name)}</button>` : '')).join('');
   introMarks();
 }
 function introMarks() {
@@ -7975,8 +8080,8 @@ const ACTIONS = {
   'me-nick': () => askNickname(true),
   'me-tab': (el) => {
     const t = el.dataset.t;
-    if (t === 'char' || t === 'friends') return toast({ char: '🎨 내 캐릭터 꾸미기', friends: '👥 친구' }[t] + '는 곧 열려요!', 1800);
-    if (t === 'intro' && !meHasAcct()) return askNickname(true);
+    if (t === 'char') return toast('🎨 내 캐릭터 꾸미기는 곧 열려요!', 1800);
+    if ((t === 'intro' || t === 'friends') && !meHasAcct()) return askNickname(true);
     meTab(t);
   },
   'me-intro-save': () => saveIntro(),
@@ -8233,6 +8338,8 @@ const ACTIONS = {
     askNickname(true);
   },
   'close-tinfo': () => closeModal('modal-tinfo'),
+  'close-prof': () => closeModal('modal-prof'),
+  'prof-friend': (el) => profFriend(el),
   'pplus-go': () => pplusGo(),
   'close-pplus': () => closeModal('modal-pplus'),
   'close-verify': () => {

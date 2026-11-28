@@ -107,6 +107,10 @@ function serverApi(boot = null) {
     guest: (name, ig, av) => http('POST', '/api/guest', { name, ig, av }),
     avatar: (av) => http('POST', '/api/avatar', { av }),
     intro: (intro) => http('POST', '/api/intro', { intro }),
+    // 🙂👥 남의 프로필 · 친구 (2026-11-28) — 누를 때만 요청
+    profile: (b, u) => http('GET', `/api/profile?b=${encodeURIComponent(b)}&u=${encodeURIComponent(u)}`),
+    friends: () => http('GET', '/api/friends'),
+    friendEdit: (body) => http('POST', '/api/friends', body),
     verifyPassword: (body) => http('POST', '/api/verify/password', body),
     // 📦 내 기록 되받기 (브라우저 바꾸고 로그인했을 때 한 번)
     myBests: () => http('GET', '/api/my-bests'),

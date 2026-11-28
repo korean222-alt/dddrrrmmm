@@ -612,6 +612,23 @@ END $$`);
     if (!p || !p.username || p.hiddenAt || !p.checkedAt) return null;
     return { igsid, username: p.username, score: Number(r.score), n: Number(r.n), rounds: Number(r.rounds), at: Number(r.at) };
   }
+  /** 👥 친구 카드 (2026-11-28): 프로필 + 그 시즌 타일 총합을 쿼리 1번으로 (사람마다 자기 타일 기록 줄만 읽음) */
+  async friendCards(season, ids) {
+    ids = [...new Set(ids)].slice(0, 50);
+    if (!ids.length) return [];
+    const ph = ids.map((_, i) => `$${i + 1}`).join(',');
+    const n = Math.floor(Number(season)) || 0;
+    const src = n === 1 ? `(SELECT igsid, level, score, at FROM scores WHERE igsid IN (${ph}))` : `(SELECT igsid, level, score, at FROM season_scores WHERE season = ${n} AND igsid IN (${ph}))`;
+    const rows = await this.q(
+      `SELECT p.igsid, p.username, p.av, p.intro, p.hidden_at, t.score, t.n, t.at FROM players p
+       LEFT JOIN (SELECT s.igsid, SUM(s.score) AS score, COUNT(*) AS n, MAX(s.at) AS at FROM ${src} s WHERE ${boardWhere('tiles')} GROUP BY s.igsid) t ON t.igsid = p.igsid
+       WHERE p.igsid IN (${ph})`,
+      ids
+    );
+    return rows
+      .filter((r) => r.username && r.hidden_at == null)
+      .map((r) => ({ igsid: r.igsid, username: r.username, av: r.av || null, intro: parseIntro(r.intro), score: Number(r.score) || 0, n: Number(r.n) || 0, at: Number(r.at) || 0 }));
+  }
   _seasonRow(r) {
     return { igsid: r.igsid, username: r.username, score: Number(r.score), n: Number(r.n), rounds: Number(r.rounds), at: Number(r.at), rank: Number(r.rank) };
   }

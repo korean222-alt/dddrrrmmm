@@ -496,6 +496,7 @@ export function createHandler(cfg, { store, meter = null }) {
   //   무거운 결과(명예의 전당 전체 순위·admin 참여자 목록)는 settings 한 줄에 담아 두고 TTL 동안 같이 씀
   //   (읽기 1줄). 인스턴스 메모리에도 1분. 'set:cache:*' 키는 d1-sync 에서 뺌
   const memo = new Map();
+  const FRIEND_MAX = 30; // 👥 친구 최대 (2026-11-28)
   // 📣 광고 통계의 '날' = 통계와 같은 시간대(한국)의 YYYY-MM-DD, 같은 이벤트 중복 막기
   //   ⚠ handle 을 돌려준 뒤에 있는 코드(api 쪽)에서 쓰는 const 는 초기화가 안 됨 → 반드시 return 앞에 둘 것
   const adDedupe = makeAdDedupe();
@@ -1259,6 +1260,93 @@ export function createHandler(cfg, { store, meter = null }) {
       const intro = cleanIntro(body.intro);
       await store.setIntro(pl.igsid, intro);
       return json(200, meOf({ ...pl, intro }));
+    }
+
+    // 🙂👥 남의 프로필 보기 · 친구 (2026-11-28 사용자 '프로필 누르면 그 사람 프로필 · 친구 추가, 무료 용량 많이 먹으면 하지 마')
+    //   igsid 는 폰에 안 보냄 → 랭킹 화면에서 본 판(b = tiles 또는 곡 t3)과 닉네임(u)으로, 그 판 위 50명(이미 기억해 둔 것)에서 찾음
+    //   친구 목록 = settings 한 줄 `fr:<igsid>` (JSON igsid 배열, 최대 30명) — 새 표 없음, 추가·끊기 때만 쓰기 1줄
+    //   읽기: 프로필 = 그 사람 타일 기록 줄(곡 수만큼)·5분 기억 / 친구 탭 = 친구들 타일 기록 줄을 쿼리 1번·3분 기억
+    if ((p === '/api/profile' && m === 'GET') || (p === '/api/friends' && (m === 'GET' || m === 'POST'))) {
+      const pl = await getPlayer(request);
+      const season = seasonAt();
+      const frKey = (id) => 'fr:' + id;
+      const frList = async (id) => {
+        const mm = memo.get(frKey(id));
+        if (mm && mm.exp > Date.now()) return mm.v;
+        let v = [];
+        try {
+          const raw = await store.getSetting(frKey(id));
+          const a = raw ? JSON.parse(raw) : [];
+          v = Array.isArray(a) ? a.filter((x) => typeof x === 'string').slice(0, FRIEND_MAX) : [];
+        } catch {}
+        memo.set(frKey(id), { v, exp: Date.now() + 60_000 });
+        return v;
+      };
+      /** 랭킹 판에서 닉네임으로 그 사람 igsid 찾기 */
+      const findOn = async (b, u) => {
+        u = String(u || '').slice(0, 40);
+        if (!u) return null;
+        if (pl && pl.username === u) return pl.igsid;
+        if (b === 'tiles') {
+          const d = await hallData(season.n, 'tiles');
+          const r = d.top.find((x) => x.username === u);
+          return r ? r.igsid : null;
+        }
+        const t = tileSong(b);
+        if (!t) return null;
+        const lb = await boardOf(tileSlot(t.id));
+        const r = lb.rows.find((x) => x.username === u);
+        return r ? r.igsid : null;
+      };
+      /** 시즌 2 타일 총합 등수 (위 60명 + 1000명 사다리, 이미 기억해 둔 것) */
+      const rankOfCard = async (c) => {
+        if (!c || !c.score) return null;
+        const { mine } = hallMerge(await hallData(season.n, 'tiles'), { igsid: c.igsid, username: c.username, score: c.score, n: c.n, rounds: 0, at: c.at }, { igsid: c.igsid });
+        return mine ? mine.rank || (mine.cap ? `${mine.cap}+` : null) : null;
+      };
+      const cardOut = async (c, mine) => ({ username: c.username, av: c.av || null, intro: c.intro || null, score: c.score, n: c.n, rank: await rankOfCard(c), friend: mine ? mine.includes(c.igsid) : false, me: pl ? c.igsid === pl.igsid : false });
+      const cardOf = (id) => cached('prof:' + id, ttlOf(5 * 60_000), async () => (await store.friendCards(season.n, [id]))[0] || null, { shared: false });
+
+      if (p === '/api/profile') {
+        const id = await findOn(url.searchParams.get('b'), url.searchParams.get('u'));
+        const c = id ? await cardOf(id) : null;
+        if (!c) return json(404, { error: 'not_found' });
+        return json(200, { p: await cardOut(c, pl ? await frList(pl.igsid) : null) });
+      }
+      if (!pl) return json(401, { error: 'no_player' });
+      let mine = await frList(pl.igsid);
+      if (m === 'POST') {
+        const body = await readJson(request);
+        let next = mine;
+        if (body.add) {
+          const id = await findOn(body.add.b, body.add.u);
+          if (!id) return json(404, { error: 'not_found' });
+          if (id === pl.igsid) return json(400, { error: 'self' });
+          if (!mine.includes(id)) {
+            if (mine.length >= FRIEND_MAX) return json(400, { error: 'full', max: FRIEND_MAX });
+            next = mine.concat([id]);
+          }
+        } else if (body.del != null) {
+          // 끊기는 내 친구 목록 자리(i) + 닉네임으로 (igsid 를 폰에 안 보내서)
+          const i = Number(body.del);
+          const cards = await cached('frc:' + pl.igsid, ttlOf(3 * 60_000), () => store.friendCards(season.n, mine), { shared: false });
+          const hit = cards.find((c) => c.username === String(body.u || '')) || (Number.isInteger(i) ? cards[i] : null);
+          if (hit) next = mine.filter((x) => x !== hit.igsid);
+        } else return json(400, { error: 'bad' });
+        if (next !== mine) {
+          await store.setSetting(frKey(pl.igsid), JSON.stringify(next));
+          memo.set(frKey(pl.igsid), { v: next, exp: Date.now() + 60_000 });
+          memo.delete('frc:' + pl.igsid);
+          mine = next;
+        }
+        if (!body.list) return json(200, { ok: true, friend: !!body.add, count: mine.length });
+      }
+      // 친구 목록 (+ 나) — 점수 순
+      const cards = await cached('frc:' + pl.igsid, ttlOf(3 * 60_000), () => store.friendCards(season.n, mine.concat([pl.igsid])), { shared: false });
+      const list = [];
+      for (const c of cards.filter((c) => c.igsid === pl.igsid || mine.includes(c.igsid))) list.push(await cardOut(c, mine));
+      list.sort((a, b) => b.score - a.score);
+      return json(200, { list, max: FRIEND_MAX });
     }
 
     if (p === '/api/guest' && m === 'POST') {

@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=8c1e7c9ce9" />
+  <link rel="stylesheet" href="css/style.css?v=ac918b698e" />
 </head>
 <body>
   <div id="app">
@@ -174,10 +174,10 @@
           <button class="on" data-action="me-tab" data-t="profile">🙂 프로필</button>
           <button data-action="me-tab" data-t="intro">📝 소개</button>
           <button data-action="me-tab" data-t="char">🎨 캐릭터<i>🔒</i></button>
-          <button data-action="me-tab" data-t="friends">👥 친구<i>🔒</i></button>
+          <button data-action="me-tab" data-t="friends">👥 친구</button>
         </div>
         <div class="me-body" data-p="profile">
-          <p class="me-soon">🎨 내 캐릭터 꾸미기 · 👥 친구는 곧 열려요!</p>
+          <p class="me-soon">🎨 내 캐릭터 꾸미기는 곧 열려요!</p>
           <button class="btn btn-ghost" data-action="me-avatar">🙂 프로필 이미지 바꾸기</button>
           <button class="btn btn-ghost" data-action="s2-rank">🏆 시즌 2 랭킹 보기</button>
           <button class="btn btn-ghost" data-action="settings"><span data-icon="gear"></span> 설정</button>
@@ -190,7 +190,13 @@
           </div>
           <div class="me-f"><span>좋아하는 곡</span><div class="me-chips me-songs" id="mi-song"></div></div>
           <button class="btn btn-primary" data-action="me-intro-save" id="mi-save">저장</button>
-          <p class="me-soon">시즌 2 랭킹 1·2·3등이 되면 시상대에 한 줄 소개가 떠요 · 친구 기능이 생기면 친구에게도 보여요</p>
+          <p class="me-soon">시즌 2 랭킹 1·2·3등이 되면 시상대에 한 줄 소개가 떠요 · 랭킹에서 내 프로필을 누른 사람에게도 보여요</p>
+        </div>
+        <!-- 👥 친구 탭 (2026-11-28) -->
+        <div class="me-body" data-p="friends" hidden>
+          <p class="fr-head">👥 친구 순위 <small>시즌 2 타일 총합 · <span id="fr-count">0/30</span></small></p>
+          <div class="sr-list" id="fr-list"></div>
+          <p class="me-soon">랭킹에서 프로필을 누르면 친구로 추가할 수 있어요</p>
         </div>
       </div>
     </section>
@@ -985,6 +991,14 @@
     </div>
   </div>
 
+  <!-- 🙂 남의 프로필 (2026-11-28, 랭킹·친구에서 누르면) -->
+  <div class="modal" id="modal-prof" hidden>
+    <div class="sheet small prof-sheet">
+      <button class="icon-btn close" data-action="close-prof" aria-label="닫기"><span data-icon="close"></span></button>
+      <div id="prof-body"></div>
+    </div>
+  </div>
+
   <!-- ✨ PERFECT+ 설명 (2026-11-28, PERFECT+ 곡을 처음 시작할 때 한 번) -->
   <div class="modal" id="modal-pplus" hidden>
     <div class="sheet small pplus-sheet">
@@ -1519,6 +1533,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=27da83c788" defer></script>
+  <script src="js/app.js?v=2f3c520d19" defer></script>
 </body>
 </html>

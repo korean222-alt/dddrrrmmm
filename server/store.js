@@ -317,6 +317,18 @@ export class JsonStore {
   seasonRankOf(season, board, igsid) {
     return this._seasonAll(season, board).find((r) => r.igsid === igsid) || null;
   }
+  /** 👥 친구 카드 (pgstore 와 같은 모양) */
+  friendCards(season, ids) {
+    const out = [];
+    for (const id of [...new Set(ids)].slice(0, 50)) {
+      const p = this.data.players[id];
+      if (!p || !p.username || p.hiddenAt) continue;
+      const src = Number(season) === 1 ? p.bests || {} : this.data.seasonScores[`${season}|${id}`] || {};
+      const bs = Object.entries(src).filter(([lv]) => isTileSlot(Number(lv))).map(([, b]) => b);
+      out.push({ igsid: id, username: p.username, av: p.av || null, intro: p.intro || null, score: bs.reduce((a, b) => a + b.score, 0), n: bs.length, at: bs.length ? Math.max(...bs.map((b) => b.at || 0)) : 0 });
+    }
+    return out;
+  }
   seasonMine(season, board, igsid) {
     const r = this.seasonRankOf(season, board, igsid);
     if (!r) return null;
