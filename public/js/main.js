@@ -3508,7 +3508,7 @@ const mkTlCount = () => (mk.tl || []).reduce((n, r) => n + r.replace(/\./g, '').
 function mkTlFromMelody() {
   let lap = null;
   try {
-    lap = buildLap(mk.mel.map(barToMelody), mkProg(), TILE_RPS[mk.tdiff || 2], DIFF_SPEEDS[mk.tdiff || 2]);
+    lap = mapTileLap({ melody: mk.mel.map(barToMelody), prog: mkProg(), bpm: mk.bpm, tdiff: mk.tdiff || 2, tsync: mk.tsync !== false });
   } catch {}
   const rows = mk.mel.map(() => TL_EMPTY.split(''));
   if (lap) for (const t of lap.pattern) if (rows[Math.floor(t.at / 16)]) rows[Math.floor(t.at / 16)][t.at % 16] = String(t.lane);
@@ -3581,7 +3581,16 @@ function mkRender() {
   if (!tiles && mk.tab === 'tl') mk.tab = 'mel';
   $('#mk-tab-tl').textContent = mk.tl ? `타일 ${mkTlCount()}개` : '자동';
   $('#mk-tdiff').hidden = !tiles;
-  $$('#mk-tdiff button').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.tdiff) === (mk.tdiff || 2))));
+  $$('#mk-tdiff button[data-tdiff]').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.tdiff) === (mk.tdiff || 2))));
+  $$('#mk-tdiff button[data-tsync]').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset.tsync === '1') === (mk.tsync !== false))));
+  if (tiles) {
+    // 이 난이도로 1초에 타일 몇 개인지 (노래 빠르기 그대로면 난이도 = 타일 수)
+    let lap = null;
+    try {
+      lap = mapTileLap({ melody: mk.mel.map(barToMelody), prog: mkProg(), bpm: mk.bpm, tdiff: mk.tdiff || 2, tsync: mk.tsync !== false, tl: mk.tl || undefined });
+    } catch {}
+    $('#mk-tdiff-hint').textContent = lap ? `${Math.round(lap.bpm)} BPM · 1초에 타일 ${(lap.pattern.length / ((lap.steps * 15) / lap.bpm)).toFixed(1)}개` + (mk.tsync !== false ? ' · 다이아 바퀴도 같은 빠르기' : ' · 바퀴마다 빨라짐') : '';
+  }
   if (tiles && mk.tab === 'tl') mkTlGrid();
   // 탭
   $$('#mk-tabs button').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === mk.tab)));
@@ -4313,6 +4322,7 @@ function mkMap(strict = true) {
   if (mk.kind === 'tiles') {
     raw.kind = 'tiles';
     raw.tdiff = mk.tdiff || 2;
+    if (mk.tsync !== false) raw.tsync = true;
     if (mk.tl) raw.tl = mk.tl;
     if (mkDrumNotes() < MAP_LIMITS.minNotes) raw.bars = autoDrums(mk.mel, 'easy');
   }
@@ -9211,6 +9221,13 @@ function bindActions() {
     if (b) mkTlTap(Number(b.dataset.e), Number(b.dataset.l));
   });
   $('#mk-tdiff').addEventListener('click', (e) => {
+    const sy = e.target.closest('button[data-tsync]');
+    if (sy) {
+      mk.tsync = sy.dataset.tsync === '1';
+      mkSave();
+      mkRender();
+      return;
+    }
     const b = e.target.closest('button[data-tdiff]');
     if (!b) return;
     mk.tdiff = Number(b.dataset.tdiff);

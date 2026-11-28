@@ -321,6 +321,8 @@ export function cleanMap(raw) {
     out.kind = 'tiles';
     const td = Number(raw.tdiff);
     if (Number.isInteger(td) && td >= 1 && td <= 5) out.tdiff = td;
+    // 🎵 노래 빠르기 그대로 (난이도는 타일 수로, tiles.js syncTileLap)
+    if (raw.tsync === true && out.tdiff) out.tsync = true;
   }
   // 🎹 왼손(아래 줄, 악보에서) — 있으면 자동 베이스 대신 이걸 침. 이상하면 빼고 맵은 그대로
   const low = raw.low;

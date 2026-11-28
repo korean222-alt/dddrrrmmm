@@ -224,7 +224,7 @@ export function rowUnit(notes) {
  *   → { u, bpm, bars, steps, notes, prog, first, pattern, tiles, points }
  *   notes = 노래(반주가 치는 멜로디 전부), pattern = 한 바퀴 타일 (모든 바퀴가 똑같음 — 2026-11-27 사용자 '띄엄띄엄 이상해')
  */
-export function buildLap(melody, prog, rps, speeds = LAP_SPEEDS, tl = null) {
+export function buildLap(melody, prog, rps, speeds = LAP_SPEEDS, tl = null, opt = {}) {
   const parsed = parseMelody(melody).map((n) => ({ ...n, at: n.bar * STEPS_PER_BAR + n.step }));
   const uniq = [];
   for (const n of parsed) {
@@ -235,9 +235,10 @@ export function buildLap(melody, prog, rps, speeds = LAP_SPEEDS, tl = null) {
   }
   // ✍ 유저가 직접 놓은 타일(tl, 마디마다 16칸 '.'/'0'~'3' = 줄) — 있으면 멜로디 대신 이 자리·줄 (2026-11-27 사용자 '타일도 자유롭게')
   const free = Array.isArray(tl) ? freeTiles(tl, uniq) : null;
-  const src = free || uniq;
+  // opt.src = 타일 자리를 따로 줌 (노래 빠르기 그대로 맵의 채운 타일), opt.u = 한 줄 칸 수를 정해 줌 — 반주 멜로디(notes)는 그대로 uniq
+  const src = free || opt.src || uniq;
   if (!src.length) return null;
-  const u = rowUnit(src);
+  const u = opt.u || rowUnit(src);
   const bars = melody.length;
   const steps = bars * STEPS_PER_BAR;
   // 📱 제일 빠른 바퀴(×1.3)에서도 한 줄이 0.2초 이상이 되게 빠르기 상한
@@ -462,6 +463,8 @@ export function mapTileLap(map) {
     const tl = Array.isArray(map.tl) ? map.tl : null;
     // 올릴 때 고른 난이도(tdiff 1~5)가 있으면 곡 타일과 같은 빠르기
     const d = Number(map.tdiff);
+    // 🎵 노래 빠르기 그대로(tsync): 첫 바퀴 = 맵 BPM, 난이도는 타일 수로
+    if (map.tsync && d >= 1 && d <= 5) return syncTileLap(map.melody, prog, map.bpm, d, tl);
     if (d >= 1 && d <= 5) return buildLap(map.melody, prog, TILE_RPS[d], DIFF_SPEEDS[d], tl);
     const probe = buildLap(map.melody, prog, 1, LAP_SPEEDS, tl);
     if (!probe) return null;
@@ -471,6 +474,59 @@ export function mapTileLap(map) {
     return null;
   }
 }
+/**
+ * 🎵 노래 빠르기 그대로 타일 (2026-11-28 사용자 '유저 맵 타일, 노래 속도에 맞게 하는데 난이도는 어렵게')
+ *   모든 바퀴 BPM = 맵 BPM (반주가 원곡 빠르기, 다이아 바퀴도 안 빨라짐). 난이도는 빠르기가 아니라 타일 수:
+ *   한 줄 칸 수 u = 초당 줄이 그 난이도 곡 빠르기(TILE_RPS)에 가장 가깝고 제일 빠른 바퀴도 0.2초 규칙을 지키는 것 (지옥+ 는 되는 한 가장 촘촘)
+ *   쉬움 = 멜로디 음 중 4분 이상 떨어진 것 · 보통 = 멜로디 음 · 어려움 = + 박마다 빈 곳 채움 · 지옥·지옥+ = + 줄마다 빈 곳 채움
+ *   채운 타일은 소리 없이 박자만 (반주 멜로디는 원래 음 그대로)
+ */
+export const SYNC_SPEEDS = [1, 1, 1, 1];
+export function syncTileLap(melody, prog, bpm, d, tl = null) {
+  // 다이아 바퀴도 노래 빠르기 그대로 (빨라지면 '노래 속도에 맞게'가 아니라서)
+  const speeds = SYNC_SPEEDS;
+  const maxSp = 1;
+  const okU = [1, 2, 4, 8].filter((u) => (15 * u) / (bpm * maxSp) >= MIN_TAP_SEC - 1e-9);
+  if (!okU.length) return null;
+  let u = okU[0];
+  if (d < 5) for (const x of okU) if (Math.abs(bpm / (15 * x) - TILE_RPS[d]) < Math.abs(bpm / (15 * u) - TILE_RPS[d])) u = x;
+  const rps = bpm / (15 * u);
+  if (Array.isArray(tl)) return buildLap(melody, prog, rps, speeds, tl, { u });
+  const ns = parseMelody(melody).map((n) => ({ at: n.bar * STEPS_PER_BAR + n.step, bar: n.bar, len: n.len, midi: n.midi }));
+  if (!ns.length) return null;
+  const steps = melody.length * STEPS_PER_BAR;
+  let src = [];
+  for (const n of ns) if (!src.length || src[src.length - 1].at !== n.at) src.push({ ...n });
+  if (d === 1) {
+    const out = [];
+    for (const n of src) if (!out.length || n.at - out[out.length - 1].at >= Math.max(4, u)) out.push(n);
+    src = out;
+  } else if (d >= 3) {
+    // 빈 곳 채우기: 어려움 = 박(4칸)마다, 지옥 이상 = 줄(u칸)마다. 가까이(u칸 안)에 타일이 있으면 안 넣음
+    const grid = d === 3 ? Math.max(4, u) : u;
+    const has = new Uint8Array(steps);
+    for (const n of src) has[n.at] = 1;
+    const near = (at) => {
+      for (let k = Math.max(0, at - u + 1); k < Math.min(steps, at + u); k++) if (has[k]) return true;
+      return false;
+    };
+    const add = [];
+    for (let at = 0; at < steps; at += grid) {
+      if (near(at)) continue;
+      let m = src[0].midi;
+      for (const n of ns) if (n.at <= at) m = n.midi;
+      add.push({ at, bar: Math.floor(at / STEPS_PER_BAR), len: grid, midi: m });
+      has[at] = 1;
+    }
+    src = [...src, ...add].sort((a, b) => a.at - b.at);
+    // 채운 타일 앞 음은 길게 끌지 않게 (긴 타일이 채운 자리를 덮지 않도록)
+    src.forEach((n, i) => {
+      if (src[i + 1]) n.len = Math.min(n.len, src[i + 1].at - n.at);
+    });
+  }
+  return buildLap(melody, prog, rps, speeds, null, { u, src });
+}
+
 /** 유저 맵 타일은 2바퀴(별 3개 → 코인 파티 → 다이아 3개)에서 끝 */
 export const MAP_TILE_LAPS = 2;
 export const mapTileMax = (map) => {
