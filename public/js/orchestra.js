@@ -54,8 +54,9 @@ export function arcLevel(shape, b, n, lap = 0) {
   switch (shape) {
     case 'mountain':
     case 'build':
-      // 처음부터 끝까지 한 줄로 점점 세게: 16마디면 0·0·0·0 / 1·1·1 / 2·2·2 / 3·3·3 / 4·4·4
-      v = (5 * b) / n;
+      // 처음부터 끝까지 한 줄로 점점 세게: 16마디면 1·1·1·1 / 2·2·2·2 / 3·3·3·3 / 4·4·4·4
+      //   (2026-11-28 사용자 '처음이 작고 별로 없으면 초반에 나가는 사람 있을 듯' → 0(피치카토만)에서 시작 안 함)
+      v = 1 + (4 * b) / n;
       v += lap * 1.4;
       break;
     case 'epic':
@@ -67,7 +68,7 @@ export function arcLevel(shape, b, n, lap = 0) {
       break;
     default: {
       const half = n / 2;
-      if (b < 2 && lap === 0) v = shape === 'lively' ? 1 : 0.6;
+      if (b < 2 && lap === 0) v = 1;
       else if (b < half) v = 1.4 + (1.2 * b) / half;
       else v = tail ? 4 : 3;
       v += lap;
@@ -99,7 +100,7 @@ const vlnRange = (m) => {
 export function orchestraBar(ctx) {
   const { v, shape, b, n, chordAt, mel = [] } = ctx;
   const L = Math.floor(v + 1e-6);
-  const dyn = 0.55 + 0.45 * (v / 4); // 전체 크기: 여리게 0.55 → 아주 세게 1
+  const dyn = dynOf(v); // 전체 크기: 처음 0.78 → 아주 세게 1 (처음도 너무 작지 않게)
   const parts = Math.max(1, ctx.parts || 1);
   const partLen = 16 / parts;
   const last = ctx.end ?? b === n - 1;
@@ -117,8 +118,6 @@ export function orchestraBar(ctx) {
       const m = (s === 4 || s === 12 ? ch.notes[2] : ch.root) - 12;
       add({ s, o: 'vc', m, sec: 0.11, v: (s === 0 ? 0.5 : 0.38) * dyn, at: 0.002, rel: 0.05 });
     }
-    // 산왕: 첼로·바순처럼 멜로디를 한 옥타브 아래서 살금살금
-    if (shape === 'mountain') for (const nt of mel) add({ s: nt.s, o: 'vc', m: nt.midi - 12, sec: 0.12, v: 0.42 * dyn, at: 0.002, rel: 0.05 });
   } else {
     // 현악 패드: 코드 바뀌는 자리마다
     for (let s = 0; s < 16; s += partLen) {
@@ -128,6 +127,8 @@ export function orchestraBar(ctx) {
       add({ s, o: 'vc', m: ch.root - 12, len: partLen, v: pv + 0.1, at: 0.05, rel: 0.25 });
     }
   }
+  // 산왕: 첼로·바순처럼 멜로디를 한 옥타브 아래서 짧게 튕기며 살금살금 (투티 전까지)
+  if (shape === 'mountain' && L <= 2) for (const nt of mel) add({ s: nt.s, o: 'vc', m: nt.midi - 12, sec: 0.12, v: 0.42 * dyn, at: 0.002, rel: 0.05 });
   // 바이올린이 멜로디를 같이: 1 = 긴 음만 · 2↑ = 전부 · 4 = 옥타브 위도
   if (L >= 1) {
     for (const nt of mel) {
@@ -193,4 +194,6 @@ export function orchestraBar(ctx) {
 }
 
 /** 세게 칠수록 쿵·짝도 크게 (타일 드럼·멜로디 피아노에 곱함) */
-export const dynOf = (v) => 0.55 + 0.45 * (v / 4);
+export function dynOf(v) {
+  return 0.7 + 0.3 * (v / 4);
+}
