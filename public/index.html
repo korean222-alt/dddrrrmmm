@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=ca7f1a3a72" />
+  <link rel="stylesheet" href="css/style.css?v=9b2c6d03e1" />
 </head>
 <body>
   <div id="app">
@@ -96,6 +96,7 @@
           <button class="h2-big h2-multi" data-action="room-open"><span class="h2-big-ico" data-icon="swords"></span><b>멀티</b><small>친구·랜덤 대결</small></button>
           <button class="h2-big h2-maps" data-action="maps-open"><span class="h2-big-ico" data-icon="piano"></span><b>유저 맵</b><small>다 같이 만든 곡</small></button>
         </div>
+        <button class="h2-chat h2-pad" data-action="pad-open" id="h2-pad" hidden><b>🥁 쿵짝 패드</b><small>미리보기 · 나만 보여요</small></button>
         <button class="h2-chat" data-action="chat-open"><b>💬 채팅</b><small id="h2-chat-sub">매일 저녁 6시~8시</small></button>
         <footer class="title-foot" id="title-foot2"></footer>
       </div>
@@ -918,6 +919,59 @@
       </div>
     </section>
 
+    <!-- 🥁 쿵짝 패드 미리보기 (2026-11-28, 운영자만 /?pad=okay) -->
+    <section id="screen-pad" class="screen" aria-label="쿵짝 패드">
+      <header class="bar">
+        <button class="icon-btn" data-action="home" aria-label="뒤로"><span data-icon="back"></span></button>
+        <h2>쿵짝 패드</h2>
+        <span class="bar-spacer"></span>
+      </header>
+      <div class="p2">
+        <div class="p2-hero">
+          <span class="p2-hero-tag">PREVIEW</span>
+          <b>읽고, 맞는 패드!</b>
+          <p>빛이 지나가는 칸에 맞춰 같은 모양 패드를 눌러요</p>
+          <div class="pad-legend"><span class="pl-0"><i></i>쿵</span><span class="pl-1"><i></i>짝</span><span class="pl-2"><i></i>챙</span></div>
+        </div>
+        <div class="p2-songs" id="pad-songs"></div>
+        <div class="pad-diffs" id="pad-diffs"></div>
+        <p class="hint" id="pad-diff-hint"></p>
+        <button class="btn btn-primary pad-go" data-action="pad-play">시작</button>
+      </div>
+    </section>
+    <section id="screen-padplay" class="screen" aria-label="쿵짝 패드 치기">
+      <div class="p2-stage" id="pad-stage">
+        <canvas id="pad-canvas"></canvas>
+        <button class="p2-pause" data-action="pad-pause" aria-label="일시정지"><i></i><i></i></button>
+        <div class="p2-layer" id="pad-paused" hidden>
+          <div class="p2-sheet">
+            <h3>일시정지</h3>
+            <button class="btn btn-primary" data-action="pad-resume">계속하기</button>
+            <button class="btn btn-ghost" data-action="pad-again">처음부터</button>
+            <button class="btn btn-ghost" data-action="pad-exit">나가기</button>
+          </div>
+        </div>
+        <div class="p2-layer" id="pad-over" hidden>
+          <div class="p2-res">
+            <div class="p2-res-left">
+              <img class="p2-res-buddy" id="pad-res-buddy" alt="" />
+              <div class="p2-res-song" id="pad-res-song"></div>
+              <div class="p2-res-stars" id="pad-res-stars"><i></i><i></i><i></i></div>
+              <div class="p2-res-score"><span id="pad-res-score">0</span><em id="pad-res-grade">A</em></div>
+              <div class="p2-res-new" id="pad-res-new" hidden>최고 기록!</div>
+            </div>
+            <div class="p2-res-right">
+              <div class="p2-res-stats" id="pad-res-stats"></div>
+              <div class="p2-res-btns">
+                <button class="btn btn-ghost" data-action="pad-exit">곡 고르기</button>
+                <button class="btn btn-primary" data-action="pad-again">다시</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
     <!-- 결과 -->
     <section id="screen-result" class="screen" aria-label="결과">
       <div class="result-wrap">
@@ -1601,6 +1655,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=5b33953d38" defer></script>
+  <script src="js/app.js?v=ccff3521b9" defer></script>
 </body>
 </html>

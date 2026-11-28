@@ -10,6 +10,7 @@ import {
 } from './charts.js';
 import { todayMission, missionDone, streakView, markDone } from './daily.js';
 import { PianoPreview, P2_SONGS } from './piano2.js';
+import { PadGame, PAD_SONGS, PAD_DIFFS, padChart } from './padgame.js';
 import { DECO_THEMES, NOTE_FREE, SHOP_ITEMS, RARITY, RARITY_NAME, priceOf, gemPriceOf, legacyRefund, LIMITED, onSale } from './shop.js';
 import { startShopPreview, startTileShopPreview, stopShopPreview, drawKitCloseup } from './shoppreview.js';
 import { separateVocals, resample } from './vocalsep.js';
@@ -6573,6 +6574,124 @@ async function sendSuggest() {
 //   치는 건 연습판: 기록·랭킹·코인·서버 요청 없음. 투표만 요청 1번 (+ 이미 투표한 폰은 화면 열 때 결과 1번)
 //   B 는 가로 화면: 폰이 세로면 무대(.p2-stage)를 90° 돌려 그림 (회전 잠금이어도 폰만 돌리면 됨)
 const P2_POLL = 'piano2';
+// ---------------- 🥁 쿵짝 패드 미리보기 (2026-11-28, 운영자만 /?pad=okay) ----------------
+//   노래에 맞춰 위 칸을 읽고 맞는 패드(쿵·짝·챙)를 누름. 기록은 폰에만(padBest), 서버·랭킹·코인 없음
+const pad = { song: Number(load('padSong', PAD_SONGS[0])) || PAD_SONGS[0], diff: load('padDiff', 'normal') || 'normal', game: null };
+function padOn() {
+  return !!load('padPreview', false);
+}
+function refreshPadBtn() {
+  const b = $('#h2-pad');
+  if (b) b.hidden = !padOn();
+}
+function openPad() {
+  stopPad();
+  renderPad();
+  show('screen-pad');
+}
+function renderPad() {
+  if (!PAD_SONGS.includes(pad.song)) pad.song = PAD_SONGS[0];
+  if (!PAD_DIFFS.some((d) => d.id === pad.diff)) pad.diff = 'normal';
+  const bests = load('padBest', {}) || {};
+  $('#pad-songs').innerHTML = PAD_SONGS.map((id) => {
+    const lv = getLevel(id);
+    const b = bests[`${id}:${pad.diff}`];
+    const sub = b ? `★${b.stars} · ${b.score.toLocaleString()}` : `${lv.bpm} BPM`;
+    return `<button type="button" data-action="pad-song" data-id="${id}" class="${id === pad.song ? 'on' : ''}"><b>${escapeHtml(lv.name)}</b><small>${escapeHtml(sub)}</small></button>`;
+  }).join('');
+  $('#pad-diffs').innerHTML = PAD_DIFFS.map((d) => {
+    const ch = padChart(getLevel(pad.song), d.id);
+    const rps = 1 / ch.gap;
+    return `<button type="button" data-action="pad-diff" data-id="${d.id}" class="${d.id === pad.diff ? 'on' : ''}">${d.name}<small>1초에 ${rps.toFixed(1)}칸</small></button>`;
+  }).join('');
+  $('#pad-diff-hint').textContent = pad.diff === 'hard' ? '어려움은 앞 칸에 색이 없어요 · 모양만 보고 읽어요' : '';
+}
+function padStageSize() {
+  const st = $('#pad-stage');
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const w = Math.min(vw, Math.round(vh * 0.62));
+  st.style.width = w + 'px';
+  st.style.height = vh + 'px';
+  st.style.left = Math.round((vw - w) / 2) + 'px';
+}
+window.addEventListener('resize', () => {
+  if (!$('#screen-padplay').classList.contains('active')) return;
+  padStageSize();
+  if (pad.game) pad.game.resize();
+});
+function padLayers(id) {
+  for (const x of ['pad-paused', 'pad-over']) $('#' + x).hidden = x !== id;
+}
+async function padPlay() {
+  stopPad();
+  show('screen-padplay');
+  padStageSize();
+  padLayers(null);
+  audio.ensure();
+  await audio.unlock();
+  const orch = audio.orchOn ? audio.loadOrch() : Promise.resolve();
+  await Promise.race([Promise.all([audio.loadPiano(), orch]), new Promise((r) => setTimeout(r, 3000))]);
+  if (!$('#screen-padplay').classList.contains('active')) return;
+  padStageSize();
+  const g = new PadGame({
+    audio,
+    canvas: $('#pad-canvas'),
+    level: getLevel(pad.song),
+    diff: pad.diff,
+    offsetMs: state.settings.offsetMs || 0,
+    onEnd: (r) => padEnd(r),
+  });
+  pad.game = g;
+  g.start();
+}
+function stopPad() {
+  if (pad.game) pad.game.stop();
+  pad.game = null;
+}
+function padEnd(r) {
+  pad.game = null;
+  const bests = load('padBest', {}) || {};
+  const key = `${pad.song}:${pad.diff}`;
+  const isNew = !bests[key] || r.score > bests[key].score;
+  if (isNew) {
+    bests[key] = { score: r.score, stars: r.stars, at: Date.now() };
+    save('padBest', bests);
+  }
+  const lv = getLevel(pad.song);
+  const dn = (PAD_DIFFS.find((d) => d.id === pad.diff) || {}).name || '';
+  $('#pad-res-song').textContent = `${lv.name} · ${dn}`;
+  $('#pad-res-buddy').src = `assets/mascot/${r.stars >= 2 ? 'kong_cheer' : r.stars === 1 ? 'kong_idle' : 'kong_miss'}.webp`;
+  $$('#pad-res-stars i').forEach((el, i) => {
+    el.className = i < r.stars ? 'on' : '';
+    el.style.animationDelay = `${0.25 + i * 0.22}s`;
+  });
+  $('#pad-res-grade').textContent = r.full ? 'FC' : r.grade;
+  $('#pad-res-grade').className = 'g-' + (r.full ? 'fc' : r.grade.toLowerCase());
+  $('#pad-res-new').hidden = !isNew || r.score <= 0;
+  const tot = Math.max(1, r.cells + r.wrong);
+  const rows = [
+    ['PERFECT', r.perfect, 'p'],
+    ['GREAT', r.great, 'g'],
+    ['GOOD', r.good, 'g'],
+    ['놓침', r.miss, 'm'],
+    ['헛침', r.wrong, 'w'],
+  ];
+  $('#pad-res-stats').innerHTML =
+    `<div class="p2-res-acc"><span>맞힌 비율</span><b>${Math.round(r.accuracy * 100)}%</b><span>최대 콤보</span><b>${r.maxCombo}</b></div>` +
+    rows.map(([n, v, c]) => `<div class="p2-jrow j-${c}"><span>${n}</span><i><u style="width:${Math.round((v / tot) * 100)}%"></u></i><b>${v}</b></div>`).join('');
+  const el = $('#pad-res-score');
+  const t0 = performance.now();
+  const step = () => {
+    const k = Math.min(1, (performance.now() - t0) / 900);
+    el.textContent = Math.round(r.score * (1 - Math.pow(1 - k, 3))).toLocaleString();
+    if (k < 1 && !$('#pad-over').hidden) requestAnimationFrame(step);
+  };
+  padLayers('pad-over');
+  requestAnimationFrame(step);
+  audio.unlock().then(() => audio.sfxFile(r.stars >= 2 ? 'cheer' : 'combo', 0.7)).catch(() => {});
+}
+
 const P2_NAME = { tiles: 'A 타일', keys: 'B 건반' };
 const p2 = { song: 1, style: null, game: null, fast: !!load('p2Fast', false) };
 function p2Tried() {
@@ -8626,6 +8745,32 @@ const ACTIONS = {
   'google-link': () => oauthGo('google', 'link'),
   'google-login': () => oauthGo('google', 'login'),
   'p2-play': (el) => p2Play(el.dataset.style),
+  'pad-open': () => openPad(),
+  'pad-song': (el) => {
+    pad.song = Number(el.dataset.id);
+    save('padSong', pad.song);
+    renderPad();
+  },
+  'pad-diff': (el) => {
+    pad.diff = el.dataset.id;
+    save('padDiff', pad.diff);
+    renderPad();
+  },
+  'pad-play': () => padPlay(),
+  'pad-pause': () => {
+    if (pad.game && pad.game.pause()) padLayers('pad-paused');
+  },
+  'pad-resume': () => {
+    padLayers(null);
+    if (pad.game) pad.game.resume();
+  },
+  'pad-again': () => padPlay(),
+  'pad-exit': () => {
+    stopPad();
+    padLayers(null);
+    renderPad();
+    show('screen-pad');
+  },
   'p2-go': () => {
     p2.turned = true;
     p2Begin();
@@ -9538,6 +9683,19 @@ async function boot() {
       toast('🖼 릴스 썸네일 칸이 켜졌어요 (영상 찍기 화면 맨 아래)', 3000);
     }, 300);
   }
+  // 🥁 쿵짝 패드 미리보기 (운영자 전용): /?pad=okay 면 이 기기에서만 첫 화면에 버튼, ?pad=off 면 끔
+  const padP = params.get('pad');
+  if (padP === 'okay' || padP === 'off') {
+    save('padPreview', padP === 'okay');
+    try {
+      const u = new URL(location.href);
+      u.searchParams.delete('pad');
+      history.replaceState(null, '', u.pathname + u.search + u.hash);
+    } catch {}
+    if (padP === 'okay') setTimeout(() => openPad(), 300);
+    else setTimeout(() => toast('🥁 쿵짝 패드 미리보기를 껐어요', 2000), 300);
+  }
+  refreshPadBtn();
   // 🖐 터치 표시: /?touch=show 면 이 기기에서 게임 중 손가락이 닿은 자리·판정을 그림 (터치 씹힘 신고 때 화면 녹화로 보려고), ?touch=off 면 끔
   const touchShow = params.get('touch');
   if (touchShow === 'show' || touchShow === 'off') {
