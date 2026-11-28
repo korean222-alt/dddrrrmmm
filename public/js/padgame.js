@@ -1,7 +1,7 @@
 // 🥁 쿵짝 패드 (2026-11-28 미리보기, 운영자만 /?pad=okay) — 노래에 맞춰 맞는 패드 누르기
-//   위: 4칸씩 줄지어 깔린 칸(쿵·짝·챙 모양). 박자마다 한 칸씩 왼쪽→오른쪽, 위→아래로 읽어 나감
+//   위: 4칸씩 줄지어 깔린 주사위 칸(쿵 눈 1 · 짝 눈 2 · 챙 눈 3, 11-28 사용자 '주사위가 좋을 듯'). 박자마다 한 칸씩 왼쪽→오른쪽, 위→아래로 읽어 나감
 //       (지나가는 빛 막대가 칸 한가운데에 올 때 누름). 친 칸은 색이 들어오고, 다 친 줄은 위로 밀려 올라감
-//   아래: 패드 3개 — 쿵(주황 ●) · 짝(초록 ◆) · 챙(파랑 ✦). 누르면 드럼 소리
+//   아래: 주사위 패드 3개 — 쿵(주황 ⚀) · 짝(초록 ⚁) · 챙(파랑 ⚂). 누르면 드럼 소리
 //   칸 = 곡 드럼 채보(K·S·H…)에서. 드럼이 빈 칸은 멜로디(올라감 챙·내려감 쿵·같음 짝), 그것도 없으면 기본 박자
 //   빠르기: 곡 BPM 그대로, 난이도는 칸 간격(2분·4분·8분) — 이웃 칸 0.2초↑
 //   어려움은 앞으로 올 칸이 색 없이 모양만 (읽어야 함)
@@ -11,9 +11,9 @@ import { COUNT_IN_BARS, STEPS_PER_BAR, KICK, SNARE, HAT, CHAR_LANES, CRASH, TOM,
 import { SongPlayer } from './audio.js';
 
 export const PADS = [
-  { id: 0, name: '쿵', lane: KICK, color: '#ff8a3d', deep: '#d4561a', shape: 'dot' },
-  { id: 1, name: '짝', lane: SNARE, color: '#38c96b', deep: '#1f9447', shape: 'diamond' },
-  { id: 2, name: '챙', lane: HAT, color: '#4aa3ff', deep: '#1f6fd0', shape: 'spark' },
+  { id: 0, name: '쿵', lane: KICK, color: '#ff8a3d', deep: '#d4561a', shape: 1 },
+  { id: 1, name: '짝', lane: SNARE, color: '#38c96b', deep: '#1f9447', shape: 2 },
+  { id: 2, name: '챙', lane: HAT, color: '#4aa3ff', deep: '#1f6fd0', shape: 3 },
 ];
 export const PAD_SONGS = [1, 3, 5, 7, 12, 15];
 export const PAD_DIFFS = [
@@ -103,29 +103,21 @@ export function padGrade(acc) {
   return acc >= 0.95 ? 'S' : acc >= 0.88 ? 'A' : acc >= 0.75 ? 'B' : acc >= 0.6 ? 'C' : 'D';
 }
 
-/** 모양 그리기 (cx, cy 가운데, r 반지름) */
-export function drawShape(g, shape, cx, cy, r, color) {
+/** 주사위 눈 자리 (가운데 기준, 면 반지름 1) — 쿵 1개 · 짝 2개 · 챙 3개 */
+export const PIPS = [
+  [[0, 0]],
+  [[-0.5, -0.5], [0.5, 0.5]],
+  [[-0.55, -0.55], [0, 0], [0.55, 0.55]],
+];
+
+/** 주사위 눈 그리기 (cx, cy 가운데, r = 면 반지름) */
+export function drawShape(g, pips, cx, cy, r, color) {
+  const pr = r * (pips === 1 ? 0.34 : 0.25);
   g.fillStyle = color;
   g.beginPath();
-  if (shape === 'dot') {
-    g.arc(cx, cy, r * 0.62, 0, Math.PI * 2);
-  } else if (shape === 'diamond') {
-    const a = r * 0.72;
-    g.moveTo(cx, cy - a);
-    g.lineTo(cx + a * 0.82, cy);
-    g.lineTo(cx, cy + a);
-    g.lineTo(cx - a * 0.82, cy);
-    g.closePath();
-  } else {
-    // 챙: 네 갈래 반짝이
-    const a = r * 0.8;
-    const b = r * 0.22;
-    g.moveTo(cx, cy - a);
-    g.quadraticCurveTo(cx + b, cy - b, cx + a, cy);
-    g.quadraticCurveTo(cx + b, cy + b, cx, cy + a);
-    g.quadraticCurveTo(cx - b, cy + b, cx - a, cy);
-    g.quadraticCurveTo(cx - b, cy - b, cx, cy - a);
-    g.closePath();
+  for (const [dx, dy] of PIPS[pips - 1] || PIPS[0]) {
+    g.moveTo(cx + dx * r + pr, cy + dy * r);
+    g.arc(cx + dx * r, cy + dy * r, pr, 0, Math.PI * 2);
   }
   g.fill();
 }
@@ -449,7 +441,7 @@ export class PadGame {
       g.restore();
       // 모양
       const shapeCol = done ? 'rgba(20,20,40,0.75)' : c.judged === 'miss' ? 'rgba(255,120,120,0.45)' : this.hint ? '#ffffff' : 'rgba(255,255,255,0.88)';
-      drawShape(g, p.shape, cx, cy, s * 0.34, shapeCol);
+      drawShape(g, p.shape, cx, cy, s * 0.36, shapeCol);
       if (c.judged === 'miss') {
         g.strokeStyle = 'rgba(255,110,110,0.8)';
         g.lineWidth = Math.max(2, cell * 0.05);

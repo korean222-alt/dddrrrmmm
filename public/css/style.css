@@ -2123,14 +2123,14 @@ html.has-tabs .screen.active:not(#screen-home2) { padding-bottom: calc(96px + va
 #screen-padplay .p2-pause i { background: #fff; }
 .pad-legend { display: flex; gap: 14px; margin-top: 6px; font-size: 15px; }
 .pad-legend span { display: flex; align-items: center; gap: 5px; }
-.pad-legend i { width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center; }
+.pad-legend i { width: 20px; height: 20px; border-radius: 5px; position: relative; }
 .pad-legend .pl-0 i { background: #ff8a3d; }
 .pad-legend .pl-1 i { background: #38c96b; }
 .pad-legend .pl-2 i { background: #4aa3ff; }
-.pad-legend i::after { content: ''; width: 8px; height: 8px; background: #fff; }
-.pad-legend .pl-0 i::after { border-radius: 50%; }
-.pad-legend .pl-1 i::after { transform: rotate(45deg) scale(0.85); }
-.pad-legend .pl-2 i::after { clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); width: 11px; height: 11px; }
+.pad-legend u { position: absolute; width: 5px; height: 5px; margin: -2.5px 0 0 -2.5px; border-radius: 50%; background: #fff; left: 50%; top: 50%; }
+.pad-legend .pl-0 u { width: 7px; height: 7px; margin: -3.5px 0 0 -3.5px; }
+.pad-legend .pl-1 u:nth-child(1), .pad-legend .pl-2 u:nth-child(1) { left: 26%; top: 26%; }
+.pad-legend .pl-1 u:nth-child(2), .pad-legend .pl-2 u:nth-child(3) { left: 74%; top: 74%; }
 .pad-diffs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
 .pad-diffs button { padding: 10px 6px; border-radius: 14px; border: 2px solid var(--ink); background: #fff; font-size: 16px; display: grid; gap: 1px; }
 .pad-diffs button small { font-size: 11px; color: var(--muted); }

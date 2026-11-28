@@ -6604,7 +6604,7 @@ function renderPad() {
     const rps = 1 / ch.gap;
     return `<button type="button" data-action="pad-diff" data-id="${d.id}" class="${d.id === pad.diff ? 'on' : ''}">${d.name}<small>1초에 ${rps.toFixed(1)}칸</small></button>`;
   }).join('');
-  $('#pad-diff-hint').textContent = pad.diff === 'hard' ? '어려움은 앞 칸에 색이 없어요 · 모양만 보고 읽어요' : '';
+  $('#pad-diff-hint').textContent = pad.diff === 'hard' ? '어려움은 앞 칸에 색이 없어요 · 눈 개수만 보고 읽어요' : '';
 }
 function padStageSize() {
   const st = $('#pad-stage');
