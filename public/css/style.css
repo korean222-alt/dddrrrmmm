@@ -2104,3 +2104,6 @@ html.has-tabs .screen.active:not(#screen-home2) { padding-bottom: calc(96px + va
 .me-tabs button.has-dot::after { content: ''; position: absolute; top: 5px; right: 8px; width: 8px; height: 8px; border-radius: 50%; background: #ff4d6a; }
 .map-by { padding: 0; border: 0; background: none; color: inherit; font: inherit; text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
 #screen-chat .bar .icon-btn { color: var(--ink); }
+/* 👥 친구 탭 줄이 오른쪽으로 삐져나가던 것 (11-28) */
+.fr-row, .fr-search, .fr-search input, #fr-found, #fr-reqs, #fr-list { box-sizing: border-box; max-width: 100%; }
+.me-body > * { min-width: 0; }

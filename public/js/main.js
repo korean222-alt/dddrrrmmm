@@ -942,8 +942,8 @@ async function startLevel(id, opts = {}) {
       return state.studio.active ? studioFinish(res) : showResult(res);
     },
     // 영상 찍기 땐 목숨 없음 (녹화 중에 멈추면 안 되니까). 멀티는 광고 이어하기 없이 그 자리에서 끝
-    // 🐢 연습은 목숨 없이 끝까지
-    onDeath: st.active ? (lv.failReel ? studioFailDeath : null) : practice ? null : lv.userMap ? (um.from === 'list' && um.mode === 'hearts' ? umDeath : onRoomDeath) : lv.custom || sum ? null : room ? onRoomDeath : onDeath,
+    // 🐢 연습은 목숨 없이 끝까지 · 🛡 유저 맵 무적도 목숨 없음 (11-27 에 onRoomDeath 로 묶여 무적인데 죽던 것 11-28 고침)
+    onDeath: st.active ? (lv.failReel ? studioFailDeath : null) : practice ? null : lv.userMap && um.from === 'list' && um.mode === 'hearts' ? umDeath : lv.custom || sum ? null : room ? onRoomDeath : onDeath,
   });
   if (live) {
     // 상대와 같은 시각에 시작: 남은 시간 카운트다운 (Game.start 가 0.35초 뒤에 첫 박을 놓음)
