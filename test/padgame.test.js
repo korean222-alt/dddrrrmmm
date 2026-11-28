@@ -1,63 +1,60 @@
-// 🥁 쿵짝 패드 미리보기: 칸 만들기 · 판정
+// 🥁 쿵짝 패드 미리보기: 주사위 만들기 · 한 번 누르면 한 칸 (박자 판정 없음)
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { padChart, padUnit, padJudge, PAD_SONGS, PAD_DIFFS, PAD_MIN_GAP, PadGame } from '../public/js/padgame.js';
+import { padChart, padStars, padBetter, PAD_SONGS, PAD_DIFFS, PadGame } from '../public/js/padgame.js';
 import { getLevel } from '../public/js/charts.js';
 
-test('칸: 이웃 칸 0.2초↑, 난이도 올라가면 칸이 같거나 많음, 패드는 0~2', () => {
+test('주사위: 멜로디 음 하나 = 하나, 대부분 같은 주사위, 어려울수록 바뀌는 게 많음', () => {
   for (const id of PAD_SONGS) {
     const lv = getLevel(id);
-    let prev = 0;
+    let prev = -1;
     for (const d of PAD_DIFFS) {
-      const ch = padChart(lv, d.id);
-      assert.ok(ch.gap >= PAD_MIN_GAP - 1e-9, `${lv.name} ${d.id} gap ${ch.gap}`);
-      assert.ok(ch.cells.length >= prev);
-      prev = ch.cells.length;
-      for (const c of ch.cells) assert.ok(c.pad >= 0 && c.pad <= 2);
-      for (let i = 1; i < ch.cells.length; i++) assert.ok(ch.cells[i].t - ch.cells[i - 1].t >= PAD_MIN_GAP - 1e-9);
-      assert.ok(new Set(ch.cells.map((c) => c.pad)).size >= 2, `${lv.name} ${d.id} 패드 둘 이상`);
+      const { cells } = padChart(lv, d.id);
+      assert.ok(cells.length >= 30, `${lv.name} ${d.id} ${cells.length}개`);
+      for (const c of cells) assert.ok(c.pad >= 0 && c.pad <= 2);
+      const odd = cells.filter((c) => c.odd).length / cells.length;
+      assert.ok(odd < 0.45, `${lv.name} ${d.id} 바뀜 ${odd}`);
+      assert.ok(odd >= prev, `${lv.name} ${d.id} 어려울수록 더 바뀜`);
+      prev = odd;
     }
   }
 });
 
-test('칸 간격: 느린 곡 보통 = 8분, 빠른 곡은 0.2초 규칙', () => {
-  assert.equal(padUnit(88, 2.8), 2);
-  assert.equal(padUnit(160, 3.6), 4); // 8분이면 0.19초 → 4분
-  assert.equal(padUnit(88, 1.6), 4);
-});
-
-test('판정 창', () => {
-  assert.equal(padJudge(0), 'perfect');
-  assert.equal(padJudge(0.09), 'great');
-  assert.equal(padJudge(-0.14), 'good');
-  assert.equal(padJudge(0.3), null);
-});
-
 function fakeGame(id = 1, diff = 'normal') {
-  const g = new PadGame({ audio: { playLane() {} }, canvas: { getContext: () => ({}) }, level: getLevel(id), diff, onEnd() {} });
+  const g = new PadGame({ audio: { playLane() {} }, canvas: { getContext: () => ({}) }, level: getLevel(id), diff, onEnd: (r) => (g.res = r) });
   return g;
 }
 
-test('제때 맞는 패드 = 맞힘, 다른 패드 = 헛침, 지나가면 MISS', () => {
+test('맞는 패드 = 한 칸 채움, 틀린 패드 = 실수(칸 그대로), 시간은 첫 터치부터', () => {
   const g = fakeGame();
-  const [a, b, c] = g.cells;
-  assert.equal(g.tap(a.pad, a.t + 0.01), 'perfect');
-  assert.equal(g.tap((b.pad + 1) % 3, b.t), 'wrong');
+  const [a, b] = g.cells;
+  assert.equal(g.tap(a.pad, 1000), 'ok');
+  assert.equal(g.idx, 1);
+  assert.equal(g.tap((b.pad + 1) % 3, 1200), 'miss');
+  assert.equal(g.idx, 1);
   assert.equal(g.combo, 0);
-  g.sweep(c.t - 0.05);
-  assert.equal(b.judged, 'miss');
-  assert.equal(g.tap(c.pad, c.t - 0.12), 'good');
+  assert.equal(g.tap(b.pad, 1500), 'ok');
+  assert.equal(g.elapsed(3000), 2);
 });
 
-test('모두 제때 치면 3별 풀콤보, 세 패드 마구 누르면 별 없음', () => {
-  const g = fakeGame(7, 'hard');
-  for (const c of g.cells) g.tap(c.pad, c.t);
-  g.sweep(1e9);
-  const r = g.result();
-  assert.equal(r.stars, 3);
-  assert.ok(r.full);
-  const m = fakeGame(7, 'hard');
-  for (const c of m.cells) for (const p of [0, 1, 2]) m.tap(p, c.t);
-  m.sweep(1e9);
-  assert.equal(m.result().stars, 0);
+test('다 채우면 끝 · 실수 없으면 별 3개', () => {
+  const g = fakeGame(12, 'hard');
+  let t = 0;
+  for (const c of g.cells) g.tap(c.pad, (t += 250));
+  assert.ok(g.res);
+  assert.equal(g.res.stars, 3);
+  assert.equal(g.res.miss, 0);
+  assert.equal(g.res.maxCombo, g.cells.length);
+  assert.equal(g.tap(0, t + 100), null);
+});
+
+test('별·기록 비교', () => {
+  assert.equal(padStars(0), 3);
+  assert.equal(padStars(3), 2);
+  assert.equal(padStars(10), 1);
+  assert.equal(padStars(11), 0);
+  assert.ok(padBetter({ stars: 3, time: 30 }, { stars: 2, time: 10 }));
+  assert.ok(padBetter({ stars: 2, time: 10 }, { stars: 2, time: 12 }));
+  assert.ok(!padBetter({ stars: 2, time: 13 }, { stars: 2, time: 12 }));
+  assert.ok(padBetter({ stars: 0, time: 99 }, { score: 5000, stars: 3 })); // 예전 기록(시간 없음)
 });

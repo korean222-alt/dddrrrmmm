@@ -10,7 +10,7 @@ import {
 } from './charts.js';
 import { todayMission, missionDone, streakView, markDone } from './daily.js';
 import { PianoPreview, P2_SONGS } from './piano2.js';
-import { PadGame, PAD_SONGS, PAD_DIFFS, padChart } from './padgame.js';
+import { PadGame, PAD_SONGS, PAD_DIFFS, padChart, padBetter } from './padgame.js';
 import { DECO_THEMES, NOTE_FREE, SHOP_ITEMS, RARITY, RARITY_NAME, priceOf, gemPriceOf, legacyRefund, LIMITED, onSale } from './shop.js';
 import { startShopPreview, startTileShopPreview, stopShopPreview, drawKitCloseup } from './shoppreview.js';
 import { separateVocals, resample } from './vocalsep.js';
@@ -6575,7 +6575,8 @@ async function sendSuggest() {
 //   B 는 가로 화면: 폰이 세로면 무대(.p2-stage)를 90° 돌려 그림 (회전 잠금이어도 폰만 돌리면 됨)
 const P2_POLL = 'piano2';
 // ---------------- 🥁 쿵짝 패드 미리보기 (2026-11-28, 운영자만 /?pad=okay) ----------------
-//   노래에 맞춰 위 칸을 읽고 맞는 패드(쿵·짝·챙)를 누름. 기록은 폰에만(padBest), 서버·랭킹·코인 없음
+//   위 주사위 칸을 순서대로 읽고 같은 눈 패드(쿵·짝·챙)를 누를 때마다 한 칸 채움(박자 판정 없음, 누를 때마다 멜로디 다음 음).
+//   기록 = 시간·실수, 폰에만(padBest), 서버·랭킹·코인 없음
 const pad = { song: Number(load('padSong', PAD_SONGS[0])) || PAD_SONGS[0], diff: load('padDiff', 'normal') || 'normal', game: null };
 function padOn() {
   return !!load('padPreview', false);
@@ -6596,13 +6597,13 @@ function renderPad() {
   $('#pad-songs').innerHTML = PAD_SONGS.map((id) => {
     const lv = getLevel(id);
     const b = bests[`${id}:${pad.diff}`];
-    const sub = b ? `★${b.stars} · ${b.score.toLocaleString()}` : `${lv.bpm} BPM`;
+    const sub = b && Number.isFinite(b.time) ? `★${b.stars} · ${b.time.toFixed(1)}초` : '아직 기록 없음';
     return `<button type="button" data-action="pad-song" data-id="${id}" class="${id === pad.song ? 'on' : ''}"><b>${escapeHtml(lv.name)}</b><small>${escapeHtml(sub)}</small></button>`;
   }).join('');
   $('#pad-diffs').innerHTML = PAD_DIFFS.map((d) => {
-    const ch = padChart(getLevel(pad.song), d.id);
-    const rps = 1 / ch.gap;
-    return `<button type="button" data-action="pad-diff" data-id="${d.id}" class="${d.id === pad.diff ? 'on' : ''}">${d.name}<small>1초에 ${rps.toFixed(1)}칸</small></button>`;
+    const cells = padChart(getLevel(pad.song), d.id).cells;
+    const odd = Math.round((cells.filter((c) => c.odd).length / cells.length) * 100);
+    return `<button type="button" data-action="pad-diff" data-id="${d.id}" class="${d.id === pad.diff ? 'on' : ''}">${d.name}<small>바뀜 ${odd}%</small></button>`;
   }).join('');
   $('#pad-diff-hint').textContent = pad.diff === 'hard' ? '어려움은 앞 칸에 색이 없어요 · 눈 개수만 보고 읽어요' : '';
 }
@@ -6639,7 +6640,6 @@ async function padPlay() {
     canvas: $('#pad-canvas'),
     level: getLevel(pad.song),
     diff: pad.diff,
-    offsetMs: state.settings.offsetMs || 0,
     onEnd: (r) => padEnd(r),
   });
   pad.game = g;
@@ -6653,9 +6653,9 @@ function padEnd(r) {
   pad.game = null;
   const bests = load('padBest', {}) || {};
   const key = `${pad.song}:${pad.diff}`;
-  const isNew = !bests[key] || r.score > bests[key].score;
+  const isNew = padBetter(r, bests[key]);
   if (isNew) {
-    bests[key] = { score: r.score, stars: r.stars, at: Date.now() };
+    bests[key] = { time: r.time, miss: r.miss, stars: r.stars, at: Date.now() };
     save('padBest', bests);
   }
   const lv = getLevel(pad.song);
@@ -6668,23 +6668,15 @@ function padEnd(r) {
   });
   $('#pad-res-grade').textContent = r.full ? 'FC' : r.grade;
   $('#pad-res-grade').className = 'g-' + (r.full ? 'fc' : r.grade.toLowerCase());
-  $('#pad-res-new').hidden = !isNew || r.score <= 0;
-  const tot = Math.max(1, r.cells + r.wrong);
-  const rows = [
-    ['PERFECT', r.perfect, 'p'],
-    ['GREAT', r.great, 'g'],
-    ['GOOD', r.good, 'g'],
-    ['놓침', r.miss, 'm'],
-    ['헛침', r.wrong, 'w'],
-  ];
+  $('#pad-res-new').hidden = !isNew;
   $('#pad-res-stats').innerHTML =
-    `<div class="p2-res-acc"><span>맞힌 비율</span><b>${Math.round(r.accuracy * 100)}%</b><span>최대 콤보</span><b>${r.maxCombo}</b></div>` +
-    rows.map(([n, v, c]) => `<div class="p2-jrow j-${c}"><span>${n}</span><i><u style="width:${Math.round((v / tot) * 100)}%"></u></i><b>${v}</b></div>`).join('');
+    `<div class="p2-res-acc"><span>실수</span><b>${r.miss}</b><span>최대 콤보</span><b>${r.maxCombo}</b></div>` +
+    `<div class="p2-res-acc"><span>주사위</span><b>${r.cells}</b><span>1초에</span><b>${r.speed.toFixed(1)}개</b></div>`;
   const el = $('#pad-res-score');
   const t0 = performance.now();
   const step = () => {
     const k = Math.min(1, (performance.now() - t0) / 900);
-    el.textContent = Math.round(r.score * (1 - Math.pow(1 - k, 3))).toLocaleString();
+    el.textContent = `${(r.time * (1 - Math.pow(1 - k, 3))).toFixed(1)}초`;
     if (k < 1 && !$('#pad-over').hidden) requestAnimationFrame(step);
   };
   padLayers('pad-over');
