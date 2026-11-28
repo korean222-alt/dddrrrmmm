@@ -7,6 +7,7 @@
 // - heardTime(): "지금 스피커에서 나오고 있는 소리"의 시각. 출력 지연까지 반영.
 
 import { STEPS_PER_BAR, COUNT_IN_BARS, OUTRO_BARS, tempoOf, parseMelody, chordAt, levelLanes, CHAR_LANES, KICK, SNARE, HAT, CRASH, TOM, pianoHarmony, pianoLeftHand } from './charts.js';
+import { arcOf, arcLevel, orchestraBar, dynOf } from './orchestra.js';
 
 const mtof = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -919,6 +920,8 @@ export class AudioEngine {
  *   베이스 = 피아노 + 첼로, 절정에서 튜바
  *   팀파니 = 마디 첫 박 + 크래시 직전 롤
  *   곡 앞부분은 가볍게, 뒤로 갈수록(무제한 모드는 단계가 오를수록) 악기가 늘며 웅장해짐
+ *   2026-11-28 '진짜 오케스트라처럼': 현·금관·튜바·팀파니·심벌은 orchestra.js 가 곡마다 셈여림 흐름대로
+ *     (산왕 = 피치카토로 살금살금 → 투티로 몰아쳐 끝, 운명 = 처음부터 쾅)
  */
 export class SongPlayer {
   constructor(audio, level, startTime, { autoChart = false } = {}) {
@@ -945,6 +948,7 @@ export class SongPlayer {
     this.drumBus.connect(audio.sfxBus);
     // 🎤 녹음된 곡: 반주를 만들지 않고 파일을 박자에 맞춰 틂 (song.audio.offset = 채보 첫 마디가 시작하는 파일 시각)
     this.track = level.song.audio ? audio.trackBuffer(level.song.audio.src) : null;
+    this.shape = arcOf(level);
   }
 
   get totalSteps() {
@@ -989,14 +993,44 @@ export class SongPlayer {
     if (this.step >= this.totalSteps) clearInterval(this.timer);
   }
 
-  /** 곡이 얼마나 달아올랐나 0.35 ~ 1 (악기 수가 늘어남) */
-  intensity(mb) {
+  /**
+   * 🎻 셈여림 0 ~ 4 (orchestra.js): 곡마다 흐름대로 (산왕 = 여리게 → 몰아치는 투티)
+   *   챌린지·무제한은 예전처럼 단계·마디 따라 (곡 길이가 정해져 있지 않아서)
+   */
+  arcV(mb) {
     const lv = this.level;
-    if (lv.challenge) return Math.min(1, 0.35 + 0.15 * (lv.roundOfBar(mb) - 1));
-    // epic 곡(15단계)은 처음부터 금관·팀파니·튜바가 총출동 (첫 두 마디만 살짝 낮춰 '빠바바밤' 을 또렷하게)
-    if (lv.song.epic) return mb < 2 ? 0.65 : 1;
-    const n = lv.bars.length;
-    return mb < 4 ? 0.35 : mb < n / 2 ? 0.65 : 1;
+    if (lv.challenge) return Math.min(4, 1 + 1.2 * (lv.roundOfBar(mb) - 1));
+    if (lv.endless) return mb < 4 ? 1 : mb < 16 ? 3 : 4;
+    return arcLevel(this.shape, mb, lv.bars.length, 0);
+  }
+
+  /** 이 마디 오케스트라 소리 (마디마다 한 번 만들어 칸별로 나눠 둠) */
+  _orchBar(mb) {
+    if (this._ob && this._ob.mb === mb) return this._ob.by;
+    const song = this.level.song;
+    const v = this.arcV(mb);
+    const entry = song.prog[((mb % song.prog.length) + song.prog.length) % song.prog.length];
+    const mel = [];
+    // 🎭 내가 멜로디를 치는 곡은 바이올린이 멜로디를 대신 치지 않음 (놓치면 안 들려야 함)
+    if (this.melodyBars && !this.level.tapMelody) {
+      const mbar = mb % this.melodyBars;
+      for (const n of this.melody) if (n.bar === mbar) mel.push({ s: n.step, len: n.len, midi: n.midi });
+    }
+    const n = this.level.endless || this.level.challenge ? Infinity : this.level.bars.length;
+    const evs = orchestraBar({
+      v,
+      shape: this.shape,
+      b: mb,
+      n: Number.isFinite(n) ? n : mb + 8,
+      chordAt: (st) => chordAt(song, mb, Math.max(0, Math.min(15, Math.floor(st)))),
+      parts: entry.trim().split(/\s+/).length,
+      mel,
+      end: Number.isFinite(n) ? mb === n - 1 : false,
+    });
+    const by = Array.from({ length: STEPS_PER_BAR }, () => []);
+    for (const e of evs) by[Math.max(0, Math.min(15, Math.round(e.s)))].push(e);
+    this._ob = { mb, by, v };
+    return by;
   }
 
   scheduleStep(i, t) {
@@ -1056,10 +1090,13 @@ export class SongPlayer {
       return;
     }
 
-    const heat = this.intensity(mb);
+    const arcv = this.arcV(mb);
+    const heat = Math.min(1, 0.35 + arcv / 6); // 예전 크기(0.35~1) 쓰는 곳용
+    // 여리게 칠 땐 피아노 반주·하이햇도 작게 (오케스트라가 아닐 땐 예전 크기)
+    const dyn = orch ? dynOf(arcv) : 1;
     // 하이햇
     const hc = song.hat[s];
-    if (hc === 'x' || hc === 'o') a.hat(t, s % 4 === 0 ? 0.6 : 0.35, hc === 'o', this.bus);
+    if (hc === 'x' || hc === 'o') a.hat(t, (s % 4 === 0 ? 0.6 : 0.35) * dyn, hc === 'o', this.bus);
     // 🎄 캐롤: 썰매 방울
     if (song.bells && song.bells[s] === 'x') a.sleigh(t, s % 4 === 0 ? 0.7 : 0.45, this.bus);
     // 베이스 (오케스트라면 첼로가 같이 받쳐줌)
@@ -1067,12 +1104,12 @@ export class SongPlayer {
     if (bc && bc !== '.') {
       const m = ch.root - 24 + (bc === 'o' ? 12 : bc === '5' ? 7 : 0);
       if (orch) {
-        a.pianoOr('bass', t, m, sd * 1.8, this.bus, 0.75);
-        a.orchNote('vc', t, m + 12, Math.max(sd * 1.8, 0.22), 0.45 + 0.25 * heat, this.bus, 0.01, 0.12);
+        a.pianoOr('bass', t, m, sd * 1.8, this.bus, 0.75 * dyn);
+        a.orchNote('vc', t, m + 12, Math.max(sd * 1.8, 0.22), 0.3 + 0.08 * arcv, this.bus, 0.01, 0.12);
       } else a.bass(t, m, sd * 1.8, this.bus);
     }
     // 화음
-    if (song.chord[s] === 'x') a.pluck(t, ch.notes, sd * 3, this.bus, orch ? 0.6 : 1);
+    if (song.chord[s] === 'x') a.pluck(t, ch.notes, sd * 3, this.bus, (orch ? 0.6 : 1) * dyn);
     // 🎹 유저 맵 왼손: 악보 아래 줄 그대로
     if (this.lowNotes && this.lowNotes.length) for (const n of this.lowNotes) if (n.bar === mb && n.step === s) {
           const d = Math.max(0.2, n.len * sd * 0.95);
@@ -1104,20 +1141,20 @@ export class SongPlayer {
           a.lead(t, n.midi, dur, this.bus);
           continue;
         }
-        a.pianoOr('lead', t, n.midi, dur, this.bus, 0.72);
-        // 바이올린 합주: 긴 음은 풍성하게, 16분음표 질주는 살짝만
-        if (n.len >= 2) a.orchNote('vln', t, n.midi, n.len * sd, 0.55 + 0.3 * heat, this.bus, 0.03, 0.15);
-        else a.orchNote('vln', t, n.midi, sd * 1.4, 0.3 + 0.15 * heat, this.bus, 0.004, 0.06);
-        // 절정: 호른이 한 옥타브 아래로 멜로디를 같이 (긴 음만. epic 곡은 8분음표까지)
-        const epic = !!song.epic;
-        if (heat >= 1 && n.len >= (epic ? 2 : 4) && n.midi - 12 >= 45) a.orchNote('br', t, n.midi - 12, Math.max(n.len * sd, 0.2), epic ? 0.5 : 0.4, this.bus, 0.03, 0.15);
-        // epic: 짧은 음마다 팀파니가 같이 '두두두 쿵' 말발굽처럼 받쳐 줌
-        if (epic && heat >= 0.65 && n.len <= 2) a.orchNote('timp', t, this._timpPitch(ch.root), 0.6, 0.38, this.bus, 0, 0.3);
+        // 피아노가 멜로디 (바이올린·호른이 같이 치는 건 아래 오케스트라에서, 셈여림 따라)
+        a.pianoOr('lead', t, n.midi, dur, this.bus, 0.52 + 0.06 * arcv);
       }
     }
-    if (orch) this._orchestra(mb, s, t, sd, ch, heat);
-    // 8마디마다 크래시
-    if (s === 0 && mb > 0 && mb % 8 === 0 && !this.mineCrash) a.crash(t, this.bus);
+    if (orch) {
+      // 🎻 현·금관·튜바·팀파니·심벌 (orchestra.js)
+      for (const o of this._orchBar(mb)[s]) {
+        if (o.crash) {
+          if (!this.mineCrash) a.crash(t, this.bus, o.v);
+          continue;
+        }
+        a.orchNote(o.o, t, o.m, o.sec ?? Math.max(0.06, o.len * sd), o.v, this.bus, o.at, o.rel);
+      }
+    } else if (s === 0 && mb > 0 && mb % 8 === 0 && !this.mineCrash) a.crash(t, this.bus); // 8마디마다 크래시
     // 자동 연주(데모/릴스 녹화용)
     if (this.autoChart) {
       for (const lane of CHAR_LANES[this.level.bars[mb][s]] || []) if (!(this.level.tapMelody && lane === SNARE)) a.playLane(lane, t, this.drumBus);
@@ -1130,36 +1167,6 @@ export class SongPlayer {
     while (m > 44) m -= 12;
     while (m < 33) m += 12;
     return m;
-  }
-
-  /** 현악 패드 · 금관 · 튜바 · 팀파니 */
-  _orchestra(mb, s, t, sd, ch, heat) {
-    const a = this.audio;
-    const song = this.level.song;
-    const entry = song.prog[((mb % song.prog.length) + song.prog.length) % song.prog.length];
-    const parts = entry.trim().split(/\s+/).length;
-    const partLen = STEPS_PER_BAR / parts;
-    // 코드가 바뀌는 자리마다 현악 패드
-    if (s % partLen === 0) {
-      const d = partLen * sd;
-      const pv = 0.22 + 0.16 * heat;
-      for (const m of ch.notes.slice(0, 3)) a.orchNote('vln', t, m, d, pv, this.bus, Math.min(0.12, d * 0.25), 0.25);
-      a.orchNote('vc', t, ch.root - 12, d, pv + 0.1, this.bus, Math.min(0.1, d * 0.2), 0.25);
-      // 금관: 달아오르면 코드 첫 자리마다, 그 전엔 4마디마다 한 번
-      if (heat >= 1 || (heat >= 0.65 && s === 0 && mb % 4 === 0)) {
-        const bv = heat >= 1 ? 0.42 : 0.32;
-        for (const m of [ch.root - 12, ch.notes[1] - 12, ch.notes[2] - 12]) a.orchNote('br', t, m, d * 0.95, bv, this.bus, 0.04, 0.2);
-      }
-    }
-    // 튜바: 절정에서 마디 첫 박
-    if (heat >= 1 && s === 0) a.orchNote('tuba', t, ch.root - 24, 16 * sd * 0.85, 0.55, this.bus, 0.02, 0.2);
-    // 팀파니
-    const tp = this._timpPitch(ch.root);
-    if (heat >= 0.65 && s === 0) a.orchNote('timp', t, tp, 1.5, heat >= 1 ? 0.75 : 0.5, this.bus, 0, 0.5);
-    if (heat >= 1 && s === 8) a.orchNote('timp', t, tp, 1, 0.45, this.bus, 0, 0.4);
-    // 크래시 나오기 직전 마디 끝: 팀파니 롤 (두두두두 → 쾅)
-    const toCrash = (mb + 1) % 8 === 0 && (this.level.endless || mb + 1 < this.level.bars.length);
-    if (heat >= 0.65 && toCrash && s >= 12) a.orchNote('timp', t, tp, 0.5, 0.3 + (s - 12) * 0.12, this.bus, 0, 0.12);
   }
 
   stop(fade = 0.15) {
