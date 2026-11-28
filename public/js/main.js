@@ -18,7 +18,7 @@ import { instrumentNotes } from './instnotes.js';
 import { readScoreFile, scoreInfo, scoreToMap, recommendStart } from './scorefile.js';
 import { videoToAac } from './mp4audio.js';
 import { MAP_LIMITS, midiName, SOLFA, barToMelody, drumCell, toggleDrum, harmonize, autoDrums, cleanMap, mapLevel, MAP_DECO } from './usermap.js';
-import { AudioEngine, playMetronome } from './audio.js';
+import { AudioEngine, SongPlayer, playMetronome } from './audio.js';
 import { Renderer, NOTE_PALETTES, LANE, applyNoteColors } from './render.js';
 import { coinsInit, setCoinAccount, coinTotal, gemTotal, addRunCoins, addServerCoins } from './coins.js';
 import { queueOffline, backupOffline } from './offrec.js';
@@ -3895,6 +3895,7 @@ function mkStopPlay() {
   if (!mkp.bus) return;
   const b = mkp.bus;
   mkp.bus = null;
+  mkp.sp = null;
   cancelAnimationFrame(mkp.raf);
   try {
     b.gain.setTargetAtTime(0, audio.ctx.currentTime, 0.03);
@@ -3908,16 +3909,55 @@ function mkStopPlay() {
   mkDroll();
 }
 /** from = 시작 마디 (0 = 처음부터, 유저 건의 11-22 '해당 마디부터 재생') */
+/**
+ * 🎻 미리듣기도 게임과 똑같은 반주로 (2026-11-28 사용자 '받은 파일이랑 게임에서 만든 거랑 너무 달라, 없는 악기가 많아')
+ *   지금 맵을 게임 레벨로 만들어 SongPlayer(오케스트라 편성·베이스·높은 줄·드럼)를 bus 에 연결. 맵이 아직 안 되면(음이 너무 적음) null → 예전 가벼운 미리듣기
+ */
+function mkPreviewPlayer(bus) {
+  if (mkDrumOnly()) return null;
+  const raw = { name: mk.name || '미리듣기', bpm: mk.bpm, bars: mk.drums, melody: mk.mel.map(barToMelody), prog: mkProg() };
+  if (Array.isArray(mk.low) && mk.low.length === mk.mel.length) raw.low = mk.low.map(barToMelody);
+  if (Array.isArray(mk.hi) && mk.hi.length === mk.mel.length) raw.hi = mk.hi.map(barToMelody);
+  let sp = null;
+  try {
+    const map = cleanMap(raw);
+    if (!map) return null;
+    sp = new SongPlayer(audio, mapLevel(map), 0, { autoChart: true });
+    for (const b of [sp.bus, sp.drumBus]) {
+      b.disconnect();
+      b.connect(bus);
+    }
+  } catch (e) {
+    console.warn('mk preview', e);
+    return null;
+  }
+  return sp;
+}
 function mkPlayToggle(from = 0) {
   if (mkp.bus) return mkStopPlay();
   from = Math.max(0, Math.min(mk.mel.length - 1, from | 0));
   if (rec.on) recStop();
   if (drec.on) drecStop();
+  // 오케스트라 소리를 아직 안 받았으면 받고 나서 (게임과 같은 소리로 들리게)
+  if (audio.orchOn && !audio.orch && !mkp.orchTried) {
+    mkp.orchTried = true;
+    audio.unlock();
+    $('#mk-play-label').textContent = '악기 소리 받는 중…';
+    audio
+      .loadOrch()
+      .catch(() => {})
+      .then(() => {
+        $('#mk-play-label').textContent = '처음부터 듣기';
+        if (!mkp.bus) mkPlayToggle(from);
+      });
+    return;
+  }
   mkSound(() => {
     const ctx = audio.ctx;
     const bus = ctx.createGain();
     bus.connect(audio.musicBus);
     mkp.bus = bus;
+    mkp.sp = mkPreviewPlayer(bus);
     mkp.sd = 15 / mk.bpm;
     mkp.next = from * STEPS_PER_BAR;
     mkp.t0 = ctx.currentTime + 0.15 - mkp.next * mkp.sd;
@@ -3932,7 +3972,8 @@ function mkPlayToggle(from = 0) {
       const now = ctx.currentTime;
       // 0.3초 앞까지 예약
       while (mkp.next < mkp.steps && mkp.t0 + mkp.next * mkp.sd < now + 0.3) {
-        mkPlayStep(mkp.next, mkp.t0 + mkp.next * mkp.sd, bus, mkp.prog, mkp.sd, true);
+        if (mkp.sp) mkp.sp.scheduleStep(mkp.next + COUNT_IN_BARS * STEPS_PER_BAR, mkp.t0 + mkp.next * mkp.sd);
+        else mkPlayStep(mkp.next, mkp.t0 + mkp.next * mkp.sd, bus, mkp.prog, mkp.sd, true);
         mkp.next++;
       }
       const pos = (now - mkp.t0) / mkp.sd;
