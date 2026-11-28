@@ -161,7 +161,7 @@ test('💬 채팅: 열린 시간에만 · 로그인 계정만 · 연락처 막�
 
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kk-chat-'));
   const mkH = (hours) => {
-    const cfg = loadConfig({ SESSION_SECRET: 's', GATE_MODE: 'soft', DATA_FILE: path.join(tmp, 'db.json'), FREE_PASS_UNTIL: '0', CHAT_HOURS: hours });
+    const cfg = loadConfig({ SESSION_SECRET: 's', GATE_MODE: 'soft', DATA_FILE: path.join(tmp, 'db.json'), FREE_PASS_UNTIL: '0', CHAT_HOURS: hours, ADMIN_TOKEN: 'adm' });
     const store = new JsonStore(cfg.dataFile).init();
     return { store, h: createHandler(cfg, { store }) };
   };
@@ -189,4 +189,29 @@ test('💬 채팅: 열린 시간에만 · 로그인 계정만 · 연락처 막�
   const closed = mkH('0-0');
   const c = await (await closed.h(new Request('http://x/api/chat?after=0'), { ip: '1.1.1.6' })).json();
   assert.equal(c.open, false);
+});
+
+test('📢 채팅 공지: /공지 10 내용 = 공지 권한 계정만, 일반 글로 안 올라감', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kk-chatn-'));
+  const cfg = loadConfig({ SESSION_SECRET: 's', GATE_MODE: 'soft', DATA_FILE: path.join(tmp, 'db.json'), FREE_PASS_UNTIL: '0', CHAT_HOURS: '0-24', ADMIN_TOKEN: 'adm' });
+  const store = new JsonStore(cfg.dataFile).init();
+  const h = createHandler(cfg, { store });
+  const req = (method, url, body, tok, extra = {}) => h(new Request('http://x' + url, { method, headers: { 'Content-Type': 'application/json', ...(tok ? { 'X-Player': tok } : {}), ...extra }, body: body ? JSON.stringify(body) : undefined }), { ip: '1.1.1.7' });
+  const mk = async (name, ig) => (await req('POST', '/api/guest', { name, ig })).headers.get('x-player');
+  const boss = await mk('운영자', 'n_1');
+  const user = await mk('손님', 'n_2');
+  // 권한 없으면 못 씀 · 글로도 안 올라감
+  assert.equal((await req('POST', '/api/chat', { text: '/공지 10 안녕하세요' }, user)).status, 400);
+  const igsid = Object.values(store.data.players).find((p) => p.username === '운영자').igsid;
+  const a = await (await req('POST', '/api/admin/chat-admin', { igsid }, null, { 'x-admin-token': 'adm' })).json();
+  assert.equal(a.on, true);
+  assert.equal((await req('POST', '/api/chat', { text: '/공지 안녕' }, boss)).status, 400, '분 없으면 안내');
+  const r = await (await req('POST', '/api/chat', { text: '/공지 10 안녕하세요 여러분' }, boss)).json();
+  assert.equal(r.notice.t, '안녕하세요 여러분');
+  assert.ok(Math.abs(r.notice.until - Date.now() - 600_000) < 5000);
+  const g = await (await req('GET', '/api/chat?after=0', null, user)).json();
+  assert.equal(g.notice.t, '안녕하세요 여러분');
+  assert.equal(g.msgs.length, 0, '명령은 글로 안 올라감');
+  await req('POST', '/api/chat', { text: '/공지 끄기' }, boss);
+  assert.equal((await (await req('GET', '/api/chat?after=0', null, user)).json()).notice, null);
 });

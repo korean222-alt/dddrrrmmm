@@ -29757,6 +29757,7 @@ async function chatPoll() {
     const d = await state.api.chat(ch.last);
     if (!d.open) {
       ch.open = false;
+      chatNotice(null);
       $('#chat-live').textContent = '';
       $('#chat-list').innerHTML = chatClosedHtml(d.next || chatWindow(Date.now()).next);
       $('#chat-form').classList.add('off');
@@ -29770,6 +29771,7 @@ async function chatPoll() {
     $('#chat-form').classList.remove('off');
     $('#chat-live').textContent = '● LIVE';
     ch.every = d.every || 5000;
+    chatNotice(d.notice);
     const fresh = (d.msgs || []).filter((x) => !ch.msgs.has(x.id));
     for (const x of d.msgs || []) {
       ch.msgs.set(x.id, x);
@@ -29782,6 +29784,16 @@ async function chatPoll() {
   } catch {}
   const gap = Date.now() - ch.newAt > 30_000 ? Math.max(ch.every, 10_000) : ch.every;
   ch.timer = setTimeout(chatPoll, gap);
+}
+// 📢 채팅 공지 (운영자 '/공지 10 안녕하세요') — 맨 위에 고정, 시간 지나면 저절로 내려감
+function chatNotice(n) {
+  ch.notice = n || null;
+  const el = $('#chat-notice');
+  const on = !!(n && n.until > Date.now() && ch.open);
+  el.hidden = !on;
+  if (on) $('#chat-notice-t').textContent = n.t;
+  clearTimeout(ch.noticeTimer);
+  if (on) ch.noticeTimer = setTimeout(() => chatNotice(ch.notice), Math.min(n.until - Date.now() + 200, 2 ** 31 - 1));
 }
 function chatDraw() {
   const box = $('#chat-list');
@@ -29810,6 +29822,10 @@ async function chatSend(e) {
   try {
     const d = await state.api.chatSend(text);
     inp.value = '';
+    if (/^\/공지/.test(text)) {
+      chatNotice(d.notice);
+      toast(d.notice ? '📢 공지를 올렸어요' : '📢 공지를 내렸어요', 1800);
+    }
     if (d.msg) {
       ch.msgs.set(d.msg.id, d.msg);
       ch.newAt = Date.now();
@@ -29821,7 +29837,7 @@ async function chatSend(e) {
     if (why === 'login_required') askLogin();
     else
       toast(
-        { contact: '🔒 연락처·링크·아이디는 보낼 수 없어요', long: `${CHAT_MAX}자까지만 보낼 수 있어요`, slow: '조금 천천히 보내 주세요', muted: '신고가 쌓여서 오늘은 채팅을 쓸 수 없어요', empty: '' }[why] ?? '지금은 못 보내요',
+        { contact: '🔒 연락처·링크·아이디는 보낼 수 없어요', long: `${CHAT_MAX}자까지만 보낼 수 있어요`, slow: '조금 천천히 보내 주세요', muted: '신고가 쌓여서 오늘은 채팅을 쓸 수 없어요', empty: '', cmd: '지금은 못 보내요', cmd_help: '📢 /공지 분 내용 (예: /공지 10 안녕하세요) · /공지 끄기' }[why] ?? '지금은 못 보내요',
         2200
       );
   } finally {
