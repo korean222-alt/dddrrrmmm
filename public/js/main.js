@@ -4543,6 +4543,8 @@ const STUDIO_TEXT = {
   fail: { top: '이 정도는 쉽지 ㅋㅋ', bottom: '이거 깰 수 있는 사람?' },
   tile: { top: '이 속도 버틸 수 있음?', bottom: '프로필 링크에서 직접 쳐보기' },
 };
+/** 🎹 타일 영상 끝 문구 기본값 (실패 영상처럼 끝에 크게, 2026-11-28 사용자) */
+const TILE_END = { big: '너도 이거 깰 수 있음?', sub: '프로필 링크에서 도전' };
 /** 🎹 영상 찍기를 피아노 타일로 (2026-11-27 사용자 '타일로 릴스 찍고 싶어') */
 const isTileStudio = () => state.studio.game === 'tile';
 const isQuizFormat = () => state.studio.format === 'quiz';
@@ -4621,6 +4623,7 @@ function renderStudioLevels() {
   $$('#studio-game button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.sgame === (tile ? 'tile' : 'drum'))));
   $('#screen-studio .studio').classList.toggle('tile-on', tile);
   $('#tile-laps-wrap').hidden = !tile;
+  $('#tile-end-wrap').hidden = !tile;
   if (tile) {
     if (!TILE_SONGS.some((t) => t.id === st.tileSong)) st.tileSong = TILE_SONGS[0].id;
     $('#tile-laps').value = String([1, 2, 4].includes(st.tileLaps) ? st.tileLaps : 1);
@@ -4706,6 +4709,8 @@ function openStudio() {
   $$('#studio-mode button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.mode === st.mode));
   $('#studio-top').value = st.top;
   $('#studio-bottom').value = st.bottom;
+  $('#studio-end').value = st.endText ?? TILE_END.big;
+  $('#studio-endsub').value = st.endSub ?? TILE_END.sub;
   const ok = canRecordFile();
   $('#studio-file').disabled = !ok;
   $('#studio-file').checked = ok && st.file;
@@ -5264,12 +5269,14 @@ async function studioStart() {
   const st = state.studio;
   st.top = $('#studio-top').value.trim();
   st.bottom = $('#studio-bottom').value.trim();
+  st.endText = $('#studio-end').value.trim();
+  st.endSub = $('#studio-endsub').value.trim();
   st.file = $('#studio-file').checked;
   st.skin = $('#studio-skin').checked;
   st.quizBars = Number($('#quiz-bars').value || st.quizBars || 8);
   st.failSec = Number($('#fail-secs').value || st.failSec || 12);
   st.tileLaps = Number($('#tile-laps').value || st.tileLaps || 1);
-  save('studio', { level: st.level, mode: st.mode, top: st.top, bottom: st.bottom, file: st.file, skin: st.skin, format: st.format || 'play', quizBars: st.quizBars, failSec: st.failSec, game: st.game || 'drum', tileSong: st.tileSong, tileLaps: st.tileLaps });
+  save('studio', { level: st.level, mode: st.mode, top: st.top, bottom: st.bottom, file: st.file, skin: st.skin, format: st.format || 'play', quizBars: st.quizBars, failSec: st.failSec, game: st.game || 'drum', tileSong: st.tileSong, tileLaps: st.tileLaps, endText: st.endText, endSub: st.endSub });
   if (isTileStudio()) return studioTileStart();
   const playId = studioPlayId();
   closeModal('modal-studio-done');
@@ -5438,7 +5445,7 @@ async function studioTileStart() {
   await Promise.race([audio.loadPiano(), new Promise((r) => setTimeout(r, 3000))]);
   if (audio.orchOn) audio.loadOrch().catch(() => {});
   const label = `🎹 ${song.level.composer} ${song.level.name}`;
-  await fontsReady(`${st.top}${st.bottom}${label}`);
+  await fontsReady(`${st.top}${st.bottom}${label}${st.endText || ''}${st.endSub || ''}별개클리어다이아달성완주에서탈락%…0123456789`);
   if (!st.active) return;
   const skin = st.skin !== false ? tileSkin() : { key: 'basic', palette: null, fx: null };
   const g = new TileGame({
@@ -5448,7 +5455,7 @@ async function studioTileStart() {
     skin,
     hue: TILE_HUES[(song.order - 1) % TILE_HUES.length],
     auto: st.mode === 'auto',
-    reel: { top: st.top, bottom: st.bottom, label },
+    reel: { top: st.top, bottom: st.bottom, label, end: st.endText || st.endSub ? { big: st.endText, sub: st.endSub } : null },
     maxLaps: [1, 2, 4].includes(st.tileLaps) ? st.tileLaps : 1,
     onEnd: (r) => studioTileFinish(r),
   });
@@ -5473,8 +5480,8 @@ async function studioTileFinish(r) {
   const st = state.studio;
   if (tp.game) tp.game = null;
   if (!st.active) return;
-  // 마지막 장면(별·다이아)을 잠깐 더 담기
-  await new Promise((res) => setTimeout(res, 1200));
+  // 마지막 장면(별·다이아 / 끝 문구)을 잠깐 더 담기 — 끝 문구는 판이 이미 3.8초 보여 줌
+  await new Promise((res) => setTimeout(res, st.endText || st.endSub ? 400 : 1200));
   const blob = await stopRecorder();
   st.active = false;
   const video = $('#studio-video');
@@ -8064,6 +8071,7 @@ async function chatPoll() {
     const d = await state.api.chat(ch.last);
     if (!d.open) {
       ch.open = false;
+      chatNotice(null);
       $('#chat-live').textContent = '';
       $('#chat-list').innerHTML = chatClosedHtml(d.next || chatWindow(Date.now()).next);
       $('#chat-form').classList.add('off');
@@ -8077,6 +8085,7 @@ async function chatPoll() {
     $('#chat-form').classList.remove('off');
     $('#chat-live').textContent = '● LIVE';
     ch.every = d.every || 5000;
+    chatNotice(d.notice);
     const fresh = (d.msgs || []).filter((x) => !ch.msgs.has(x.id));
     for (const x of d.msgs || []) {
       ch.msgs.set(x.id, x);
@@ -8089,6 +8098,16 @@ async function chatPoll() {
   } catch {}
   const gap = Date.now() - ch.newAt > 30_000 ? Math.max(ch.every, 10_000) : ch.every;
   ch.timer = setTimeout(chatPoll, gap);
+}
+// 📢 채팅 공지 (운영자 '/공지 10 안녕하세요') — 맨 위에 고정, 시간 지나면 저절로 내려감
+function chatNotice(n) {
+  ch.notice = n || null;
+  const el = $('#chat-notice');
+  const on = !!(n && n.until > Date.now() && ch.open);
+  el.hidden = !on;
+  if (on) $('#chat-notice-t').textContent = n.t;
+  clearTimeout(ch.noticeTimer);
+  if (on) ch.noticeTimer = setTimeout(() => chatNotice(ch.notice), Math.min(n.until - Date.now() + 200, 2 ** 31 - 1));
 }
 function chatDraw() {
   const box = $('#chat-list');
@@ -8117,6 +8136,10 @@ async function chatSend(e) {
   try {
     const d = await state.api.chatSend(text);
     inp.value = '';
+    if (/^\/공지/.test(text)) {
+      chatNotice(d.notice);
+      toast(d.notice ? '📢 공지를 올렸어요' : '📢 공지를 내렸어요', 1800);
+    }
     if (d.msg) {
       ch.msgs.set(d.msg.id, d.msg);
       ch.newAt = Date.now();
@@ -8128,7 +8151,7 @@ async function chatSend(e) {
     if (why === 'login_required') askLogin();
     else
       toast(
-        { contact: '🔒 연락처·링크·아이디는 보낼 수 없어요', long: `${CHAT_MAX}자까지만 보낼 수 있어요`, slow: '조금 천천히 보내 주세요', muted: '신고가 쌓여서 오늘은 채팅을 쓸 수 없어요', empty: '' }[why] ?? '지금은 못 보내요',
+        { contact: '🔒 연락처·링크·아이디는 보낼 수 없어요', long: `${CHAT_MAX}자까지만 보낼 수 있어요`, slow: '조금 천천히 보내 주세요', muted: '신고가 쌓여서 오늘은 채팅을 쓸 수 없어요', empty: '', cmd: '지금은 못 보내요', cmd_help: '📢 /공지 분 내용 (예: /공지 10 안녕하세요) · /공지 끄기' }[why] ?? '지금은 못 보내요',
         2200
       );
   } finally {

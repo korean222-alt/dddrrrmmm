@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=949faaa3b9" />
+  <link rel="stylesheet" href="css/style.css?v=d757c77811" />
 </head>
 <body>
   <div id="app">
@@ -215,6 +215,7 @@
       </header>
       <div class="chat-wrap">
         <p class="chat-rule">저녁 6~8시 · 욕설·연락처 ✕ · 신고 3번이면 가려져요</p>
+        <div class="chat-notice" id="chat-notice" hidden><b>📢</b><span id="chat-notice-t"></span></div>
         <div class="chat-list" id="chat-list"></div>
         <button class="chat-idle" id="chat-idle" data-action="chat-wake" hidden>😴 자리 비움 · 눌러서 계속 보기</button>
         <form class="chat-form" id="chat-form"><input id="chat-in" maxlength="80" placeholder="메시지 (80자)" autocomplete="off" enterkeyhint="send" /><button class="btn btn-primary" type="submit">보내기</button></form>
@@ -746,6 +747,10 @@
           <h4>화면 문구</h4>
           <label class="field"><span id="studio-top-label">위 (훅)</span><input type="text" id="studio-top" maxlength="26" /></label>
           <label class="field"><span id="studio-bottom-label">아래 (유도)</span><input type="text" id="studio-bottom" maxlength="26" /></label>
+          <div id="tile-end-wrap" hidden>
+            <label class="field"><span>끝 문구 <small class="muted">끝나면 크게 톡 · 비우면 없음</small></span><input type="text" id="studio-end" maxlength="20" /></label>
+            <label class="field"><span>끝 버튼 문구 <small class="muted">비우면 없음</small></span><input type="text" id="studio-endsub" maxlength="22" /></label>
+          </div>
         </div>
         <div class="studio-block">
           <h4>꾸미기</h4>
@@ -1562,6 +1567,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=b4f65fbdbe" defer></script>
+  <script src="js/app.js?v=cde72778fc" defer></script>
 </body>
 </html>

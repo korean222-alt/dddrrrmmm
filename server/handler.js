@@ -371,6 +371,8 @@ export function createHandler(cfg, { store, meter = null }) {
   const chatReported = new Set();
   const chatBuf = { start: 0, msgs: [], last: 0, at: 0, full: 0 }; // 이 인스턴스가 기억하는 오늘 채팅 (2초마다 새 글만 읽음)
   const CHAT_KEEP = 80;
+  // 📢 채팅 공지 권한 기본 계정 (운영자 나랏말사마) — 더 넣기는 admin '랭킹 참여자' 📢 공지 권한 (settings `set:chatAdmins`)
+  const CHAT_ADMINS = ['g_swZOU7bb6j5wRyqg'];
   const CHAT_REPORTS = 3;
   // 팔로워 암호: 틀린 시도만 셈. IP 당 10분에 10번 틀리면 잠깐 막음
   const passFails = new Map();
@@ -1505,15 +1507,39 @@ export function createHandler(cfg, { store, meter = null }) {
         chatBuf.last = chatBuf.msgs.length ? chatBuf.msgs[chatBuf.msgs.length - 1].id : chatBuf.last;
       };
       const out = (r) => ({ id: r.id, at: r.at, name: r.name, av: r.av || null, text: r.text, mine: pl ? r.igsid === pl.igsid : false });
+      // 📢 채팅 공지 (2026-11-28 사용자 '/공지 10 안녕하세요 = 10분 동안 위에 띄우기, 나만') — settings `chatnotice` 한 줄 {t, until}, 15초 기억
+      const noticeNow = async () => {
+        const raw = await cached('chatNotice', 15_000, async () => (await store.getSetting('chatnotice')) || '', { shared: false });
+        try {
+          const n = raw ? JSON.parse(raw) : null;
+          return n && n.until > Date.now() ? { t: n.t, until: n.until } : null;
+        } catch {
+          return null;
+        }
+      };
       if (m === 'GET') {
         await refresh();
         const after = Number(url.searchParams.get('after')) || 0;
-        return json(200, { open: true, end: win.end, msgs: chatBuf.msgs.filter((r) => r.id > after).map(out), every: brake() >= 1 ? 15000 : 5000 });
+        return json(200, { open: true, end: win.end, msgs: chatBuf.msgs.filter((r) => r.id > after).map(out), every: brake() >= 1 ? 15000 : 5000, notice: await noticeNow() });
+      }
+      if (!pl) return json(401, { error: 'no_player' });
+      const body = await readJson(request);
+      // 운영자 명령: '/공지 분 내용' · '/공지 끄기' — 공지 권한 계정(settings `set:chatAdmins` 쉼표 igsid + 기본 운영자 계정)만, 아니면 못 본 척(일반 글로도 안 올림)
+      if (typeof body.text === 'string' && /^\s*\/공지/.test(body.text)) {
+        const admins = String((await store.getSetting('set:chatAdmins')) || '').split(',').map((x) => x.trim()).filter(Boolean);
+        if (!CHAT_ADMINS.includes(pl.igsid) && !admins.includes(pl.igsid)) return json(400, { error: 'cmd' });
+        const mm = /^\s*\/공지\s*(\d+)?\s*(.*)$/s.exec(body.text);
+        const mins = mm && mm[1] ? Math.min(1440, Number(mm[1])) : 0;
+        const t = String((mm && mm[2]) || '').replace(/[\u0000-\u001f\u007f\u200b-\u200f\u2028-\u202e\ufeff]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120);
+        const stop = /^(끄기|끝|off|지우기)$/i.test(t) || (mm && mm[1] === '0');
+        if (!stop && (!mins || !t)) return json(400, { error: 'cmd_help' });
+        const n = stop ? null : { t, until: Date.now() + mins * 60_000 };
+        await store.setSetting('chatnotice', n ? JSON.stringify(n) : '');
+        memo.delete('chatNotice');
+        return json(200, { ok: true, notice: n });
       }
       if (off) return closed();
-      if (!pl) return json(401, { error: 'no_player' });
       if (!rankOk(pl) || pl.hiddenAt) return json(403, { error: 'login_required' });
-      const body = await readJson(request);
       if (body.report != null) {
         const id = Number(body.report) || 0;
         const k = `${id}:${pl.igsid}`;
@@ -1954,6 +1980,22 @@ export function createHandler(cfg, { store, meter = null }) {
         await store.giveCoins(igsid, coins, gift);
         const w1 = await store.getWallet(igsid);
         return json(200, { ok: true, username: pl.username, coins: w1 ? w1.coins : coins, gift });
+      }
+      // 📢 채팅 공지 권한 켜기·끄기 (settings `set:chatAdmins` = 쉼표 igsid)
+      if (p === '/api/admin/chat-admin' && m === 'POST') {
+        const b = await readJson(request);
+        const igsid = String(b.igsid || '');
+        if (!igsid) return json(400, { error: 'bad_request' });
+        let list = String((await store.getSetting('set:chatAdmins')) || '').split(',').map((x) => x.trim()).filter(Boolean);
+        const on = b.on == null ? !list.includes(igsid) : !!b.on;
+        list = list.filter((x) => x !== igsid);
+        if (on) list.push(igsid);
+        await store.setSetting('set:chatAdmins', list.join(','));
+        return json(200, { ok: true, on: on || CHAT_ADMINS.includes(igsid), list });
+      }
+      if (p === '/api/admin/chat-admin' && m === 'GET') {
+        const list = String((await store.getSetting('set:chatAdmins')) || '').split(',').map((x) => x.trim()).filter(Boolean);
+        return json(200, { list: [...new Set(CHAT_ADMINS.concat(list))] });
       }
       // 랭킹 참여자 (인스타 아이디로 팔로우 확인 → 안 했으면 삭제)
       if (p === '/api/admin/players' && m === 'GET') {

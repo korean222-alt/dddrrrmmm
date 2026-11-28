@@ -304,7 +304,7 @@
               : '<span class="meta">인스타 아이디 없음</span>';
             return `<li data-igsid="${esc(p.igsid)}"><div><div><b>${esc(p.username)}</b> ${id}</div>
               <div class="meta">${old ? '미인증' : p.checkedAt < 0 ? '🆓 임시 인증' : '인증'} · ${ago(p.createdAt)} · 총 ${fmtN(p.total)}점 (${p.levels}단계)${p.endless != null ? ' · 무제한 Lv.' + Math.floor(p.endless / 1000000000) : ''}</div></div>
-              <div class="acts"><button type="button" class="ghost" data-do="sus">🕵 지표</button> <button type="button" class="ghost" data-do="gift">🎁 코인</button> <button type="button" class="ghost" data-do="recover">되찾기 코드</button> <button type="button" class="ghost" data-do="delete" style="color:var(--bad)">삭제</button></div></li>`;
+              <div class="acts"><button type="button" class="ghost" data-do="sus">🕵 지표</button> <button type="button" class="ghost" data-do="gift">🎁 코인</button> <button type="button" class="ghost" data-do="chatadmin">📢 공지 권한</button> <button type="button" class="ghost" data-do="recover">되찾기 코드</button> <button type="button" class="ghost" data-do="delete" style="color:var(--bad)">삭제</button></div></li>`;
           }).join('')
         : `<li class="empty">${old ? '미인증 참가자가 없어요.' : '아직 인증한 사람이 없어요.'}</li>`;
       lastList = ps;
@@ -330,6 +330,12 @@
         return showReport(igsid);
       }
       if (b.dataset.do === 'gift') return giveGift(igsid, name, null);
+      if (b.dataset.do === 'chatadmin') {
+        // 💬 채팅에서 '/공지 10 안녕하세요' (10분 동안 위에 띄움) · '/공지 끄기' 를 쓸 수 있는 계정
+        const r = await call('POST', '/api/admin/chat-admin', { igsid });
+        if (r.status !== 200) return alert('못 바꿨어요.');
+        return alert(r.data.on ? `"${name}" 님이 채팅에서 공지를 쓸 수 있어요.\n\n/공지 10 안녕하세요 → 10분 동안 위에 띄움\n/공지 끄기 → 내림` : `"${name}" 님 공지 권한을 뺐어요.`);
+      }
       if (b.dataset.do === 'recover') {
         // 인스타 DM 으로 본인인지 확인한 뒤에만! 이 코드를 넣은 폰이 이 계정(인증·랭킹)이 됨
         if (!confirm(`"${name}" 님 계정의 되찾기 코드를 만들까요?\n\n인스타 DM 으로 본인인지 먼저 확인하세요. 코드를 넣은 폰이 이 계정이 돼요. (24시간 · 한 번만)`)) return;
