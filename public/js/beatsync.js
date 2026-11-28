@@ -335,3 +335,119 @@ export function songChart(samples, sr, { firstBeat, bpm, bars, diff = 'easy' }) 
   for (let b = 0; b < bars; b++) res.push(out.slice(b * 16, b * 16 + 16).join(''));
   return { bars: res, covered: Math.min(covered, bars) };
 }
+
+// ---------------------------------------------------------------
+// 🎹 노래 따라 타일 (2026-11-28 사용자 '타일도 노래 파일 넣어서 박자 맞춰 주는 거 — 최신곡으로 치기·영상 찍기 둘 다'):
+//   노래 소리가 '확' 커지는 칸(16분)에 타일 하나. 한 줄 = u 칸 (초당 줄 수가 3.6 쯤 되게 1·2·4 중에서),
+//   이웃 타일은 0.2초 이상(아이폰 터치 규칙, tasks/채보-만들때-주의.md), 동시 타일 없음.
+//   음 높이 대신 소리 밝기(높은 소리 ↔ 낮은 소리)로 줄이 오르내림, 소리가 길게 이어지면 긴 타일
+//   → { u, tiles: [{ at(16분 칸), len, midi(줄 고르기용 가짜 높이) }], covered }
+// ---------------------------------------------------------------
+const TILE_RATE = { easy: 1.4, normal: 2.2, hard: 3.0 }; // 초당 타일 (센 구간은 더, 조용한 구간은 덜)
+export function songTiles(samples, sr, { firstBeat, bpm, bars, diff = 'normal' }) {
+  const rate = TILE_RATE[diff] || TILE_RATE.normal;
+  const stepSec = 15 / bpm;
+  // 한 줄 = 16분 u 칸: 한 줄이 0.2초 이상 + 초당 줄 수 3.6 에 가깝게
+  let u = 4;
+  let bestE = 1e9;
+  for (const c of [1, 2, 4]) {
+    const rps = 1 / (c * stepSec);
+    const e = Math.abs(Math.log(rps / 3.6));
+    if (rps <= 5 && e < bestE) (bestE = e), (u = c);
+  }
+  let minSteps = Math.max(u, Math.ceil(0.2 / stepSec - 1e-9));
+  if (diff === 'easy') minSteps = Math.max(minSteps, Math.ceil(0.36 / stepSec - 1e-9));
+  const grid = diff === 'easy' ? Math.max(u, 4) : u;
+  const total = bars * 16;
+  const { low, high, all, loud, hopSec, n } = bandFlux(samples, sr, firstBeat - 0.05, total * stepSec + 0.3);
+  const at = (arr, t) => {
+    const c = Math.round((t + 0.05) / hopSec);
+    let m = 0;
+    for (let i = c - 2; i <= c + 2; i++) if (i >= 0 && i < n && arr[i] > m) m = arr[i];
+    return m;
+  };
+  const loudAt = (t) => {
+    const c = Math.round((t + 0.05) / hopSec);
+    let s = 0;
+    let k = 0;
+    for (let i = c; i < c + 5 && i < n; i++) (s += loud[i] || 0), k++;
+    return k ? s / k : 0;
+  };
+  const L = new Float32Array(total);
+  const Hh = new Float32Array(total);
+  const A = new Float32Array(total);
+  const V = new Float32Array(total);
+  let covered = 0;
+  for (let k = 0; k < total; k++) {
+    const t = k * stepSec;
+    if ((t + 0.05) / hopSec < n - 3) covered = Math.floor(k / 16) + 1;
+    L[k] = at(low, t);
+    Hh[k] = at(high, t);
+    A[k] = at(all, t);
+    V[k] = loudAt(t);
+  }
+  const lim = covered * 16;
+  const pct = (arr, p) => {
+    const v = Array.from(arr.slice(0, lim)).filter((x) => x > 0).sort((a, b) => a - b);
+    return v.length ? v[Math.min(v.length - 1, Math.floor(v.length * p))] : 1;
+  };
+  const nL = pct(L, 0.9) || 1;
+  const nH = pct(Hh, 0.9) || 1;
+  const nA = pct(A, 0.9) || 1;
+  const strength = new Float32Array(total);
+  for (let k = 0; k < lim; k++) strength[k] = Math.max(Math.min(1.5, L[k] / nL), Math.min(1.5, Hh[k] / nH), Math.min(1.5, A[k] / nA));
+  const barLoud = [];
+  for (let b = 0; b < covered; b++) {
+    let s = 0;
+    for (let e = 0; e < 16; e++) s += V[b * 16 + e];
+    barLoud.push(s / 16);
+  }
+  const midLoud = barLoud.slice().sort((a, b) => a - b)[Math.floor(barLoud.length / 2)] || 0;
+  const energy = barEnergy(samples, sr, { firstBeat, bpm, bars: covered });
+  const barSec = stepSec * 16;
+  const placed = new Uint8Array(total);
+  const free = (k) => {
+    for (let j = Math.max(0, k - minSteps + 1); j < Math.min(total, k + minSteps); j++) if (placed[j]) return false;
+    return true;
+  };
+  for (let b = 0; b < covered; b++) {
+    if (barLoud[b] < midLoud * 0.12 || barLoud[b] < 1e-4) continue; // 거의 조용한 마디(앞 무음·끝)는 쉼
+    const e = energy[b] ?? 0.5;
+    const quota = Math.max(1, Math.round(rate * barSec * (e >= 0.62 ? 1.25 : e <= 0.3 ? 0.7 : 1)));
+    const cands = [];
+    for (let s = 0; s < 16; s += grid) {
+      const k = b * 16 + s;
+      const pos = s % 4 === 0 ? 0.25 : s % 2 === 0 ? 0.05 : -0.1;
+      if (strength[k] > 0.15) cands.push({ k, score: strength[k] + pos + (s === 0 ? 0.15 : 0) });
+    }
+    cands.sort((x, y) => y.score - x.score);
+    let got = 0;
+    for (const c of cands) {
+      if (got >= quota) break;
+      if (!free(c.k)) continue;
+      placed[c.k] = 1;
+      got++;
+    }
+    if (!got && free(b * 16)) placed[b * 16] = 1;
+  }
+  const ks = [];
+  for (let k = 0; k < total; k++) if (placed[k]) ks.push(k);
+  const tiles = ks.map((k, i) => {
+    const nx = i + 1 < ks.length ? ks[i + 1] : Math.min(total, k + 16);
+    const gap = nx - k;
+    // 긴 타일: 다음 타일까지 3줄 넘게 비고, 그 사이 소리가 처음 세기의 75% 넘게 이어지고, 새로 튀는 소리가 없을 때
+    let len = u;
+    if (gap >= 3 * u && V[k] > 0) {
+      let s = 0;
+      let c = 0;
+      let jump = 0;
+      for (let j = k + u; j < nx - u && j < lim; j++) (s += V[j]), c++, (jump = Math.max(jump, strength[j]));
+      if (c && s / c >= V[k] * 0.75 && jump < 0.45) len = gap;
+    }
+    const lo = Math.min(1.5, L[k] / nL);
+    const hi = Math.min(1.5, Hh[k] / nH);
+    const midi = 64 + Math.max(-10, Math.min(10, Math.round(6 * Math.log2((hi + 0.05) / (lo + 0.05)))));
+    return { at: k, len, midi };
+  });
+  return { u, tiles, covered: Math.min(covered, bars) };
+}

@@ -580,3 +580,35 @@ export const gradeLaps = (g) => {
   const m = /^L(\d+)$/.exec(String(g || ''));
   return m ? Number(m[1]) : 0;
 };
+
+/**
+ * 🎵 노래 파일 타일 (최신곡으로 치기·영상 찍기): beatsync songTiles 결과 → 한 바퀴. 빠르기는 노래 BPM 그대로(바퀴 하나, 안 빨라짐)
+ *   노래 파일이 판 내내 흐르고(TileGame songAudio), 타일은 노래 박자 자리에 — 기록·랭킹·코인 없음
+ */
+export function songTileLap({ bpm, bars, u, tiles }) {
+  if (!Array.isArray(tiles) || tiles.length < 4 || !(bpm > 0)) return null;
+  const steps = bars * STEPS_PER_BAR;
+  const minSteps = Math.max(u, Math.ceil(MIN_TAP_SEC / (15 / bpm) - 1e-9));
+  const pat = [];
+  for (const n of [...tiles].sort((a, b) => a.at - b.at)) {
+    if (n.at >= steps) break;
+    const last = pat[pat.length - 1];
+    if (last && n.at - last.at < minSteps) continue;
+    pat.push({ at: n.at, bar: Math.floor(n.at / STEPS_PER_BAR), len: n.len || u, midi: n.midi ?? 64 });
+  }
+  if (pat.length < 4) return null;
+  pat.forEach((t, i) => {
+    const gap = (i + 1 < pat.length ? pat[i + 1].at : steps + minSteps) - t.at;
+    let rows = Math.floor(Math.min(t.len, gap) / u + 1e-9);
+    while (rows >= 2 && gap - rows * u < minSteps) rows--;
+    t.rows = Math.max(1, Math.min(rows, 4));
+    t.hold = t.rows >= 2;
+    t.abs = t.at;
+  });
+  assignLanes(pat, u);
+  const lap = { speeds: [1], u, bpm, bars, steps, notes: [], prog: new Array(bars).fill('C'), first: pat[0].at, pattern: pat, fromSong: true };
+  const c = buildCourse(lap, { laps: 1, party: false });
+  lap.tiles = c.tiles;
+  lap.points = c.points;
+  return lap;
+}

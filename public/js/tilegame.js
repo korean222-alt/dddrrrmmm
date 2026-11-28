@@ -97,7 +97,9 @@ export class TileGame {
    *           maxLaps?:number, skin?:object, vs?:{ name:string, other:()=>({score,lives,done}|null), onLive?:(live)=>void } }} o
    *   lap 을 주면 그걸로 (유저 맵 타일), 아니면 songId 의 곡
    */
-  constructor({ audio, canvas, songId = 0, lap = null, onEnd, onLap, onDeath = null, invincible = false, maxLaps = MAX_LAPS, vs = null, skin = null, hue = null, auto = false, mute = false, reel = null, dpr = null }) {
+  constructor({ audio, canvas, songId = 0, lap = null, onEnd, onLap, onDeath = null, invincible = false, maxLaps = MAX_LAPS, vs = null, skin = null, hue = null, auto = false, mute = false, reel = null, dpr = null, songAudio = null }) {
+    // 🎵 songAudio = { buf, offset }: 노래 파일을 판 내내 틂 (최신곡으로 치기·영상 찍기 타일), offset = 바퀴 첫 칸의 노래 시각(초)
+    this.songAudio = songAudio && songAudio.buf ? songAudio : null;
     // 🎬 auto = 저절로 PERFECT 로 침 (영상 찍기 자동 연주·상점 미리보기), mute = 소리 없음(상점 미리보기), reel = 릴스 문구 { top, bottom, label }
     this.auto = auto;
     this.mute = mute;
@@ -132,7 +134,7 @@ export class TileGame {
     this.lapEnd = this.course.lapEnd;
     this.tiles = this.course.tiles.map((c) => ({ ...c }));
     this.partyRange = this.course.P ? this._partyRange() : null;
-    this.music = this._musicEvents();
+    this.music = this.songAudio ? [] : this._musicEvents();
     this.row0 = this.tiles[0].row;
     this.hearts = TILE_HEARTS;
     this.score = 0;
@@ -348,6 +350,7 @@ export class TileGame {
   /** 소리 끄기 (멈춤·끝): 예약해 둔 음까지 조용히 */
   _hush(fade = 0.12) {
     const b = this.bus;
+    this._stopSong(fade + 0.05);
     if (!b) return;
     this.bus = null;
     try {
@@ -372,6 +375,36 @@ export class TileGame {
       else hi = m;
     }
     this.mi = lo;
+    if (this.songAudio) this._songFrom(s);
+  }
+  /** 🎵 노래 파일을 곡 시각 s 부터 (aud0 기준으로 예약, 지금 버스에 연결 → 멈춤·끝은 _hush 가 같이 끔) */
+  _songFrom(s) {
+    const a = this.audio;
+    const ctx = a.ctx;
+    this._stopSong();
+    if (!ctx || !this.bus || this.aud0 == null) return;
+    const buf = this.songAudio.buf;
+    const now = ctx.currentTime;
+    let when = this.aud0 + s;
+    let off = this.songAudio.offset + this.t0 + s;
+    if (when < now) (off += now - when), (when = now);
+    if (off < 0) (when -= off), (off = 0);
+    if (off >= buf.duration - 0.05) return;
+    try {
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(this.bus);
+      src.start(when, off);
+      this._src = src;
+    } catch {}
+  }
+  _stopSong(delay = 0) {
+    const src = this._src;
+    this._src = null;
+    if (!src) return;
+    try {
+      src.stop(this.audio.ctx.currentTime + delay);
+    } catch {}
   }
   _schedule() {
     const a = this.audio;

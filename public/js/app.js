@@ -11266,7 +11266,39 @@ const gradeLaps = (g) => {
   return m ? Number(m[1]) : 0;
 };
 
-return { TILE_ROWS, TILE_RPS, LAP_SPEEDS, DIFF_SPEEDS, HOLD_PTS, TILE_SONGS, PPLUS_SEC, PPLUS_POINTS, TILE_LEVELS, tileLevel, hasPplus, TILE_DIFF, TILE_FREE, TILE_SLOT0, TILE_SLOT_MAX, MAX_LAPS, TILE_HEARTS, GONE_ROWS, MIN_TAP_SEC, MIN_GAP, PARTY_BARS, PARTY_GAP, REST_BARS, TILE_MEL, tileSource, rowUnit, buildLap, freeTiles, tilePoints, buildCourse, assignLanes, LAP_MIN_SEC, transposeBar, tileLap, mapTileLap, MAP_TILE_LAPS, mapTileMax, lapSpeed, lapStars, tileId, tileSong, tileSlot, isTileSlot, tileClosed, tileCourse, tileTimes, tilesWithin, checkTileRun, lapGrade, gradeLaps };
+/**
+ * 🎵 노래 파일 타일 (최신곡으로 치기·영상 찍기): beatsync songTiles 결과 → 한 바퀴. 빠르기는 노래 BPM 그대로(바퀴 하나, 안 빨라짐)
+ *   노래 파일이 판 내내 흐르고(TileGame songAudio), 타일은 노래 박자 자리에 — 기록·랭킹·코인 없음
+ */
+function songTileLap({ bpm, bars, u, tiles }) {
+  if (!Array.isArray(tiles) || tiles.length < 4 || !(bpm > 0)) return null;
+  const steps = bars * STEPS_PER_BAR;
+  const minSteps = Math.max(u, Math.ceil(MIN_TAP_SEC / (15 / bpm) - 1e-9));
+  const pat = [];
+  for (const n of [...tiles].sort((a, b) => a.at - b.at)) {
+    if (n.at >= steps) break;
+    const last = pat[pat.length - 1];
+    if (last && n.at - last.at < minSteps) continue;
+    pat.push({ at: n.at, bar: Math.floor(n.at / STEPS_PER_BAR), len: n.len || u, midi: n.midi ?? 64 });
+  }
+  if (pat.length < 4) return null;
+  pat.forEach((t, i) => {
+    const gap = (i + 1 < pat.length ? pat[i + 1].at : steps + minSteps) - t.at;
+    let rows = Math.floor(Math.min(t.len, gap) / u + 1e-9);
+    while (rows >= 2 && gap - rows * u < minSteps) rows--;
+    t.rows = Math.max(1, Math.min(rows, 4));
+    t.hold = t.rows >= 2;
+    t.abs = t.at;
+  });
+  assignLanes(pat, u);
+  const lap = { speeds: [1], u, bpm, bars, steps, notes: [], prog: new Array(bars).fill('C'), first: pat[0].at, pattern: pat, fromSong: true };
+  const c = buildCourse(lap, { laps: 1, party: false });
+  lap.tiles = c.tiles;
+  lap.points = c.points;
+  return lap;
+}
+
+return { TILE_ROWS, TILE_RPS, LAP_SPEEDS, DIFF_SPEEDS, HOLD_PTS, TILE_SONGS, PPLUS_SEC, PPLUS_POINTS, TILE_LEVELS, tileLevel, hasPplus, TILE_DIFF, TILE_FREE, TILE_SLOT0, TILE_SLOT_MAX, MAX_LAPS, TILE_HEARTS, GONE_ROWS, MIN_TAP_SEC, MIN_GAP, PARTY_BARS, PARTY_GAP, REST_BARS, TILE_MEL, tileSource, rowUnit, buildLap, freeTiles, tilePoints, buildCourse, assignLanes, LAP_MIN_SEC, transposeBar, tileLap, mapTileLap, MAP_TILE_LAPS, mapTileMax, lapSpeed, lapStars, tileId, tileSong, tileSlot, isTileSlot, tileClosed, tileCourse, tileTimes, tilesWithin, checkTileRun, lapGrade, gradeLaps, songTileLap };
 })();
 
 // ---- tilegame.js ----
@@ -11370,7 +11402,9 @@ class TileGame {
    *           maxLaps?:number, skin?:object, vs?:{ name:string, other:()=>({score,lives,done}|null), onLive?:(live)=>void } }} o
    *   lap 을 주면 그걸로 (유저 맵 타일), 아니면 songId 의 곡
    */
-  constructor({ audio, canvas, songId = 0, lap = null, onEnd, onLap, onDeath = null, invincible = false, maxLaps = MAX_LAPS, vs = null, skin = null, hue = null, auto = false, mute = false, reel = null, dpr = null }) {
+  constructor({ audio, canvas, songId = 0, lap = null, onEnd, onLap, onDeath = null, invincible = false, maxLaps = MAX_LAPS, vs = null, skin = null, hue = null, auto = false, mute = false, reel = null, dpr = null, songAudio = null }) {
+    // 🎵 songAudio = { buf, offset }: 노래 파일을 판 내내 틂 (최신곡으로 치기·영상 찍기 타일), offset = 바퀴 첫 칸의 노래 시각(초)
+    this.songAudio = songAudio && songAudio.buf ? songAudio : null;
     // 🎬 auto = 저절로 PERFECT 로 침 (영상 찍기 자동 연주·상점 미리보기), mute = 소리 없음(상점 미리보기), reel = 릴스 문구 { top, bottom, label }
     this.auto = auto;
     this.mute = mute;
@@ -11405,7 +11439,7 @@ class TileGame {
     this.lapEnd = this.course.lapEnd;
     this.tiles = this.course.tiles.map((c) => ({ ...c }));
     this.partyRange = this.course.P ? this._partyRange() : null;
-    this.music = this._musicEvents();
+    this.music = this.songAudio ? [] : this._musicEvents();
     this.row0 = this.tiles[0].row;
     this.hearts = TILE_HEARTS;
     this.score = 0;
@@ -11621,6 +11655,7 @@ class TileGame {
   /** 소리 끄기 (멈춤·끝): 예약해 둔 음까지 조용히 */
   _hush(fade = 0.12) {
     const b = this.bus;
+    this._stopSong(fade + 0.05);
     if (!b) return;
     this.bus = null;
     try {
@@ -11645,6 +11680,36 @@ class TileGame {
       else hi = m;
     }
     this.mi = lo;
+    if (this.songAudio) this._songFrom(s);
+  }
+  /** 🎵 노래 파일을 곡 시각 s 부터 (aud0 기준으로 예약, 지금 버스에 연결 → 멈춤·끝은 _hush 가 같이 끔) */
+  _songFrom(s) {
+    const a = this.audio;
+    const ctx = a.ctx;
+    this._stopSong();
+    if (!ctx || !this.bus || this.aud0 == null) return;
+    const buf = this.songAudio.buf;
+    const now = ctx.currentTime;
+    let when = this.aud0 + s;
+    let off = this.songAudio.offset + this.t0 + s;
+    if (when < now) (off += now - when), (when = now);
+    if (off < 0) (when -= off), (off = 0);
+    if (off >= buf.duration - 0.05) return;
+    try {
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(this.bus);
+      src.start(when, off);
+      this._src = src;
+    } catch {}
+  }
+  _stopSong(delay = 0) {
+    const src = this._src;
+    this._src = null;
+    if (!src) return;
+    try {
+      src.stop(this.audio.ctx.currentTime + delay);
+    } catch {}
   }
   _schedule() {
     const a = this.audio;
@@ -15671,7 +15736,123 @@ function songChart(samples, sr, { firstBeat, bpm, bars, diff = 'easy' }) {
   return { bars: res, covered: Math.min(covered, bars) };
 }
 
-return { detectBeat, monoOf, barEnergy, songChart };
+// ---------------------------------------------------------------
+// 🎹 노래 따라 타일 (2026-11-28 사용자 '타일도 노래 파일 넣어서 박자 맞춰 주는 거 — 최신곡으로 치기·영상 찍기 둘 다'):
+//   노래 소리가 '확' 커지는 칸(16분)에 타일 하나. 한 줄 = u 칸 (초당 줄 수가 3.6 쯤 되게 1·2·4 중에서),
+//   이웃 타일은 0.2초 이상(아이폰 터치 규칙, tasks/채보-만들때-주의.md), 동시 타일 없음.
+//   음 높이 대신 소리 밝기(높은 소리 ↔ 낮은 소리)로 줄이 오르내림, 소리가 길게 이어지면 긴 타일
+//   → { u, tiles: [{ at(16분 칸), len, midi(줄 고르기용 가짜 높이) }], covered }
+// ---------------------------------------------------------------
+const TILE_RATE = { easy: 1.4, normal: 2.2, hard: 3.0 }; // 초당 타일 (센 구간은 더, 조용한 구간은 덜)
+function songTiles(samples, sr, { firstBeat, bpm, bars, diff = 'normal' }) {
+  const rate = TILE_RATE[diff] || TILE_RATE.normal;
+  const stepSec = 15 / bpm;
+  // 한 줄 = 16분 u 칸: 한 줄이 0.2초 이상 + 초당 줄 수 3.6 에 가깝게
+  let u = 4;
+  let bestE = 1e9;
+  for (const c of [1, 2, 4]) {
+    const rps = 1 / (c * stepSec);
+    const e = Math.abs(Math.log(rps / 3.6));
+    if (rps <= 5 && e < bestE) (bestE = e), (u = c);
+  }
+  let minSteps = Math.max(u, Math.ceil(0.2 / stepSec - 1e-9));
+  if (diff === 'easy') minSteps = Math.max(minSteps, Math.ceil(0.36 / stepSec - 1e-9));
+  const grid = diff === 'easy' ? Math.max(u, 4) : u;
+  const total = bars * 16;
+  const { low, high, all, loud, hopSec, n } = bandFlux(samples, sr, firstBeat - 0.05, total * stepSec + 0.3);
+  const at = (arr, t) => {
+    const c = Math.round((t + 0.05) / hopSec);
+    let m = 0;
+    for (let i = c - 2; i <= c + 2; i++) if (i >= 0 && i < n && arr[i] > m) m = arr[i];
+    return m;
+  };
+  const loudAt = (t) => {
+    const c = Math.round((t + 0.05) / hopSec);
+    let s = 0;
+    let k = 0;
+    for (let i = c; i < c + 5 && i < n; i++) (s += loud[i] || 0), k++;
+    return k ? s / k : 0;
+  };
+  const L = new Float32Array(total);
+  const Hh = new Float32Array(total);
+  const A = new Float32Array(total);
+  const V = new Float32Array(total);
+  let covered = 0;
+  for (let k = 0; k < total; k++) {
+    const t = k * stepSec;
+    if ((t + 0.05) / hopSec < n - 3) covered = Math.floor(k / 16) + 1;
+    L[k] = at(low, t);
+    Hh[k] = at(high, t);
+    A[k] = at(all, t);
+    V[k] = loudAt(t);
+  }
+  const lim = covered * 16;
+  const pct = (arr, p) => {
+    const v = Array.from(arr.slice(0, lim)).filter((x) => x > 0).sort((a, b) => a - b);
+    return v.length ? v[Math.min(v.length - 1, Math.floor(v.length * p))] : 1;
+  };
+  const nL = pct(L, 0.9) || 1;
+  const nH = pct(Hh, 0.9) || 1;
+  const nA = pct(A, 0.9) || 1;
+  const strength = new Float32Array(total);
+  for (let k = 0; k < lim; k++) strength[k] = Math.max(Math.min(1.5, L[k] / nL), Math.min(1.5, Hh[k] / nH), Math.min(1.5, A[k] / nA));
+  const barLoud = [];
+  for (let b = 0; b < covered; b++) {
+    let s = 0;
+    for (let e = 0; e < 16; e++) s += V[b * 16 + e];
+    barLoud.push(s / 16);
+  }
+  const midLoud = barLoud.slice().sort((a, b) => a - b)[Math.floor(barLoud.length / 2)] || 0;
+  const energy = barEnergy(samples, sr, { firstBeat, bpm, bars: covered });
+  const barSec = stepSec * 16;
+  const placed = new Uint8Array(total);
+  const free = (k) => {
+    for (let j = Math.max(0, k - minSteps + 1); j < Math.min(total, k + minSteps); j++) if (placed[j]) return false;
+    return true;
+  };
+  for (let b = 0; b < covered; b++) {
+    if (barLoud[b] < midLoud * 0.12 || barLoud[b] < 1e-4) continue; // 거의 조용한 마디(앞 무음·끝)는 쉼
+    const e = energy[b] ?? 0.5;
+    const quota = Math.max(1, Math.round(rate * barSec * (e >= 0.62 ? 1.25 : e <= 0.3 ? 0.7 : 1)));
+    const cands = [];
+    for (let s = 0; s < 16; s += grid) {
+      const k = b * 16 + s;
+      const pos = s % 4 === 0 ? 0.25 : s % 2 === 0 ? 0.05 : -0.1;
+      if (strength[k] > 0.15) cands.push({ k, score: strength[k] + pos + (s === 0 ? 0.15 : 0) });
+    }
+    cands.sort((x, y) => y.score - x.score);
+    let got = 0;
+    for (const c of cands) {
+      if (got >= quota) break;
+      if (!free(c.k)) continue;
+      placed[c.k] = 1;
+      got++;
+    }
+    if (!got && free(b * 16)) placed[b * 16] = 1;
+  }
+  const ks = [];
+  for (let k = 0; k < total; k++) if (placed[k]) ks.push(k);
+  const tiles = ks.map((k, i) => {
+    const nx = i + 1 < ks.length ? ks[i + 1] : Math.min(total, k + 16);
+    const gap = nx - k;
+    // 긴 타일: 다음 타일까지 3줄 넘게 비고, 그 사이 소리가 처음 세기의 75% 넘게 이어지고, 새로 튀는 소리가 없을 때
+    let len = u;
+    if (gap >= 3 * u && V[k] > 0) {
+      let s = 0;
+      let c = 0;
+      let jump = 0;
+      for (let j = k + u; j < nx - u && j < lim; j++) (s += V[j]), c++, (jump = Math.max(jump, strength[j]));
+      if (c && s / c >= V[k] * 0.75 && jump < 0.45) len = gap;
+    }
+    const lo = Math.min(1.5, L[k] / nL);
+    const hi = Math.min(1.5, Hh[k] / nH);
+    const midi = 64 + Math.max(-10, Math.min(10, Math.round(6 * Math.log2((hi + 0.05) / (lo + 0.05)))));
+    return { at: k, len, midi };
+  });
+  return { u, tiles, covered: Math.min(covered, bars) };
+}
+
+return { detectBeat, monoOf, barEnergy, songChart, songTiles };
 })();
 
 // ---- songmap.js ----
@@ -20392,10 +20573,11 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-28f',
+    id: '2026-11-28g',
     date: '11월 28일',
     title: '🌸 신곡 「사계 – 봄」 · 🎻 더 웅장한 오케스트라 · 👥 친구 · 💬 채팅',
     items: [
+      '<b>🎵 최신곡으로 치기</b>를 <b>🎹 피아노 타일</b>로도! 노래 파일(화면 녹화·mp3)을 넣으면 <b>노래 박자에 맞춰 타일</b>이 내려와요',
       '<b>🎻 반주가 진짜 오케스트라처럼!</b> 곡마다 <b>여리게 시작해서 끝으로 갈수록 몰아쳐요</b> — 현악·호른·금관·팀파니·심벌이 하나씩 더해져요 (🏔 산왕의 궁전은 살금살금 → 마지막 투티!)',
       '<b>👥 친구</b>가 생겼어요 — 랭킹·유저 맵·채팅에서 <b>프로필을 누르거나</b> 내 프로필 「친구」 탭에서 <b>닉네임으로 찾아</b> 친구 요청! 상대가 수락하면 친구끼리 순위를 봐요',
       '<b>💬 채팅</b>은 매일 <b>저녁 6시~8시</b>에 열려요 (로그인한 사람만 · 욕설·연락처는 안 돼요)',
@@ -21718,11 +21900,11 @@ const { groupStarting, THEMES, SHOP_KITS } = __m_themes;
 const { newsFor } = __m_news;
 const { RoomClient, roomOutcome, survivalOutcome } = __m_room;
 const { makeReelCover, makeTileCover } = __m_cover;
-const { barEnergy, detectBeat, monoOf, songChart } = __m_beatsync;
+const { barEnergy, detectBeat, monoOf, songChart, songTiles } = __m_beatsync;
 const { seasonLeftText, BOARD_LABEL, seasonAt } = __m_season;
 const { AVATARS, avatarHtml, cleanAvatar, cleanIntro, INTRO_MAX, PROF_BGS, profBg, profBgStyle } = __m_avatars;
 const { chatWindow, CHAT_MAX } = __m_chat;
-const { TILE_SONGS, TILE_DIFF, TILE_RPS, DIFF_SPEEDS, buildLap, tileSong, tileId, tileClosed, lapStars, tileLap, mapTileLap, MAP_TILE_LAPS, hasPplus, tileLevel } = __m_tiles;
+const { TILE_SONGS, TILE_DIFF, TILE_RPS, DIFF_SPEEDS, buildLap, tileSong, tileId, tileClosed, lapStars, tileLap, mapTileLap, MAP_TILE_LAPS, hasPplus, tileLevel, songTileLap } = __m_tiles;
 const { TileGame } = __m_tilegame;
 const { noteTilePlay, noteDrum, questView, claimQuest, claimCommunity, communityClaimed, attView, noteAttendance } = __m_s2claims;
 const { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder, resetOldLevel18, photoSave, photoLoad, photoDelete } = __m_storage;
@@ -24638,7 +24820,10 @@ function finishCalibration() {
 //   노래를 틀면서 직접 침 (자동 연주 없음). 파일은 이 폰 메모리에만 (서버로 안 감, API 요청도 없음)
 //   기록·랭킹·통계엔 안 들어감. 🎬 녹화 버튼을 켜면 치는 화면 + 소리를 영상으로 저장
 const MY_ID = 'my';
-const my = { url: null, name: '', buf: null, mono: null, bpm: null, beat0: null, sound0: 0, diff: load('myDiff', 'easy'), from: 'start', rec: false, level: null, blob: null, blobUrl: null };
+const my = { url: null, name: '', buf: null, mono: null, bpm: null, beat0: null, sound0: 0, diff: load('myDiff', 'easy'), from: 'start', rec: false, level: null, blob: null, blobUrl: null,
+  // 🎹 타일로도 (2026-11-28 사용자) · stEl = 상태 글자 자리 (최신곡 화면 / 영상 찍기 타일 칸 — 노래 파일은 같이 씀)
+  game: load('myGame', 'drum') === 'tile' ? 'tile' : 'drum', tmode: load('myTmode', 'free') === 'one' ? 'one' : 'free', sdiff: load('mySdiff', 'normal'), stEl: '#my-status' };
+const myStat = () => $(my.stEl);
 const myBusy = () => my.loading;
 function openMysong() {
   if (followGated()) {
@@ -24648,6 +24833,15 @@ function openMysong() {
   if (state.game) state.game.stop();
   $$('#my-diff button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.diff === my.diff));
   $$('#my-from button').forEach((b) => b.setAttribute('aria-pressed', b.dataset.from === my.from));
+  $$('#my-game button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.mygame === my.game)));
+  $$('#my-tmode button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tmode === my.tmode)));
+  $('#my-tmode-wrap').hidden = my.game !== 'tile';
+  // 영상 찍기에서 넣은 노래도 그대로 씀
+  if (my.buf && my.bpm && $('#my-opts').hidden) {
+    $('#my-status').innerHTML = `<b>${escapeHtml(my.name)}</b> · <b>${my.bpm} BPM</b>`;
+    $('#my-bpm').textContent = `${my.bpm} BPM`;
+    $('#my-opts').hidden = false;
+  }
   $('#my-start-wrap').hidden = my.from !== 'pick';
   const ok = canRecordFile();
   $('#my-rec').disabled = !ok;
@@ -24666,12 +24860,12 @@ async function myPick(file) {
   $('#my-result').hidden = true;
   my.loading = true;
   audio.unlock();
-  const buf = await openTrackFile(my.url, file, (t, mb) => ($('#my-status').textContent = `노래 여는 중… ${t}초 (파일 ${fmtMb(mb)}, 보통 몇 초면 돼요)`));
+  const buf = await openTrackFile(my.url, file, (t, mb) => (myStat().textContent = `노래 여는 중… ${t}초 (파일 ${fmtMb(mb)}, 보통 몇 초면 돼요)`));
   my.loading = false;
   if (!buf) {
     // 아이폰은 화면 녹화(.mov) 같은 영상을 바로 못 풀어서 → 소리 없이 한 번 재생하며 읽음.
     //   아이폰은 버튼을 눌러야 영상 재생을 허락해서, 버튼을 누르게 함
-    $('#my-status').innerHTML =
+    myStat().innerHTML =
       '이 영상은 한 번 재생하면서 소리를 읽어야 해요 (<b>영상 길이만큼</b> 걸려요, 소리는 안 나요).' +
       '<button class="btn btn-hot my-cap" type="button" data-action="mysong-capture">영상 소리 읽기</button>';
     return;
@@ -24683,8 +24877,8 @@ async function myCapture() {
   if (!my.url || my.loading) return;
   my.loading = true;
   audio.unlock();
-  $('#my-status').textContent = '영상 소리 읽는 중… 화면을 끄지 마세요';
-  const buf = await captureMediaAudio(my.url, (t, d) => ($('#my-status').textContent = capText(t, d)), 360);
+  myStat().textContent = '영상 소리 읽는 중… 화면을 끄지 마세요';
+  const buf = await captureMediaAudio(my.url, (t, d) => (myStat().textContent = capText(t, d)), 360);
   my.loading = false;
   if (buf) {
     audio._trackBufs ??= new Map();
@@ -24694,7 +24888,7 @@ async function myCapture() {
 }
 function myLoaded(buf) {
   if (!buf || buf.duration < 12) {
-    $('#my-status').textContent = buf ? '노래가 너무 짧아요 (12초 넘는 걸로 넣어 주세요)' : '소리를 못 읽었어요. 소리가 들어 있는 mp3·m4a·mp4 로 해 보세요';
+    myStat().textContent = buf ? '노래가 너무 짧아요 (12초 넘는 걸로 넣어 주세요)' : '소리를 못 읽었어요. 소리가 들어 있는 mp3·m4a·mp4 로 해 보세요';
     return;
   }
   my.buf = buf;
@@ -24709,13 +24903,19 @@ function myDetect(hintBpm = null) {
   const winStart = Math.max(my.sound0 + 3, Math.min(buf.duration * 0.3, buf.duration - 26));
   const r = detectBeat(my.mono, sr, { start: Math.max(0, winStart), hintBpm });
   if (!r) {
-    $('#my-status').textContent = '박자를 못 찾았어요. 드럼 소리가 뚜렷한 노래로 해 보세요';
+    myStat().textContent = '박자를 못 찾았어요. 드럼 소리가 뚜렷한 노래로 해 보세요';
     return;
   }
   my.bpm = Math.round(r.bpm * 10) / 10;
   my.beat0 = r.firstBeat; // 노래 가운데쯤의 '쿵' 박
   const m = Math.floor(buf.duration / 60);
-  $('#my-status').innerHTML = `<b>${escapeHtml(my.name)}</b> · ${m}:${String(Math.floor(buf.duration % 60)).padStart(2, '0')} · <b>${my.bpm} BPM</b>${r.confidence < 0.3 ? ' · 박이 흐릿해서 조금 어긋날 수 있어요' : ''}${buf.partial ? `<br>⚠️ 영상 앞 ${Math.round(buf.duration)}초만 읽혔어요 (읽는 동안 화면을 켜 두세요)` : ''}`;
+  myStat().innerHTML = `<b>${escapeHtml(my.name)}</b> · ${m}:${String(Math.floor(buf.duration % 60)).padStart(2, '0')} · <b>${my.bpm} BPM</b>${r.confidence < 0.3 ? ' · 박이 흐릿해서 조금 어긋날 수 있어요' : ''}${buf.partial ? `<br>⚠️ 영상 앞 ${Math.round(buf.duration)}초만 읽혔어요 (읽는 동안 화면을 켜 두세요)` : ''}`;
+  if (my.stEl === '#studio-tstatus') {
+    // 🎬 영상 찍기 타일 칸에서 넣은 노래 → 곡 칩 맨 앞 「🎵 내 노래」 고름
+    state.studio.tileSong = 'my';
+    renderStudioLevels();
+    return;
+  }
   $('#my-bpm').textContent = `${my.bpm} BPM`;
   $('#my-opts').hidden = false;
 }
@@ -24761,6 +24961,7 @@ function myBuild() {
 }
 async function myStart() {
   if (!my.buf || !my.bpm) return toast('노래 파일을 먼저 골라 주세요');
+  if (my.game === 'tile') return myTileStart();
   const lv = myBuild();
   if (!lv) return toast('채보를 못 만들었어요. 시작 위치나 길이를 바꿔 보세요');
   my.level = lv;
@@ -24775,9 +24976,14 @@ async function myFinish(res) {
   my.blob = blob && blob.size ? blob : null;
   my.blobUrl = my.blob ? URL.createObjectURL(my.blob) : null;
   const acc = Math.round((res.accuracy || 0) * 100);
-  $('#my-res-text').innerHTML =
+  myShowResult(
     `<b class="my-grade">${res.grade}</b> ${fmt(res.score)}점 · 정확도 ${acc}% · 최대 콤보 ${res.maxCombo}` +
-    `<br><small>PERFECT ${res.counts.perfect} · GREAT ${res.counts.great} · GOOD ${res.counts.good} · MISS ${res.counts.miss}</small>`;
+      `<br><small>PERFECT ${res.counts.perfect} · GREAT ${res.counts.great} · GOOD ${res.counts.good} · MISS ${res.counts.miss}</small>`
+  );
+}
+/** 결과 칸 (드럼·타일 같이): 글 + 녹화한 영상 */
+function myShowResult(html) {
+  $('#my-res-text').innerHTML = html;
   const v = $('#my-video');
   v.hidden = !my.blobUrl;
   $('#my-save').hidden = !my.blobUrl;
@@ -24792,6 +24998,78 @@ async function myFinish(res) {
   $('#my-result').hidden = false;
   openMysong();
   requestAnimationFrame(() => $('#my-result').scrollIntoView({ block: 'start' }));
+}
+/**
+ * 🎹 노래 파일 → 타일 한 바퀴 (최신곡으로 치기·영상 찍기 같이): diff 쉬움·보통·어려움, start = 노래 초(null 이면 첫 소리), len = 초(0 = 끝까지)
+ *   → { lap, offset(바퀴 첫 칸의 노래 시각) } 또는 null
+ */
+function mySongTile({ diff = 'normal', start = null, len = 0 } = {}) {
+  const buf = my.buf;
+  if (!buf || !my.bpm) return null;
+  const beat = 60 / my.bpm;
+  const bar = beat * 4;
+  const from = Math.max(0, Math.min(buf.duration - 12, start ?? my.sound0));
+  const k = Math.ceil((from - my.beat0) / (beat * 2) - 1e-6);
+  const first = my.beat0 + k * beat * 2;
+  const end = len ? Math.min(buf.duration, first + len) : buf.duration;
+  const bars = Math.min(200, Math.floor((end - first) / bar));
+  if (bars < 2) return null;
+  const st = songTiles(my.mono, buf.sampleRate, { firstBeat: first, bpm: my.bpm, bars, diff });
+  const lap = songTileLap({ bpm: my.bpm, bars, u: st.u, tiles: st.tiles });
+  return lap ? { lap, offset: first } : null;
+}
+/** 🎹 최신곡으로 치기 — 타일: 노래 파일이 흐르고 박자 자리에 타일. 기록·랭킹·코인 없음 */
+async function myTileStart() {
+  const pick = my.from === 'pick' ? parseTime($('#my-start').value) : null;
+  const t = mySongTile({ diff: my.diff, start: pick, len: Number($('#my-len').value) || 0 });
+  if (!t) return toast('타일을 못 만들었어요. 시작 위치나 길이를 바꿔 보세요');
+  my.rec = $('#my-rec').checked && !$('#my-rec').disabled;
+  $('#my-result').hidden = true;
+  const gen = (tp.gen = (tp.gen || 0) + 1);
+  stopTilePreview();
+  stopTile();
+  tp.map = null;
+  tp.room = null;
+  tp.my = true;
+  $('#screen-tplay').classList.remove('reel');
+  show('screen-tplay');
+  tpLayers(null);
+  tpStage();
+  audio.ensure();
+  await audio.unlock();
+  if (gen !== tp.gen) return;
+  const g = new TileGame({
+    audio,
+    canvas: $('#tp-canvas'),
+    lap: t.lap,
+    songAudio: { buf: my.buf, offset: t.offset },
+    skin: tileSkin(),
+    hue: 200,
+    maxLaps: 1,
+    invincible: my.tmode !== 'one',
+    onEnd: (r) => myTileFinish(r),
+  });
+  if (isLocalDev()) window.__tg = g;
+  tp.game = g;
+  g.start();
+  if (my.rec) startRecorder($('#tp-canvas'));
+}
+async function myTileFinish(r) {
+  tp.game = null;
+  tp.my = false;
+  // 끝 장면을 잠깐 더 담음
+  if (state.studio.recorder) await new Promise((res) => setTimeout(res, 900));
+  const blob = await stopRecorder();
+  stopTile();
+  if (my.blobUrl) URL.revokeObjectURL(my.blobUrl);
+  my.blob = blob && blob.size ? blob : null;
+  my.blobUrl = my.blob ? URL.createObjectURL(my.blob) : null;
+  const pct = Math.round((Math.min(r.hits, r.per) / Math.max(1, r.per)) * 100);
+  const head = r.died ? `${pct}%에서 탈락` : r.complete ? (r.missed || r.wrong ? '완주!' : '★★★ 올 클리어!') : '';
+  myShowResult(
+    `<b class="my-grade">${head}</b> ${fmt(r.tiles)}점 · 맞힘 ${pct}% · 최대 콤보 ${r.maxCombo}` +
+      `<br><small>🎹 타일 ${r.hits}/${r.per} · PERFECT ${r.perfect} · 놓침 ${r.missed} · 헛침 ${r.wrong}</small>`
+  );
 }
 async function mySave() {
   if (!my.blob) return;
@@ -26310,10 +26588,16 @@ function renderStudioLevels() {
   $('#screen-studio .studio').classList.toggle('tile-on', tile);
   $('#tile-laps-wrap').hidden = !tile;
   $('#tile-end-wrap').hidden = !tile;
+  $('#tile-song-wrap').hidden = !tile;
   if (tile) {
-    if (!TILE_SONGS.some((t) => t.id === st.tileSong)) st.tileSong = TILE_SONGS[0].id;
+    const mine = !!(my.buf && my.bpm);
+    if (!(st.tileSong === 'my' && mine) && !TILE_SONGS.some((t) => t.id === st.tileSong)) st.tileSong = TILE_SONGS[0].id;
+    const useMine = st.tileSong === 'my';
+    $('#tile-laps-wrap').hidden = useMine;
+    $('#stile-opts').hidden = !useMine;
+    $$('#stile-diff button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.sdiff === my.sdiff)));
     $('#tile-laps').value = String([1, 2, 4].includes(st.tileLaps) ? st.tileLaps : 1);
-    $('#studio-levels').innerHTML = TILE_SONGS.map((t, i) => {
+    $('#studio-levels').innerHTML = (mine ? `<button class="chip-hot" data-studio-tile="my" aria-pressed="${useMine}">🎵 ${escapeHtml(my.name || '내 노래')} · ${my.bpm} BPM</button>` : '') + TILE_SONGS.map((t, i) => {
       const lv = tileLevel(t.id);
       return lv ? `<button data-studio-tile="${t.id}" aria-pressed="${t.id === st.tileSong}">${i + 1}. ${escapeHtml(lv.name)} · ${TILE_DIFF[t.diff]}</button>` : '';
     }).join('');
@@ -27112,8 +27396,14 @@ async function studioFinish(res) {
 /** 🎹 타일로 영상 찍기: 9:16 타일 화면에 위·아래 문구, 자동 연주(늘 PERFECT·안 죽음) / 내가 직접. 코인·기록·랭킹 없음 */
 async function studioTileStart() {
   const st = state.studio;
-  const song = tileSong(tileId(st.tileSong)) || tileSong(tileId(TILE_SONGS[0].id));
-  if (!song) return;
+  // 🎵 내 노래 파일로: 박자 자리에 타일 + 노래가 영상에 같이 (2026-11-28 사용자)
+  let mine = null;
+  if (st.tileSong === 'my') {
+    mine = mySongTile({ diff: my.sdiff, start: parseTime($('#stile-start').value), len: Number($('#stile-len').value) || 0 });
+    if (!mine) return toast('타일을 못 만들었어요. 시작 위치나 길이를 바꿔 보세요');
+  }
+  const song = mine ? null : tileSong(tileId(st.tileSong)) || tileSong(tileId(TILE_SONGS[0].id));
+  if (!song && !mine) return;
   closeModal('modal-studio-done');
   await audio.unlock();
   st.active = true;
@@ -27121,6 +27411,7 @@ async function studioTileStart() {
   stopTile();
   tp.map = null;
   tp.room = null;
+  tp.my = false;
   tp.gen = (tp.gen || 0) + 1;
   const scr = $('#screen-tplay');
   scr.classList.add('reel');
@@ -27130,21 +27421,24 @@ async function studioTileStart() {
   audio.ensure();
   await Promise.race([audio.loadPiano(), new Promise((r) => setTimeout(r, 3000))]);
   if (audio.orchOn) audio.loadOrch().catch(() => {});
-  const label = `🎹 ${song.level.composer} ${song.level.name}`;
+  const label = mine ? `🎵 ${my.name || '내 노래'}` : `🎹 ${song.level.composer} ${song.level.name}`;
   await fontsReady(`${st.top}${st.bottom}${label}${st.endText || ''}${st.endSub || ''}별개클리어다이아달성완주에서탈락%…0123456789`);
   if (!st.active) return;
   const skin = st.skin !== false ? tileSkin() : { key: 'basic', palette: null, fx: null };
   const g = new TileGame({
     audio,
     canvas: $('#tp-canvas'),
-    songId: song.id,
+    songId: mine ? 0 : song.id,
+    lap: mine ? mine.lap : null,
+    songAudio: mine ? { buf: my.buf, offset: mine.offset } : null,
     skin,
-    hue: TILE_HUES[(song.order - 1) % TILE_HUES.length],
+    hue: mine ? 200 : TILE_HUES[(song.order - 1) % TILE_HUES.length],
     auto: st.mode === 'auto',
     reel: { top: st.top, bottom: st.bottom, label, end: st.endText || st.endSub ? { big: st.endText, sub: st.endSub } : null },
-    maxLaps: [1, 2, 4].includes(st.tileLaps) ? st.tileLaps : 1,
+    maxLaps: mine ? 1 : [1, 2, 4].includes(st.tileLaps) ? st.tileLaps : 1,
     onEnd: (r) => studioTileFinish(r),
   });
+  if (isLocalDev()) window.__tg = g;
   tp.game = g;
   g.resize(); // 「시작」 화면을 먼저 그려 둠
   const box = $('#tp-count');
@@ -28628,6 +28922,7 @@ async function tilePlay(songId = tp.song, { room = null, map = null } = {}) {
   if (!map) tp.song = songId;
   tp.map = map;
   tp.room = room;
+  tp.my = false;
   tp.vsDone = false;
   // 판은 하나만 (두 번 누르면 판이 둘 생겨 노래가 겹쳐 들리던 것, 2026-11-27)
   const gen = (tp.gen = (tp.gen || 0) + 1);
@@ -28742,6 +29037,12 @@ function tilePause() {
 }
 /** 타일 판에서 나가기: 유저 맵이면 맵 목록(만들던 중이면 만들기), 아니면 곡 목록 */
 function tileBack() {
+  if (tp.my) {
+    // 🎵 최신곡 타일에서 나감 (녹화 중이면 버림)
+    tp.my = false;
+    stopRecorder();
+    return openMysong();
+  }
   const map = tp.map;
   tp.map = null;
   if (map && map.from === 'make') return openMapMake();
@@ -30076,7 +30377,7 @@ const ACTIONS = {
     tpLayers(null);
     if (tp.game) tp.game.resume();
   },
-  'tp-again': () => (tp.map ? tilePlay(0, { map: tp.map }) : tilePlay(tp.song)),
+  'tp-again': () => (tp.my ? myTileStart() : tp.map ? tilePlay(0, { map: tp.map }) : tilePlay(tp.song)),
   'tp-exit': () => {
     if (tp.room && state.roomClient.active) {
       state.roomClient.send({ final: { score: tp.game ? tp.game.score : 0, stars: 0, grade: '', failed: true, died: true, maxCombo: 0, accuracy: 0 } }, true);
@@ -30546,9 +30847,9 @@ function bindActions() {
     const stt = e.target.closest('[data-studio-tile]');
     if (stt) {
       const prevSub = curCoverSub();
-      state.studio.tileSong = Number(stt.dataset.studioTile);
+      state.studio.tileSong = stt.dataset.studioTile === 'my' ? 'my' : Number(stt.dataset.studioTile);
       refreshCoverSub(prevSub);
-      $$('#studio-levels button').forEach((b) => b.setAttribute('aria-pressed', String(b === stt)));
+      renderStudioLevels();
       return;
     }
     const sg = e.target.closest('#studio-game [data-sgame]');
@@ -30632,7 +30933,11 @@ function bindActions() {
     pickBeat();
   });
   $('#sync-file').addEventListener('change', (e) => e.target.files[0] && syncPick(e.target.files[0]));
-  $('#my-file').addEventListener('change', (e) => e.target.files[0] && myPick(e.target.files[0]));
+  $('#my-file').addEventListener('change', (e) => {
+    if (!e.target.files[0]) return;
+    my.stEl = '#my-status';
+    myPick(e.target.files[0]);
+  });
   // 🎹 유저 맵
   $('#maps-sort').addEventListener('click', (e) => {
     const b = e.target.closest('button[data-sort]');
@@ -30818,6 +31123,32 @@ function bindActions() {
     $('#my-start-wrap').hidden = my.from !== 'pick';
   });
   $('#my-rec').addEventListener('change', (e) => (my.rec = e.target.checked));
+  $('#my-game').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-mygame]');
+    if (!b) return;
+    my.game = b.dataset.mygame === 'tile' ? 'tile' : 'drum';
+    save('myGame', my.game);
+    openMysong();
+  });
+  $('#my-tmode').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-tmode]');
+    if (!b) return;
+    my.tmode = b.dataset.tmode === 'one' ? 'one' : 'free';
+    save('myTmode', my.tmode);
+    $$('#my-tmode button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  });
+  $('#stile-diff').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-sdiff]');
+    if (!b) return;
+    my.sdiff = b.dataset.sdiff;
+    save('mySdiff', my.sdiff);
+    $$('#stile-diff button').forEach((x) => x.setAttribute('aria-pressed', String(x === b)));
+  });
+  $('#studio-tfile').addEventListener('change', (e) => {
+    if (!e.target.files[0]) return;
+    my.stEl = '#studio-tstatus';
+    myPick(e.target.files[0]);
+  });
   $('#quiz-bars').addEventListener('change', (e) => (state.studio.quizBars = Number(e.target.value)));
   $('#fail-secs').addEventListener('change', (e) => (state.studio.failSec = Number(e.target.value)));
   $('#calib-pad').addEventListener('pointerdown', (e) => {

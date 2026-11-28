@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=d757c77811" />
+  <link rel="stylesheet" href="css/style.css?v=ca7f1a3a72" />
 </head>
 <body>
   <div id="app">
@@ -384,7 +384,14 @@
             <button class="btn btn-ghost" data-action="mysong-start"><span data-icon="retry"></span> 다시 치기</button>
           </div>
         </div>
-        <p class="studio-lead">아무 노래나 치는 법: 노래가 나오는 화면을 <b>화면 녹화</b> → 여기 넣기. 박자에 맞춰 드럼 채보가 생겨요. mp3도 돼요 (파일은 폰 밖으로 안 나가요)</p>
+        <p class="studio-lead">아무 노래나 치는 법: 노래가 나오는 화면을 <b>화면 녹화</b> → 여기 넣기. 박자에 맞춰 드럼·타일 채보가 생겨요. mp3도 돼요 (파일은 폰 밖으로 안 나가요)</p>
+        <div class="studio-block">
+          <h4>게임</h4>
+          <div class="seg" id="my-game">
+            <button type="button" data-mygame="drum"><b>🥁 드럼</b><small>엄지로 쿵·짝</small></button>
+            <button type="button" data-mygame="tile"><b>🎹 피아노 타일</b><small>노래 박자에 타일</small></button>
+          </div>
+        </div>
         <div class="studio-block">
           <label class="btn btn-primary btn-big my-file"><input type="file" accept="audio/*,video/*" id="my-file" hidden /><span data-icon="note" data-e></span> 노래 파일 고르기</label>
           <p class="hint" id="my-status"></p>
@@ -414,6 +421,13 @@
             </div>
             <label class="field my-start" id="my-start-wrap" hidden><span>시작 <small class="muted">예) 1:02 또는 62</small></span><input type="text" id="my-start" inputmode="decimal" placeholder="0:30" /></label>
             <label class="field my-len"><span>길이</span><select id="my-len"><option value="0">끝까지</option><option value="30">30초</option><option value="60">1분</option></select></label>
+          </div>
+          <div class="studio-block" id="my-tmode-wrap" hidden>
+            <h4>틀리면</h4>
+            <div class="seg" id="my-tmode">
+              <button type="button" data-tmode="free"><b>🛡 끝까지</b><small>틀려도 계속</small></button>
+              <button type="button" data-tmode="one"><b>❤ 한 번에 끝</b><small>진짜 피아노 타일처럼</small></button>
+            </div>
           </div>
           <div class="studio-block">
             <label class="field check"><input type="checkbox" id="my-rec" /><span>🎬 치는 화면 녹화하기</span></label>
@@ -683,6 +697,24 @@
         </div>
         <div class="studio-block">
           <h4>단계</h4>
+          <div class="tsong-block" id="tile-song-wrap" hidden>
+            <p class="hint">🎵 <b>내 노래 파일로</b>: 노래(mp3·화면 녹화)를 넣으면 박자에 맞춰 타일이 생기고 노래가 영상에 같이 들어가요 (파일은 폰 밖으로 안 나가요)</p>
+            <label class="btn btn-ghost my-file"><input type="file" accept="audio/*,video/*" id="studio-tfile" hidden /><span data-icon="note" data-e></span> 노래 파일 고르기</label>
+            <p class="hint" id="studio-tstatus"></p>
+            <div id="stile-opts" hidden>
+              <div class="seg seg3" id="stile-diff">
+                <button type="button" data-sdiff="easy"><b>쉬움</b><small>듬성듬성</small></button>
+                <button type="button" data-sdiff="normal"><b>보통</b><small>박자대로</small></button>
+                <button type="button" data-sdiff="hard"><b>어려움</b><small>빽빽하게</small></button>
+              </div>
+              <div class="beat-row">
+                <button class="beat-mini" type="button" data-action="mysong-mul" data-mul="0.5">÷2 (느리게)</button>
+                <button class="beat-mini" type="button" data-action="mysong-mul" data-mul="2">×2 (빠르게)</button>
+              </div>
+              <label class="field my-start"><span>시작 <small class="muted">비우면 처음부터 · 예) 1:02</small></span><input type="text" id="stile-start" inputmode="decimal" placeholder="0:30" /></label>
+              <label class="field my-len"><span>길이</span><select id="stile-len"><option value="30">30초</option><option value="45">45초</option><option value="60">1분</option><option value="0">끝까지</option></select></label>
+            </div>
+          </div>
           <div class="chips" id="studio-levels"></div>
           <label class="field quiz-len" id="tile-laps-wrap" hidden><span>길이</span><select id="tile-laps"><option value="1">1바퀴 · 별 3개까지</option><option value="2">2바퀴 · 다이아 1개까지</option><option value="4">끝까지 · 다이아 3개 (점점 빨라짐)</option></select></label>
         </div>
@@ -1567,6 +1599,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=bfa40e2220" defer></script>
+  <script src="js/app.js?v=c900ce09fd" defer></script>
 </body>
 </html>
