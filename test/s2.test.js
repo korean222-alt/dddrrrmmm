@@ -42,9 +42,15 @@ test('타일 채보: 줄 단위 · 같은 줄 연속·겹침 없음 · 바퀴마
     // 바퀴마다 같은 타일 · 같은 줄 (2026-11-27 '띄엄띄엄 이상해')
     const lapsOf = [0, 1, 2, 3].map((k) => song.filter((t) => t.k === k));
     for (const L of lapsOf.slice(1)) assert.deepEqual(L.map((t) => t.lane + ':' + t.rows), lapsOf[0].map((t) => t.lane + ':' + t.rows), `${s.id} 바퀴마다 같음`);
-    // 코인 파티 없앰 (2026-11-27): 첫 바퀴 뒤 쉬는 마디만, 코인 타일 없음
-    assert.equal(coins.length, 0, `${s.id} 코인 없음`);
-    assert.ok(c.segs.some((g) => g.kind === 'party' && g.bars === 2), `${s.id} 쉬는 마디`);
+    // 🪙 곡 판은 코인 파티 (2026-11-28 사용자 '코인 파티 없애는 건 유저 맵만'): 첫 바퀴 뒤 6마디, 코인은 가운데 4마디에만
+    assert.ok(coins.length > 0, `${s.id} 코인 파티`);
+    const pg = c.segs.find((g) => g.kind === 'party');
+    assert.equal(pg.bars, 6, `${s.id} 파티 마디`);
+    for (const t of coins) assert.ok(t.abs >= (pg.bar0 + 1) * 16 && t.abs < (pg.bar0 + 5) * 16, `${s.id} 코인은 앞뒤 1마디 비우고`);
+    // 유저 맵(coins:false)은 코인 없이 2마디 쉼
+    const rest = buildCourse(lap, { laps: 2, coins: false });
+    assert.equal(rest.tiles.filter((t) => t.coin).length, 0);
+    assert.ok(rest.segs.some((g) => g.kind === 'party' && g.bars === 2), `${s.id} 유저 맵 쉬는 마디`);
     // 바퀴마다 빨라짐 (바퀴 안에선 고정)
     const dur = lapsOf.map((L) => L.at(-1).t - L[0].t);
     for (let k = 1; k < 4; k++) assert.ok(dur[k] < dur[k - 1], `${s.id} 빨라짐`);

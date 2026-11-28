@@ -10602,8 +10602,11 @@ const MIN_TAP_SEC = 0.2;
 const MIN_GAP = MIN_TAP_SEC;
 /** 🪙 코인 파티: 첫 바퀴(별 3개)를 끝내고 빨라지기 전에 한 번 (마디 수, 사용자 11-26)
  *   앞뒤로 PARTY_GAP 마디씩 비워 둠 (2026-11-27 사용자 '보너스 코인 시작할 때 처음이랑 끝 텀 좀 둬줘') → 코인은 가운데 4마디 */
-const PARTY_BARS = 2; // 2026-11-27 사용자 '보너스 코인 타임 없애고 몇 초 뒤 다이아' → 코인 없이 2마디 쉼
+const PARTY_BARS = 6;
 const PARTY_GAP = 1;
+/** 🎹 유저 맵 타일은 코인 파티 없이 이만큼(마디)만 쉬고 다이아 바퀴 (2026-11-27 사용자 '보너스 코인 타임 없애고 몇 초 뒤 다이아'
+ *   — 2026-11-28 사용자 '그건 유저 맵에서만 그렇게 하라 했지' → 곡 판은 코인 파티 그대로) */
+const REST_BARS = 2;
 
 // ---------------------------------------------------------------
 // 곡 전체 (드럼 단계 멜로디가 조각뿐인 곡). 퍼블릭 도메인 곡만. bars = 드럼 단계 마디 번호 또는 새 마디 문자열
@@ -10780,10 +10783,11 @@ const tilePoints = (word, combo) => (word === 'pplus' ? Math.round(PPLUS_POINTS 
  *   → { tempo, t0, B, P, laps, segs, tiles, points(만점), lapEnd, lapPts, u }
  *     tiles[i] = { abs, step, row, rows, hold, pts(만점), lane, k(바퀴, 파티는 -1), coin, t(초, 첫 타일 = 0), midi, len }
  */
-function buildCourse(lap, { laps = MAX_LAPS, party = true } = {}) {
+function buildCourse(lap, { laps = MAX_LAPS, party = true, coins = true } = {}) {
   const B = lap.bars;
   const u = lap.u;
-  const P = party && laps >= 2 ? PARTY_BARS : 0;
+  // coins = 🪙 코인 파티 (곡 판), false = 코인 없이 쉬는 마디만 (유저 맵)
+  const P = party && laps >= 2 ? (coins ? PARTY_BARS : REST_BARS) : 0;
   const segs = [{ kind: 'lap', k: 0, bar0: 0, bars: B }];
   if (P) segs.push({ kind: 'party', k: -1, bar0: B, bars: P });
   for (let k = 1; k < laps; k++) segs.push({ kind: 'lap', k, bar0: B + P + (k - 1) * B, bars: B });
@@ -10797,10 +10801,25 @@ function buildCourse(lap, { laps = MAX_LAPS, party = true } = {}) {
   const t0 = tempo.stepTime(lap.first);
   const timeOf = (abs) => tempo.stepTime(abs) - t0;
   const tiles = [];
+  let seed = 7 + lap.bars * 13 + lap.notes.length;
+  const rnd = () => ((seed = (seed * 9301 + 49297) % 233280) / 233280);
   for (const sg of segs) {
     const a0 = sg.bar0 * STEPS_PER_BAR;
     if (sg.kind === 'party') {
-      // 쉬는 마디 (코인 없음)
+      if (!coins) continue; // 유저 맵: 쉬는 마디 (코인 없음)
+      // 🪙 코인 파티: 반 줄마다 코인이 마구잡이로 (한두 개씩, 같은 줄은 안 겹치게) — 벌 없음, 앞뒤 PARTY_GAP 마디는 비움
+      const endAt = [-1e9, -1e9, -1e9, -1e9];
+      const half = Math.max(1, u / 2);
+      for (let a = a0 + PARTY_GAP * STEPS_PER_BAR; a < a0 + (P - PARTY_GAP) * STEPS_PER_BAR - 1e-9; a += half) {
+        const n = rnd() < 0.35 ? 2 : 1;
+        for (let j = 0; j < n; j++) {
+          const free = [0, 1, 2, 3].filter((x) => endAt[x] <= a + 1e-9);
+          if (!free.length) break;
+          const L = free[Math.floor(rnd() * free.length)];
+          endAt[L] = a + u;
+          tiles.push({ abs: a, k: -1, coin: true, len: u, midi: 0, rows: 1, hold: false, lane: L });
+        }
+      }
       continue;
     }
     for (const p of lap.pattern) tiles.push({ abs: a0 + p.at, k: sg.k, coin: false, len: p.len, midi: p.midi, rows: p.rows, hold: p.hold, lane: p.lane });
@@ -10932,7 +10951,7 @@ function mapTileLap(map) {
 const MAP_TILE_LAPS = 2;
 const mapTileMax = (map) => {
   const lap = mapTileLap(map);
-  return lap ? buildCourse(lap, { laps: MAP_TILE_LAPS }).points : 0;
+  return lap ? buildCourse(lap, { laps: MAP_TILE_LAPS, coins: false }).points : 0;
 };
 
 /** 바퀴 k(0부터)의 빠르기 배수: 첫 곡은 그대로, 그 뒤 바퀴마다 +0.12 */
@@ -11038,7 +11057,7 @@ const gradeLaps = (g) => {
   return m ? Number(m[1]) : 0;
 };
 
-return { TILE_ROWS, TILE_RPS, LAP_SPEEDS, DIFF_SPEEDS, HOLD_PTS, TILE_SONGS, PPLUS_SEC, PPLUS_POINTS, TILE_LEVELS, tileLevel, hasPplus, TILE_DIFF, TILE_FREE, TILE_SLOT0, TILE_SLOT_MAX, MAX_LAPS, TILE_HEARTS, GONE_ROWS, MIN_TAP_SEC, MIN_GAP, PARTY_BARS, PARTY_GAP, TILE_MEL, tileSource, rowUnit, buildLap, freeTiles, tilePoints, buildCourse, assignLanes, LAP_MIN_SEC, transposeBar, tileLap, mapTileLap, MAP_TILE_LAPS, mapTileMax, lapSpeed, lapStars, tileId, tileSong, tileSlot, isTileSlot, tileClosed, tileCourse, tileTimes, tilesWithin, checkTileRun, lapGrade, gradeLaps };
+return { TILE_ROWS, TILE_RPS, LAP_SPEEDS, DIFF_SPEEDS, HOLD_PTS, TILE_SONGS, PPLUS_SEC, PPLUS_POINTS, TILE_LEVELS, tileLevel, hasPplus, TILE_DIFF, TILE_FREE, TILE_SLOT0, TILE_SLOT_MAX, MAX_LAPS, TILE_HEARTS, GONE_ROWS, MIN_TAP_SEC, MIN_GAP, PARTY_BARS, PARTY_GAP, REST_BARS, TILE_MEL, tileSource, rowUnit, buildLap, freeTiles, tilePoints, buildCourse, assignLanes, LAP_MIN_SEC, transposeBar, tileLap, mapTileLap, MAP_TILE_LAPS, mapTileMax, lapSpeed, lapStars, tileId, tileSong, tileSlot, isTileSlot, tileClosed, tileCourse, tileTimes, tilesWithin, checkTileRun, lapGrade, gradeLaps };
 })();
 
 // ---- tilegame.js ----
@@ -11166,7 +11185,9 @@ class TileGame {
     this.lap = lap || tileLap(songId);
     // 혼자 치는 곡 = 서버 검사와 같은 코스 (코인 파티 포함). 대결은 파티 없이
     const solo = !lap && !vs && this.maxLaps === MAX_LAPS;
-    this.course = solo ? tileCourse(songId) : buildCourse(this.lap, { laps: this.maxLaps, party: !vs });
+    // 🪙 코인 파티는 곡 판만 (유저 맵 = lap 을 받은 판은 코인 없이 쉬는 마디만, 2026-11-28 사용자)
+    this.course = solo ? tileCourse(songId) : buildCourse(this.lap, { laps: this.maxLaps, party: !vs, coins: !lap });
+    this.coinParty = this.course.tiles.some((c) => c.coin);
     this.tempo = this.course.tempo;
     this.t0 = this.course.t0;
     this.u = this.lap.u;
@@ -11218,10 +11239,19 @@ class TileGame {
     const sg = this.course.segs.find((s) => s.kind === 'party');
     if (!sg) return null;
     const T = (abs) => this.tempo.stepTime(abs) - this.t0;
-    // 다이아 바퀴 앞 쉬는 마디 (2026-11-27 코인 파티 없앰, 벌 없음)
     const t0 = T(sg.bar0 * STEPS_PER_BAR);
     const t1 = T((sg.bar0 + sg.bars) * STEPS_PER_BAR);
-    return { a: this.tiles.length, b: -1, t0, t1, c0: t0, c1: t1 - 1.6 };
+    let a = -1;
+    let b = -1;
+    this.tiles.forEach((tl, i) => {
+      if (!tl.coin) return;
+      if (a < 0) a = i;
+      b = i;
+    });
+    // 유저 맵: 다이아 바퀴 앞 쉬는 마디 (코인 없음, 벌 없음)
+    if (a < 0) return { a: this.tiles.length, b: -1, t0, t1, c0: t0, c1: t1 - 1.6 };
+    // 🪙 곡 판: t0·t1 = 파티 구간(앞뒤 빈 마디 포함, 벌 없음), c0·c1 = 첫·마지막 코인 타일이 판정선에 닿는 때
+    return { a, b, t0, t1, c0: this.tiles[a].t, c1: this.tiles[b].t };
   }
 
   // ---------- 🎵 노래 (멜로디 + 반주 + 드럼 + 현악) ----------
@@ -11264,8 +11294,34 @@ class TileGame {
     let lapNo = 0;
     for (const sg of this.course.segs) {
       const a0 = sg.bar0 * STEPS_PER_BAR;
+      if (sg.kind === 'party' && this.coinParty) {
+        // 🎉 코인 파티: 곡의 코드를 그대로 돌며 쿵쿵(4박 내내)·짝·하이햇 8분 + 반짝이 + 환호
+        ev.push({ t: T(a0), sfx: 'cheer' });
+        ev.push({ t: T(a0), crash: true, v: 0.45 });
+        for (let b = 0; b < sg.bars; b++) {
+          for (let e = 0; e < 16; e++) {
+            const abs = a0 + b * STEPS_PER_BAR + e;
+            const t = T(abs);
+            const d = T(abs + 1) - t;
+            const ch = chordAtStep(b, e);
+            if (!ch) continue;
+            const tri = ch.notes.slice(0, 3);
+            if (e % 4 === 0) ev.push({ t, kick: true, v: 0.75 });
+            if (e === 4 || e === 12) ev.push({ t, snare: true, v: 0.5 });
+            if (e % 2 === 0) ev.push({ t, hat: true, v: e % 4 === 2 ? 0.45 : 0.25, open: e % 4 === 2 });
+            if (e % 4 === 0) ev.push({ t, m: ch.root - 24, d: d * 3.5, v: 0.6, bass: true });
+            if (e === 0 || e === 8) {
+              for (const m of tri) ev.push({ t, m, d: d * 6, v: 0.26 });
+              for (const m of tri) ev.push({ t, orch: 'vln', m: m + 12, d: d * 7.5, v: 0.3, at: 0.02, rel: 0.2 });
+            }
+            ev.push({ t, glock: tri[[0, 1, 2, 1][e % 4]] + 12 + (e >= 8 ? 12 : 0), v: 0.7 });
+          }
+        }
+        ev.push({ t: T(a0 + sg.bars * STEPS_PER_BAR), crash: true, v: 0.5 });
+        continue;
+      }
       if (sg.kind === 'party') {
-        // 쉬는 마디: 하이햇·쿵만 가볍게 → 다이아 바퀴로
+        // 유저 맵 쉬는 마디: 하이햇·쿵만 가볍게 → 다이아 바퀴로
         for (let b = 0; b < sg.bars; b++) {
           for (let e = 0; e < 16; e += 2) {
             const t = T(a0 + b * STEPS_PER_BAR + e);
@@ -12635,7 +12691,7 @@ class TileGame {
     const by = Math.max(30, H * 0.062);
     const x0 = W * 0.17;
     const x1 = W * 0.8;
-    const party = false;
+    const party = this.coinParty && this.state === 'playing' && this._inParty(t) && this.lapsDone === 1;
     const gems = this.lapsDone >= 1;
     let p = 0;
     if (this.state !== 'ready') {
@@ -12986,7 +13042,10 @@ class TileGame {
     const shows = this.fx.lap.map((f) => ({ ...f }));
     // 코인 파티 시작 · 끝 알림
     if (this.partyRange && this.partyAt != null) {
-      shows.push({ at: Math.max(this.partyRange.c1, this.partyAt + 0.2), speed: 1 });
+      if (this.coinParty) {
+        shows.push({ at: this.partyAt, party: 1 });
+        shows.push({ at: Math.max(this.partyRange.c1 + 0.35, this.partyAt + 1.5), speed: 1 });
+      } else shows.push({ at: Math.max(this.partyRange.c1, this.partyAt + 0.2), speed: 1 });
     }
     // 다이아 바퀴를 끝내면 1.5초 뒤 '더 빨라져요!' (마지막 바퀴 뒤엔 없음)
     for (const f of this.fx.lap) if (f.v >= 2 && f.v < this.maxLaps) shows.push({ at: f.at + 1.5, speed: 1 });
@@ -20038,13 +20097,14 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-28a',
+    id: '2026-11-28b',
     date: '11월 28일',
     title: '🌸 신곡 「사계 – 봄」 · ✨ PERFECT+',
     items: [
       '<b>🌸 신곡</b> 비발디 <b>「사계 – 봄」</b> 타일 곡이 나왔어요 (어려움)',
       '이 곡엔 <b>✨ PERFECT+</b> — 판정선 <b>한가운데</b>에 딱 맞추면 PERFECT 보다 점수가 더 높아요',
       '🏆 랭킹은 <b>같은 점수면 먼저 낸 사람이 위</b>예요',
+      '<b>🪙 코인 파티</b>가 돌아왔어요 — 곡 첫 바퀴를 깨면 코인 타일이 쏟아져요',
     ],
   },
   {
