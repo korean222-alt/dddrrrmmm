@@ -169,6 +169,13 @@ export class AudioEngine {
     src.stop(Math.min(end + release * 6, t0 + s.buf.duration / src.playbackRate.value));
   }
 
+  /** 🎻 바이올린 한 음 (오케스트라를 못 받았으면 피아노로 작게) — 유저 맵 높은 줄 */
+  stringNote(t, midi, dur, dest = this.musicBus, vel = 0.55) {
+    if (this.orch && this.orch.vln && this.orch.vln.length) return this.orchNote('vln', t, midi, dur, vel, dest, 0.04, 0.25);
+    if (this.piano) return this.pianoNote(t, midi, dur, vel * 0.7, dest);
+    return this.lead(t, midi, dur, dest);
+  }
+
   /** 피아노 샘플 파일 미리 받기 (AudioContext 없이도 가능 → 페이지 열자마자 호출) */
   prefetchPiano(base = PIANO_BASE) {
     if (this._pianoRaw) return this._pianoRaw;
@@ -938,6 +945,12 @@ export class SongPlayer {
     } catch {
       this.lowNotes = [];
     }
+    // 🎻 유저 맵 높은 줄 (노래 파일에서 딴 위쪽 악기)
+    try {
+      this.hiNotes = level.song.hi ? parseMelody(level.song.hi) : [];
+    } catch {
+      this.hiNotes = [];
+    }
     this.melodyBars = (level.song.melody || []).length;
     const lanes = levelLanes(level);
     this.mineCrash = lanes.includes(CRASH); // 크래시를 내가 치면 반주 크래시는 쉼
@@ -1116,6 +1129,7 @@ export class SongPlayer {
           if (a.piano) a.pianoNote(t, n.midi, d, 0.8, this.bus);
           else a.bass(t, n.midi, d, this.bus);
         }
+    if (this.hiNotes && this.hiNotes.length) for (const n of this.hiNotes) if (n.bar === mb && n.step === s) a.stringNote(t, n.midi, Math.max(0.15, n.len * sd * 0.95), this.bus, 0.55 * dyn);
     // 🎹 두 손 피아노 왼손: 베이스 + 펼친 화음 (pianoLH 곡)
     if (song.pianoLH) {
       const lh = pianoLeftHand(song, mb, s);

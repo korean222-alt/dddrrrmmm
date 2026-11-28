@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { transcribeSong, detectChords } from '../public/js/songmap.js';
+import { transcribeSong, detectChords, bassLine, highLine } from '../public/js/songmap.js';
+import { cleanMap, mapLevel } from '../public/js/usermap.js';
 import { videoToAac } from '../public/js/mp4audio.js';
 
 const SR = 44100;
@@ -169,4 +170,51 @@ test('악기 음(Basic Pitch 결과)으로 빈 곳 채우기 · 위쪽 줄', () 
   const pcs = r.bars[0].map((n) => n.midi % 12);
   assert.deepEqual(pcs.slice(0, 4), [4, 7, 4, 7]); // 베이스가 아니라 위쪽 줄 (E G E G)
   assert.ok(r.bars[1].length >= 4);
+});
+
+/** 가짜 Basic Pitch 결과: [시작 16분 칸, 길이, midi] 목록 → note/onset 판 (fps 86) */
+function fakeInst(bpm, bars, notes, firstBeat = 0.5) {
+  const fps = 22050 / 256;
+  const st = 60 / bpm / 4;
+  const frames = Math.ceil((firstBeat + bars * 16 * st + 1) * fps);
+  const note = new Float32Array(frames * 88);
+  const onset = new Float32Array(frames * 88);
+  for (const [s, len, m, noOnset] of notes) {
+    const f0 = Math.round((firstBeat + s * st) * fps);
+    const f1 = Math.round((firstBeat + (s + len) * st) * fps);
+    for (let f = f0; f < f1; f++) note[f * 88 + m - 21] = 0.8;
+    if (!noOnset) for (let f = f0 - 1; f <= f0 + 1; f++) onset[f * 88 + m - 21] = 0.9;
+  }
+  return { note, onset, frames, fps, firstBeat };
+}
+
+test('🎸 베이스 줄: 사이드체인 한 칸 끊김은 이어 붙이고 한 옥타브(E2~D#3)로 접음', () => {
+  // 1마디: A♭1 반 마디(가운데 한 칸 소리만 줄어듦 = 새로 친 게 아님) → E♭2 반 마디 / 2마디: C2 온 마디
+  const inst = fakeInst(120, 2, [[0, 3, 32], [4, 4, 32, true], [8, 8, 39], [16, 16, 36]]);
+  const low = bassLine(inst, inst.firstBeat, 120, 2);
+  assert.ok(low);
+  const all = low.flat();
+  assert.ok(all.every((n) => n.midi >= 40 && n.midi <= 51), JSON.stringify(all));
+  assert.deepEqual(low[0].map((n) => n.midi % 12), [8, 3]);
+  assert.equal(low[0][0].len, 8, '끊긴 한 칸을 이어 붙여 반 마디');
+  assert.equal(low[1][0].midi % 12, 0);
+});
+
+test('🎻 높은 줄: 목소리 위에서 울리는 악기만, 목소리 배음(옥타브·5도 위)은 뺌 · 맵에 hi 로 실려 게임이 받음', () => {
+  const bars = 2;
+  const inst = fakeInst(100, bars, [
+    [0, 8, 86], // D6 — 바이올린
+    [8, 8, 79], // G5 — 목소리(G4)의 한 옥타브 위 = 배음이라 빼야 함
+    [16, 8, 84], // C6
+  ]);
+  const voc = [[{ step: 8, len: 8, midi: 67 }], []];
+  const hi = highLine(inst, inst.firstBeat, 100, bars, voc);
+  assert.ok(hi);
+  assert.deepEqual(hi.flat().map((n) => n.midi), [86, 84]);
+  const map = cleanMap({ name: 't', bpm: 100, bars: ['K...S...K...S...', 'K...S...K...S...'], melody: ['C5:16', 'D5:16'], prog: ['C', 'G'], hi: ['D6:8 _:8', 'C6:8 _:8'] });
+  assert.deepEqual(map.hi, ['D6:8 _:8', 'C6:8 _:8']);
+  assert.deepEqual(mapLevel(map).song.hi, map.hi);
+  // 이상한 hi 는 빼고 맵은 살림
+  const bad = cleanMap({ name: 't', bpm: 100, bars: ['K...S...K...S...', 'K...S...K...S...'], melody: ['C5:16', 'D5:16'], prog: ['C', 'G'], hi: ['C1:16', 'C1:16'] });
+  assert.ok(bad && !bad.hi);
 });

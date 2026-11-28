@@ -3237,7 +3237,7 @@ const mkSave = () => save('mapDraft', mk);
 /** ↩ 되돌리기: 녹음·자동 채우기 직전 모습 하나 (폰에 저장 안 함) */
 let mkUndo = null;
 const mkSnap = () => {
-  mkUndo = JSON.stringify({ mel: mk.mel, drums: mk.drums, drumsAuto: mk.drumsAuto, bpm: mk.bpm, prog: mk.prog || null, songDrums: mk.songDrums || null, low: mk.low || null });
+  mkUndo = JSON.stringify({ mel: mk.mel, drums: mk.drums, drumsAuto: mk.drumsAuto, bpm: mk.bpm, prog: mk.prog || null, songDrums: mk.songDrums || null, low: mk.low || null, hi: mk.hi || null });
   $('#mk-undo').disabled = false;
 };
 const umLikes = () => load('mapLikes', {});
@@ -3485,6 +3485,12 @@ function mkFixBars() {
     while (mk.low.length < mk.mel.length) mk.low.push([]);
     mk.low.length = mk.mel.length;
     if (!mk.low.some((b) => b.length)) mk.low = null;
+  }
+  // 🎻 높은 줄(노래 파일에서 딴 위쪽 악기)도 마디 수를 맞춤
+  if (Array.isArray(mk.hi)) {
+    while (mk.hi.length < mk.mel.length) mk.hi.push([]);
+    mk.hi.length = mk.mel.length;
+    if (!mk.hi.some((b) => b.length)) mk.hi = null;
   }
   if (Array.isArray(mk.tl)) {
     while (mk.tl.length < mk.mel.length) mk.tl.push(TL_EMPTY);
@@ -3966,6 +3972,8 @@ function mkPlayStep(i, t, bus, prog, sd, drums) {
     if (audio.piano) audio.pianoNote(t, n.midi, Math.max(0.2, n.len * sd * 0.95), 0.8, bus);
     else audio.bass(t, n.midi, n.len * sd * 0.9, bus);
   }
+  // 🎻 높은 줄
+  if (mk.hi) for (const n of mk.hi[b] || []) if (n.step === s) audio.stringNote(t, n.midi, Math.max(0.15, n.len * sd * 0.95), bus);
   if (drums) for (const l of CHAR_LANES[(mk.drums[b] || '')[s]] || []) audio.playLane(l, t, bus);
 }
 
@@ -4258,6 +4266,7 @@ function mkMap(strict = true) {
   mkSave();
   const raw = { name: mk.name || (strict ? '' : '내 맵'), bpm: mk.bpm, bars: mk.drums, melody: mk.mel.map(barToMelody), prog: mkProg() };
   if (Array.isArray(mk.low) && mk.low.length === mk.mel.length) raw.low = mk.low.map(barToMelody);
+  if (Array.isArray(mk.hi) && mk.hi.length === mk.mel.length) raw.hi = mk.hi.map(barToMelody);
   if (mk.deco) raw.deco = mk.deco;
   // 🎹 타일 맵: 드럼 칸은 자동으로 채워 둠(맵 모양을 같게), 치는 건 멜로디
   if (mk.kind === 'tiles') {
@@ -4422,9 +4431,23 @@ async function mkTranscribe() {
     // 🎹 반주 악기 음 (Basic Pitch, 228KB) — 목소리 없는 곳·연주곡의 멜로디
     let inst = null;
     try {
-      const mono = new Float32Array(Lc.length);
-      for (let i = 0; i < mono.length; i++) mono[i] = (Lc[i] + Rc[i]) * 0.5;
-      inst = await instrumentNotes(mono, sr, (stage, p) => (st.textContent = stage === 'model' ? '악기 음 듣는 준비…' : `악기 음 듣는 중… ${Math.round(p * 100)}%`));
+      // 노래가 있는 곡이면 목소리를 뺀 반주만 들음 → 목소리 배음을 악기로 착각 안 하고 높은 악기 줄(바이올린 등)이 또렷 (2026-11-28)
+      const isr = v ? v.sr : sr;
+      const L2 = v && v.sr !== sr ? resample(Lc, sr) : Lc;
+      const R2 = v && v.sr !== sr ? resample(Rc, sr) : Rc;
+      const mono = new Float32Array(L2.length);
+      for (let i = 0; i < mono.length; i++) mono[i] = (L2[i] + R2[i]) * 0.5;
+      if (v) {
+        let ev = 0;
+        let em = 0;
+        for (let i = 0; i < mono.length; i += 4) {
+          const x = ((v.L[i] || 0) + (v.R[i] || 0)) * 0.5;
+          ev += x * x;
+          em += mono[i] * mono[i];
+        }
+        if (Math.sqrt(ev / (em + 1e-12)) >= 0.12) for (let i = 0; i < mono.length; i++) mono[i] -= ((v.L[i] || 0) + (v.R[i] || 0)) * 0.5;
+      }
+      inst = await instrumentNotes(mono, isr, (stage, p) => (st.textContent = stage === 'model' ? '악기 음 듣는 준비…' : `악기 음 듣는 중… ${Math.round(p * 100)}%`));
     } catch (e) {
       console.warn('instnotes', e);
     }
@@ -4456,6 +4479,7 @@ async function mkTranscribe() {
   mkSnap();
   mk.mel = t.bars;
   mk.low = Array.isArray(t.low) && t.low.length === bars ? t.low : null; // 🎸 노래에서 딴 베이스 줄 (없으면 자동 베이스)
+  mk.hi = Array.isArray(t.hi) && t.hi.length === bars ? t.hi : null; // 🎻 노래에서 딴 높은 악기 줄 (바이올린으로)
   mk.bpm = Math.round(bpm);
   // 코드·드럼도 노래에서 (곡의 진짜 코드 · 곡의 쿵짝 자리)
   mk.prog = Array.isArray(t.prog) && t.prog.length === bars ? t.prog : null;
@@ -4477,7 +4501,7 @@ async function mkTranscribe() {
   st.innerHTML =
     `<b>${bars}마디</b>(약 ${mmss(sec)})에서 음 <b>${t.found}개</b>를 땄어요 · ${mk.bpm} BPM` +
     `<br>${t.vocalRatio < 0.12 ? '목소리가 거의 없는 곡이라 악기 멜로디를 땄어요' : t.leadShare > 0.05 ? '노래 부분은 목소리, 전주·간주는 악기 멜로디를 땄어요' : '목소리 멜로디를 땄어요'}` +
-    ([mk.prog && '코드', mk.low && '베이스', mk.drumsAuto === 'song' && '드럼'].filter(Boolean).join('·') ? `<br>${[mk.prog && '코드', mk.low && '베이스', mk.drumsAuto === 'song' && '드럼'].filter(Boolean).join('·')}도 노래에서 땄어요` : '') +
+    ([mk.prog && '코드', mk.low && '베이스', mk.hi && '높은 악기', mk.drumsAuto === 'song' && '드럼'].filter(Boolean).join('·') ? `<br>${[mk.prog && '코드', mk.low && '베이스', mk.hi && '높은 악기', mk.drumsAuto === 'song' && '드럼'].filter(Boolean).join('·')}도 노래에서 땄어요` : '') +
     (lenSel !== 'all' && want > bars ? `<br>노래가 짧아서 ${bars}마디까지만 땄어요` : '') +
     '<br>「처음부터 듣기」로 들어 보고, 틀린 음은 손으로 고쳐 주세요';
 }
@@ -4593,6 +4617,7 @@ function mkScoreMake() {
   mkSnap();
   mk.mel = r.mel;
   mk.low = r.low || null;
+  mk.hi = null;
   mk.bpm = Math.max(MAP_LIMITS.minBpm, Math.min(MAP_LIMITS.maxBpm, r.bpm));
   mk.prog = r.prog;
   if (r.drums) {

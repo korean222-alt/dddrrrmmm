@@ -856,6 +856,13 @@ export function transcribeSong({ mix, voc = null, sr, firstBeat, bpm, bars, grid
   } catch (e) {
     low = null;
   }
+  // ⑤ 높은 줄 (바이올린·신스처럼 멜로디 위에서 울리는 악기 → 맵 hi, 게임은 바이올린으로)
+  let hi = null;
+  try {
+    if (inst) hi = highLine(inst, firstBeat, bpm, bars, vocBars);
+  } catch (e) {
+    hi = null;
+  }
   // ② 화음 (반주에서)
   let prog = null;
   try {
@@ -871,7 +878,7 @@ export function transcribeSong({ mix, voc = null, sr, firstBeat, bpm, bars, grid
   } catch (e) {
     drums = null;
   }
-  return { bars: res, found, prog, drums, low, vocalShare: vocCount / total, leadShare: leadCount / total, vocalRatio };
+  return { bars: res, found, prog, drums, low, hi, vocalShare: vocCount / total, leadShare: leadCount / total, vocalRatio };
 }
 
 /**
@@ -945,6 +952,78 @@ export function bassLine(inst, firstBeat, bpm, bars) {
       if (n.len === 1 && !(bar[i - 1] && bar[i - 1].step + bar[i - 1].len === n.step) && !(bar[i + 1] && bar[i + 1].step === n.step + 1)) bar.splice(i, 1);
     }
   return out;
+}
+
+/**
+ * 🎻 Basic Pitch 결과 → 높은 줄 (2026-11-28 사용자 '마지막에 바이올린 같은 높은 음도 전부')
+ *   16분 칸마다 C5~C7 에서 꽤 센 음 중 가장 높은 음 (노래가 있으면 반주만 들은 Basic Pitch 로 — main mkTranscribe). 목소리 음과 겹치거나(반음 안) 목소리의 배음 자리(같은 음이름·5도 위)는 뺌,
+ *   목소리보다 단3도 넘게 위만. 한 칸 끊김은 이어 붙이고 외톨이 한 칸은 지움. 거의 없으면(칸 6% 미만) null
+ */
+export function highLine(inst, firstBeat, bpm, bars, vocBars = null) {
+  const { note, onset, frames, fps } = inst;
+  const st = 60 / bpm / 4;
+  const total = bars * STEPS_PER_BAR;
+  const K0 = 72 - 21; // C5
+  const K1 = 96 - 21; // C7
+  const voc = new Int16Array(total).fill(-1);
+  if (vocBars) vocBars.forEach((bar, b) => bar.forEach((nn) => { for (let i = 0; i < nn.len; i++) voc[b * STEPS_PER_BAR + nn.step + i] = nn.midi; }));
+  let gmax = 0;
+  for (let f = 0; f < frames; f++) for (let k = K0; k <= K1; k++) gmax = Math.max(gmax, note[f * 88 + k]);
+  if (gmax < 0.25) return null;
+  const TH = Math.max(0.25, gmax * 0.35);
+  const pick = new Int16Array(total).fill(-1);
+  const hit = new Uint8Array(total);
+  const act = new Float32Array(88);
+  for (let s = 0; s < total; s++) {
+    const f0 = Math.max(0, Math.round((firstBeat + (s + 0.1) * st) * fps));
+    const f1 = Math.min(frames, Math.round((firstBeat + (s + 0.9) * st) * fps) + 1);
+    if (f1 <= f0) continue;
+    act.fill(0);
+    for (let f = f0; f < f1; f++) for (let k = K0; k <= K1; k++) act[k] += note[f * 88 + k];
+    const v = voc[s];
+    let best = -1;
+    for (let k = K1; k >= K0; k--) {
+      act[k] /= f1 - f0;
+      if (best >= 0 || act[k] < TH) continue;
+      const m = k + 21;
+      if (v >= 0) {
+        if (m - v < 4) continue;
+        const d = (((m - v) % 12) + 12) % 12;
+        if (d === 0 || d === 7) continue;
+      }
+      best = k;
+    }
+    if (best < 0) continue;
+    pick[s] = best + 21;
+    const c = Math.round((firstBeat + s * st) * fps);
+    let on = 0;
+    for (let f = Math.max(0, c - 2); f <= Math.min(frames - 1, c + 3); f++) on = Math.max(on, onset[f * 88 + best]);
+    hit[s] = on > 0.4 ? 1 : 0;
+  }
+  for (let s = 1; s < total - 1; s++) if (pick[s] < 0 && pick[s - 1] >= 0 && pick[s - 1] === pick[s + 1] && !hit[s + 1]) pick[s] = pick[s - 1];
+  let used = 0;
+  for (const p of pick) if (p >= 0) used++;
+  if (used < total * 0.06) return null;
+  const out = Array.from({ length: bars }, () => []);
+  let cur = null;
+  for (let s = 0; s < total; s++) {
+    const p = pick[s];
+    const step = s % STEPS_PER_BAR;
+    if (p < 0) {
+      cur = null;
+      continue;
+    }
+    if (!cur || cur.midi !== p || step === 0 || (hit[s] && step % 2 === 0)) {
+      cur = { step, midi: p, len: 1 };
+      out[Math.floor(s / STEPS_PER_BAR)].push(cur);
+    } else cur.len++;
+  }
+  for (const bar of out)
+    for (let i = bar.length - 1; i >= 0; i--) {
+      const n = bar[i];
+      if (n.len === 1 && !(bar[i - 1] && bar[i - 1].step + bar[i - 1].len === n.step) && !(bar[i + 1] && bar[i + 1].step === n.step + 1)) bar.splice(i, 1);
+    }
+  return out.some((b) => b.length) ? out : null;
 }
 
 /**

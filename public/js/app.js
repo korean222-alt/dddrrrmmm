@@ -2532,6 +2532,13 @@ class AudioEngine {
     src.stop(Math.min(end + release * 6, t0 + s.buf.duration / src.playbackRate.value));
   }
 
+  /** 🎻 바이올린 한 음 (오케스트라를 못 받았으면 피아노로 작게) — 유저 맵 높은 줄 */
+  stringNote(t, midi, dur, dest = this.musicBus, vel = 0.55) {
+    if (this.orch && this.orch.vln && this.orch.vln.length) return this.orchNote('vln', t, midi, dur, vel, dest, 0.04, 0.25);
+    if (this.piano) return this.pianoNote(t, midi, dur, vel * 0.7, dest);
+    return this.lead(t, midi, dur, dest);
+  }
+
   /** 피아노 샘플 파일 미리 받기 (AudioContext 없이도 가능 → 페이지 열자마자 호출) */
   prefetchPiano(base = PIANO_BASE) {
     if (this._pianoRaw) return this._pianoRaw;
@@ -3301,6 +3308,12 @@ class SongPlayer {
     } catch {
       this.lowNotes = [];
     }
+    // 🎻 유저 맵 높은 줄 (노래 파일에서 딴 위쪽 악기)
+    try {
+      this.hiNotes = level.song.hi ? parseMelody(level.song.hi) : [];
+    } catch {
+      this.hiNotes = [];
+    }
     this.melodyBars = (level.song.melody || []).length;
     const lanes = levelLanes(level);
     this.mineCrash = lanes.includes(CRASH); // 크래시를 내가 치면 반주 크래시는 쉼
@@ -3479,6 +3492,7 @@ class SongPlayer {
           if (a.piano) a.pianoNote(t, n.midi, d, 0.8, this.bus);
           else a.bass(t, n.midi, d, this.bus);
         }
+    if (this.hiNotes && this.hiNotes.length) for (const n of this.hiNotes) if (n.bar === mb && n.step === s) a.stringNote(t, n.midi, Math.max(0.15, n.len * sd * 0.95), this.bus, 0.55 * dyn);
     // 🎹 두 손 피아노 왼손: 베이스 + 펼친 화음 (pianoLH 곡)
     if (song.pianoLH) {
       const lh = pianoLeftHand(song, mb, s);
@@ -14744,6 +14758,14 @@ function cleanMap(raw) {
       if (ns.length && ns.every((n) => n.midi >= LOW_LH && n.midi <= HIGH)) out.low = low.map((m) => m.trim().replace(/\s+/g, ' '));
     } catch {}
   }
+  // 🎻 높은 줄(노래 파일에서 딴 바이올린·신스 같은 위쪽 악기) — 있으면 반주에 얹어 바이올린으로. 이상하면 빼고 맵은 그대로
+  const hi = raw.hi;
+  if (Array.isArray(hi) && hi.length === bars.length && hi.every((m) => typeof m === 'string' && m.length <= 200)) {
+    try {
+      const ns = parseMelody(hi);
+      if (ns.length && ns.every((n) => n.midi >= 55 && n.midi <= HIGH)) out.hi = hi.map((m) => m.trim().replace(/\s+/g, ' '));
+    } catch {}
+  }
   // 🎨 꾸미기(있을 때만, 무료 것만). 이상한 값은 빼고 맵은 살림
   const deco = raw.deco;
   if (deco && typeof deco === 'object') {
@@ -14793,6 +14815,8 @@ function mapLevel(map, { id = 'um', by = '', mapId = null } = {}) {
       melody: map.melody,
       // 🎹 악보 왼손(있을 때만) — 자동 베이스는 끄고 이걸 피아노로
       low: map.low || null,
+      // 🎻 노래에서 딴 높은 줄(있을 때만) — 바이올린으로
+      hi: map.hi || null,
       hat: '................',
       // 🥁 드럼만 맵(멜로디가 다 쉼)은 베이스·화음도 안 깔고 드럼만
       bass: isDrumOnly(map) || map.low ? '................' : 'x.......x.......',
@@ -16718,6 +16742,13 @@ function transcribeSong({ mix, voc = null, sr, firstBeat, bpm, bars, grid = 2, l
   } catch (e) {
     low = null;
   }
+  // ⑤ 높은 줄 (바이올린·신스처럼 멜로디 위에서 울리는 악기 → 맵 hi, 게임은 바이올린으로)
+  let hi = null;
+  try {
+    if (inst) hi = highLine(inst, firstBeat, bpm, bars, vocBars);
+  } catch (e) {
+    hi = null;
+  }
   // ② 화음 (반주에서)
   let prog = null;
   try {
@@ -16733,7 +16764,7 @@ function transcribeSong({ mix, voc = null, sr, firstBeat, bpm, bars, grid = 2, l
   } catch (e) {
     drums = null;
   }
-  return { bars: res, found, prog, drums, low, vocalShare: vocCount / total, leadShare: leadCount / total, vocalRatio };
+  return { bars: res, found, prog, drums, low, hi, vocalShare: vocCount / total, leadShare: leadCount / total, vocalRatio };
 }
 
 /**
@@ -16810,6 +16841,78 @@ function bassLine(inst, firstBeat, bpm, bars) {
 }
 
 /**
+ * 🎻 Basic Pitch 결과 → 높은 줄 (2026-11-28 사용자 '마지막에 바이올린 같은 높은 음도 전부')
+ *   16분 칸마다 C5~C7 에서 꽤 센 음 중 가장 높은 음 (노래가 있으면 반주만 들은 Basic Pitch 로 — main mkTranscribe). 목소리 음과 겹치거나(반음 안) 목소리의 배음 자리(같은 음이름·5도 위)는 뺌,
+ *   목소리보다 단3도 넘게 위만. 한 칸 끊김은 이어 붙이고 외톨이 한 칸은 지움. 거의 없으면(칸 6% 미만) null
+ */
+function highLine(inst, firstBeat, bpm, bars, vocBars = null) {
+  const { note, onset, frames, fps } = inst;
+  const st = 60 / bpm / 4;
+  const total = bars * STEPS_PER_BAR;
+  const K0 = 72 - 21; // C5
+  const K1 = 96 - 21; // C7
+  const voc = new Int16Array(total).fill(-1);
+  if (vocBars) vocBars.forEach((bar, b) => bar.forEach((nn) => { for (let i = 0; i < nn.len; i++) voc[b * STEPS_PER_BAR + nn.step + i] = nn.midi; }));
+  let gmax = 0;
+  for (let f = 0; f < frames; f++) for (let k = K0; k <= K1; k++) gmax = Math.max(gmax, note[f * 88 + k]);
+  if (gmax < 0.25) return null;
+  const TH = Math.max(0.25, gmax * 0.35);
+  const pick = new Int16Array(total).fill(-1);
+  const hit = new Uint8Array(total);
+  const act = new Float32Array(88);
+  for (let s = 0; s < total; s++) {
+    const f0 = Math.max(0, Math.round((firstBeat + (s + 0.1) * st) * fps));
+    const f1 = Math.min(frames, Math.round((firstBeat + (s + 0.9) * st) * fps) + 1);
+    if (f1 <= f0) continue;
+    act.fill(0);
+    for (let f = f0; f < f1; f++) for (let k = K0; k <= K1; k++) act[k] += note[f * 88 + k];
+    const v = voc[s];
+    let best = -1;
+    for (let k = K1; k >= K0; k--) {
+      act[k] /= f1 - f0;
+      if (best >= 0 || act[k] < TH) continue;
+      const m = k + 21;
+      if (v >= 0) {
+        if (m - v < 4) continue;
+        const d = (((m - v) % 12) + 12) % 12;
+        if (d === 0 || d === 7) continue;
+      }
+      best = k;
+    }
+    if (best < 0) continue;
+    pick[s] = best + 21;
+    const c = Math.round((firstBeat + s * st) * fps);
+    let on = 0;
+    for (let f = Math.max(0, c - 2); f <= Math.min(frames - 1, c + 3); f++) on = Math.max(on, onset[f * 88 + best]);
+    hit[s] = on > 0.4 ? 1 : 0;
+  }
+  for (let s = 1; s < total - 1; s++) if (pick[s] < 0 && pick[s - 1] >= 0 && pick[s - 1] === pick[s + 1] && !hit[s + 1]) pick[s] = pick[s - 1];
+  let used = 0;
+  for (const p of pick) if (p >= 0) used++;
+  if (used < total * 0.06) return null;
+  const out = Array.from({ length: bars }, () => []);
+  let cur = null;
+  for (let s = 0; s < total; s++) {
+    const p = pick[s];
+    const step = s % STEPS_PER_BAR;
+    if (p < 0) {
+      cur = null;
+      continue;
+    }
+    if (!cur || cur.midi !== p || step === 0 || (hit[s] && step % 2 === 0)) {
+      cur = { step, midi: p, len: 1 };
+      out[Math.floor(s / STEPS_PER_BAR)].push(cur);
+    } else cur.len++;
+  }
+  for (const bar of out)
+    for (let i = bar.length - 1; i >= 0; i--) {
+      const n = bar[i];
+      if (n.len === 1 && !(bar[i - 1] && bar[i - 1].step + bar[i - 1].len === n.step) && !(bar[i + 1] && bar[i + 1].step === n.step + 1)) bar.splice(i, 1);
+    }
+  return out.some((b) => b.length) ? out : null;
+}
+
+/**
  * Basic Pitch 결과 → 악기 멜로디 (16분 칸마다 '위쪽 줄': 울리는 음 중 가장 높은 음, 베이스 위에 아무것도 없으면 베이스)
  *   gaps 안의 칸만. 같은 음이 이어져도 그 건반의 '막 시작' 확률이 높으면 새 음
  */
@@ -16880,7 +16983,7 @@ function median(a) {
   return s[s.length >> 1];
 }
 
-return { detectChords, transcribeSong, bassLine };
+return { detectChords, transcribeSong, bassLine, highLine };
 })();
 
 // ---- instnotes.js ----
@@ -20684,7 +20787,7 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-28h',
+    id: '2026-11-28i',
     date: '11월 28일',
     title: '🌸 신곡 「사계 – 봄」 · 🎻 더 웅장한 오케스트라 · 👥 친구 · 💬 채팅',
     items: [
@@ -20697,7 +20800,7 @@ const NEWS = [
       '이 곡엔 <b>✨ PERFECT+</b> — 판정선 <b>한가운데</b>에 딱 맞추면 PERFECT 보다 점수가 더 높아요',
       '🏆 랭킹은 <b>같은 점수면 먼저 낸 사람이 위</b>예요',
       '<b>🪙 코인 파티</b>가 돌아왔어요 — 곡 첫 바퀴를 깨면 코인 타일이 쏟아져요',
-      '<b>🎹 유저 맵</b>을 노래 파일로 만들면 <b>베이스 줄</b>까지 따요 · 코드도 더 정확해졌어요',
+      '<b>🎹 유저 맵</b>을 노래 파일로 만들면 <b>베이스</b>와 <b>바이올린 같은 높은 악기 줄</b>까지 따요 · 코드도 더 정확해졌어요',
     ],
   },
   {
@@ -25217,7 +25320,7 @@ const mkSave = () => save('mapDraft', mk);
 /** ↩ 되돌리기: 녹음·자동 채우기 직전 모습 하나 (폰에 저장 안 함) */
 let mkUndo = null;
 const mkSnap = () => {
-  mkUndo = JSON.stringify({ mel: mk.mel, drums: mk.drums, drumsAuto: mk.drumsAuto, bpm: mk.bpm, prog: mk.prog || null, songDrums: mk.songDrums || null, low: mk.low || null });
+  mkUndo = JSON.stringify({ mel: mk.mel, drums: mk.drums, drumsAuto: mk.drumsAuto, bpm: mk.bpm, prog: mk.prog || null, songDrums: mk.songDrums || null, low: mk.low || null, hi: mk.hi || null });
   $('#mk-undo').disabled = false;
 };
 const umLikes = () => load('mapLikes', {});
@@ -25465,6 +25568,12 @@ function mkFixBars() {
     while (mk.low.length < mk.mel.length) mk.low.push([]);
     mk.low.length = mk.mel.length;
     if (!mk.low.some((b) => b.length)) mk.low = null;
+  }
+  // 🎻 높은 줄(노래 파일에서 딴 위쪽 악기)도 마디 수를 맞춤
+  if (Array.isArray(mk.hi)) {
+    while (mk.hi.length < mk.mel.length) mk.hi.push([]);
+    mk.hi.length = mk.mel.length;
+    if (!mk.hi.some((b) => b.length)) mk.hi = null;
   }
   if (Array.isArray(mk.tl)) {
     while (mk.tl.length < mk.mel.length) mk.tl.push(TL_EMPTY);
@@ -25946,6 +26055,8 @@ function mkPlayStep(i, t, bus, prog, sd, drums) {
     if (audio.piano) audio.pianoNote(t, n.midi, Math.max(0.2, n.len * sd * 0.95), 0.8, bus);
     else audio.bass(t, n.midi, n.len * sd * 0.9, bus);
   }
+  // 🎻 높은 줄
+  if (mk.hi) for (const n of mk.hi[b] || []) if (n.step === s) audio.stringNote(t, n.midi, Math.max(0.15, n.len * sd * 0.95), bus);
   if (drums) for (const l of CHAR_LANES[(mk.drums[b] || '')[s]] || []) audio.playLane(l, t, bus);
 }
 
@@ -26238,6 +26349,7 @@ function mkMap(strict = true) {
   mkSave();
   const raw = { name: mk.name || (strict ? '' : '내 맵'), bpm: mk.bpm, bars: mk.drums, melody: mk.mel.map(barToMelody), prog: mkProg() };
   if (Array.isArray(mk.low) && mk.low.length === mk.mel.length) raw.low = mk.low.map(barToMelody);
+  if (Array.isArray(mk.hi) && mk.hi.length === mk.mel.length) raw.hi = mk.hi.map(barToMelody);
   if (mk.deco) raw.deco = mk.deco;
   // 🎹 타일 맵: 드럼 칸은 자동으로 채워 둠(맵 모양을 같게), 치는 건 멜로디
   if (mk.kind === 'tiles') {
@@ -26402,9 +26514,23 @@ async function mkTranscribe() {
     // 🎹 반주 악기 음 (Basic Pitch, 228KB) — 목소리 없는 곳·연주곡의 멜로디
     let inst = null;
     try {
-      const mono = new Float32Array(Lc.length);
-      for (let i = 0; i < mono.length; i++) mono[i] = (Lc[i] + Rc[i]) * 0.5;
-      inst = await instrumentNotes(mono, sr, (stage, p) => (st.textContent = stage === 'model' ? '악기 음 듣는 준비…' : `악기 음 듣는 중… ${Math.round(p * 100)}%`));
+      // 노래가 있는 곡이면 목소리를 뺀 반주만 들음 → 목소리 배음을 악기로 착각 안 하고 높은 악기 줄(바이올린 등)이 또렷 (2026-11-28)
+      const isr = v ? v.sr : sr;
+      const L2 = v && v.sr !== sr ? resample(Lc, sr) : Lc;
+      const R2 = v && v.sr !== sr ? resample(Rc, sr) : Rc;
+      const mono = new Float32Array(L2.length);
+      for (let i = 0; i < mono.length; i++) mono[i] = (L2[i] + R2[i]) * 0.5;
+      if (v) {
+        let ev = 0;
+        let em = 0;
+        for (let i = 0; i < mono.length; i += 4) {
+          const x = ((v.L[i] || 0) + (v.R[i] || 0)) * 0.5;
+          ev += x * x;
+          em += mono[i] * mono[i];
+        }
+        if (Math.sqrt(ev / (em + 1e-12)) >= 0.12) for (let i = 0; i < mono.length; i++) mono[i] -= ((v.L[i] || 0) + (v.R[i] || 0)) * 0.5;
+      }
+      inst = await instrumentNotes(mono, isr, (stage, p) => (st.textContent = stage === 'model' ? '악기 음 듣는 준비…' : `악기 음 듣는 중… ${Math.round(p * 100)}%`));
     } catch (e) {
       console.warn('instnotes', e);
     }
@@ -26436,6 +26562,7 @@ async function mkTranscribe() {
   mkSnap();
   mk.mel = t.bars;
   mk.low = Array.isArray(t.low) && t.low.length === bars ? t.low : null; // 🎸 노래에서 딴 베이스 줄 (없으면 자동 베이스)
+  mk.hi = Array.isArray(t.hi) && t.hi.length === bars ? t.hi : null; // 🎻 노래에서 딴 높은 악기 줄 (바이올린으로)
   mk.bpm = Math.round(bpm);
   // 코드·드럼도 노래에서 (곡의 진짜 코드 · 곡의 쿵짝 자리)
   mk.prog = Array.isArray(t.prog) && t.prog.length === bars ? t.prog : null;
@@ -26457,7 +26584,7 @@ async function mkTranscribe() {
   st.innerHTML =
     `<b>${bars}마디</b>(약 ${mmss(sec)})에서 음 <b>${t.found}개</b>를 땄어요 · ${mk.bpm} BPM` +
     `<br>${t.vocalRatio < 0.12 ? '목소리가 거의 없는 곡이라 악기 멜로디를 땄어요' : t.leadShare > 0.05 ? '노래 부분은 목소리, 전주·간주는 악기 멜로디를 땄어요' : '목소리 멜로디를 땄어요'}` +
-    ([mk.prog && '코드', mk.low && '베이스', mk.drumsAuto === 'song' && '드럼'].filter(Boolean).join('·') ? `<br>${[mk.prog && '코드', mk.low && '베이스', mk.drumsAuto === 'song' && '드럼'].filter(Boolean).join('·')}도 노래에서 땄어요` : '') +
+    ([mk.prog && '코드', mk.low && '베이스', mk.hi && '높은 악기', mk.drumsAuto === 'song' && '드럼'].filter(Boolean).join('·') ? `<br>${[mk.prog && '코드', mk.low && '베이스', mk.hi && '높은 악기', mk.drumsAuto === 'song' && '드럼'].filter(Boolean).join('·')}도 노래에서 땄어요` : '') +
     (lenSel !== 'all' && want > bars ? `<br>노래가 짧아서 ${bars}마디까지만 땄어요` : '') +
     '<br>「처음부터 듣기」로 들어 보고, 틀린 음은 손으로 고쳐 주세요';
 }
@@ -26573,6 +26700,7 @@ function mkScoreMake() {
   mkSnap();
   mk.mel = r.mel;
   mk.low = r.low || null;
+  mk.hi = null;
   mk.bpm = Math.max(MAP_LIMITS.minBpm, Math.min(MAP_LIMITS.maxBpm, r.bpm));
   mk.prog = r.prog;
   if (r.drums) {

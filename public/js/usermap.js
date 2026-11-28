@@ -330,6 +330,14 @@ export function cleanMap(raw) {
       if (ns.length && ns.every((n) => n.midi >= LOW_LH && n.midi <= HIGH)) out.low = low.map((m) => m.trim().replace(/\s+/g, ' '));
     } catch {}
   }
+  // 🎻 높은 줄(노래 파일에서 딴 바이올린·신스 같은 위쪽 악기) — 있으면 반주에 얹어 바이올린으로. 이상하면 빼고 맵은 그대로
+  const hi = raw.hi;
+  if (Array.isArray(hi) && hi.length === bars.length && hi.every((m) => typeof m === 'string' && m.length <= 200)) {
+    try {
+      const ns = parseMelody(hi);
+      if (ns.length && ns.every((n) => n.midi >= 55 && n.midi <= HIGH)) out.hi = hi.map((m) => m.trim().replace(/\s+/g, ' '));
+    } catch {}
+  }
   // 🎨 꾸미기(있을 때만, 무료 것만). 이상한 값은 빼고 맵은 살림
   const deco = raw.deco;
   if (deco && typeof deco === 'object') {
@@ -379,6 +387,8 @@ export function mapLevel(map, { id = 'um', by = '', mapId = null } = {}) {
       melody: map.melody,
       // 🎹 악보 왼손(있을 때만) — 자동 베이스는 끄고 이걸 피아노로
       low: map.low || null,
+      // 🎻 노래에서 딴 높은 줄(있을 때만) — 바이올린으로
+      hi: map.hi || null,
       hat: '................',
       // 🥁 드럼만 맵(멜로디가 다 쉼)은 베이스·화음도 안 깔고 드럼만
       bass: isDrumOnly(map) || map.low ? '................' : 'x.......x.......',
