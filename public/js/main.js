@@ -35,7 +35,7 @@ import { makeReelCover } from './cover.js';
 import { barEnergy, detectBeat, monoOf, songChart } from './beatsync.js';
 import { seasonLeftText, BOARD_LABEL, seasonAt } from './season.js';
 import { AVATARS, avatarHtml, cleanAvatar, cleanIntro, INTRO_MAX } from './avatars.js';
-import { TILE_SONGS, TILE_DIFF, TILE_RPS, DIFF_SPEEDS, buildLap, tileSong, tileId, tileClosed, lapStars, tileLap, mapTileLap, MAP_TILE_LAPS } from './tiles.js';
+import { TILE_SONGS, TILE_DIFF, TILE_RPS, DIFF_SPEEDS, buildLap, tileSong, tileId, tileClosed, lapStars, tileLap, mapTileLap, MAP_TILE_LAPS, hasPplus } from './tiles.js';
 import { TileGame } from './tilegame.js';
 import { noteTilePlay, noteDrum, questView, claimQuest, claimCommunity, communityClaimed, attView, noteAttendance } from './s2claims.js';
 import { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder, resetOldLevel18, photoSave, photoLoad, photoDelete } from './storage.js';
@@ -6724,7 +6724,7 @@ function diffBadge(d, mini = false) {
   return `<em class="diff-badge d${d}${mini ? ' mini' : ''}"><svg viewBox="0 0 24 24" aria-hidden="true">${DIFF_ICO[d] || ''}</svg><b>${TILE_DIFF[d]}</b>${pips}</em>`;
 }
 /** 곡 표지: 곡마다 색이 다른 그라데이션 + 내려오는 타일 무늬 + 음표 */
-const TILE_HUES = [28, 340, 200, 265, 150, 12, 300, 185, 45, 230, 320, 95, 255, 5, 170, 280, 210, 355];
+const TILE_HUES = [28, 340, 200, 265, 150, 12, 300, 185, 45, 230, 320, 95, 255, 5, 170, 280, 210, 355, 120];
 /** 🖼 곡 표지 그림 (2026-11-27 사용자, ElevenLabs 3D 쿵콩이·짝콩이) + 표지 누르면 곡 설명 */
 const COVER_V = 1;
 const TILE_INFO = {
@@ -6746,7 +6746,10 @@ const TILE_INFO = {
   16: '모차르트가 세상을 떠나기 3년 전에 쓴 교향곡이에요. 모차르트 교향곡 중 드물게 단조라서 쓸쓸하면서도 급한 느낌이에요.',
   17: '멕시코 민요로, 「바퀴벌레」 라는 뜻이에요. 멕시코 혁명 때 가사를 바꿔 가며 널리 불렀어요.',
   18: '베토벤이 1810년쯤 쓴 피아노 소품이에요. 「엘리제」 가 누구인지는 지금도 수수께끼예요. 악보 글씨를 「테레제」 로 잘못 읽었다는 이야기도 있어요.',
+  101: '비발디가 1725년에 낸 바이올린 협주곡 「사계」 중 봄 1악장이에요. 악보에 봄을 노래하는 시를 적어 두었고, 중간에 바이올린이 새소리를 흉내 내요. ✨ 이 곡엔 PERFECT+ 가 있어요.',
 };
+/** 🌸 신곡 (newUntil 날짜까지, 한국 시간): 오늘의 노래 자리에 먼저 · 곡 줄에 신곡 딱지 */
+const tileIsNew = (t) => !!(t && t.newUntil) && new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10) <= t.newUntil;
 function tileCoverHtml(t, i, big = false) {
   const h = TILE_HUES[i % TILE_HUES.length];
   return `<span class="t-cover ${big ? 'big' : ''}" style="--h:${h}" data-tcover="${t.id}"><i></i><i></i><i></i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 17.5a2.5 2.5 0 1 1-1.2-2.1V5.6l10-2.1v11.9a2.5 2.5 0 1 1-1.2-2.1V7.1l-7.6 1.6z" fill="#fff"/></svg><img src="assets/covers/${t.id}.webp?v=${COVER_V}" alt="" loading="lazy" onerror="this.remove()"></span>`;
@@ -6772,6 +6775,8 @@ function tileToday() {
   const day = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
   let h = 0;
   for (const ch of day) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const fresh = open.find(tileIsNew);
+  if (fresh) return fresh;
   return (open.length ? open : TILE_SONGS)[h % (open.length || TILE_SONGS.length)];
 }
 function renderTiles() {
@@ -6787,13 +6792,15 @@ function renderTiles() {
   const hst = bestStars(hb);
   $('#tl-hero').innerHTML = `<button class="tl-hero-card" data-tplay="${hot.id}" style="--h:${TILE_HUES[hi % TILE_HUES.length]}">
       <span class="tl-hero-fall"><i></i><i></i><i></i><i></i><i></i><i></i></span>
-      <span class="tl-hero-tag"><span class="live-dot"></span>오늘의 노래 · 시즌 2 랭킹 중</span>
+      <span class="tl-hero-tag"><span class="live-dot"></span>${tileIsNew(hot) ? '🌸 신곡 · ✨ PERFECT+' : '오늘의 노래 · 시즌 2 랭킹 중'}</span>
       <b class="tl-hero-name">${escapeHtml(hs.level.name)}</b>
       <small class="tl-hero-sub">${escapeHtml(hs.level.composer)} ${diffBadge(hot.diff, true)}${hb ? ` · 내 최고 ${fmt(hb.tiles)}` : ''}</small>
       <span class="tl-hero-stars">${tileStarsHtml(hst.stars, hst.gems)}</span>
       <span class="tl-hero-play"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>플레이</span>
     </button>`;
-  const rows = TILE_SONGS.map((t, i) => ({ t, i })).filter(({ t }) => tl.filter === 'all' || (tl.filter === '4' ? t.diff >= 4 : String(t.diff) === tl.filter));
+  const rows = TILE_SONGS.map((t, i) => ({ t, i }))
+    .filter(({ t }) => tl.filter === 'all' || (tl.filter === '4' ? t.diff >= 4 : String(t.diff) === tl.filter))
+    .sort((a, b) => tileIsNew(b.t) - tileIsNew(a.t)); // 🌸 신곡 먼저
   $('#tl-list').innerHTML = rows
     .map(({ t, i }) => {
       const song = tileSong(tileId(t.id));
@@ -6802,13 +6809,13 @@ function renderTiles() {
       const tier = tileTierLocked(song, best);
       const lock = tier || tileLocked(song);
       const { stars: st, gems } = bestStars(b);
-      const tag = lock ? '' : !b ? '<em class="t-tag new">NEW</em>' : '';
+      const tag = lock ? '' : !b || tileIsNew(t) ? '<em class="t-tag new">NEW</em>' : '';
       const pips = [1, 2, 3, 4, 5].map((k) => `<i class="${k <= t.diff ? 'on' : ''}"></i>`).join('');
       void pips;
       return `<div class="tl-row d${t.diff} ${lock ? 'locked' : ''} ${tl.pick === t.id ? 'pick' : ''}" data-tsong="${t.id}" role="button" tabindex="0">
       <span class="tl-no">${i + 1}</span>
       ${tileCoverHtml(t, i)}
-      <span class="tl-info"><b>${escapeHtml(lv.name)}${tag}</b><small>${escapeHtml(lv.composer)}</small>${tier ? `<span class="tl-lock">${icon('lock')}${tileTierMsg(t.diff)}</span>` : tileStarsHtml(st, gems)}${b ? `<span class="tl-best">최고 ${fmt(b.tiles)}</span>` : ''}</span>
+      <span class="tl-info"><b>${escapeHtml(lv.name)}${tag}</b><small>${escapeHtml(lv.composer)}${t.pplus ? '<em class="t-tag pplus">PERFECT+</em>' : ''}</small>${tier ? `<span class="tl-lock">${icon('lock')}${tileTierMsg(t.diff)}</span>` : tileStarsHtml(st, gems)}${b ? `<span class="tl-best">최고 ${fmt(b.tiles)}</span>` : ''}</span>
       ${diffBadge(t.diff)}
       <button class="tl-go" data-tplay="${t.id}" aria-label="${escapeHtml(lv.name)} 시작">${lock ? icon('lock') : '플레이'}</button>
     </div>`;
@@ -6901,6 +6908,8 @@ async function tilePlay(songId = tp.song, { room = null, map = null } = {}) {
   if (!song && !mlap) return;
   if (!room && song && tileTierLocked(song)) return tileTierToast(song);
   if (!room && song && tileLocked(song)) return openVerify(null);
+  // ✨ PERFECT+ 곡은 처음 한 번 시작 전에 설명 (2026-11-28 사용자)
+  if (!room && song && hasPplus(songId) && !load('pplusSeen', false)) return openPplusInfo(songId);
   if (!map) tp.song = songId;
   tp.map = map;
   tp.room = room;
@@ -6967,6 +6976,17 @@ async function tilePlay(songId = tp.song, { room = null, map = null } = {}) {
   trackPlayStart(song ? tileId(songId) : UM_ID);
   // 대결: 서버가 정한 시각에 같이 시작 (그때까지는 'VS 상대' 화면). 혼자면 맨 아래 「시작」 타일을 누르면 시작
   g.start(room ? Math.max(0.35, (room.startAt - Date.now()) / 1000) : 0);
+}
+/** ✨ PERFECT+ 설명 창 (곡 시작 전 한 번, 「시작!」 = 그 곡 바로 시작) */
+function openPplusInfo(songId) {
+  $('#pplus-go').dataset.pplusGo = String(songId);
+  openModal('modal-pplus');
+}
+function pplusGo() {
+  const id = Number($('#pplus-go').dataset.pplusGo);
+  save('pplusSeen', true);
+  closeModal('modal-pplus');
+  if (id) tilePlay(id);
 }
 /** 🔒 아직 안 열린 단계 곡을 누름 */
 function tileTierToast(song) {
@@ -7065,7 +7085,7 @@ async function tileEnd(r) {
   tileResStars(r);
   $('#tp-res-new').hidden = !isNew || !!room;
   $('#tp-res-rank').hidden = true;
-  $('#tp-res-stats').innerHTML = `<div><b>${r.laps}</b><small>바퀴</small></div><div><b>${r.maxCombo}</b><small>최대 연속</small></div><div><b>${r.perfect || 0}</b><small>PERFECT</small></div>`;
+  $('#tp-res-stats').innerHTML = `<div><b>${r.laps}</b><small>바퀴</small></div><div><b>${r.maxCombo}</b><small>최대 연속</small></div><div><b>${r.perfect || 0}</b><small>PERFECT</small></div>${r.pplus != null ? `<div class="pplus-stat"><b>${r.pplus}</b><small>PERFECT+</small></div>` : ''}`;
   $('#tp-res-btns').hidden = !!room;
   $('#tp-res-maprank').hidden = !map;
   $('[data-action="tp-rank"]').hidden = !!map;
@@ -8213,6 +8233,8 @@ const ACTIONS = {
     askNickname(true);
   },
   'close-tinfo': () => closeModal('modal-tinfo'),
+  'pplus-go': () => pplusGo(),
+  'close-pplus': () => closeModal('modal-pplus'),
   'close-verify': () => {
     state.verifyFor = null;
     closeModal('modal-verify');

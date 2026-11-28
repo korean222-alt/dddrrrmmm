@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=5cdbcddbba" />
+  <link rel="stylesheet" href="css/style.css?v=8c1e7c9ce9" />
 </head>
 <body>
   <div id="app">
@@ -279,6 +279,7 @@
         </div>
         <div class="sr-songs" id="sr-songs" hidden></div>
         <div class="sr-list" id="sr-list"></div>
+        <p class="sr-tie">같은 점수면 먼저 낸 사람이 위</p>
         <button class="btn btn-ghost btn-sm sr-hall" data-action="hall-open">🏛 명예의 전당</button>
       </div>
     </section>
@@ -984,6 +985,21 @@
     </div>
   </div>
 
+  <!-- ✨ PERFECT+ 설명 (2026-11-28, PERFECT+ 곡을 처음 시작할 때 한 번) -->
+  <div class="modal" id="modal-pplus" hidden>
+    <div class="sheet small pplus-sheet">
+      <button class="icon-btn close" data-action="close-pplus" aria-label="닫기"><span data-icon="close"></span></button>
+      <div class="pplus-word" aria-hidden="true">PERFECT<span>+</span></div>
+      <h2>이 곡엔 PERFECT+ 가 있어요</h2>
+      <ul class="pplus-list">
+        <li>🎯 판정선 <b>한가운데</b>에 딱 맞춰 누르면 <b>PERFECT+</b></li>
+        <li>💯 PERFECT 보다 점수가 더 높아요 <small>(1,000 → 1,200)</small></li>
+        <li>🏆 같은 점수면 <b>먼저 낸 사람</b>이 랭킹 위로 가요</li>
+      </ul>
+      <button class="btn btn-primary btn-big" id="pplus-go" data-action="pplus-go">알겠어요, 시작!</button>
+    </div>
+  </div>
+
   <div class="modal" id="modal-tiledie" hidden>
     <div class="sheet small cont-sheet">
       <div class="cont-heart" aria-hidden="true"><span data-icon="heartbreak" data-e></span></div>
@@ -1503,6 +1519,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=f4812bf3af" defer></script>
+  <script src="js/app.js?v=19b9a4cd5b" defer></script>
 </body>
 </html>

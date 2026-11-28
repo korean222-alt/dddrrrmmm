@@ -21,8 +21,8 @@
 //   👆 타일 자리를 눌러야 침 (빈 칸 = 하트), PERFECT 한가운데 = 타일이 판정선에 걸칠 때 (PERFECT_ROWS)
 //   ⚔️ 대결(vs): 상대 점수 막대, maxLaps 바퀴(기본 3)에서 끝, 코인 파티 없음
 
-import { STEPS_PER_BAR, parseChord, getLevel } from './charts.js';
-import { tileLap, tileCourse, buildCourse, lapStars, MAX_LAPS, TILE_HEARTS, TILE_ROWS, tilePoints, HOLD_PTS } from './tiles.js';
+import { STEPS_PER_BAR, parseChord } from './charts.js';
+import { tileLap, tileCourse, buildCourse, lapStars, MAX_LAPS, TILE_HEARTS, TILE_ROWS, tilePoints, HOLD_PTS, tileLevel, PPLUS_SEC } from './tiles.js';
 
 const FONT = "Jua, 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif";
 const font = (px) => `${Math.round(px)}px ${FONT}`;
@@ -46,6 +46,8 @@ const GREAT_SEC = [-0.15, 0.17];
 /** 🎯 PERFECT 자리 (줄): 타일 아래 끝이 판정선을 이만큼 지난 때가 한가운데 (2026-11-27 사용자 '선 중간에 맞춰 누르는데 PERFECT 가 안 떠, 좀만 내려')
  *   = 타일이 판정선에 걸쳐 있을 때. 소리(그 음)는 그대로 아래 끝이 선에 닿을 때 */
 const PERFECT_ROWS = 0.3;
+/** ✨ PERFECT+ 글자 색 (무지개 금빛) */
+const PPLUS_COLORS = ['#fff3a0', '#ffc93c', '#ff8fd0', '#9fe4ff', '#c9a6ff'];
 
 /**
  * 🎨 판정 글자 색 = 스킨 컨셉 (2026-11-27 사용자 '세트 스킨들은 PERFECT 도 컨셉에 맞게 색 바뀌게, 라이브 세트는 최대한 비슷하게')
@@ -86,7 +88,7 @@ const DROP_SEC = 0.7;
 /** 노래 소리 미리 예약 (초) */
 const LOOKAHEAD = 0.3;
 /** 곡마다 배경 색 (곡 목록 표지와 같은 색) */
-const SONG_HUES = { 1: 28, 2: 340, 3: 200, 4: 265, 5: 150, 6: 12, 11: 300, 12: 185, 7: 45, 17: 230, 9: 320, 8: 95, 16: 255, 10: 5, 13: 170, 18: 280, 14: 210, 15: 355 };
+const SONG_HUES = { 101: 120, 1: 28, 2: 340, 3: 200, 4: 265, 5: 150, 6: 12, 11: 300, 12: 185, 7: 45, 17: 230, 9: 320, 8: 95, 16: 255, 10: 5, 13: 170, 18: 280, 14: 210, 15: 355 };
 
 export class TileGame {
   /**
@@ -140,6 +142,7 @@ export class TileGame {
     this.missed = 0;
     this.wrong = 0;
     this.perfect = 0;
+    this.pplus = 0;
     this.lapsDone = 0;
     this.doneSong = 0;
     this.starsNow = 0;
@@ -189,7 +192,7 @@ export class TileGame {
     const lap = this.lap;
     const T = (abs) => this.tempo.stepTime(abs) - this.t0;
     const ev = [];
-    const lv = this.songId ? getLevel(this.songId) : null;
+    const lv = this.songId ? tileLevel(this.songId) : null;
     const hatPat = lv && lv.song && typeof lv.song.hat === 'string' && lv.song.hat.length === 16 ? lv.song.hat : 'x.x.x.x.x.x.x.x.';
     const chordsOf = (bar) =>
       String(lap.prog[((bar % lap.bars) + lap.bars) % lap.bars] || 'C')
@@ -851,11 +854,15 @@ export class TileGame {
     // PERFECT 한가운데 = 아래 끝이 판정선을 PERFECT_ROWS 줄 지난 때 (빠르기에 따라 초로)
     const rps = Math.max(0.5, (this._rowAt(tl.t + 0.05) - this._rowAt(tl.t - 0.05)) / 0.1);
     const dt = t - tl.t - clamp(PERFECT_ROWS / rps, 0.03, 0.11);
-    const word = dt >= PERFECT_SEC[0] && dt <= PERFECT_SEC[1] ? 'perfect' : dt >= GREAT_SEC[0] && dt <= GREAT_SEC[1] ? 'great' : 'good';
-    // 콤보는 PERFECT 만 쌓임 (2026-11-27 사용자)
-    if (word === 'perfect') {
+    let word = dt >= PERFECT_SEC[0] && dt <= PERFECT_SEC[1] ? 'perfect' : dt >= GREAT_SEC[0] && dt <= GREAT_SEC[1] ? 'great' : 'good';
+    // ✨ PERFECT+ (pplus 곡만, 2026-11-28): PERFECT 중에서도 한가운데
+    if (word === 'perfect' && this.lap.pplus && Math.abs(dt) <= PPLUS_SEC) word = 'pplus';
+    const per = word === 'perfect' || word === 'pplus';
+    // 콤보는 PERFECT(+) 만 쌓임 (2026-11-27 사용자)
+    if (per) {
       this.combo++;
       this.perfect++;
+      if (word === 'pplus') this.pplus++;
     } else this.combo = 0;
     this.maxCombo = Math.max(this.maxCombo, this.combo);
     const pts = tilePoints(word, this.combo);
@@ -865,10 +872,10 @@ export class TileGame {
     this.lastHit[tl.lane] = t;
     this.press[tl.lane] = 1;
     this.comboAt = t;
-    this.fx.judge.push({ at: t, word: word.toUpperCase(), n: this.combo, late: dt > 0 });
-    this.fx.ring.push({ at: t, lane: tl.lane, row: tl.row, word });
+    this.fx.judge.push({ at: t, word: word === 'pplus' ? 'PERFECT+' : word.toUpperCase(), n: this.combo, late: dt > 0 });
+    this.fx.ring.push({ at: t, lane: tl.lane, row: tl.row, word: per ? 'perfect' : word, plus: word === 'pplus' });
     // 🪙 드럼처럼 판정선에서 코인이 튀어 올라 떨어짐
-    this._dropCoins(tl.lane, word === 'perfect' ? 2 : 1);
+    this._dropCoins(tl.lane, per ? 2 : 1);
     if (tl.hold) {
       // 👆 누른 손가락 자리부터 (2026-11-27 사용자 '선에 맞춰 오르지 말고 내가 누른 위치에서')
       const yb = this.judgeY - (tl.row - this._rowAt(t)) * this.rowH;
@@ -889,8 +896,9 @@ export class TileGame {
     tl.start = true;
     this.combo++;
     this.perfect++;
+    if (this.lap.pplus) this.pplus++;
     this.maxCombo = Math.max(this.maxCombo, this.combo);
-    this.score += tilePoints('perfect', this.combo);
+    this.score += tilePoints(this.lap.pplus ? 'pplus' : 'perfect', this.combo);
     this.coins += 1;
     this.hits++;
     this.lastHit[tl.lane] = 0;
@@ -1009,6 +1017,7 @@ export class TileGame {
       partyCoins: this.partyCoins,
       hits: this.hits,
       perfect: this.perfect,
+      pplus: this.lap.pplus ? this.pplus : null,
       laps: this.lapsDone,
       stars,
       gems,
@@ -1704,7 +1713,8 @@ export class TileGame {
   _drawJudge(g, t) {
     const j = this.fx.judge[this.fx.judge.length - 1];
     if (!j) return;
-    const per = j.word === 'PERFECT';
+    const per = j.word === 'PERFECT' || j.word === 'PERFECT+';
+    const plus = j.word === 'PERFECT+';
     const life = per ? 0.75 : 0.6;
     const k = (t - j.at) / life;
     if (k < 0 || k > 1) return;
@@ -1783,11 +1793,12 @@ export class TileGame {
       }
     }
     const gr = g.createLinearGradient(-tw / 2, -px * 0.3, tw / 2, px * 0.3);
-    const cs = per ? th.perfect : j.word === 'GREAT' ? th.great : th.good;
+    // ✨ PERFECT+ = 무지개 금빛 글자 + 금빛 빛 + 반짝이 (스킨과 상관없이 늘 같음 — 한눈에 PERFECT 와 구분)
+    const cs = plus ? PPLUS_COLORS : per ? th.perfect : j.word === 'GREAT' ? th.great : th.good;
     cs.forEach((c, i) => gr.addColorStop(i / (cs.length - 1), c));
     g.lineJoin = 'round';
-    g.shadowColor = per ? th.shadow : 'rgba(40,60,160,0.35)';
-    g.shadowBlur = per && th.fx === 'streak' ? 14 : 10;
+    g.shadowColor = plus ? 'rgba(255,190,40,0.95)' : per ? th.shadow : 'rgba(40,60,160,0.35)';
+    g.shadowBlur = plus ? 18 : per && th.fx === 'streak' ? 14 : 10;
     g.shadowOffsetY = th.fx === 'streak' ? 0 : 2;
     g.lineWidth = px * 0.15;
     g.strokeStyle = th.stroke;
@@ -1801,6 +1812,28 @@ export class TileGame {
     hg.addColorStop(1, 'rgba(255,255,255,0)');
     g.fillStyle = hg;
     g.fillText(j.word, 0, 0);
+    if (plus) {
+      // 반짝이 네 개가 글자 둘레에서 톡톡
+      for (const [dx, dy, r0, d] of [[-0.56, -0.5, 0.2, 0], [0.54, -0.55, 0.16, 0.08], [0.6, 0.45, 0.13, 0.04], [-0.5, 0.5, 0.11, 0.12]]) {
+        const kk = clamp((k - d) / 0.5, 0, 1);
+        const rr = px * r0 * Math.sin(Math.PI * kk);
+        if (rr <= 0.2) continue;
+        g.save();
+        g.translate(tw * dx, px * dy);
+        g.fillStyle = '#fffbe0';
+        g.shadowColor = 'rgba(255,200,60,0.9)';
+        g.shadowBlur = 8;
+        g.beginPath();
+        for (let q = 0; q < 8; q++) {
+          const ang = (q * Math.PI) / 4;
+          const rad = q % 2 ? rr * 0.32 : rr;
+          g.lineTo(Math.cos(ang) * rad, Math.sin(ang) * rad);
+        }
+        g.closePath();
+        g.fill();
+        g.restore();
+      }
+    }
     if (!per) {
       // 빨라요 / 늦어요 (왜 PERFECT 가 아닌지)
       g.font = font(px * 0.44);

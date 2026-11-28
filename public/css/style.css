@@ -1390,7 +1390,7 @@ html.s2 #screen-levels .follow-chip { display: none !important; }
 .tp-res-new { font-size: 15px; padding: 3px 14px; border-radius: 99px; color: #fff; background: linear-gradient(90deg, #ff9a3d, #ff4fa0); animation: s2bob 1s ease-in-out infinite; }
 .tp-res-rank { font-size: 16px; padding: 6px 14px; border-radius: 14px; background: #2b1f55; color: #ffe27a; }
 .tp-res-rank .link { color: #fff; padding: 0 2px; font-size: 16px; }
-.tp-res-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; width: 100%; }
+.tp-res-stats { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; gap: 6px; width: 100%; }
 .tp-res-stats div { display: grid; gap: 1px; padding: 7px 4px; border-radius: 12px; background: #f6f3fa; }
 .tp-res-stats b { font-weight: 400; font-size: 19px; }
 .tp-res-stats small { font-size: 11px; color: var(--muted); }
@@ -1490,6 +1490,18 @@ html.s2 #btn-rank { display: none; }
 .tl-row.d3 .t-pips i.on { background: #ff8a4c; }
 .tl-row.d4 .t-pips i.on, .tl-row.d5 .t-pips i.on { background: #ff3d6e; }
 .t-tag { font-style: normal; font-size: 10px; padding: 1px 6px; border-radius: 99px; margin-left: 5px; vertical-align: 2px; color: #fff; background: #ff3d6e; }
+/* ✨ PERFECT+ (2026-11-28) */
+.t-tag.pplus { background: linear-gradient(90deg, #ffb11f, #ff6fb8, #7fc8ff); font-weight: 700; letter-spacing: 0.2px; }
+.pplus-sheet { text-align: center; }
+.pplus-word { font: 700 40px 'Fredoka', 'Arial Rounded MT Bold', system-ui, sans-serif; margin: 6px 0 2px; background: linear-gradient(90deg, #ffc93c, #ff8fd0, #9fe4ff, #c9a6ff); -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 2px 6px rgba(255, 180, 40, 0.55)); animation: pplus-glow 1.6s ease-in-out infinite; }
+.pplus-word span { font-size: 1.15em; }
+@keyframes pplus-glow { 50% { filter: drop-shadow(0 2px 12px rgba(255, 190, 60, 0.95)); transform: scale(1.04); } }
+.pplus-sheet h2 { font-size: 18px; margin: 4px 0 10px; }
+.pplus-list { list-style: none; padding: 0; margin: 0 0 16px; text-align: left; display: grid; gap: 8px; font-size: 14px; line-height: 1.45; }
+.pplus-list li { background: #f6f3fa; border-radius: 12px; padding: 9px 12px; }
+.pplus-list small { opacity: 0.7; }
+.pplus-stat b { background: linear-gradient(90deg, #ffc93c, #ff8fd0, #9fe4ff); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.sr-tie { text-align: center; font-size: 12px; opacity: 0.6; margin: 6px 0 0; }
 .tl-side { display: grid; justify-items: end; gap: 2px; }
 .tl-side small { font-size: 12px; color: var(--muted); }
 .t-stars { display: inline-flex; gap: 1px; font-size: 15px; line-height: 1; }

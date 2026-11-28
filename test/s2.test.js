@@ -433,3 +433,21 @@ test('유저 맵 타일: 직접 놓은 타일(tl) · 고른 난이도(tdiff)', (
   assert.equal(cleanMap({ ...raw, tl: tl.map(() => '0...............') }), null);
   assert.ok(!cleanMap({ ...raw, tl: ['x'], melody: ['C4:4 D4:4 E4:4 F4:4', 'G4:4 A4:4 B4:4 C5:4', 'C4:16', 'C4:16'] }).tl);
 });
+
+test('✨ PERFECT+ 곡(사계 봄): 타일 전용 곡 · 만점은 전부 PERFECT+ · 서버 검사', async () => {
+  const T = await import('../public/js/tiles.js');
+  const song = T.tileSong('t101');
+  assert.ok(song && song.level.name.includes('봄'));
+  assert.equal(T.hasPplus(101), true);
+  assert.equal(T.hasPplus(8), false);
+  assert.equal(T.tilePoints('pplus', 1), Math.round(1200 * 1.01));
+  const c = T.tileCourse(101);
+  // 첫 타일 만점 = PERFECT+ 점수
+  const first = c.tiles.find((t) => !t.coin);
+  assert.equal(first.pts, T.tilePoints('pplus', 1) + (first.rows - 1) * T.HOLD_PTS);
+  assert.ok(T.checkTileRun(101, { tiles: c.points, laps: T.MAX_LAPS, maxCombo: 9999 }, 9999).ok);
+  assert.equal(T.checkTileRun(101, { tiles: c.points + 1, laps: T.MAX_LAPS }, 9999).ok, false);
+  // 드럼 단계 목록에는 안 들어감
+  const { getLevel } = await import('../public/js/charts.js');
+  assert.equal(getLevel(101), null);
+});

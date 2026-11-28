@@ -10488,7 +10488,7 @@ const __m_tiles = (() => {
 //   · 점수 = 친 타일 + 긴 타일 덤. 코인 = 친 타일 하나에 1개 + 코인 파티 타일. 랭킹 = 곡마다(scores 칸 3000+곡 번호) + 시즌 총합(명예의 전당 'tiles')
 //   ⚠ 서버는 tileTimes 로 '그 시간 안에 칠 수 있는 점수'를 넘는 기록을 막음
 
-const { parseMelody, parseChord, noteToMidi, STEPS_PER_BAR, getLevel, TempoMap, pointsFor } = __m_charts;
+const { parseMelody, parseChord, noteToMidi, STEPS_PER_BAR, getLevel, TempoMap, pointsFor, comboMultiplier } = __m_charts;
 
 /** 화면에 보이는 줄 수 (보통 타일 높이 = 화면 높이 / TILE_ROWS). 바꾸지 말 것 (11-26 사용자) */
 // 2026-11-27 사용자 '타일 세로 크기 조금만 더' → 4 → 3.5 (그래도 모든 곡·유저 맵이 같은 크기)
@@ -10531,7 +10531,58 @@ const TILE_SONGS = [
   { id: 18, diff: 4 },
   { id: 14, diff: 5 },
   { id: 15, diff: 5 },
+  // 🌸 2026-11-28 새 곡 (사용자 '만점 받은 사람이 많아 → 새 곡엔 PERFECT+'): 타일 전용 곡 (드럼 단계엔 없음, TILE_LEVELS)
+  { id: 101, diff: 3, pplus: true, newUntil: '2026-12-12' },
 ];
+
+/**
+ * ✨ PERFECT+ (2026-11-28 사용자 '새 곡에는 퍼펙트+'): pplus 곡만. PERFECT 중에서도 한가운데 PPLUS_SEC 안이면 PERFECT+
+ *   점수 PPLUS_POINTS × 콤보 배수 (PERFECT 1000), 콤보는 PERFECT 와 똑같이 쌓임. 만점 = 전부 PERFECT+ → 실력 차가 남
+ */
+const PPLUS_SEC = 0.035;
+const PPLUS_POINTS = 1200;
+
+/**
+ * 🎹 타일 전용 곡 (드럼 LEVELS 에 없는 곡, 퍼블릭 도메인만). 모양은 드럼 단계와 같음 (name·composer·song.melody·song.prog·song.hat)
+ *   id 는 100 넘게 (드럼 단계 번호와 안 겹치게), scores 칸 = 3000 + id
+ */
+const TILE_LEVELS = {
+  // 비발디 「사계」 중 봄 1악장 (1725년, 퍼블릭 도메인): 리토르넬로(솔#솔#솔# 파#미 시—) → 새소리 → 리토르넬로
+  101: {
+    id: 101,
+    name: '사계 「봄」',
+    composer: '비발디',
+    difficulty: 3,
+    bpm: 120,
+    song: {
+      hat: 'x.x.x.x.x.x.x.x.',
+      prog: ['E', 'E', 'E', 'E B', 'E', 'E', 'E B', 'E', 'E', 'E', 'B E', 'E', 'E', 'E B', 'E B', 'E'],
+      melody: [
+        'B4:4 E5:4 G#5:4 _:2 E5:2',
+        'G#5:2 G#5:2 G#5:2 F#5:1 E5:1 B5:6 B5:1 A5:1',
+        'G#5:2 G#5:2 G#5:2 F#5:1 E5:1 B5:6 B5:1 A5:1',
+        'G#5:2 A5:2 B5:2 A5:2 G#5:4 F#5:2 E5:2',
+        'G#5:2 G#5:2 G#5:2 F#5:1 E5:1 B5:6 B5:1 A5:1',
+        'G#5:2 G#5:2 G#5:2 F#5:1 E5:1 B5:6 B5:1 A5:1',
+        'G#5:2 A5:2 B5:2 A5:2 G#5:4 F#5:4',
+        'E5:8 B4:4 E5:4',
+        // 🐦 새소리 (바이올린 지저귐)
+        'B5:2 E6:2 B5:2 E6:2 G#5:2 E6:2 G#5:2 E6:2',
+        'E6:1 D#6:1 E6:2 B5:2 E6:2 E6:1 D#6:1 E6:2 B5:2 E6:2',
+        'F#6:2 E6:2 D#6:2 E6:2 B5:6 E5:2',
+        'G#5:2 G#5:2 G#5:2 F#5:1 E5:1 B5:6 B5:1 A5:1',
+        'G#5:2 G#5:2 G#5:2 F#5:1 E5:1 B5:6 B5:1 A5:1',
+        'G#5:2 A5:2 B5:2 A5:2 G#5:4 F#5:2 E5:2',
+        'G#5:2 A5:2 B5:2 A5:2 G#5:2 F#5:2 B4:2 D#5:2',
+        'E5:12 _:4',
+      ],
+    },
+  },
+};
+/** 곡 번호 → 곡 정보 (타일 전용 곡 먼저, 없으면 드럼 단계) */
+const tileLevel = (id) => TILE_LEVELS[Number(id)] || getLevel(id);
+/** 이 곡에 ✨ PERFECT+ 가 있나 */
+const hasPplus = (id) => !!(TILE_SONGS.find((s) => s.id === Number(id)) || {}).pplus;
 const TILE_DIFF = ['', '쉬움', '보통', '어려움', '지옥', '지옥+'];
 /** 처음 몇 곡은 누구나 (나머지는 드럼 4단계부터처럼 팔로워 인증) */
 const TILE_FREE = 3;
@@ -10611,7 +10662,7 @@ const TILE_MEL = {
 
 /** 곡의 멜로디·코드 (TILE_MEL 이 있으면 곡 전체) */
 function tileSource(songId) {
-  const level = getLevel(songId);
+  const level = tileLevel(songId);
   if (!level || !level.song || !level.song.melody) return null;
   const base = level.song;
   const prog0 = base.prog || ['C'];
@@ -10721,8 +10772,8 @@ function freeTiles(tl, notes = []) {
   return out;
 }
 
-/** 판정에 따른 점수 (드럼처럼: PERFECT 1000·GREAT 700·GOOD 400 × 콤보 배수, 콤보는 PERFECT 만 쌓임) */
-const tilePoints = (word, combo) => pointsFor(word, combo);
+/** 판정에 따른 점수 (드럼처럼: PERFECT 1000·GREAT 700·GOOD 400 × 콤보 배수, 콤보는 PERFECT 만 쌓임) · ✨ PERFECT+ 1200 */
+const tilePoints = (word, combo) => (word === 'pplus' ? Math.round(PPLUS_POINTS * comboMultiplier(combo)) : pointsFor(word, combo));
 
 /**
  * 판 전체(코스): 바퀴 0(별 3개) → 🪙 코인 파티 → 바퀴 1·2·3(점점 빠르게, 다이아 하나씩) — 바퀴마다 같은 타일·같은 줄
@@ -10771,7 +10822,7 @@ function buildCourse(lap, { laps = MAX_LAPS, party = true } = {}) {
     }
     while (lapEnd.length < c.k) lapEnd.push(n), lapPts.push(pts);
     combo++;
-    c.pts = tilePoints('perfect', combo) + (c.rows - 1) * HOLD_PTS;
+    c.pts = tilePoints(lap.pplus ? 'pplus' : 'perfect', combo) + (c.rows - 1) * HOLD_PTS;
     pts += c.pts;
     n++;
   }
@@ -10848,7 +10899,14 @@ function tileLap(songId) {
     const sh = hi + 12 <= 88 ? 12 : -12;
     lap = buildLap([...src.melody, ...src.melody.map((b) => transposeBar(b, sh))], [...src.prog, ...src.prog], TILE_RPS[s.diff], DIFF_SPEEDS[s.diff]);
   }
-  if (lap) lap.songId = songId;
+  if (lap) {
+    lap.songId = songId;
+    lap.pplus = !!(s && s.pplus);
+    if (lap.pplus) {
+      const two = buildCourse(lap, { laps: 2, party: true });
+      lap.points = two.lapPts[0];
+    }
+  }
   _laps.set(songId, lap);
   return lap;
 }
@@ -10899,7 +10957,7 @@ function tileSong(id) {
   if (!m) return null;
   const i = TILE_SONGS.findIndex((s) => s.id === Number(m[1]));
   if (i < 0) return null;
-  const level = getLevel(TILE_SONGS[i].id);
+  const level = tileLevel(TILE_SONGS[i].id);
   if (!level) return null;
   return { ...TILE_SONGS[i], order: i + 1, level, key: tileId(TILE_SONGS[i].id) };
 }
@@ -10980,7 +11038,7 @@ const gradeLaps = (g) => {
   return m ? Number(m[1]) : 0;
 };
 
-return { TILE_ROWS, TILE_RPS, LAP_SPEEDS, DIFF_SPEEDS, HOLD_PTS, TILE_SONGS, TILE_DIFF, TILE_FREE, TILE_SLOT0, TILE_SLOT_MAX, MAX_LAPS, TILE_HEARTS, GONE_ROWS, MIN_TAP_SEC, MIN_GAP, PARTY_BARS, PARTY_GAP, TILE_MEL, tileSource, rowUnit, buildLap, freeTiles, tilePoints, buildCourse, assignLanes, LAP_MIN_SEC, transposeBar, tileLap, mapTileLap, MAP_TILE_LAPS, mapTileMax, lapSpeed, lapStars, tileId, tileSong, tileSlot, isTileSlot, tileClosed, tileCourse, tileTimes, tilesWithin, checkTileRun, lapGrade, gradeLaps };
+return { TILE_ROWS, TILE_RPS, LAP_SPEEDS, DIFF_SPEEDS, HOLD_PTS, TILE_SONGS, PPLUS_SEC, PPLUS_POINTS, TILE_LEVELS, tileLevel, hasPplus, TILE_DIFF, TILE_FREE, TILE_SLOT0, TILE_SLOT_MAX, MAX_LAPS, TILE_HEARTS, GONE_ROWS, MIN_TAP_SEC, MIN_GAP, PARTY_BARS, PARTY_GAP, TILE_MEL, tileSource, rowUnit, buildLap, freeTiles, tilePoints, buildCourse, assignLanes, LAP_MIN_SEC, transposeBar, tileLap, mapTileLap, MAP_TILE_LAPS, mapTileMax, lapSpeed, lapStars, tileId, tileSong, tileSlot, isTileSlot, tileClosed, tileCourse, tileTimes, tilesWithin, checkTileRun, lapGrade, gradeLaps };
 })();
 
 // ---- tilegame.js ----
@@ -11008,8 +11066,8 @@ const __m_tilegame = (() => {
 //   👆 타일 자리를 눌러야 침 (빈 칸 = 하트), PERFECT 한가운데 = 타일이 판정선에 걸칠 때 (PERFECT_ROWS)
 //   ⚔️ 대결(vs): 상대 점수 막대, maxLaps 바퀴(기본 3)에서 끝, 코인 파티 없음
 
-const { STEPS_PER_BAR, parseChord, getLevel } = __m_charts;
-const { tileLap, tileCourse, buildCourse, lapStars, MAX_LAPS, TILE_HEARTS, TILE_ROWS, tilePoints, HOLD_PTS } = __m_tiles;
+const { STEPS_PER_BAR, parseChord } = __m_charts;
+const { tileLap, tileCourse, buildCourse, lapStars, MAX_LAPS, TILE_HEARTS, TILE_ROWS, tilePoints, HOLD_PTS, tileLevel, PPLUS_SEC } = __m_tiles;
 
 const FONT = "Jua, 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif";
 const font = (px) => `${Math.round(px)}px ${FONT}`;
@@ -11033,6 +11091,8 @@ const GREAT_SEC = [-0.15, 0.17];
 /** 🎯 PERFECT 자리 (줄): 타일 아래 끝이 판정선을 이만큼 지난 때가 한가운데 (2026-11-27 사용자 '선 중간에 맞춰 누르는데 PERFECT 가 안 떠, 좀만 내려')
  *   = 타일이 판정선에 걸쳐 있을 때. 소리(그 음)는 그대로 아래 끝이 선에 닿을 때 */
 const PERFECT_ROWS = 0.3;
+/** ✨ PERFECT+ 글자 색 (무지개 금빛) */
+const PPLUS_COLORS = ['#fff3a0', '#ffc93c', '#ff8fd0', '#9fe4ff', '#c9a6ff'];
 
 /**
  * 🎨 판정 글자 색 = 스킨 컨셉 (2026-11-27 사용자 '세트 스킨들은 PERFECT 도 컨셉에 맞게 색 바뀌게, 라이브 세트는 최대한 비슷하게')
@@ -11073,7 +11133,7 @@ const DROP_SEC = 0.7;
 /** 노래 소리 미리 예약 (초) */
 const LOOKAHEAD = 0.3;
 /** 곡마다 배경 색 (곡 목록 표지와 같은 색) */
-const SONG_HUES = { 1: 28, 2: 340, 3: 200, 4: 265, 5: 150, 6: 12, 11: 300, 12: 185, 7: 45, 17: 230, 9: 320, 8: 95, 16: 255, 10: 5, 13: 170, 18: 280, 14: 210, 15: 355 };
+const SONG_HUES = { 101: 120, 1: 28, 2: 340, 3: 200, 4: 265, 5: 150, 6: 12, 11: 300, 12: 185, 7: 45, 17: 230, 9: 320, 8: 95, 16: 255, 10: 5, 13: 170, 18: 280, 14: 210, 15: 355 };
 
 class TileGame {
   /**
@@ -11127,6 +11187,7 @@ class TileGame {
     this.missed = 0;
     this.wrong = 0;
     this.perfect = 0;
+    this.pplus = 0;
     this.lapsDone = 0;
     this.doneSong = 0;
     this.starsNow = 0;
@@ -11176,7 +11237,7 @@ class TileGame {
     const lap = this.lap;
     const T = (abs) => this.tempo.stepTime(abs) - this.t0;
     const ev = [];
-    const lv = this.songId ? getLevel(this.songId) : null;
+    const lv = this.songId ? tileLevel(this.songId) : null;
     const hatPat = lv && lv.song && typeof lv.song.hat === 'string' && lv.song.hat.length === 16 ? lv.song.hat : 'x.x.x.x.x.x.x.x.';
     const chordsOf = (bar) =>
       String(lap.prog[((bar % lap.bars) + lap.bars) % lap.bars] || 'C')
@@ -11838,11 +11899,15 @@ class TileGame {
     // PERFECT 한가운데 = 아래 끝이 판정선을 PERFECT_ROWS 줄 지난 때 (빠르기에 따라 초로)
     const rps = Math.max(0.5, (this._rowAt(tl.t + 0.05) - this._rowAt(tl.t - 0.05)) / 0.1);
     const dt = t - tl.t - clamp(PERFECT_ROWS / rps, 0.03, 0.11);
-    const word = dt >= PERFECT_SEC[0] && dt <= PERFECT_SEC[1] ? 'perfect' : dt >= GREAT_SEC[0] && dt <= GREAT_SEC[1] ? 'great' : 'good';
-    // 콤보는 PERFECT 만 쌓임 (2026-11-27 사용자)
-    if (word === 'perfect') {
+    let word = dt >= PERFECT_SEC[0] && dt <= PERFECT_SEC[1] ? 'perfect' : dt >= GREAT_SEC[0] && dt <= GREAT_SEC[1] ? 'great' : 'good';
+    // ✨ PERFECT+ (pplus 곡만, 2026-11-28): PERFECT 중에서도 한가운데
+    if (word === 'perfect' && this.lap.pplus && Math.abs(dt) <= PPLUS_SEC) word = 'pplus';
+    const per = word === 'perfect' || word === 'pplus';
+    // 콤보는 PERFECT(+) 만 쌓임 (2026-11-27 사용자)
+    if (per) {
       this.combo++;
       this.perfect++;
+      if (word === 'pplus') this.pplus++;
     } else this.combo = 0;
     this.maxCombo = Math.max(this.maxCombo, this.combo);
     const pts = tilePoints(word, this.combo);
@@ -11852,10 +11917,10 @@ class TileGame {
     this.lastHit[tl.lane] = t;
     this.press[tl.lane] = 1;
     this.comboAt = t;
-    this.fx.judge.push({ at: t, word: word.toUpperCase(), n: this.combo, late: dt > 0 });
-    this.fx.ring.push({ at: t, lane: tl.lane, row: tl.row, word });
+    this.fx.judge.push({ at: t, word: word === 'pplus' ? 'PERFECT+' : word.toUpperCase(), n: this.combo, late: dt > 0 });
+    this.fx.ring.push({ at: t, lane: tl.lane, row: tl.row, word: per ? 'perfect' : word, plus: word === 'pplus' });
     // 🪙 드럼처럼 판정선에서 코인이 튀어 올라 떨어짐
-    this._dropCoins(tl.lane, word === 'perfect' ? 2 : 1);
+    this._dropCoins(tl.lane, per ? 2 : 1);
     if (tl.hold) {
       // 👆 누른 손가락 자리부터 (2026-11-27 사용자 '선에 맞춰 오르지 말고 내가 누른 위치에서')
       const yb = this.judgeY - (tl.row - this._rowAt(t)) * this.rowH;
@@ -11876,8 +11941,9 @@ class TileGame {
     tl.start = true;
     this.combo++;
     this.perfect++;
+    if (this.lap.pplus) this.pplus++;
     this.maxCombo = Math.max(this.maxCombo, this.combo);
-    this.score += tilePoints('perfect', this.combo);
+    this.score += tilePoints(this.lap.pplus ? 'pplus' : 'perfect', this.combo);
     this.coins += 1;
     this.hits++;
     this.lastHit[tl.lane] = 0;
@@ -11996,6 +12062,7 @@ class TileGame {
       partyCoins: this.partyCoins,
       hits: this.hits,
       perfect: this.perfect,
+      pplus: this.lap.pplus ? this.pplus : null,
       laps: this.lapsDone,
       stars,
       gems,
@@ -12691,7 +12758,8 @@ class TileGame {
   _drawJudge(g, t) {
     const j = this.fx.judge[this.fx.judge.length - 1];
     if (!j) return;
-    const per = j.word === 'PERFECT';
+    const per = j.word === 'PERFECT' || j.word === 'PERFECT+';
+    const plus = j.word === 'PERFECT+';
     const life = per ? 0.75 : 0.6;
     const k = (t - j.at) / life;
     if (k < 0 || k > 1) return;
@@ -12770,11 +12838,12 @@ class TileGame {
       }
     }
     const gr = g.createLinearGradient(-tw / 2, -px * 0.3, tw / 2, px * 0.3);
-    const cs = per ? th.perfect : j.word === 'GREAT' ? th.great : th.good;
+    // ✨ PERFECT+ = 무지개 금빛 글자 + 금빛 빛 + 반짝이 (스킨과 상관없이 늘 같음 — 한눈에 PERFECT 와 구분)
+    const cs = plus ? PPLUS_COLORS : per ? th.perfect : j.word === 'GREAT' ? th.great : th.good;
     cs.forEach((c, i) => gr.addColorStop(i / (cs.length - 1), c));
     g.lineJoin = 'round';
-    g.shadowColor = per ? th.shadow : 'rgba(40,60,160,0.35)';
-    g.shadowBlur = per && th.fx === 'streak' ? 14 : 10;
+    g.shadowColor = plus ? 'rgba(255,190,40,0.95)' : per ? th.shadow : 'rgba(40,60,160,0.35)';
+    g.shadowBlur = plus ? 18 : per && th.fx === 'streak' ? 14 : 10;
     g.shadowOffsetY = th.fx === 'streak' ? 0 : 2;
     g.lineWidth = px * 0.15;
     g.strokeStyle = th.stroke;
@@ -12788,6 +12857,28 @@ class TileGame {
     hg.addColorStop(1, 'rgba(255,255,255,0)');
     g.fillStyle = hg;
     g.fillText(j.word, 0, 0);
+    if (plus) {
+      // 반짝이 네 개가 글자 둘레에서 톡톡
+      for (const [dx, dy, r0, d] of [[-0.56, -0.5, 0.2, 0], [0.54, -0.55, 0.16, 0.08], [0.6, 0.45, 0.13, 0.04], [-0.5, 0.5, 0.11, 0.12]]) {
+        const kk = clamp((k - d) / 0.5, 0, 1);
+        const rr = px * r0 * Math.sin(Math.PI * kk);
+        if (rr <= 0.2) continue;
+        g.save();
+        g.translate(tw * dx, px * dy);
+        g.fillStyle = '#fffbe0';
+        g.shadowColor = 'rgba(255,200,60,0.9)';
+        g.shadowBlur = 8;
+        g.beginPath();
+        for (let q = 0; q < 8; q++) {
+          const ang = (q * Math.PI) / 4;
+          const rad = q % 2 ? rr * 0.32 : rr;
+          g.lineTo(Math.cos(ang) * rad, Math.sin(ang) * rad);
+        }
+        g.closePath();
+        g.fill();
+        g.restore();
+      }
+    }
     if (!per) {
       // 빨라요 / 늦어요 (왜 PERFECT 가 아닌지)
       g.font = font(px * 0.44);
@@ -19947,6 +20038,16 @@ const __m_news = (() => {
 
 const NEWS = [
   {
+    id: '2026-11-28a',
+    date: '11월 28일',
+    title: '🌸 신곡 「사계 – 봄」 · ✨ PERFECT+',
+    items: [
+      '<b>🌸 신곡</b> 비발디 <b>「사계 – 봄」</b> 타일 곡이 나왔어요 (어려움)',
+      '이 곡엔 <b>✨ PERFECT+</b> — 판정선 <b>한가운데</b>에 딱 맞추면 PERFECT 보다 점수가 더 높아요',
+      '🏆 랭킹은 <b>같은 점수면 먼저 낸 사람이 위</b>예요',
+    ],
+  },
+  {
     id: '2026-11-27s2b',
     date: '11월 27일',
     title: '🎹 시즌 2 업데이트!',
@@ -21122,7 +21223,7 @@ const { makeReelCover } = __m_cover;
 const { barEnergy, detectBeat, monoOf, songChart } = __m_beatsync;
 const { seasonLeftText, BOARD_LABEL, seasonAt } = __m_season;
 const { AVATARS, avatarHtml, cleanAvatar, cleanIntro, INTRO_MAX } = __m_avatars;
-const { TILE_SONGS, TILE_DIFF, TILE_RPS, DIFF_SPEEDS, buildLap, tileSong, tileId, tileClosed, lapStars, tileLap, mapTileLap, MAP_TILE_LAPS } = __m_tiles;
+const { TILE_SONGS, TILE_DIFF, TILE_RPS, DIFF_SPEEDS, buildLap, tileSong, tileId, tileClosed, lapStars, tileLap, mapTileLap, MAP_TILE_LAPS, hasPplus } = __m_tiles;
 const { TileGame } = __m_tilegame;
 const { noteTilePlay, noteDrum, questView, claimQuest, claimCommunity, communityClaimed, attView, noteAttendance } = __m_s2claims;
 const { loadSettings, saveSettings, loadBests, saveBest, load, save, remove, migrateLevelOrder, resetOldLevel18, photoSave, photoLoad, photoDelete } = __m_storage;
@@ -27811,7 +27912,7 @@ function diffBadge(d, mini = false) {
   return `<em class="diff-badge d${d}${mini ? ' mini' : ''}"><svg viewBox="0 0 24 24" aria-hidden="true">${DIFF_ICO[d] || ''}</svg><b>${TILE_DIFF[d]}</b>${pips}</em>`;
 }
 /** 곡 표지: 곡마다 색이 다른 그라데이션 + 내려오는 타일 무늬 + 음표 */
-const TILE_HUES = [28, 340, 200, 265, 150, 12, 300, 185, 45, 230, 320, 95, 255, 5, 170, 280, 210, 355];
+const TILE_HUES = [28, 340, 200, 265, 150, 12, 300, 185, 45, 230, 320, 95, 255, 5, 170, 280, 210, 355, 120];
 /** 🖼 곡 표지 그림 (2026-11-27 사용자, ElevenLabs 3D 쿵콩이·짝콩이) + 표지 누르면 곡 설명 */
 const COVER_V = 1;
 const TILE_INFO = {
@@ -27833,7 +27934,10 @@ const TILE_INFO = {
   16: '모차르트가 세상을 떠나기 3년 전에 쓴 교향곡이에요. 모차르트 교향곡 중 드물게 단조라서 쓸쓸하면서도 급한 느낌이에요.',
   17: '멕시코 민요로, 「바퀴벌레」 라는 뜻이에요. 멕시코 혁명 때 가사를 바꿔 가며 널리 불렀어요.',
   18: '베토벤이 1810년쯤 쓴 피아노 소품이에요. 「엘리제」 가 누구인지는 지금도 수수께끼예요. 악보 글씨를 「테레제」 로 잘못 읽었다는 이야기도 있어요.',
+  101: '비발디가 1725년에 낸 바이올린 협주곡 「사계」 중 봄 1악장이에요. 악보에 봄을 노래하는 시를 적어 두었고, 중간에 바이올린이 새소리를 흉내 내요. ✨ 이 곡엔 PERFECT+ 가 있어요.',
 };
+/** 🌸 신곡 (newUntil 날짜까지, 한국 시간): 오늘의 노래 자리에 먼저 · 곡 줄에 신곡 딱지 */
+const tileIsNew = (t) => !!(t && t.newUntil) && new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10) <= t.newUntil;
 function tileCoverHtml(t, i, big = false) {
   const h = TILE_HUES[i % TILE_HUES.length];
   return `<span class="t-cover ${big ? 'big' : ''}" style="--h:${h}" data-tcover="${t.id}"><i></i><i></i><i></i><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 17.5a2.5 2.5 0 1 1-1.2-2.1V5.6l10-2.1v11.9a2.5 2.5 0 1 1-1.2-2.1V7.1l-7.6 1.6z" fill="#fff"/></svg><img src="assets/covers/${t.id}.webp?v=${COVER_V}" alt="" loading="lazy" onerror="this.remove()"></span>`;
@@ -27859,6 +27963,8 @@ function tileToday() {
   const day = new Date(Date.now() + 9 * 3600e3).toISOString().slice(0, 10);
   let h = 0;
   for (const ch of day) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  const fresh = open.find(tileIsNew);
+  if (fresh) return fresh;
   return (open.length ? open : TILE_SONGS)[h % (open.length || TILE_SONGS.length)];
 }
 function renderTiles() {
@@ -27874,13 +27980,15 @@ function renderTiles() {
   const hst = bestStars(hb);
   $('#tl-hero').innerHTML = `<button class="tl-hero-card" data-tplay="${hot.id}" style="--h:${TILE_HUES[hi % TILE_HUES.length]}">
       <span class="tl-hero-fall"><i></i><i></i><i></i><i></i><i></i><i></i></span>
-      <span class="tl-hero-tag"><span class="live-dot"></span>오늘의 노래 · 시즌 2 랭킹 중</span>
+      <span class="tl-hero-tag"><span class="live-dot"></span>${tileIsNew(hot) ? '🌸 신곡 · ✨ PERFECT+' : '오늘의 노래 · 시즌 2 랭킹 중'}</span>
       <b class="tl-hero-name">${escapeHtml(hs.level.name)}</b>
       <small class="tl-hero-sub">${escapeHtml(hs.level.composer)} ${diffBadge(hot.diff, true)}${hb ? ` · 내 최고 ${fmt(hb.tiles)}` : ''}</small>
       <span class="tl-hero-stars">${tileStarsHtml(hst.stars, hst.gems)}</span>
       <span class="tl-hero-play"><svg viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="currentColor"/></svg>플레이</span>
     </button>`;
-  const rows = TILE_SONGS.map((t, i) => ({ t, i })).filter(({ t }) => tl.filter === 'all' || (tl.filter === '4' ? t.diff >= 4 : String(t.diff) === tl.filter));
+  const rows = TILE_SONGS.map((t, i) => ({ t, i }))
+    .filter(({ t }) => tl.filter === 'all' || (tl.filter === '4' ? t.diff >= 4 : String(t.diff) === tl.filter))
+    .sort((a, b) => tileIsNew(b.t) - tileIsNew(a.t)); // 🌸 신곡 먼저
   $('#tl-list').innerHTML = rows
     .map(({ t, i }) => {
       const song = tileSong(tileId(t.id));
@@ -27889,13 +27997,13 @@ function renderTiles() {
       const tier = tileTierLocked(song, best);
       const lock = tier || tileLocked(song);
       const { stars: st, gems } = bestStars(b);
-      const tag = lock ? '' : !b ? '<em class="t-tag new">NEW</em>' : '';
+      const tag = lock ? '' : !b || tileIsNew(t) ? '<em class="t-tag new">NEW</em>' : '';
       const pips = [1, 2, 3, 4, 5].map((k) => `<i class="${k <= t.diff ? 'on' : ''}"></i>`).join('');
       void pips;
       return `<div class="tl-row d${t.diff} ${lock ? 'locked' : ''} ${tl.pick === t.id ? 'pick' : ''}" data-tsong="${t.id}" role="button" tabindex="0">
       <span class="tl-no">${i + 1}</span>
       ${tileCoverHtml(t, i)}
-      <span class="tl-info"><b>${escapeHtml(lv.name)}${tag}</b><small>${escapeHtml(lv.composer)}</small>${tier ? `<span class="tl-lock">${icon('lock')}${tileTierMsg(t.diff)}</span>` : tileStarsHtml(st, gems)}${b ? `<span class="tl-best">최고 ${fmt(b.tiles)}</span>` : ''}</span>
+      <span class="tl-info"><b>${escapeHtml(lv.name)}${tag}</b><small>${escapeHtml(lv.composer)}${t.pplus ? '<em class="t-tag pplus">PERFECT+</em>' : ''}</small>${tier ? `<span class="tl-lock">${icon('lock')}${tileTierMsg(t.diff)}</span>` : tileStarsHtml(st, gems)}${b ? `<span class="tl-best">최고 ${fmt(b.tiles)}</span>` : ''}</span>
       ${diffBadge(t.diff)}
       <button class="tl-go" data-tplay="${t.id}" aria-label="${escapeHtml(lv.name)} 시작">${lock ? icon('lock') : '플레이'}</button>
     </div>`;
@@ -27988,6 +28096,8 @@ async function tilePlay(songId = tp.song, { room = null, map = null } = {}) {
   if (!song && !mlap) return;
   if (!room && song && tileTierLocked(song)) return tileTierToast(song);
   if (!room && song && tileLocked(song)) return openVerify(null);
+  // ✨ PERFECT+ 곡은 처음 한 번 시작 전에 설명 (2026-11-28 사용자)
+  if (!room && song && hasPplus(songId) && !load('pplusSeen', false)) return openPplusInfo(songId);
   if (!map) tp.song = songId;
   tp.map = map;
   tp.room = room;
@@ -28054,6 +28164,17 @@ async function tilePlay(songId = tp.song, { room = null, map = null } = {}) {
   trackPlayStart(song ? tileId(songId) : UM_ID);
   // 대결: 서버가 정한 시각에 같이 시작 (그때까지는 'VS 상대' 화면). 혼자면 맨 아래 「시작」 타일을 누르면 시작
   g.start(room ? Math.max(0.35, (room.startAt - Date.now()) / 1000) : 0);
+}
+/** ✨ PERFECT+ 설명 창 (곡 시작 전 한 번, 「시작!」 = 그 곡 바로 시작) */
+function openPplusInfo(songId) {
+  $('#pplus-go').dataset.pplusGo = String(songId);
+  openModal('modal-pplus');
+}
+function pplusGo() {
+  const id = Number($('#pplus-go').dataset.pplusGo);
+  save('pplusSeen', true);
+  closeModal('modal-pplus');
+  if (id) tilePlay(id);
 }
 /** 🔒 아직 안 열린 단계 곡을 누름 */
 function tileTierToast(song) {
@@ -28152,7 +28273,7 @@ async function tileEnd(r) {
   tileResStars(r);
   $('#tp-res-new').hidden = !isNew || !!room;
   $('#tp-res-rank').hidden = true;
-  $('#tp-res-stats').innerHTML = `<div><b>${r.laps}</b><small>바퀴</small></div><div><b>${r.maxCombo}</b><small>최대 연속</small></div><div><b>${r.perfect || 0}</b><small>PERFECT</small></div>`;
+  $('#tp-res-stats').innerHTML = `<div><b>${r.laps}</b><small>바퀴</small></div><div><b>${r.maxCombo}</b><small>최대 연속</small></div><div><b>${r.perfect || 0}</b><small>PERFECT</small></div>${r.pplus != null ? `<div class="pplus-stat"><b>${r.pplus}</b><small>PERFECT+</small></div>` : ''}`;
   $('#tp-res-btns').hidden = !!room;
   $('#tp-res-maprank').hidden = !map;
   $('[data-action="tp-rank"]').hidden = !!map;
@@ -29300,6 +29421,8 @@ const ACTIONS = {
     askNickname(true);
   },
   'close-tinfo': () => closeModal('modal-tinfo'),
+  'pplus-go': () => pplusGo(),
+  'close-pplus': () => closeModal('modal-pplus'),
   'close-verify': () => {
     state.verifyFor = null;
     closeModal('modal-verify');

@@ -12,7 +12,7 @@
 //   · 점수 = 친 타일 + 긴 타일 덤. 코인 = 친 타일 하나에 1개 + 코인 파티 타일. 랭킹 = 곡마다(scores 칸 3000+곡 번호) + 시즌 총합(명예의 전당 'tiles')
 //   ⚠ 서버는 tileTimes 로 '그 시간 안에 칠 수 있는 점수'를 넘는 기록을 막음
 
-import { parseMelody, parseChord, noteToMidi, STEPS_PER_BAR, getLevel, TempoMap, pointsFor } from './charts.js';
+import { parseMelody, parseChord, noteToMidi, STEPS_PER_BAR, getLevel, TempoMap, pointsFor, comboMultiplier } from './charts.js';
 
 /** 화면에 보이는 줄 수 (보통 타일 높이 = 화면 높이 / TILE_ROWS). 바꾸지 말 것 (11-26 사용자) */
 // 2026-11-27 사용자 '타일 세로 크기 조금만 더' → 4 → 3.5 (그래도 모든 곡·유저 맵이 같은 크기)
@@ -55,7 +55,58 @@ export const TILE_SONGS = [
   { id: 18, diff: 4 },
   { id: 14, diff: 5 },
   { id: 15, diff: 5 },
+  // 🌸 2026-11-28 새 곡 (사용자 '만점 받은 사람이 많아 → 새 곡엔 PERFECT+'): 타일 전용 곡 (드럼 단계엔 없음, TILE_LEVELS)
+  { id: 101, diff: 3, pplus: true, newUntil: '2026-12-12' },
 ];
+
+/**
+ * ✨ PERFECT+ (2026-11-28 사용자 '새 곡에는 퍼펙트+'): pplus 곡만. PERFECT 중에서도 한가운데 PPLUS_SEC 안이면 PERFECT+
+ *   점수 PPLUS_POINTS × 콤보 배수 (PERFECT 1000), 콤보는 PERFECT 와 똑같이 쌓임. 만점 = 전부 PERFECT+ → 실력 차가 남
+ */
+export const PPLUS_SEC = 0.035;
+export const PPLUS_POINTS = 1200;
+
+/**
+ * 🎹 타일 전용 곡 (드럼 LEVELS 에 없는 곡, 퍼블릭 도메인만). 모양은 드럼 단계와 같음 (name·composer·song.melody·song.prog·song.hat)
+ *   id 는 100 넘게 (드럼 단계 번호와 안 겹치게), scores 칸 = 3000 + id
+ */
+export const TILE_LEVELS = {
+  // 비발디 「사계」 중 봄 1악장 (1725년, 퍼블릭 도메인): 리토르넬로(솔#솔#솔# 파#미 시—) → 새소리 → 리토르넬로
+  101: {
+    id: 101,
+    name: '사계 「봄」',
+    composer: '비발디',
+    difficulty: 3,
+    bpm: 120,
+    song: {
+      hat: 'x.x.x.x.x.x.x.x.',
+      prog: ['E', 'E', 'E', 'E B', 'E', 'E', 'E B', 'E', 'E', 'E', 'B E', 'E', 'E', 'E B', 'E B', 'E'],
+      melody: [
+        'B4:4 E5:4 G#5:4 _:2 E5:2',
+        'G#5:2 G#5:2 G#5:2 F#5:1 E5:1 B5:6 B5:1 A5:1',
+        'G#5:2 G#5:2 G#5:2 F#5:1 E5:1 B5:6 B5:1 A5:1',
+        'G#5:2 A5:2 B5:2 A5:2 G#5:4 F#5:2 E5:2',
+        'G#5:2 G#5:2 G#5:2 F#5:1 E5:1 B5:6 B5:1 A5:1',
+        'G#5:2 G#5:2 G#5:2 F#5:1 E5:1 B5:6 B5:1 A5:1',
+        'G#5:2 A5:2 B5:2 A5:2 G#5:4 F#5:4',
+        'E5:8 B4:4 E5:4',
+        // 🐦 새소리 (바이올린 지저귐)
+        'B5:2 E6:2 B5:2 E6:2 G#5:2 E6:2 G#5:2 E6:2',
+        'E6:1 D#6:1 E6:2 B5:2 E6:2 E6:1 D#6:1 E6:2 B5:2 E6:2',
+        'F#6:2 E6:2 D#6:2 E6:2 B5:6 E5:2',
+        'G#5:2 G#5:2 G#5:2 F#5:1 E5:1 B5:6 B5:1 A5:1',
+        'G#5:2 G#5:2 G#5:2 F#5:1 E5:1 B5:6 B5:1 A5:1',
+        'G#5:2 A5:2 B5:2 A5:2 G#5:4 F#5:2 E5:2',
+        'G#5:2 A5:2 B5:2 A5:2 G#5:2 F#5:2 B4:2 D#5:2',
+        'E5:12 _:4',
+      ],
+    },
+  },
+};
+/** 곡 번호 → 곡 정보 (타일 전용 곡 먼저, 없으면 드럼 단계) */
+export const tileLevel = (id) => TILE_LEVELS[Number(id)] || getLevel(id);
+/** 이 곡에 ✨ PERFECT+ 가 있나 */
+export const hasPplus = (id) => !!(TILE_SONGS.find((s) => s.id === Number(id)) || {}).pplus;
 export const TILE_DIFF = ['', '쉬움', '보통', '어려움', '지옥', '지옥+'];
 /** 처음 몇 곡은 누구나 (나머지는 드럼 4단계부터처럼 팔로워 인증) */
 export const TILE_FREE = 3;
@@ -135,7 +186,7 @@ export const TILE_MEL = {
 
 /** 곡의 멜로디·코드 (TILE_MEL 이 있으면 곡 전체) */
 export function tileSource(songId) {
-  const level = getLevel(songId);
+  const level = tileLevel(songId);
   if (!level || !level.song || !level.song.melody) return null;
   const base = level.song;
   const prog0 = base.prog || ['C'];
@@ -245,8 +296,8 @@ export function freeTiles(tl, notes = []) {
   return out;
 }
 
-/** 판정에 따른 점수 (드럼처럼: PERFECT 1000·GREAT 700·GOOD 400 × 콤보 배수, 콤보는 PERFECT 만 쌓임) */
-export const tilePoints = (word, combo) => pointsFor(word, combo);
+/** 판정에 따른 점수 (드럼처럼: PERFECT 1000·GREAT 700·GOOD 400 × 콤보 배수, 콤보는 PERFECT 만 쌓임) · ✨ PERFECT+ 1200 */
+export const tilePoints = (word, combo) => (word === 'pplus' ? Math.round(PPLUS_POINTS * comboMultiplier(combo)) : pointsFor(word, combo));
 
 /**
  * 판 전체(코스): 바퀴 0(별 3개) → 🪙 코인 파티 → 바퀴 1·2·3(점점 빠르게, 다이아 하나씩) — 바퀴마다 같은 타일·같은 줄
@@ -295,7 +346,7 @@ export function buildCourse(lap, { laps = MAX_LAPS, party = true } = {}) {
     }
     while (lapEnd.length < c.k) lapEnd.push(n), lapPts.push(pts);
     combo++;
-    c.pts = tilePoints('perfect', combo) + (c.rows - 1) * HOLD_PTS;
+    c.pts = tilePoints(lap.pplus ? 'pplus' : 'perfect', combo) + (c.rows - 1) * HOLD_PTS;
     pts += c.pts;
     n++;
   }
@@ -372,7 +423,14 @@ export function tileLap(songId) {
     const sh = hi + 12 <= 88 ? 12 : -12;
     lap = buildLap([...src.melody, ...src.melody.map((b) => transposeBar(b, sh))], [...src.prog, ...src.prog], TILE_RPS[s.diff], DIFF_SPEEDS[s.diff]);
   }
-  if (lap) lap.songId = songId;
+  if (lap) {
+    lap.songId = songId;
+    lap.pplus = !!(s && s.pplus);
+    if (lap.pplus) {
+      const two = buildCourse(lap, { laps: 2, party: true });
+      lap.points = two.lapPts[0];
+    }
+  }
   _laps.set(songId, lap);
   return lap;
 }
@@ -423,7 +481,7 @@ export function tileSong(id) {
   if (!m) return null;
   const i = TILE_SONGS.findIndex((s) => s.id === Number(m[1]));
   if (i < 0) return null;
-  const level = getLevel(TILE_SONGS[i].id);
+  const level = tileLevel(TILE_SONGS[i].id);
   if (!level) return null;
   return { ...TILE_SONGS[i], order: i + 1, level, key: tileId(TILE_SONGS[i].id) };
 }
