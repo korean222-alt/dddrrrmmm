@@ -80,3 +80,36 @@ for (const kind of ['d1', 'pg']) {
     assert.deepEqual(await store.friendCards(2, []), []);
   });
 }
+
+test('🎮 친구 초대 · 🖼 프로필 배경(그림은 산 사람만)', async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kk-fr2-'));
+  const cfg = loadConfig({ SESSION_SECRET: 's', GATE_MODE: 'soft', DATA_FILE: path.join(tmp, 'db.json'), FREE_PASS_UNTIL: '0' });
+  const store = new JsonStore(cfg.dataFile).init();
+  const h = createHandler(cfg, { store });
+  const req = (method, url, body, tok) => h(new Request('http://x' + url, { method, headers: { 'Content-Type': 'application/json', ...(tok ? { 'X-Player': tok } : {}) }, body: body ? JSON.stringify(body) : undefined }), { ip: '1.1.1.4' });
+  const mk = async (name, ig) => (await req('POST', '/api/guest', { name, ig })).headers.get('x-player');
+  const a = await mk('초대A', 'iv_a');
+  const b = await mk('초대B', 'iv_b');
+  const n = seasonAt().n;
+  for (const p of Object.values(store.data.players)) {
+    p.checkedAt = p.checkedAt || Date.now();
+    store.data.seasonScores[`${n}|${p.igsid}`] = { [tileSlot(3)]: { score: 100, at: Date.now() } };
+  }
+  // 친구가 아니면 초대 못 함
+  assert.equal((await req('POST', '/api/friends', { invite: { u: '초대B', code: '1234' } }, a)).status, 404);
+  await req('POST', '/api/friends', { add: { b: 'tiles', u: '초대B' } }, a);
+  assert.equal((await req('POST', '/api/friends', { invite: { u: '초대B', code: '1234' } }, a)).status, 200);
+  const me = await (await req('GET', '/api/me', null, b)).json();
+  assert.equal(me.invite.from, '초대A');
+  assert.equal(me.invite.code, '1234');
+  assert.equal((await (await req('GET', '/api/me', null, a)).json()).invite, undefined);
+  // 배경: 색은 바로, 그림은 산 사람만
+  let r = await (await req('POST', '/api/intro', { intro: { t: 'hi', b: 'sunset' } }, a)).json();
+  assert.equal(r.player.intro.b, 'sunset');
+  r = await (await req('POST', '/api/intro', { intro: { t: 'hi', b: 'sakura' } }, a)).json();
+  assert.equal(r.player.intro.b, undefined);
+  const ida = Object.values(store.data.players).find((p) => p.username === '초대A').igsid;
+  await store.putWallet(ida, { coins: 0, t: 0, tn: 0, fday: '', fn: 0, init: 0, owned: ['bg:sakura'] });
+  r = await (await req('POST', '/api/intro', { intro: { t: 'hi', b: 'sakura' } }, a)).json();
+  assert.equal(r.player.intro.b, 'sakura');
+});

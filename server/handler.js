@@ -3,7 +3,7 @@
 // 저장소(store)는 메서드가 값이나 Promise 를 돌려줘도 되게 전부 await 로 부름
 //   - Node: JsonStore (파일 하나) / Vercel: PgStore (Neon Postgres)
 
-import { cleanAvatar, cleanIntro } from '../public/js/avatars.js';
+import { cleanAvatar, cleanIntro, profBg } from '../public/js/avatars.js';
 import crypto from 'node:crypto';
 import { sign, unsign, parseCookies, cookie, newId } from './session.js';
 import { buildStats } from './stats.js';
@@ -361,6 +361,7 @@ export function createHandler(cfg, { store, meter = null }) {
   // 🌍 유저 맵: 목록·받기·좋아요 (올리기는 하루 개수로 따로 막음)
   const limitMaps = rateLimiter(150, 10 * 60 * 1000);
   const limitHallPhoto = rateLimiter(10, 10 * 60 * 1000);
+  const limitInvite = rateLimiter(20, 10 * 60 * 1000); // 🎮 친구 초대: 한 사람 10분에 20번
   // 팔로워 암호: 틀린 시도만 셈. IP 당 10분에 10번 틀리면 잠깐 막음
   const passFails = new Map();
   const passBlocked = (ip) => {
@@ -497,6 +498,17 @@ export function createHandler(cfg, { store, meter = null }) {
   //   (읽기 1줄). 인스턴스 메모리에도 1분. 'set:cache:*' 키는 d1-sync 에서 뺌
   const memo = new Map();
   const FRIEND_MAX = 30; // 👥 친구 최대 (2026-11-28)
+  const INVITE_MS = 15 * 60 * 1000; // 🎮 친구 초대는 15분 동안
+  /** 🎮 나한테 온 친구 초대 { invite: { from, av, code, at } } — settings 한 줄 `inv:<igsid>` (들어올 때·친구 탭 열 때만 읽기 1) */
+  async function inviteOf(pl) {
+    try {
+      const raw = pl && store.getSetting ? await store.getSetting('inv:' + pl.igsid) : '';
+      const v = raw ? JSON.parse(raw) : null;
+      return v && v.code && Date.now() - v.at < INVITE_MS ? { invite: v } : {};
+    } catch {
+      return {};
+    }
+  }
   // 📣 광고 통계의 '날' = 통계와 같은 시간대(한국)의 YYYY-MM-DD, 같은 이벤트 중복 막기
   //   ⚠ handle 을 돌려준 뒤에 있는 코드(api 쪽)에서 쓰는 const 는 초기화가 안 됨 → 반드시 return 앞에 둘 것
   const adDedupe = makeAdDedupe();
@@ -1115,7 +1127,7 @@ export function createHandler(cfg, { store, meter = null }) {
         ok: true,
         app: 'okaystra',
         config: { gateMode: cfg.gateMode, instagramHandle: cfg.instagramHandle, siteUrl: cfg.siteUrl, freePassUntil: (await freePassOn()) ? await freePassUntil() : 0, shopOpen: await shopOpen(false, pl), ...(await s2Public()), kakao: !!(cfg.kakaoKey && cfg.kakaoSecret), google: !!(cfg.googleKey && cfg.googleSecret) },
-        me: pl ? { ...meOf(pl), ...(await walletOf(pl)) } : { verified: false },
+        me: pl ? { ...meOf(pl), ...(await walletOf(pl)), ...(await inviteOf(pl)) } : { verified: false },
       });
     }
 
@@ -1151,7 +1163,7 @@ export function createHandler(cfg, { store, meter = null }) {
       // hidden: 운영자가 팔로우 확인이 안 돼서 랭킹에서 내림 → 화면에 알리고 아이디를 다시 받음. deleteAt 에 지워짐
       // checked: 인증 신청함(아이디 적음) → 9·12단계 · 그리그 무제한이 열림
       // confirmed: 운영자가 팔로우를 확인함(인증 완료) → 13·14단계 · 단계별 무제한까지 열림
-      return json(200, { ...meOf(pl), ...wal });
+      return json(200, { ...meOf(pl), ...wal, ...(await inviteOf(pl)) });
     }
 
     // 🔑 카카오·구글 로그인 (2026-11-26): 폰이 POST 로 주소를 받아 그리로 이동 (지금 계정은 쿠키·폰 저장소 열쇠로 알아봄)
@@ -1257,7 +1269,16 @@ export function createHandler(cfg, { store, meter = null }) {
       const pl = await getPlayer(request);
       if (!pl) return json(401, { error: 'no_player' });
       const body = await readJson(request);
-      const intro = cleanIntro(body.intro);
+      let intro = cleanIntro(body.intro);
+      // 🖼 그림 배경은 상점에서 그 무대를 산 사람만 (색 배경은 무료)
+      const need = intro && intro.b && profBg(intro.b).need;
+      if (need) {
+        const w = await store.getWallet(pl.igsid);
+        if (!cleanOwned(w && w.owned).includes(need)) {
+          const { b, ...rest } = intro;
+          intro = cleanIntro(rest);
+        }
+      }
       await store.setIntro(pl.igsid, intro);
       return json(200, meOf({ ...pl, intro }));
     }
@@ -1326,6 +1347,16 @@ export function createHandler(cfg, { store, meter = null }) {
             if (mine.length >= FRIEND_MAX) return json(400, { error: 'full', max: FRIEND_MAX });
             next = mine.concat([id]);
           }
+        } else if (body.invite) {
+          // 🎮 같이 하기: 내가 만든 친구 방 코드를 친구에게 (친구 목록에 있는 사람만, 쓰기 1줄)
+          const code = String(body.invite.code || '').replace(/\D/g, '').slice(0, 4);
+          if (code.length !== 4) return json(400, { error: 'bad' });
+          const cards = await cached('frc:' + pl.igsid, ttlOf(3 * 60_000), () => store.friendCards(season.n, mine.concat([pl.igsid])), { shared: false });
+          const hit = cards.find((c) => c.igsid !== pl.igsid && mine.includes(c.igsid) && c.username === String(body.invite.u || ''));
+          if (!hit) return json(404, { error: 'not_friend' });
+          if (!limitInvite(pl.igsid)) return json(429, { error: 'rate_limited' });
+          await store.setSetting('inv:' + hit.igsid, JSON.stringify({ from: pl.username, av: pl.av || null, code, at: Date.now() }));
+          return json(200, { ok: true });
         } else if (body.del != null) {
           // 끊기는 내 친구 목록 자리(i) + 닉네임으로 (igsid 를 폰에 안 보내서)
           const i = Number(body.del);
@@ -1346,7 +1377,7 @@ export function createHandler(cfg, { store, meter = null }) {
       const list = [];
       for (const c of cards.filter((c) => c.igsid === pl.igsid || mine.includes(c.igsid))) list.push(await cardOut(c, mine));
       list.sort((a, b) => b.score - a.score);
-      return json(200, { list, max: FRIEND_MAX });
+      return json(200, { list, max: FRIEND_MAX, ...(await inviteOf(pl)) });
     }
 
     if (p === '/api/guest' && m === 'POST') {

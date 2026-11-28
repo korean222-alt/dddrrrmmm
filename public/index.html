@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=ac918b698e" />
+  <link rel="stylesheet" href="css/style.css?v=a4da516e42" />
 </head>
 <body>
   <div id="app">
@@ -189,6 +189,7 @@
             <div class="me-chips" id="mi-inst"><button data-mi-inst="piano">🎹 피아노</button><button data-mi-inst="drum">🥁 드럼</button><button data-mi-inst="both">🎹🥁 둘 다</button></div>
           </div>
           <div class="me-f"><span>좋아하는 곡</span><div class="me-chips me-songs" id="mi-song"></div></div>
+          <div class="me-f"><span>🖼 프로필 배경 <small>상점 무대를 사면 그림 배경도</small></span><div class="me-bgs" id="mi-bg"></div></div>
           <button class="btn btn-primary" data-action="me-intro-save" id="mi-save">저장</button>
           <p class="me-soon">시즌 2 랭킹 1·2·3등이 되면 시상대에 한 줄 소개가 떠요 · 랭킹에서 내 프로필을 누른 사람에게도 보여요</p>
         </div>
@@ -999,6 +1000,15 @@
     </div>
   </div>
 
+  <!-- 🎮 친구 초대 (2026-11-28) -->
+  <div class="modal" id="modal-invite" hidden>
+    <div class="sheet small prof-sheet">
+      <div class="prof-top" id="inv-body"></div>
+      <button class="btn btn-primary prof-fr" data-action="invite-go">🎮 들어가기</button>
+      <button class="btn btn-ghost prof-fr" data-action="invite-later">다음에</button>
+    </div>
+  </div>
+
   <!-- ✨ PERFECT+ 설명 (2026-11-28, PERFECT+ 곡을 처음 시작할 때 한 번) -->
   <div class="modal" id="modal-pplus" hidden>
     <div class="sheet small pplus-sheet">
@@ -1533,6 +1543,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=2f3c520d19" defer></script>
+  <script src="js/app.js?v=75e6ecc3b7" defer></script>
 </body>
 </html>

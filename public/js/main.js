@@ -34,7 +34,7 @@ import { RoomClient, roomOutcome, survivalOutcome } from './room.js';
 import { makeReelCover } from './cover.js';
 import { barEnergy, detectBeat, monoOf, songChart } from './beatsync.js';
 import { seasonLeftText, BOARD_LABEL, seasonAt } from './season.js';
-import { AVATARS, avatarHtml, cleanAvatar, cleanIntro, INTRO_MAX } from './avatars.js';
+import { AVATARS, avatarHtml, cleanAvatar, cleanIntro, INTRO_MAX, PROF_BGS, profBg, profBgStyle } from './avatars.js';
 import { TILE_SONGS, TILE_DIFF, TILE_RPS, DIFF_SPEEDS, buildLap, tileSong, tileId, tileClosed, lapStars, tileLap, mapTileLap, MAP_TILE_LAPS, hasPplus, tileLevel } from './tiles.js';
 import { TileGame } from './tilegame.js';
 import { noteTilePlay, noteDrum, questView, claimQuest, claimCommunity, communityClaimed, attView, noteAttendance } from './s2claims.js';
@@ -7735,6 +7735,7 @@ function renderMe() {
   $('#me-sub').textContent = has ? (loggedIn() ? (state.me.kakao ? '카카오로 로그인 중' : '구글로 로그인 중') : '로그인하면 랭킹에 올라가요') : '프로필을 만들면 랭킹에 올라가요';
   const it = has ? cleanIntro(pl.intro) : null;
   $('#me-intro-line').innerHTML = introHtml(it);
+  $('.me-card').setAttribute('style', profBgStyle(it && it.b));
   $('#me-intro-line').hidden = !it;
   $('#me-rank').textContent = '-';
   $('#me-score').textContent = '-';
@@ -7796,7 +7797,54 @@ function renderProf() {
   const rank = c.rank ? (String(c.rank).endsWith('+') ? `${c.rank.replace('+', '')}등 밖` : `${c.rank}등`) : '-';
   $('#prof-body').innerHTML = `<div class="prof-top"><span class="prof-av">${avatarHtml(c.av, c.username, 'av-lg')}</span><h2>${escapeHtml(c.username)}</h2>${it ? `<p class="me-intro-line">${introHtml(it)}</p>` : '<p class="prof-none">아직 소개가 없어요</p>'}</div>
     <div class="me-stats prof-stats"><div><small>시즌 2 순위</small><b>${rank}</b></div><div><small>타일 총합</small><b>${fmt(c.score || 0)}</b></div><div><small>친 곡</small><b>${c.n || 0}곡</b></div></div>
-    ${c.me ? '' : c.friend ? '<button class="btn btn-ghost prof-fr on" data-action="prof-friend">👥 친구예요 ✓ <small>누르면 끊기</small></button>' : '<button class="btn btn-primary prof-fr" data-action="prof-friend">👥 친구 추가</button>'}`;
+    ${c.me ? '' : c.friend ? '<button class="btn btn-primary prof-fr" data-action="prof-play">🎮 같이 하기</button><button class="btn btn-ghost prof-fr on" data-action="prof-friend">👥 친구예요 ✓ <small>누르면 끊기</small></button>' : '<button class="btn btn-primary prof-fr" data-action="prof-friend">👥 친구 추가</button>'}`;
+  $('#modal-prof .prof-sheet').setAttribute('style', profBgStyle(it && it.b));
+}
+// 🎮 같이 하기 (2026-11-28 사용자 '친구랑 같이 게임도'): 친구 방을 만들고 방 코드를 친구에게 초대로 보냄
+//   친구는 게임을 켤 때(부팅)·친구 탭을 열 때 「같이 하재요」 창을 봄 — 실시간 알림은 서버 요청이 늘어서 안 함
+async function profPlay(btn) {
+  const c = pf.cur;
+  if (!c || !c.friend) return;
+  if (followGated()) {
+    closeModal('modal-prof');
+    return openRoom();
+  }
+  if (btn) btn.disabled = true;
+  try {
+    const rc = state.roomClient;
+    if (!(rc.active && rc.room && !rc.room.pub)) {
+      roomUi.round = 0;
+      await rc.create(myRoomName(), roomUi.newMode, s2On() ? tileId(TILE_SONGS[0].id) : 1);
+    }
+    await state.api.friendEdit({ invite: { u: c.username, code: rc.code } });
+    closeModal('modal-prof');
+    openRoom();
+    toast(`🎮 ${c.username} 님에게 초대를 보냈어요 · 친구가 게임을 켜면 초대가 떠요 (방 코드 ${rc.code})`, 4200);
+  } catch (e) {
+    toast(e && e.status ? roomErrText(e) : '지금은 초대를 못 보내요. 잠시 뒤에 다시 해 주세요', 2600);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+const inv = { cur: null };
+function checkInvite(v) {
+  if (!v || !v.code || load('invSeen', 0) === v.at) return;
+  const rc = state.roomClient;
+  if (rc && rc.active) return;
+  if ($('#screen-game')?.classList.contains('active') || $('#screen-tplay')?.classList.contains('active')) return;
+  inv.cur = v;
+  $('#inv-body').innerHTML = `<span class="prof-av">${avatarHtml(v.av, v.from, 'av-lg')}</span><h2>${escapeHtml(v.from)} 님이<br>같이 하자고 해요!</h2><p class="me-soon">⚔️ 친구 방 코드 <b>${escapeHtml(v.code)}</b></p>`;
+  openModal('modal-invite');
+}
+function inviteGo() {
+  const v = inv.cur;
+  closeModal('modal-invite');
+  if (!v) return;
+  save('invSeen', v.at);
+  openRoom(v.code);
+  if ($('#room-code')) $('#room-code').value = v.code;
+  if ($('#room-name') && !$('#room-name').value.trim()) $('#room-name').value = myRoomName();
+  if (!followGated()) roomJoin();
 }
 async function profFriend(btn) {
   const c = pf.cur;
@@ -7827,6 +7875,7 @@ async function renderFriends(force) {
     if (!fr.list) box.innerHTML = '<p class="sr-empty">불러오는 중…</p>';
     try {
       const d = await state.api.friends();
+      setTimeout(() => checkInvite(d.invite), 300);
       fr.list = d.list || [];
       fr.max = d.max || 30;
       fr.at = Date.now();
@@ -7869,12 +7918,14 @@ function openMe(tab = 'profile') {
   meTab(tab);
 }
 // 📝 소개 탭: 한 줄 소개 · 주로 치는 것 · 좋아하는 곡 → /api/intro (저장 누를 때만 요청 1번)
-const mi = { t: '', i: '', s: 0 };
+const mi = { t: '', i: '', s: 0, b: '' };
 function renderIntroForm() {
   const it = cleanIntro(state.me && state.me.player && state.me.player.intro) || {};
   mi.t = it.t || '';
   mi.i = it.i || '';
   mi.s = it.s || 0;
+  mi.b = it.b || '';
+  $('#mi-bg').innerHTML = PROF_BGS.map((b) => `<button data-mi-bg="${b.id}" style="${profBgStyle(b.id)}" class="${b.need && !profBgOwned(b) ? 'lock' : ''}"><span>${escapeHtml(b.name)}${b.need && !profBgOwned(b) ? ' 🔒' : ''}</span></button>`).join('');
   $('#mi-text').value = mi.t;
   $('#mi-song').innerHTML = TILE_SONGS.map((t) => (tileLevel(t.id) ? `<button data-mi-song="${t.id}">${escapeHtml(tileLevel(t.id).name)}</button>` : '')).join('');
   introMarks();
@@ -7883,10 +7934,17 @@ function introMarks() {
   $('#mi-count').textContent = `${$('#mi-text').value.length}/${INTRO_MAX}`;
   $$('#mi-inst button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.miInst === mi.i)));
   $$('#mi-song button').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.miSong) === mi.s)));
+  $$('#mi-bg button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.miBg === mi.b)));
+}
+/** 그림 배경 = 상점에서 그 무대(또는 세트)를 산 사람만 */
+function profBgOwned(b) {
+  if (!b.need) return true;
+  const owned = load('decoOwned', []);
+  return Array.isArray(owned) && owned.includes(b.need);
 }
 async function saveIntro() {
   if (!meHasAcct()) return askNickname(true);
-  const intro = cleanIntro({ t: $('#mi-text').value, i: mi.i, s: mi.s });
+  const intro = cleanIntro({ t: $('#mi-text').value, i: mi.i, s: mi.s, b: mi.b });
   const btn = $('#mi-save');
   btn.disabled = true;
   try {
@@ -7902,9 +7960,14 @@ async function saveIntro() {
   }
 }
 document.addEventListener('click', (e) => {
-  const b = e.target.closest && e.target.closest('[data-mi-inst],[data-mi-song]');
+  const b = e.target.closest && e.target.closest('[data-mi-inst],[data-mi-song],[data-mi-bg]');
   if (!b) return;
-  if (b.dataset.miInst) mi.i = mi.i === b.dataset.miInst ? '' : b.dataset.miInst;
+  if (b.dataset.miBg) {
+    const pb = profBg(b.dataset.miBg);
+    if (pb && !profBgOwned(pb)) return toast(`🛒 상점에서 「${pb.name}」${pb.need.startsWith('ui:') ? ' 세트' : ' 무대'}를 사면 쓸 수 있어요`, 2200);
+    mi.b = mi.b === b.dataset.miBg ? '' : b.dataset.miBg;
+    $('.me-card').setAttribute('style', profBgStyle(mi.b));
+  } else if (b.dataset.miInst) mi.i = mi.i === b.dataset.miInst ? '' : b.dataset.miInst;
   else mi.s = mi.s === Number(b.dataset.miSong) ? 0 : Number(b.dataset.miSong);
   introMarks();
 });
@@ -8340,6 +8403,12 @@ const ACTIONS = {
   'close-tinfo': () => closeModal('modal-tinfo'),
   'close-prof': () => closeModal('modal-prof'),
   'prof-friend': (el) => profFriend(el),
+  'prof-play': (el) => profPlay(el),
+  'invite-go': () => inviteGo(),
+  'invite-later': () => {
+    if (inv.cur) save('invSeen', inv.cur.at);
+    closeModal('modal-invite');
+  },
   'pplus-go': () => pplusGo(),
   'close-pplus': () => closeModal('modal-pplus'),
   'close-verify': () => {
@@ -8913,6 +8982,7 @@ async function boot() {
   } catch {
     state.me = { verified: false };
   }
+  setTimeout(() => checkInvite(state.me && state.me.invite), 1800);
   refreshTitle();
   refreshNewsDot();
   refreshMoveBtn();

@@ -20101,11 +20101,12 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-28c',
+    id: '2026-11-28d',
     date: '11월 28일',
     title: '🌸 신곡 「사계 – 봄」 · ✨ PERFECT+ · 👥 친구',
     items: [
       '<b>👥 친구</b>가 생겼어요 — 시즌 2 랭킹에서 <b>프로필을 누르면</b> 그 사람 소개·순위를 보고 <b>친구 추가</b>! 내 프로필 「친구」 탭에서 친구끼리 순위를 봐요',
+      '친구 프로필의 <b>🎮 같이 하기</b>로 친구를 내 방에 초대 · 내 프로필 「소개」에서 <b>🖼 프로필 배경</b>도 꾸며요 (상점 무대를 사면 그림 배경도)',
       '<b>🌸 신곡</b> 비발디 <b>「사계 – 봄」</b> 타일 곡이 나왔어요 (어려움)',
       '이 곡엔 <b>✨ PERFECT+</b> — 판정선 <b>한가운데</b>에 딱 맞추면 PERFECT 보다 점수가 더 높아요',
       '🏆 랭킹은 <b>같은 점수면 먼저 낸 사람이 위</b>예요',
@@ -20911,12 +20912,37 @@ const cleanAvatar = (v) => (typeof v === 'string' && AVATAR_IDS.includes(v) ? v 
 /** 📝 자기소개 (2026-11-27): { t: 한 줄 소개(60자), s: 좋아하는 타일 곡 번호, i: 'piano'|'drum'|'both' } — 서버·폰 같이 씀 */
 const INTRO_MAX = 60;
 const INTRO_INST = ['piano', 'drum', 'both'];
+/** 🖼 프로필 배경 (2026-11-28 사용자 '배경화면도 꾸밀 수 있게') — intro.b. 색은 무료, 그림은 상점에서 산 무대(need)만 */
+const PROF_BGS = [
+  { id: 'night', name: '밤하늘', css: 'linear-gradient(160deg, #3b2f78, #17123a)' },
+  { id: 'sunset', name: '노을', css: 'linear-gradient(160deg, #ff8a5c, #b03a7a 55%, #3a1e5e)' },
+  { id: 'ocean', name: '바다', css: 'linear-gradient(160deg, #39c2d7, #2457a8 60%, #142a5c)' },
+  { id: 'mint', name: '민트', css: 'linear-gradient(160deg, #6fe0b5, #1f8f88 60%, #12404a)' },
+  { id: 'peach', name: '복숭아', css: 'linear-gradient(160deg, #ffc1a8, #f07ea2 55%, #7a3f8f)' },
+  { id: 'gold', name: '황금', css: 'linear-gradient(160deg, #ffe08a, #d39a1c 50%, #6b3f05)' },
+  { id: 'mono', name: '블랙', css: 'linear-gradient(160deg, #3a3a44, #0d0d12)' },
+  { id: 'sakura', name: '벚꽃 콘서트', img: 'assets/bg/sakura.webp', need: 'bg:sakura' },
+  { id: 'palace', name: '궁전', img: 'assets/bg/palace.webp', need: 'bg:palace' },
+  { id: 'cybercity', name: '사이버 시티', img: 'assets/bg/cybercity.webp', need: 'bg:cybercity' },
+  { id: 'abyss', name: '심해', img: 'assets/bg/abyss.webp', need: 'bg:abyss' },
+  { id: 'live', name: '라이브 무대', img: 'assets/bg/livestage.webp', need: 'ui:live' },
+  { id: 's1', name: '시즌 1 무대', img: 'assets/bg/s1stage.webp', need: 'ui:s1' },
+];
+const PROF_BG = Object.fromEntries(PROF_BGS.map((b) => [b.id, b]));
+const profBg = (id) => PROF_BG[id] || null;
+/** 프로필 배경 style 속성 글자 (없으면 '') */
+function profBgStyle(id) {
+  const b = profBg(id);
+  if (!b) return '';
+  return b.img ? `background-image:linear-gradient(180deg, rgba(10,8,30,0.25), rgba(10,8,30,0.7)), url(${b.img});background-size:cover;background-position:center` : `background:${b.css}`;
+}
 function cleanIntro(v) {
   if (!v || typeof v !== 'object') return null;
   const t = String(v.t || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, INTRO_MAX);
   const s = Number.isInteger(v.s) && v.s > 0 && v.s < 1000 ? v.s : 0;
   const i = INTRO_INST.includes(v.i) ? v.i : '';
-  return t || s || i ? { t, s, i } : null;
+  const b = typeof v.b === 'string' && PROF_BG[v.b] ? v.b : '';
+  return t || s || i || b ? { t, s, i, ...(b ? { b } : {}) } : null;
 }
 function avatarHtml(id, name = '', cls = '') {
   const a = AVATARS.find((x) => x.id === id);
@@ -20926,7 +20952,7 @@ function avatarHtml(id, name = '', cls = '') {
   return `<span class="av ${a.svg ? 'av-ico' : ''} ${cls}" ${st} aria-hidden="true">${inner}</span>`;
 }
 
-return { AVATARS, AVATAR_IDS, cleanAvatar, INTRO_MAX, INTRO_INST, cleanIntro, avatarHtml };
+return { AVATARS, AVATAR_IDS, cleanAvatar, INTRO_MAX, INTRO_INST, PROF_BGS, profBg, profBgStyle, cleanIntro, avatarHtml };
 })();
 
 // ---- sharecard.js ----
@@ -21287,7 +21313,7 @@ const { RoomClient, roomOutcome, survivalOutcome } = __m_room;
 const { makeReelCover } = __m_cover;
 const { barEnergy, detectBeat, monoOf, songChart } = __m_beatsync;
 const { seasonLeftText, BOARD_LABEL, seasonAt } = __m_season;
-const { AVATARS, avatarHtml, cleanAvatar, cleanIntro, INTRO_MAX } = __m_avatars;
+const { AVATARS, avatarHtml, cleanAvatar, cleanIntro, INTRO_MAX, PROF_BGS, profBg, profBgStyle } = __m_avatars;
 const { TILE_SONGS, TILE_DIFF, TILE_RPS, DIFF_SPEEDS, buildLap, tileSong, tileId, tileClosed, lapStars, tileLap, mapTileLap, MAP_TILE_LAPS, hasPplus, tileLevel } = __m_tiles;
 const { TileGame } = __m_tilegame;
 const { noteTilePlay, noteDrum, questView, claimQuest, claimCommunity, communityClaimed, attView, noteAttendance } = __m_s2claims;
@@ -28988,6 +29014,7 @@ function renderMe() {
   $('#me-sub').textContent = has ? (loggedIn() ? (state.me.kakao ? '카카오로 로그인 중' : '구글로 로그인 중') : '로그인하면 랭킹에 올라가요') : '프로필을 만들면 랭킹에 올라가요';
   const it = has ? cleanIntro(pl.intro) : null;
   $('#me-intro-line').innerHTML = introHtml(it);
+  $('.me-card').setAttribute('style', profBgStyle(it && it.b));
   $('#me-intro-line').hidden = !it;
   $('#me-rank').textContent = '-';
   $('#me-score').textContent = '-';
@@ -29049,7 +29076,54 @@ function renderProf() {
   const rank = c.rank ? (String(c.rank).endsWith('+') ? `${c.rank.replace('+', '')}등 밖` : `${c.rank}등`) : '-';
   $('#prof-body').innerHTML = `<div class="prof-top"><span class="prof-av">${avatarHtml(c.av, c.username, 'av-lg')}</span><h2>${escapeHtml(c.username)}</h2>${it ? `<p class="me-intro-line">${introHtml(it)}</p>` : '<p class="prof-none">아직 소개가 없어요</p>'}</div>
     <div class="me-stats prof-stats"><div><small>시즌 2 순위</small><b>${rank}</b></div><div><small>타일 총합</small><b>${fmt(c.score || 0)}</b></div><div><small>친 곡</small><b>${c.n || 0}곡</b></div></div>
-    ${c.me ? '' : c.friend ? '<button class="btn btn-ghost prof-fr on" data-action="prof-friend">👥 친구예요 ✓ <small>누르면 끊기</small></button>' : '<button class="btn btn-primary prof-fr" data-action="prof-friend">👥 친구 추가</button>'}`;
+    ${c.me ? '' : c.friend ? '<button class="btn btn-primary prof-fr" data-action="prof-play">🎮 같이 하기</button><button class="btn btn-ghost prof-fr on" data-action="prof-friend">👥 친구예요 ✓ <small>누르면 끊기</small></button>' : '<button class="btn btn-primary prof-fr" data-action="prof-friend">👥 친구 추가</button>'}`;
+  $('#modal-prof .prof-sheet').setAttribute('style', profBgStyle(it && it.b));
+}
+// 🎮 같이 하기 (2026-11-28 사용자 '친구랑 같이 게임도'): 친구 방을 만들고 방 코드를 친구에게 초대로 보냄
+//   친구는 게임을 켤 때(부팅)·친구 탭을 열 때 「같이 하재요」 창을 봄 — 실시간 알림은 서버 요청이 늘어서 안 함
+async function profPlay(btn) {
+  const c = pf.cur;
+  if (!c || !c.friend) return;
+  if (followGated()) {
+    closeModal('modal-prof');
+    return openRoom();
+  }
+  if (btn) btn.disabled = true;
+  try {
+    const rc = state.roomClient;
+    if (!(rc.active && rc.room && !rc.room.pub)) {
+      roomUi.round = 0;
+      await rc.create(myRoomName(), roomUi.newMode, s2On() ? tileId(TILE_SONGS[0].id) : 1);
+    }
+    await state.api.friendEdit({ invite: { u: c.username, code: rc.code } });
+    closeModal('modal-prof');
+    openRoom();
+    toast(`🎮 ${c.username} 님에게 초대를 보냈어요 · 친구가 게임을 켜면 초대가 떠요 (방 코드 ${rc.code})`, 4200);
+  } catch (e) {
+    toast(e && e.status ? roomErrText(e) : '지금은 초대를 못 보내요. 잠시 뒤에 다시 해 주세요', 2600);
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+const inv = { cur: null };
+function checkInvite(v) {
+  if (!v || !v.code || load('invSeen', 0) === v.at) return;
+  const rc = state.roomClient;
+  if (rc && rc.active) return;
+  if ($('#screen-game')?.classList.contains('active') || $('#screen-tplay')?.classList.contains('active')) return;
+  inv.cur = v;
+  $('#inv-body').innerHTML = `<span class="prof-av">${avatarHtml(v.av, v.from, 'av-lg')}</span><h2>${escapeHtml(v.from)} 님이<br>같이 하자고 해요!</h2><p class="me-soon">⚔️ 친구 방 코드 <b>${escapeHtml(v.code)}</b></p>`;
+  openModal('modal-invite');
+}
+function inviteGo() {
+  const v = inv.cur;
+  closeModal('modal-invite');
+  if (!v) return;
+  save('invSeen', v.at);
+  openRoom(v.code);
+  if ($('#room-code')) $('#room-code').value = v.code;
+  if ($('#room-name') && !$('#room-name').value.trim()) $('#room-name').value = myRoomName();
+  if (!followGated()) roomJoin();
 }
 async function profFriend(btn) {
   const c = pf.cur;
@@ -29080,6 +29154,7 @@ async function renderFriends(force) {
     if (!fr.list) box.innerHTML = '<p class="sr-empty">불러오는 중…</p>';
     try {
       const d = await state.api.friends();
+      setTimeout(() => checkInvite(d.invite), 300);
       fr.list = d.list || [];
       fr.max = d.max || 30;
       fr.at = Date.now();
@@ -29122,12 +29197,14 @@ function openMe(tab = 'profile') {
   meTab(tab);
 }
 // 📝 소개 탭: 한 줄 소개 · 주로 치는 것 · 좋아하는 곡 → /api/intro (저장 누를 때만 요청 1번)
-const mi = { t: '', i: '', s: 0 };
+const mi = { t: '', i: '', s: 0, b: '' };
 function renderIntroForm() {
   const it = cleanIntro(state.me && state.me.player && state.me.player.intro) || {};
   mi.t = it.t || '';
   mi.i = it.i || '';
   mi.s = it.s || 0;
+  mi.b = it.b || '';
+  $('#mi-bg').innerHTML = PROF_BGS.map((b) => `<button data-mi-bg="${b.id}" style="${profBgStyle(b.id)}" class="${b.need && !profBgOwned(b) ? 'lock' : ''}"><span>${escapeHtml(b.name)}${b.need && !profBgOwned(b) ? ' 🔒' : ''}</span></button>`).join('');
   $('#mi-text').value = mi.t;
   $('#mi-song').innerHTML = TILE_SONGS.map((t) => (tileLevel(t.id) ? `<button data-mi-song="${t.id}">${escapeHtml(tileLevel(t.id).name)}</button>` : '')).join('');
   introMarks();
@@ -29136,10 +29213,17 @@ function introMarks() {
   $('#mi-count').textContent = `${$('#mi-text').value.length}/${INTRO_MAX}`;
   $$('#mi-inst button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.miInst === mi.i)));
   $$('#mi-song button').forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.miSong) === mi.s)));
+  $$('#mi-bg button').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.miBg === mi.b)));
+}
+/** 그림 배경 = 상점에서 그 무대(또는 세트)를 산 사람만 */
+function profBgOwned(b) {
+  if (!b.need) return true;
+  const owned = load('decoOwned', []);
+  return Array.isArray(owned) && owned.includes(b.need);
 }
 async function saveIntro() {
   if (!meHasAcct()) return askNickname(true);
-  const intro = cleanIntro({ t: $('#mi-text').value, i: mi.i, s: mi.s });
+  const intro = cleanIntro({ t: $('#mi-text').value, i: mi.i, s: mi.s, b: mi.b });
   const btn = $('#mi-save');
   btn.disabled = true;
   try {
@@ -29155,9 +29239,14 @@ async function saveIntro() {
   }
 }
 document.addEventListener('click', (e) => {
-  const b = e.target.closest && e.target.closest('[data-mi-inst],[data-mi-song]');
+  const b = e.target.closest && e.target.closest('[data-mi-inst],[data-mi-song],[data-mi-bg]');
   if (!b) return;
-  if (b.dataset.miInst) mi.i = mi.i === b.dataset.miInst ? '' : b.dataset.miInst;
+  if (b.dataset.miBg) {
+    const pb = profBg(b.dataset.miBg);
+    if (pb && !profBgOwned(pb)) return toast(`🛒 상점에서 「${pb.name}」${pb.need.startsWith('ui:') ? ' 세트' : ' 무대'}를 사면 쓸 수 있어요`, 2200);
+    mi.b = mi.b === b.dataset.miBg ? '' : b.dataset.miBg;
+    $('.me-card').setAttribute('style', profBgStyle(mi.b));
+  } else if (b.dataset.miInst) mi.i = mi.i === b.dataset.miInst ? '' : b.dataset.miInst;
   else mi.s = mi.s === Number(b.dataset.miSong) ? 0 : Number(b.dataset.miSong);
   introMarks();
 });
@@ -29593,6 +29682,12 @@ const ACTIONS = {
   'close-tinfo': () => closeModal('modal-tinfo'),
   'close-prof': () => closeModal('modal-prof'),
   'prof-friend': (el) => profFriend(el),
+  'prof-play': (el) => profPlay(el),
+  'invite-go': () => inviteGo(),
+  'invite-later': () => {
+    if (inv.cur) save('invSeen', inv.cur.at);
+    closeModal('modal-invite');
+  },
   'pplus-go': () => pplusGo(),
   'close-pplus': () => closeModal('modal-pplus'),
   'close-verify': () => {
@@ -30166,6 +30261,7 @@ async function boot() {
   } catch {
     state.me = { verified: false };
   }
+  setTimeout(() => checkInvite(state.me && state.me.invite), 1800);
   refreshTitle();
   refreshNewsDot();
   refreshMoveBtn();

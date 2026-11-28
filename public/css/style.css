@@ -2053,3 +2053,15 @@ html.has-tabs .screen.active:not(#screen-home2) { padding-bottom: calc(96px + va
 .fr-head { color: #fff; }
 .fr-head small { color: rgba(255, 255, 255, 0.65); }
 .prof-av .av-none { font-size: 46px; }
+
+/* 🖼 프로필 배경 · 🎮 같이 하기 (2026-11-28) */
+.me-bgs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.me-bgs button { position: relative; height: 54px; border-radius: 12px; border: 2px solid rgba(255, 255, 255, 0.25); background: #333; color: #fff; font-size: 11px; display: flex; align-items: flex-end; justify-content: center; padding: 3px; overflow: hidden; }
+.me-bgs button span { background: rgba(0, 0, 0, 0.45); border-radius: 6px; padding: 1px 5px; white-space: nowrap; }
+.me-bgs button[aria-pressed='true'] { border-color: #ffd24a; box-shadow: 0 0 0 2px #ffd24a; }
+.me-bgs button.lock { filter: grayscale(0.7) brightness(0.6); }
+.prof-fr + .prof-fr { margin-top: 8px; }
+#modal-invite { z-index: 70; }
+#inv-body { margin-bottom: 14px; }
+#inv-body h2 { line-height: 1.3; }
+.me-card[style*='background'] { border-color: rgba(255, 255, 255, 0.35); }

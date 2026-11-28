@@ -32,12 +32,37 @@ export const cleanAvatar = (v) => (typeof v === 'string' && AVATAR_IDS.includes(
 /** 📝 자기소개 (2026-11-27): { t: 한 줄 소개(60자), s: 좋아하는 타일 곡 번호, i: 'piano'|'drum'|'both' } — 서버·폰 같이 씀 */
 export const INTRO_MAX = 60;
 export const INTRO_INST = ['piano', 'drum', 'both'];
+/** 🖼 프로필 배경 (2026-11-28 사용자 '배경화면도 꾸밀 수 있게') — intro.b. 색은 무료, 그림은 상점에서 산 무대(need)만 */
+export const PROF_BGS = [
+  { id: 'night', name: '밤하늘', css: 'linear-gradient(160deg, #3b2f78, #17123a)' },
+  { id: 'sunset', name: '노을', css: 'linear-gradient(160deg, #ff8a5c, #b03a7a 55%, #3a1e5e)' },
+  { id: 'ocean', name: '바다', css: 'linear-gradient(160deg, #39c2d7, #2457a8 60%, #142a5c)' },
+  { id: 'mint', name: '민트', css: 'linear-gradient(160deg, #6fe0b5, #1f8f88 60%, #12404a)' },
+  { id: 'peach', name: '복숭아', css: 'linear-gradient(160deg, #ffc1a8, #f07ea2 55%, #7a3f8f)' },
+  { id: 'gold', name: '황금', css: 'linear-gradient(160deg, #ffe08a, #d39a1c 50%, #6b3f05)' },
+  { id: 'mono', name: '블랙', css: 'linear-gradient(160deg, #3a3a44, #0d0d12)' },
+  { id: 'sakura', name: '벚꽃 콘서트', img: 'assets/bg/sakura.webp', need: 'bg:sakura' },
+  { id: 'palace', name: '궁전', img: 'assets/bg/palace.webp', need: 'bg:palace' },
+  { id: 'cybercity', name: '사이버 시티', img: 'assets/bg/cybercity.webp', need: 'bg:cybercity' },
+  { id: 'abyss', name: '심해', img: 'assets/bg/abyss.webp', need: 'bg:abyss' },
+  { id: 'live', name: '라이브 무대', img: 'assets/bg/livestage.webp', need: 'ui:live' },
+  { id: 's1', name: '시즌 1 무대', img: 'assets/bg/s1stage.webp', need: 'ui:s1' },
+];
+const PROF_BG = Object.fromEntries(PROF_BGS.map((b) => [b.id, b]));
+export const profBg = (id) => PROF_BG[id] || null;
+/** 프로필 배경 style 속성 글자 (없으면 '') */
+export function profBgStyle(id) {
+  const b = profBg(id);
+  if (!b) return '';
+  return b.img ? `background-image:linear-gradient(180deg, rgba(10,8,30,0.25), rgba(10,8,30,0.7)), url(${b.img});background-size:cover;background-position:center` : `background:${b.css}`;
+}
 export function cleanIntro(v) {
   if (!v || typeof v !== 'object') return null;
   const t = String(v.t || '').replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, INTRO_MAX);
   const s = Number.isInteger(v.s) && v.s > 0 && v.s < 1000 ? v.s : 0;
   const i = INTRO_INST.includes(v.i) ? v.i : '';
-  return t || s || i ? { t, s, i } : null;
+  const b = typeof v.b === 'string' && PROF_BG[v.b] ? v.b : '';
+  return t || s || i || b ? { t, s, i, ...(b ? { b } : {}) } : null;
 }
 export function avatarHtml(id, name = '', cls = '') {
   const a = AVATARS.find((x) => x.id === id);
