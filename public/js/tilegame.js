@@ -1322,36 +1322,34 @@ export class TileGame {
     }
   }
 
-  /** 🎬 릴스 문구: 위 = 훅(곡 이름 작게), 아래 = 유도 — 반투명 띠 위 하얀 글씨 */
+  /** 🎬 릴스 문구 (2026-11-28 사용자 '자막이 화면 가려, 드럼처럼'): 띠 없이 테두리 글씨만, 맨 위·맨 아래 가장자리에 작게.
+   *  위 문구는 처음 5초만 보이다 사라짐(드럼 영상처럼) — 타일·점수·판정 글자 자리는 안 가림 */
   _drawReel(g) {
     const { W, H } = this;
     const r = this.reel;
-    const band = (txt, y, px, sub) => {
-      if (!txt) return;
+    if (this._reelAt == null) this._reelAt = this.realT;
+    const age = this.realT - this._reelAt;
+    const line = (txt, y, px, color, alpha) => {
+      if (!txt || alpha <= 0) return;
       g.save();
+      g.globalAlpha = alpha;
       g.font = font(px);
       g.textAlign = 'center';
       g.textBaseline = 'middle';
-      const k = Math.min(1, (W * 0.9) / Math.max(1, g.measureText(txt).width));
-      const fp = px * k;
+      const fp = px * Math.min(1, (W * 0.92) / Math.max(1, g.measureText(txt).width));
       g.font = font(fp);
-      const w = g.measureText(txt).width + fp * 1.2;
-      g.fillStyle = 'rgba(20,14,48,0.62)';
-      rr(g, (W - w) / 2, y - fp * 0.85, w, fp * 1.7, fp * 0.5);
-      g.fill();
-      g.fillStyle = '#fff';
-      g.fillText(txt, W / 2, y + 1);
-      if (sub) {
-        g.font = font(Math.max(11, fp * 0.42));
-        g.fillStyle = 'rgba(255,255,255,0.92)';
-        g.shadowColor = 'rgba(20,14,48,0.8)';
-        g.shadowBlur = 6;
-        g.fillText(sub, W / 2, y + fp * 1.35);
-      }
+      g.lineJoin = 'round';
+      g.lineWidth = fp * 0.22;
+      g.strokeStyle = 'rgba(20,14,48,0.85)';
+      g.strokeText(txt, W / 2, y);
+      g.fillStyle = color;
+      g.fillText(txt, W / 2, y);
       g.restore();
     };
-    band(r.top, H * 0.3, Math.min(40, W * 0.085), r.label); // PERFECT 글자(점수 밑)와 안 겹치게
-    band(r.bottom, H * 0.9, Math.min(30, W * 0.066));
+    const fade = clamp((5 - age) / 0.6, 0, 1);
+    line(r.top, H * 0.026, Math.min(26, W * 0.058), '#fff', fade);
+    if (r.label) line(r.label, H * 0.026 + Math.min(26, W * 0.058) * 1.05, Math.min(15, W * 0.034), '#FFD84A', fade);
+    line(r.bottom, H * 0.972, Math.min(20, W * 0.045), '#fff', 0.9);
   }
 
   _drawTiles(g, t) {
