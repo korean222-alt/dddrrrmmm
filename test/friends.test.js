@@ -42,7 +42,15 @@ test('프로필 보기 · 친구 추가·목록·끊기', async () => {
   assert.equal((await req('GET', '/api/profile?b=t3&u=' + encodeURIComponent('친구B'))).status, 200);
   // 친구 추가 → 목록 (나 + B, 점수 순)
   assert.equal((await req('POST', '/api/friends', { add: { b: 'tiles', u: '친구A' } }, a)).status, 400, '나는 못 추가');
-  assert.equal((await req('POST', '/api/friends', { add: { b: 'tiles', u: '친구B' } }, a)).status, 200);
+  // 친구 요청 → B 가 받은 요청 보고 수락 (2026-11-28 '요청 보낼 수 있게')
+  const ra = await (await req('POST', '/api/friends', { add: { b: 'tiles', u: '친구B' } }, a)).json();
+  assert.equal(ra.state, 'sent');
+  assert.equal((await (await req('GET', '/api/profile?b=tiles&u=' + encodeURIComponent('친구B'), null, a)).json()).p.sent, true);
+  assert.equal((await (await req('GET', '/api/me', null, b)).json()).frReq, 1);
+  const lb = await (await req('GET', '/api/friends', null, b)).json();
+  assert.deepEqual(lb.reqs.map((c) => c.username), ['친구A']);
+  assert.equal((await req('POST', '/api/friends', { accept: '친구A' }, b)).status, 200);
+  assert.deepEqual((await (await req('GET', '/api/friends', null, b)).json()).list.map((c) => c.username).sort(), ['친구A', '친구B'].sort());
   const l = await (await req('GET', '/api/friends', null, a)).json();
   assert.deepEqual(l.list.map((c) => [c.username, !!c.me, c.friend]), [['친구B', false, true], ['친구A', true, false]]);
   assert.equal(JSON.stringify(l).includes('igsid'), false);
@@ -51,6 +59,12 @@ test('프로필 보기 · 친구 추가·목록·끊기', async () => {
   await req('POST', '/api/friends', { del: -1, u: '친구B' }, a);
   const l2 = await (await req('GET', '/api/friends', null, a)).json();
   assert.deepEqual(l2.list.map((c) => c.username), ['친구A']);
+  assert.deepEqual((await (await req('GET', '/api/friends', null, b)).json()).list.map((c) => c.username), ['친구B'], '끊으면 둘 다');
+  // 닉네임으로 찾기 → 요청 → 상대도 나한테 요청하면 바로 친구
+  const sr = await (await req('GET', '/api/friends/search?q=' + encodeURIComponent('친구'), null, a)).json();
+  assert.deepEqual(sr.list.map((c) => [c.username, c.n]), [['친구B', 0]]);
+  assert.equal((await (await req('POST', '/api/friends', { add: { b: 'name', u: '친구B', n: 0 } }, a)).json()).state, 'sent');
+  assert.equal((await (await req('POST', '/api/friends', { add: { b: 'name', u: '친구A', n: 0 } }, b)).json()).state, 'friend');
   assert.equal((await req('GET', '/api/friends')).status, 401);
 });
 
@@ -78,6 +92,21 @@ for (const kind of ['d1', 'pg']) {
     assert.deepEqual(cards.map((c) => [c.username, c.score, c.n]), [['하나', 1000, 2], ['둘', 0, 0]]);
     assert.equal(cards[0].intro.t, '안녕');
     assert.deepEqual(await store.friendCards(2, []), []);
+    // 💬 채팅 · 🔎 닉네임 찾기
+    const id1 = await store.chatAdd({ at: 1000, igsid: 'g1', name: '하나', av: null, text: '첫 글' });
+    const id2 = await store.chatAdd({ at: 2000, igsid: 'g2', name: '둘', av: null, text: '둘째' });
+    assert.ok(id2 > id1);
+    assert.deepEqual((await store.chatSince(0, 0)).map((r) => r.text), ['첫 글', '둘째']);
+    assert.deepEqual((await store.chatSince(id1, 0)).map((r) => r.text), ['둘째']);
+    assert.deepEqual((await store.chatSince(0, 1500)).map((r) => r.text), ['둘째']);
+    for (let i = 0; i < 3; i++) await store.chatReport(id1, 3);
+    assert.deepEqual((await store.chatSince(0, 0)).map((r) => r.text), ['둘째']);
+    assert.equal((await store.chatGet(id1)).igsid, 'g1');
+    await store.chatPurge(1500);
+    assert.equal(await store.chatGet(id1), null);
+    await store.upsertPlayer('g3', { username: '하나둘', ig: 'three' });
+    assert.deepEqual((await store.findByName('하나')).map((r) => r.username), ['하나', '하나둘']);
+    assert.deepEqual((await store.findByName('하나', { exact: true })).map((r) => r.igsid), ['g1']);
   });
 }
 
@@ -98,6 +127,7 @@ test('🎮 친구 초대 · 🖼 프로필 배경(그림은 산 사람만)', asy
   // 친구가 아니면 초대 못 함
   assert.equal((await req('POST', '/api/friends', { invite: { u: '초대B', code: '1234' } }, a)).status, 404);
   await req('POST', '/api/friends', { add: { b: 'tiles', u: '초대B' } }, a);
+  await req('POST', '/api/friends', { accept: '초대A' }, b);
   assert.equal((await req('POST', '/api/friends', { invite: { u: '초대B', code: '1234' } }, a)).status, 200);
   const me = await (await req('GET', '/api/me', null, b)).json();
   assert.equal(me.invite.from, '초대A');
@@ -112,4 +142,51 @@ test('🎮 친구 초대 · 🖼 프로필 배경(그림은 산 사람만)', asy
   await store.putWallet(ida, { coins: 0, t: 0, tn: 0, fday: '', fn: 0, init: 0, owned: ['bg:sakura'] });
   r = await (await req('POST', '/api/intro', { intro: { t: 'hi', b: 'sakura' } }, a)).json();
   assert.equal(r.player.intro.b, 'sakura');
+});
+
+test('💬 채팅: 열린 시간에만 · 로그인 계정만 · 연락처 막음 · 신고 3번이면 가림', async () => {
+  const { chatWindow, chatClean } = await import('../public/js/chat.js');
+  // 한국 18시~20시
+  const day = Date.UTC(2026, 10, 28) - 9 * 3600e3;
+  assert.equal(chatWindow(day + 17.9 * 3600e3).open, false);
+  assert.equal(chatWindow(day + 18.5 * 3600e3).open, true);
+  assert.equal(chatWindow(day + 20 * 3600e3).open, false);
+  assert.equal(chatWindow(day + 21 * 3600e3).next, day + 42 * 3600e3);
+  assert.equal(chatClean('안녕 https://x.com').error, 'contact');
+  assert.equal(chatClean('내 번호 010-1234-5678').error, 'contact');
+  assert.equal(chatClean('오픈채팅 들어와').error, 'contact');
+  assert.equal(chatClean('@my_insta 팔로우').error, 'contact');
+  assert.equal(chatClean('x'.repeat(81)).error, 'long');
+  assert.equal(chatClean('이거 시발 어렵다').text, '이거 ** 어렵다');
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'kk-chat-'));
+  const mkH = (hours) => {
+    const cfg = loadConfig({ SESSION_SECRET: 's', GATE_MODE: 'soft', DATA_FILE: path.join(tmp, 'db.json'), FREE_PASS_UNTIL: '0', CHAT_HOURS: hours });
+    const store = new JsonStore(cfg.dataFile).init();
+    return { store, h: createHandler(cfg, { store }) };
+  };
+  const { h } = mkH('0-24');
+  const req = (method, url, body, tok, ip = '1.1.1.5') => h(new Request('http://x' + url, { method, headers: { 'Content-Type': 'application/json', ...(tok ? { 'X-Player': tok } : {}) }, body: body ? JSON.stringify(body) : undefined }), { ip });
+  const mk = async (name, ig) => (await req('POST', '/api/guest', { name, ig })).headers.get('x-player');
+  const toks = [await mk('채팅1', 'c_1'), await mk('채팅2', 'c_2'), await mk('채팅3', 'c_3'), await mk('채팅4', 'c_4')];
+  assert.equal((await req('POST', '/api/chat', { text: 'hi' })).status, 401);
+  assert.equal((await req('POST', '/api/chat', { text: 'http://a.com' }, toks[0])).status, 400);
+  const r1 = await (await req('POST', '/api/chat', { text: '안녕하세요' }, toks[0])).json();
+  assert.equal(r1.msg.text, '안녕하세요');
+  assert.equal((await req('POST', '/api/chat', { text: '또' }, toks[0])).status, 429, '3초에 1개');
+  const g = await (await req('GET', '/api/chat?after=0', null, toks[1])).json();
+  assert.equal(g.open, true);
+  assert.deepEqual(g.msgs.map((x) => [x.name, x.text, x.mine]), [['채팅1', '안녕하세요', false]]);
+  // 채팅에서 프로필
+  assert.equal((await req('GET', `/api/profile?b=chat:${r1.msg.id}&u=` + encodeURIComponent('채팅1'), null, toks[1])).status, 200);
+  // 신고 3번 → 가림 + 그 사람 못 씀
+  for (const t of toks.slice(1)) await req('POST', '/api/chat', { report: r1.msg.id }, t);
+  const g2 = await (await req('GET', '/api/chat?after=0', null, toks[1])).json();
+  assert.equal(g2.msgs.length, 0);
+  await new Promise((r) => setTimeout(r, 3100));
+  assert.equal((await req('POST', '/api/chat', { text: '다시' }, toks[0])).status, 403);
+  // 닫힌 시간
+  const closed = mkH('0-0');
+  const c = await (await closed.h(new Request('http://x/api/chat?after=0'), { ip: '1.1.1.6' })).json();
+  assert.equal(c.open, false);
 });

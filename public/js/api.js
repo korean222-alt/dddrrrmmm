@@ -108,7 +108,12 @@ function serverApi(boot = null) {
     avatar: (av) => http('POST', '/api/avatar', { av }),
     intro: (intro) => http('POST', '/api/intro', { intro }),
     // 🙂👥 남의 프로필 · 친구 (2026-11-28) — 누를 때만 요청
-    profile: (b, u) => http('GET', `/api/profile?b=${encodeURIComponent(b)}&u=${encodeURIComponent(u)}`),
+    profile: (b, u, n) => http('GET', `/api/profile?b=${encodeURIComponent(b)}&u=${encodeURIComponent(u)}${n ? `&n=${Number(n) || 0}` : ''}`),
+    friendSearch: (q) => http('GET', `/api/friends/search?q=${encodeURIComponent(q)}`),
+    // 💬 채팅 (2026-11-28) — 채팅 화면을 볼 때만
+    chat: (after) => http('GET', `/api/chat?after=${Number(after) || 0}`),
+    chatSend: (text) => http('POST', '/api/chat', { text }),
+    chatReport: (id) => http('POST', '/api/chat', { report: id }),
     friends: () => http('GET', '/api/friends'),
     friendEdit: (body) => http('POST', '/api/friends', body),
     verifyPassword: (body) => http('POST', '/api/verify/password', body),

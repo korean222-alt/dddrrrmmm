@@ -4,6 +4,7 @@
 //   - Node: JsonStore (파일 하나) / Vercel: PgStore (Neon Postgres)
 
 import { cleanAvatar, cleanIntro, profBg } from '../public/js/avatars.js';
+import { chatWindow, chatClean } from '../public/js/chat.js';
 import crypto from 'node:crypto';
 import { sign, unsign, parseCookies, cookie, newId } from './session.js';
 import { buildStats } from './stats.js';
@@ -362,6 +363,15 @@ export function createHandler(cfg, { store, meter = null }) {
   const limitMaps = rateLimiter(150, 10 * 60 * 1000);
   const limitHallPhoto = rateLimiter(10, 10 * 60 * 1000);
   const limitInvite = rateLimiter(20, 10 * 60 * 1000); // 🎮 친구 초대: 한 사람 10분에 20번
+  const limitFriend = rateLimiter(30, 10 * 60 * 1000); // 👥 친구 요청
+  const limitSearch = rateLimiter(30, 10 * 60 * 1000); // 🔎 닉네임 찾기
+  const limitChat = rateLimiter(20, 5 * 60 * 1000); // 💬 채팅: 5분에 20개 (+ 3초에 1개)
+  const limitChatReport = rateLimiter(10, 10 * 60 * 1000);
+  const chatLastSend = new Map();
+  const chatReported = new Set();
+  const chatBuf = { start: 0, msgs: [], last: 0, at: 0, full: 0 }; // 이 인스턴스가 기억하는 오늘 채팅 (2초마다 새 글만 읽음)
+  const CHAT_KEEP = 80;
+  const CHAT_REPORTS = 3;
   // 팔로워 암호: 틀린 시도만 셈. IP 당 10분에 10번 틀리면 잠깐 막음
   const passFails = new Map();
   const passBlocked = (ip) => {
@@ -504,7 +514,11 @@ export function createHandler(cfg, { store, meter = null }) {
     try {
       const raw = pl && store.getSetting ? await store.getSetting('inv:' + pl.igsid) : '';
       const v = raw ? JSON.parse(raw) : null;
-      return v && v.code && Date.now() - v.at < INVITE_MS ? { invite: v } : {};
+      const out = v && v.code && Date.now() - v.at < INVITE_MS ? { invite: v } : {};
+      // 👥 받은 친구 요청 수 (빨간 점)
+      const rq = JSON.parse((await store.getSetting('frq:' + pl.igsid)) || '[]');
+      const n = Array.isArray(rq) ? rq.filter((x) => x && Date.now() - x.at < 14 * 86400_000).length : 0;
+      return n ? { ...out, frReq: n } : out;
     } catch {
       return {};
     }
@@ -1284,40 +1298,61 @@ export function createHandler(cfg, { store, meter = null }) {
     }
 
     // 🙂👥 남의 프로필 보기 · 친구 (2026-11-28 사용자 '프로필 누르면 그 사람 프로필 · 친구 추가, 무료 용량 많이 먹으면 하지 마')
-    //   igsid 는 폰에 안 보냄 → 랭킹 화면에서 본 판(b = tiles 또는 곡 t3)과 닉네임(u)으로, 그 판 위 50명(이미 기억해 둔 것)에서 찾음
-    //   친구 목록 = settings 한 줄 `fr:<igsid>` (JSON igsid 배열, 최대 30명) — 새 표 없음, 추가·끊기 때만 쓰기 1줄
-    //   읽기: 프로필 = 그 사람 타일 기록 줄(곡 수만큼)·5분 기억 / 친구 탭 = 친구들 타일 기록 줄을 쿼리 1번·3분 기억
-    if ((p === '/api/profile' && m === 'GET') || (p === '/api/friends' && (m === 'GET' || m === 'POST'))) {
+    //   igsid 는 폰에 안 보냄 → 어디서 봤나(b) + 닉네임(u)으로 서버가 찾음:
+    //     b = 'tiles'(타일 총합 위 60명) · 't3'(곡 랭킹 위 50명) · 'map:<id>'(유저 맵 만든 사람) · 'chat:<id>'(채팅 쓴 사람) · 'name'(닉네임 찾기, 같은 닉네임 여럿이면 n 번째)
+    //   친구 = 서로 수락 (같은 날 사용자 '닉네임으로 찾아 요청') · 목록 settings `fr:<igsid>`(igsid 배열, 30명) · 받은 요청 `frq:<igsid>`([{f, at}], 30개, 14일)
+    //   쓰기는 요청·수락·끊기 때만 1~3줄 · 읽기: 프로필 = 그 사람 타일 기록 줄(5분 기억) / 친구 탭 = 친구 수 × 곡 수 줄(3분 기억)
+    if ((p === '/api/profile' && m === 'GET') || (p === '/api/friends' && (m === 'GET' || m === 'POST')) || (p === '/api/friends/search' && m === 'GET')) {
       const pl = await getPlayer(request);
       const season = seasonAt();
-      const frKey = (id) => 'fr:' + id;
-      const frList = async (id) => {
-        const mm = memo.get(frKey(id));
+      const listOf = async (key, max) => {
+        const mm = memo.get(key);
         if (mm && mm.exp > Date.now()) return mm.v;
         let v = [];
         try {
-          const raw = await store.getSetting(frKey(id));
+          const raw = await store.getSetting(key);
           const a = raw ? JSON.parse(raw) : [];
-          v = Array.isArray(a) ? a.filter((x) => typeof x === 'string').slice(0, FRIEND_MAX) : [];
+          v = Array.isArray(a) ? a.slice(0, max) : [];
         } catch {}
-        memo.set(frKey(id), { v, exp: Date.now() + 60_000 });
+        memo.set(key, { v, exp: Date.now() + 60_000 });
         return v;
       };
-      /** 랭킹 판에서 닉네임으로 그 사람 igsid 찾기 */
-      const findOn = async (b, u) => {
+      const putList = async (key, v) => {
+        await store.setSetting(key, JSON.stringify(v));
+        memo.set(key, { v, exp: Date.now() + 60_000 });
+      };
+      const frList = async (id) => (await listOf('fr:' + id, FRIEND_MAX)).filter((x) => typeof x === 'string');
+      const REQ_MS = 14 * 86400_000;
+      const reqList = async (id) => (await listOf('frq:' + id, FRIEND_MAX)).filter((x) => x && typeof x.f === 'string' && Date.now() - x.at < REQ_MS);
+      /** 어디서 봤나(b) + 닉네임(u)으로 그 사람 igsid 찾기 */
+      const findOn = async (b, u, n) => {
+        b = String(b || '');
         u = String(u || '').slice(0, 40);
         if (!u) return null;
-        if (pl && pl.username === u) return pl.igsid;
+        if (pl && pl.username === u && b !== 'name') return pl.igsid;
+        let id = null;
         if (b === 'tiles') {
           const d = await hallData(season.n, 'tiles');
-          const r = d.top.find((x) => x.username === u);
-          return r ? r.igsid : null;
+          id = (d.top.find((x) => x.username === u) || {}).igsid;
+        } else if (b.startsWith('map:')) {
+          const mp = await cached('mapby:' + b.slice(4), 5 * 60_000, async () => {
+            const r = await store.getMap(b.slice(4).slice(0, 40));
+            return r ? { igsid: r.igsid, nick: r.nick || '' } : null;
+          }, { shared: false });
+          id = mp && mp.nick === u ? mp.igsid : null;
+        } else if (b.startsWith('chat:')) {
+          const c = await store.chatGet(Number(b.slice(5)) || 0);
+          id = c && c.name === u ? c.igsid : null;
+        } else if (b === 'name') {
+          const rows = await store.findByName(u, { exact: true, limit: 10 });
+          id = (rows[Math.max(0, Math.min(9, Number(n) || 0))] || {}).igsid;
+        } else {
+          const t = tileSong(b);
+          if (!t) return null;
+          const lb = await boardOf(tileSlot(t.id));
+          id = (lb.rows.find((x) => x.username === u) || {}).igsid;
         }
-        const t = tileSong(b);
-        if (!t) return null;
-        const lb = await boardOf(tileSlot(t.id));
-        const r = lb.rows.find((x) => x.username === u);
-        return r ? r.igsid : null;
+        return id || null;
       };
       /** 시즌 2 타일 총합 등수 (위 60명 + 1000명 사다리, 이미 기억해 둔 것) */
       const rankOfCard = async (c) => {
@@ -1325,28 +1360,94 @@ export function createHandler(cfg, { store, meter = null }) {
         const { mine } = hallMerge(await hallData(season.n, 'tiles'), { igsid: c.igsid, username: c.username, score: c.score, n: c.n, rounds: 0, at: c.at }, { igsid: c.igsid });
         return mine ? mine.rank || (mine.cap ? `${mine.cap}+` : null) : null;
       };
-      const cardOut = async (c, mine) => ({ username: c.username, av: c.av || null, intro: c.intro || null, score: c.score, n: c.n, rank: await rankOfCard(c), friend: mine ? mine.includes(c.igsid) : false, me: pl ? c.igsid === pl.igsid : false });
+      const cardOut = async (c, mine, extra = {}) => ({ username: c.username, av: c.av || null, intro: c.intro || null, score: c.score, n: c.n, rank: await rankOfCard(c), friend: mine ? mine.includes(c.igsid) : false, me: pl ? c.igsid === pl.igsid : false, ...extra });
       const cardOf = (id) => cached('prof:' + id, ttlOf(5 * 60_000), async () => (await store.friendCards(season.n, [id]))[0] || null, { shared: false });
+      const forgetCards = (...ids) => ids.forEach((id) => memo.delete('frc:' + id));
 
       if (p === '/api/profile') {
-        const id = await findOn(url.searchParams.get('b'), url.searchParams.get('u'));
+        const id = await findOn(url.searchParams.get('b'), url.searchParams.get('u'), url.searchParams.get('n'));
         const c = id ? await cardOf(id) : null;
         if (!c) return json(404, { error: 'not_found' });
-        return json(200, { p: await cardOut(c, pl ? await frList(pl.igsid) : null) });
+        let extra = {};
+        if (pl && id !== pl.igsid) {
+          const mine = await frList(pl.igsid);
+          if (!mine.includes(id)) extra = { sent: (await reqList(id)).some((x) => x.f === pl.igsid), asked: (await reqList(pl.igsid)).some((x) => x.f === id) };
+          return json(200, { p: await cardOut(c, mine, extra) });
+        }
+        return json(200, { p: await cardOut(c, null) });
       }
       if (!pl) return json(401, { error: 'no_player' });
+      // 🔎 닉네임으로 찾기 (그 글자로 시작하는 닉네임 10명, 같은 닉네임은 n 으로 구분)
+      if (p === '/api/friends/search') {
+        if (!limitSearch(pl.igsid)) return json(429, { error: 'rate_limited' });
+        const q = String(url.searchParams.get('q') || '').trim().slice(0, 20);
+        if (!q) return json(200, { list: [] });
+        const rows = (await store.findByName(q, { limit: 10 })).filter((r) => r.igsid !== pl.igsid);
+        const cards = new Map((await store.friendCards(season.n, rows.map((r) => r.igsid))).map((c) => [c.igsid, c]));
+        const mine = await frList(pl.igsid);
+        const list = [];
+        for (const r of rows) {
+          const c = cards.get(r.igsid);
+          if (!c) continue;
+          // 같은 닉네임 중 몇 번째인지 (findByName exact 와 같은 igsid 순)
+          const same = (await store.findByName(r.username, { exact: true, limit: 10 })).findIndex((x) => x.igsid === r.igsid);
+          list.push(await cardOut(c, mine, { n: Math.max(0, same), tiles: c.n }));
+        }
+        return json(200, { list });
+      }
       let mine = await frList(pl.igsid);
+      /** 서로 친구로 (둘 다 목록에 넣고 받은 요청에서 지움) */
+      const makeFriends = async (id) => {
+        const theirs = await frList(id);
+        if (mine.length >= FRIEND_MAX) return 'full';
+        if (!mine.includes(id)) await putList('fr:' + pl.igsid, (mine = mine.concat([id])));
+        if (!theirs.includes(pl.igsid) && theirs.length < FRIEND_MAX) await putList('fr:' + id, theirs.concat([pl.igsid]));
+        const rq = await reqList(pl.igsid);
+        if (rq.some((x) => x.f === id)) await putList('frq:' + pl.igsid, rq.filter((x) => x.f !== id));
+        forgetCards(pl.igsid, id);
+        return 'friend';
+      };
       if (m === 'POST') {
         const body = await readJson(request);
-        let next = mine;
         if (body.add) {
-          const id = await findOn(body.add.b, body.add.u);
+          // 친구 요청 → 상대가 수락하면 친구 (상대가 이미 나한테 요청했거나 나를 친구로 둔 거면 바로 친구)
+          if (!limitFriend(pl.igsid)) return json(429, { error: 'rate_limited' });
+          const id = await findOn(body.add.b, body.add.u, body.add.n);
           if (!id) return json(404, { error: 'not_found' });
           if (id === pl.igsid) return json(400, { error: 'self' });
-          if (!mine.includes(id)) {
-            if (mine.length >= FRIEND_MAX) return json(400, { error: 'full', max: FRIEND_MAX });
-            next = mine.concat([id]);
+          if (mine.includes(id)) return json(200, { ok: true, state: 'friend' });
+          if (mine.length >= FRIEND_MAX) return json(400, { error: 'full', max: FRIEND_MAX });
+          const myReq = await reqList(pl.igsid);
+          if (myReq.some((x) => x.f === id) || (await frList(id)).includes(pl.igsid)) {
+            const st = await makeFriends(id);
+            return st === 'full' ? json(400, { error: 'full', max: FRIEND_MAX }) : json(200, { ok: true, state: 'friend' });
           }
+          const rq = await reqList(id);
+          if (!rq.some((x) => x.f === pl.igsid)) {
+            if (rq.length >= FRIEND_MAX) rq.shift();
+            await putList('frq:' + id, rq.concat([{ f: pl.igsid, at: Date.now() }]));
+          }
+          return json(200, { ok: true, state: 'sent' });
+        }
+        if (body.accept || body.reject || body.cancel) {
+          if (body.cancel) {
+            // 보낸 요청 취소
+            const id = await findOn(body.cancel.b, body.cancel.u, body.cancel.n);
+            if (id) {
+              const rq = await reqList(id);
+              if (rq.some((x) => x.f === pl.igsid)) await putList('frq:' + id, rq.filter((x) => x.f !== pl.igsid));
+            }
+            return json(200, { ok: true, state: 'none' });
+          }
+          const rq = await reqList(pl.igsid);
+          const cards = await store.friendCards(season.n, rq.map((x) => x.f));
+          const hit = cards.find((c) => c.username === String(body.accept || body.reject || ''));
+          if (!hit) return json(404, { error: 'not_found' });
+          if (body.accept) {
+            const st = await makeFriends(hit.igsid);
+            if (st === 'full') return json(400, { error: 'full', max: FRIEND_MAX });
+          } else await putList('frq:' + pl.igsid, rq.filter((x) => x.f !== hit.igsid));
+          if (!body.list) return json(200, { ok: true });
         } else if (body.invite) {
           // 🎮 같이 하기: 내가 만든 친구 방 코드를 친구에게 (친구 목록에 있는 사람만, 쓰기 1줄)
           const code = String(body.invite.code || '').replace(/\D/g, '').slice(0, 4);
@@ -1358,26 +1459,86 @@ export function createHandler(cfg, { store, meter = null }) {
           await store.setSetting('inv:' + hit.igsid, JSON.stringify({ from: pl.username, av: pl.av || null, code, at: Date.now() }));
           return json(200, { ok: true });
         } else if (body.del != null) {
-          // 끊기는 내 친구 목록 자리(i) + 닉네임으로 (igsid 를 폰에 안 보내서)
-          const i = Number(body.del);
-          const cards = await cached('frc:' + pl.igsid, ttlOf(3 * 60_000), () => store.friendCards(season.n, mine), { shared: false });
-          const hit = cards.find((c) => c.username === String(body.u || '')) || (Number.isInteger(i) ? cards[i] : null);
-          if (hit) next = mine.filter((x) => x !== hit.igsid);
+          // 끊기 = 둘 다 목록에서 (닉네임으로 — igsid 를 폰에 안 보내서)
+          const cards = await cached('frc:' + pl.igsid, ttlOf(3 * 60_000), () => store.friendCards(season.n, mine.concat([pl.igsid])), { shared: false });
+          const hit = cards.find((c) => c.igsid !== pl.igsid && mine.includes(c.igsid) && c.username === String(body.u || ''));
+          if (hit) {
+            await putList('fr:' + pl.igsid, (mine = mine.filter((x) => x !== hit.igsid)));
+            const theirs = await frList(hit.igsid);
+            if (theirs.includes(pl.igsid)) await putList('fr:' + hit.igsid, theirs.filter((x) => x !== pl.igsid));
+            forgetCards(pl.igsid, hit.igsid);
+          }
+          if (!body.list) return json(200, { ok: true, state: 'none' });
         } else return json(400, { error: 'bad' });
-        if (next !== mine) {
-          await store.setSetting(frKey(pl.igsid), JSON.stringify(next));
-          memo.set(frKey(pl.igsid), { v: next, exp: Date.now() + 60_000 });
-          memo.delete('frc:' + pl.igsid);
-          mine = next;
-        }
-        if (!body.list) return json(200, { ok: true, friend: !!body.add, count: mine.length });
       }
-      // 친구 목록 (+ 나) — 점수 순
+      // 친구 목록 (+ 나) — 점수 순 · 받은 친구 요청
       const cards = await cached('frc:' + pl.igsid, ttlOf(3 * 60_000), () => store.friendCards(season.n, mine.concat([pl.igsid])), { shared: false });
       const list = [];
       for (const c of cards.filter((c) => c.igsid === pl.igsid || mine.includes(c.igsid))) list.push(await cardOut(c, mine));
       list.sort((a, b) => b.score - a.score);
-      return json(200, { list, max: FRIEND_MAX, ...(await inviteOf(pl)) });
+      const rq = await reqList(pl.igsid);
+      const reqs = [];
+      if (rq.length) for (const c of await store.friendCards(season.n, rq.map((x) => x.f))) reqs.push(await cardOut(c, mine, { asked: true }));
+      return json(200, { list, reqs, max: FRIEND_MAX, ...(await inviteOf(pl)) });
+    }
+
+    // 💬 채팅 (2026-11-28 사용자 '채팅 18:00~20시까지만') — 열린 시간에만, 폰이 화면을 볼 때만 몇 초마다 물어봄
+    //   읽기: 인스턴스마다 2초에 한 번 '새 글만'(id > 마지막) 읽어 모든 사람에게 나눠 줌 + 1분마다 다시 읽어 가린 글 반영
+    //   쓰기: 글 하나 = 1줄. 로그인(카카오·구글)한 계정만, 3초에 1개·5분에 20개, 연락처·링크 막음, 욕은 별표, 신고 3번이면 가림 + 그 사람 하루 못 씀
+    if (p === '/api/chat' && (m === 'GET' || m === 'POST')) {
+      // 시간은 settings `set:chatHours`('18-20' 꼴, '0-0' 이면 닫힘)로 바꿀 수 있음 — 1분 기억
+      const hours = (await cached('chatHours', 60_000, async () => (await store.getSetting('set:chatHours')) || '', { shared: false })) || cfg.chatHours;
+      const win = chatWindow(Date.now(), hours);
+      const off = !win.open || brake() >= 2;
+      const closed = () => json(200, { open: false, next: win.next, end: win.end, busy: brake() >= 2 || undefined });
+      if (off && m === 'GET') return closed();
+      const pl = await getPlayer(request);
+      const refresh = async () => {
+        const now = Date.now();
+        if (chatBuf.start !== win.start) Object.assign(chatBuf, { start: win.start, msgs: [], last: 0, at: 0, full: 0 });
+        if (now - chatBuf.at < 2000) return;
+        chatBuf.at = now;
+        if (now - chatBuf.full > 60_000) {
+          chatBuf.full = now;
+          chatBuf.msgs = await store.chatSince(0, win.start, CHAT_KEEP);
+        } else chatBuf.msgs = chatBuf.msgs.concat(await store.chatSince(chatBuf.last, win.start, CHAT_KEEP)).slice(-CHAT_KEEP);
+        chatBuf.last = chatBuf.msgs.length ? chatBuf.msgs[chatBuf.msgs.length - 1].id : chatBuf.last;
+      };
+      const out = (r) => ({ id: r.id, at: r.at, name: r.name, av: r.av || null, text: r.text, mine: pl ? r.igsid === pl.igsid : false });
+      if (m === 'GET') {
+        await refresh();
+        const after = Number(url.searchParams.get('after')) || 0;
+        return json(200, { open: true, end: win.end, msgs: chatBuf.msgs.filter((r) => r.id > after).map(out), every: brake() >= 1 ? 15000 : 5000 });
+      }
+      if (off) return closed();
+      if (!pl) return json(401, { error: 'no_player' });
+      if (!rankOk(pl) || pl.hiddenAt) return json(403, { error: 'login_required' });
+      const body = await readJson(request);
+      if (body.report != null) {
+        const id = Number(body.report) || 0;
+        const k = `${id}:${pl.igsid}`;
+        if (!limitChatReport(pl.igsid) || chatReported.has(k)) return json(200, { ok: true });
+        chatReported.add(k);
+        if (chatReported.size > 5000) chatReported.clear();
+        const r = await store.chatReport(id, CHAT_REPORTS);
+        if (r && r.hid) {
+          chatBuf.msgs = chatBuf.msgs.filter((x) => x.id !== id);
+          await store.setSetting('chatmute:' + r.igsid, String(Date.now() + 86400_000));
+        }
+        return json(200, { ok: true, hid: !!(r && r.hid) });
+      }
+      const c = chatClean(body.text);
+      if (c.error) return json(400, { error: c.error });
+      const last = chatLastSend.get(pl.igsid) || 0;
+      if (Date.now() - last < 3000 || !limitChat(pl.igsid)) return json(429, { error: 'slow' });
+      const mute = Number(await store.getSetting('chatmute:' + pl.igsid)) || 0;
+      if (mute > Date.now()) return json(403, { error: 'muted', until: mute });
+      chatLastSend.set(pl.igsid, Date.now());
+      if (chatLastSend.size > 5000) chatLastSend.clear();
+      const msg = { at: Date.now(), igsid: pl.igsid, name: pl.username, av: pl.av || null, text: c.text };
+      msg.id = await store.chatAdd(msg);
+      if (Math.random() < 0.02) await Promise.resolve(store.chatPurge(Date.now() - 3 * 86400_000)).catch(() => {});
+      return json(200, { ok: true, msg: out(msg) });
     }
 
     if (p === '/api/guest' && m === 'POST') {

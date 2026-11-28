@@ -8,6 +8,7 @@ export function makeConfig(env = {}) {
     sessionSecret: env.SESSION_SECRET || '',
     // soft(기본): 9·12단계·그리그 무제한은 인증 신청, 13·14단계·단계별 무제한은 운영자 확인(인증 완료) / open: 잠금 전부 해제 (개발용)
     gateMode: env.GATE_MODE === 'open' ? 'open' : 'soft',
+    chatHours: env.CHAT_HOURS || '18-20', // 💬 채팅 여는 시간(한국 시각)
     // /admin.html (이용 통계) 비밀번호. 비어 있으면 관리자 기능 꺼짐
     adminToken: env.ADMIN_TOKEN || '',
     // 이용 통계에서 '하루'를 나누는 시간대 (UTC 와의 차이, 분). 기본 한국 +540

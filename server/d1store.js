@@ -181,6 +181,9 @@ export class D1Store extends PgStore {
     return this.db.batch(list.map(([t, p = []]) => [toSqlite(t), p]));
   }
 
+  _chatDdl() {
+    return [`CREATE TABLE IF NOT EXISTS chat (id INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, igsid TEXT NOT NULL, name TEXT, av TEXT, text TEXT NOT NULL, rep INTEGER NOT NULL DEFAULT 0, hid INTEGER NOT NULL DEFAULT 0)`];
+  }
   _adTable() {
     return (this._adReady ||= this.db.q(AD_TABLE, []).catch((e) => {
       this._adReady = null;

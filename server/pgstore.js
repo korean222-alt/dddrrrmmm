@@ -612,6 +612,65 @@ END $$`);
     if (!p || !p.username || p.hiddenAt || !p.checkedAt) return null;
     return { igsid, username: p.username, score: Number(r.score), n: Number(r.n), rounds: Number(r.rounds), at: Number(r.at) };
   }
+  // ---------- 💬 채팅 · 👥 닉네임 찾기 (2026-11-28) — 표·색인은 처음 쓸 때 만듦 (init 문장 수 안 늘리게) ----------
+  _chatDdl() {
+    return [
+      `CREATE TABLE IF NOT EXISTS chat (id BIGSERIAL PRIMARY KEY, at BIGINT NOT NULL, igsid TEXT NOT NULL, name TEXT, av TEXT, text TEXT NOT NULL, rep INTEGER NOT NULL DEFAULT 0, hid INTEGER NOT NULL DEFAULT 0)`,
+    ];
+  }
+  _chatTable() {
+    return (this._chatReady ||= (async () => {
+      for (const s of this._chatDdl()) await this.q(s, []);
+    })().catch((e) => {
+      this._chatReady = null;
+      throw e;
+    }));
+  }
+  _chatRow(r) {
+    return { id: Number(r.id), at: Number(r.at), igsid: r.igsid, name: r.name || '', av: r.av || null, text: r.text, rep: Number(r.rep) || 0, hid: Number(r.hid) || 0 };
+  }
+  async chatAdd(m) {
+    await this._chatTable();
+    const r = await this.one('INSERT INTO chat (at, igsid, name, av, text) VALUES ($1, $2, $3, $4, $5) RETURNING id', [m.at, m.igsid, m.name || null, m.av || null, m.text]);
+    return Number(r.id);
+  }
+  /** id 가 after 보다 큰 (from 뒤에 쓴) 안 가린 글, 오래된 순, 최대 limit (뒤쪽 limit 개) */
+  async chatSince(after, from, limit = 60) {
+    await this._chatTable();
+    const rows = await this.q('SELECT * FROM chat WHERE id > $1 AND at >= $2 AND hid = 0 ORDER BY id DESC LIMIT $3', [Math.max(0, Number(after) || 0), from, limit]);
+    return rows.map((r) => this._chatRow(r)).reverse();
+  }
+  async chatGet(id) {
+    await this._chatTable();
+    const r = await this.one('SELECT * FROM chat WHERE id = $1', [Number(id) || 0]);
+    return r ? this._chatRow(r) : null;
+  }
+  /** 신고 +1, n 번이면 가림 → 그 글 { rep, hid, igsid } */
+  async chatReport(id, n = 3) {
+    await this._chatTable();
+    const r = await this.one('UPDATE chat SET rep = rep + 1, hid = CASE WHEN rep + 1 >= $2 THEN 1 ELSE hid END WHERE id = $1 RETURNING *', [Number(id) || 0, n]);
+    return r ? this._chatRow(r) : null;
+  }
+  async chatPurge(before) {
+    await this._chatTable();
+    await this.q('DELETE FROM chat WHERE at < $1', [before]);
+  }
+  _nameIdx() {
+    return (this._nameReady ||= this.q('CREATE INDEX IF NOT EXISTS players_name ON players (username)', []).catch((e) => {
+      this._nameReady = null;
+      throw e;
+    }));
+  }
+  /** 닉네임으로 찾기 (같은 닉네임 여럿이면 igsid 순) — exact 면 똑같은 것만, 아니면 그 글자로 시작하는 것 */
+  async findByName(q, { exact = false, limit = 10 } = {}) {
+    q = String(q || '').trim().slice(0, 20);
+    if (!q) return [];
+    await this._nameIdx();
+    const rows = exact
+      ? await this.q('SELECT igsid, username FROM players WHERE username = $1 AND hidden_at IS NULL ORDER BY igsid LIMIT $2', [q, limit])
+      : await this.q('SELECT igsid, username FROM players WHERE username >= $1 AND username < $2 AND hidden_at IS NULL ORDER BY username, igsid LIMIT $3', [q, q + '\uffff', limit]);
+    return rows.map((r) => ({ igsid: r.igsid, username: r.username }));
+  }
   /** 👥 친구 카드 (2026-11-28): 프로필 + 그 시즌 타일 총합을 쿼리 1번으로 (사람마다 자기 타일 기록 줄만 읽음) */
   async friendCards(season, ids) {
     ids = [...new Set(ids)].slice(0, 50);

@@ -19752,7 +19752,12 @@ function serverApi(boot = null) {
     avatar: (av) => http('POST', '/api/avatar', { av }),
     intro: (intro) => http('POST', '/api/intro', { intro }),
     // 🙂👥 남의 프로필 · 친구 (2026-11-28) — 누를 때만 요청
-    profile: (b, u) => http('GET', `/api/profile?b=${encodeURIComponent(b)}&u=${encodeURIComponent(u)}`),
+    profile: (b, u, n) => http('GET', `/api/profile?b=${encodeURIComponent(b)}&u=${encodeURIComponent(u)}${n ? `&n=${Number(n) || 0}` : ''}`),
+    friendSearch: (q) => http('GET', `/api/friends/search?q=${encodeURIComponent(q)}`),
+    // 💬 채팅 (2026-11-28) — 채팅 화면을 볼 때만
+    chat: (after) => http('GET', `/api/chat?after=${Number(after) || 0}`),
+    chatSend: (text) => http('POST', '/api/chat', { text }),
+    chatReport: (id) => http('POST', '/api/chat', { report: id }),
     friends: () => http('GET', '/api/friends'),
     friendEdit: (body) => http('POST', '/api/friends', body),
     verifyPassword: (body) => http('POST', '/api/verify/password', body),
@@ -20101,11 +20106,12 @@ const __m_news = (() => {
 
 const NEWS = [
   {
-    id: '2026-11-28d',
+    id: '2026-11-28e',
     date: '11월 28일',
-    title: '🌸 신곡 「사계 – 봄」 · ✨ PERFECT+ · 👥 친구',
+    title: '🌸 신곡 「사계 – 봄」 · ✨ PERFECT+ · 👥 친구 · 💬 채팅',
     items: [
-      '<b>👥 친구</b>가 생겼어요 — 시즌 2 랭킹에서 <b>프로필을 누르면</b> 그 사람 소개·순위를 보고 <b>친구 추가</b>! 내 프로필 「친구」 탭에서 친구끼리 순위를 봐요',
+      '<b>👥 친구</b>가 생겼어요 — 랭킹·유저 맵·채팅에서 <b>프로필을 누르거나</b> 내 프로필 「친구」 탭에서 <b>닉네임으로 찾아</b> 친구 요청! 상대가 수락하면 친구끼리 순위를 봐요',
+      '<b>💬 채팅</b>은 매일 <b>저녁 6시~8시</b>에 열려요 (로그인한 사람만 · 욕설·연락처는 안 돼요)',
       '친구 프로필의 <b>🎮 같이 하기</b>로 친구를 내 방에 초대 · 내 프로필 「소개」에서 <b>🖼 프로필 배경</b>도 꾸며요 (상점 무대를 사면 그림 배경도)',
       '<b>🌸 신곡</b> 비발디 <b>「사계 – 봄」</b> 타일 곡이 나왔어요 (어려움)',
       '이 곡엔 <b>✨ PERFECT+</b> — 판정선 <b>한가운데</b>에 딱 맞추면 PERFECT 보다 점수가 더 높아요',
@@ -20955,6 +20961,59 @@ function avatarHtml(id, name = '', cls = '') {
 return { AVATARS, AVATAR_IDS, cleanAvatar, INTRO_MAX, INTRO_INST, PROF_BGS, profBg, profBgStyle, cleanIntro, avatarHtml };
 })();
 
+// ---- chat.js ----
+const __m_chat = (() => {
+// 💬 채팅 (2026-11-28 사용자 '채팅 18:00~20시까지만') — 서버·폰 같이 씀
+//   열리는 시간(한국 시각)·글 검사(길이·링크·연락처·욕)만. 저장·폴링은 server/handler.js · main.js
+const CHAT_MAX = 80;
+const CHAT_HOURS = '18-20';
+const KST = 9 * 3600 * 1000;
+
+/** 지금 채팅이 열렸나 { open, start, end, next } — hours = '18-20' (한국 시각, 끝 시각은 안 들어감) */
+function chatWindow(now = Date.now(), hours = CHAT_HOURS) {
+  const m = /^(\d{1,2})-(\d{1,2})$/.exec(String(hours || CHAT_HOURS)) || /^(\d+)-(\d+)$/.exec(CHAT_HOURS);
+  const a = Math.min(24, Number(m[1]));
+  const b = Math.min(24, Math.max(a, Number(m[2])));
+  const day = Math.floor((now + KST) / 86400000) * 86400000 - KST; // 오늘 한국 0시
+  const start = day + a * 3600000;
+  const end = day + b * 3600000;
+  if (now >= start && now < end) return { open: true, start, end, next: start };
+  const next = now < start ? start : start + 86400000;
+  return { open: false, start, end, next };
+}
+
+// 연락처·링크는 막음 (학생 유저 많음 — 밖으로 불러내기 막기)
+const CONTACT = [
+  /https?:\/\//i,
+  /www\./i,
+  /[a-z0-9-]+\.(com|net|kr|io|me|gg|ly|link|xyz|org|co)\b/i,
+  /open\s*\.?\s*kakao/i,
+  /오픈\s*채팅|오픈\s*톡|오픈카톡|카톡\s*(아이디|id)|카카오\s*아이디|디코|디스코드|discord|텔레그램|telegram|라인\s*아이디/i,
+  /\d[\d\s.-]{8,}\d/, // 전화번호 같은 긴 숫자
+  /01[016789]\D{0,3}\d{3,4}\D{0,3}\d{4}/,
+  /(^|\s)@[a-z0-9_.]{3,}/i, // 인스타 아이디
+];
+// 욕은 별표로 가림 (글은 보냄)
+const BAD = /(씨\s*발|시\s*발|ㅅ\s*ㅂ|ㅆ\s*ㅂ|병\s*신|ㅂ\s*ㅅ|개\s*새\s*끼|개새|좆|존\s*나|졸\s*라|지\s*랄|ㅈ\s*ㄹ|미친\s*(놈|년|새끼)|니\s*애\s*미|느\s*금\s*마|애\s*미|씹|꺼\s*져|닥\s*쳐|fuck|shit|bitch)/gi;
+
+/** 글 검사 → { text } 또는 { error: 'empty' | 'long' | 'contact' } */
+function chatClean(v) {
+  let t = String(v == null ? '' : v)
+    .replace(/[\u0000-\u001f\u007f\u200b-\u200f\u2028-\u202e\ufeff]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!t) return { error: 'empty' };
+  if (t.length > CHAT_MAX) return { error: 'long' };
+  if (CONTACT.some((re) => re.test(t))) return { error: 'contact' };
+  t = t.replace(BAD, (w) => '*'.repeat(Math.min(4, w.replace(/\s/g, '').length)));
+  // 같은 글자 길게 반복은 줄임 (ㅋㅋㅋㅋㅋㅋㅋㅋ… → 8개)
+  t = t.replace(/(.)\1{8,}/g, (w, c) => c.repeat(8));
+  return { text: t };
+}
+
+return { CHAT_MAX, CHAT_HOURS, chatWindow, chatClean };
+})();
+
 // ---- sharecard.js ----
 const __m_sharecard = (() => {
 // 결과 공유 카드 (인스타 스토리 1080x1920)
@@ -21314,6 +21373,7 @@ const { makeReelCover } = __m_cover;
 const { barEnergy, detectBeat, monoOf, songChart } = __m_beatsync;
 const { seasonLeftText, BOARD_LABEL, seasonAt } = __m_season;
 const { AVATARS, avatarHtml, cleanAvatar, cleanIntro, INTRO_MAX, PROF_BGS, profBg, profBgStyle } = __m_avatars;
+const { chatWindow, CHAT_MAX } = __m_chat;
 const { TILE_SONGS, TILE_DIFF, TILE_RPS, DIFF_SPEEDS, buildLap, tileSong, tileId, tileClosed, lapStars, tileLap, mapTileLap, MAP_TILE_LAPS, hasPplus, tileLevel } = __m_tiles;
 const { TileGame } = __m_tilegame;
 const { noteTilePlay, noteDrum, questView, claimQuest, claimCommunity, communityClaimed, attView, noteAttendance } = __m_s2claims;
@@ -24472,7 +24532,7 @@ function renderMaps() {
       const liked = !!likes[m.id];
       return `<div class="map-card ${m.kind === 'tiles' ? 'tiles' : ''}" data-id="${m.id}">
         <div class="map-info"><h4><em class="map-kind">${m.kind === 'tiles' ? '🎹 타일' : '🥁 드럼'}</em>${escapeHtml(m.name)}</h4>
-          <p>${escapeHtml(m.nick || '익명')} · ${Math.round(m.bpm)} BPM · ${m.bars}마디 · ${m.kind === 'tiles' ? TL_DIFF_WORDS[m.diff] || '' : DIFFICULTY_WORDS[m.diff] || ''}</p>
+          <p>${m.nick ? `<button type="button" class="map-by" data-pb="map:${escapeHtml(m.id)}" data-pu="${escapeHtml(m.nick)}">${escapeHtml(m.nick)}</button>` : '익명'} · ${Math.round(m.bpm)} BPM · ${m.bars}마디 · ${m.kind === 'tiles' ? TL_DIFF_WORDS[m.diff] || '' : DIFFICULTY_WORDS[m.diff] || ''}</p>
           <p class="map-meta">▶ ${fmt(m.plays)} · ❤ ${fmt(m.likes)}</p></div>
         <div class="map-btns">
           <button class="btn btn-primary map-play" type="button" data-map-act="play">▶ 치기</button>
@@ -29000,6 +29060,7 @@ function meHasAcct() {
   return !!(state.me && state.me.guest && state.me.player && state.me.player.username);
 }
 function refreshMeChip() {
+  chatSub();
   const el = $('#h2-me-av');
   if (!el) return;
   const pl = state.me && state.me.player;
@@ -29052,16 +29113,17 @@ const fr = { list: null, at: 0, max: 30 };
 function serverOn() {
   return !!(state.api && state.api.mode === 'server' && state.api.profile);
 }
-async function openProfile(b, u) {
+async function openProfile(b, u, n) {
   if (!u) return;
-  if (meHasAcct() && u === state.me.player.username) return openMe();
+  if (meHasAcct() && u === state.me.player.username && b !== 'name') return openMe();
   if (!serverOn()) return toast('서버에 연결되면 볼 수 있어요', 1800);
   pf.cur = null;
   pf.b = b;
+  pf.n = Number(n) || 0;
   $('#prof-body').innerHTML = '<p class="sr-empty">불러오는 중…</p>';
   openModal('modal-prof');
   try {
-    const d = await state.api.profile(b, u);
+    const d = await state.api.profile(b, u, pf.n);
     if (pf.b !== b) return;
     pf.cur = d.p;
     renderProf();
@@ -29076,7 +29138,15 @@ function renderProf() {
   const rank = c.rank ? (String(c.rank).endsWith('+') ? `${c.rank.replace('+', '')}등 밖` : `${c.rank}등`) : '-';
   $('#prof-body').innerHTML = `<div class="prof-top"><span class="prof-av">${avatarHtml(c.av, c.username, 'av-lg')}</span><h2>${escapeHtml(c.username)}</h2>${it ? `<p class="me-intro-line">${introHtml(it)}</p>` : '<p class="prof-none">아직 소개가 없어요</p>'}</div>
     <div class="me-stats prof-stats"><div><small>시즌 2 순위</small><b>${rank}</b></div><div><small>타일 총합</small><b>${fmt(c.score || 0)}</b></div><div><small>친 곡</small><b>${c.n || 0}곡</b></div></div>
-    ${c.me ? '' : c.friend ? '<button class="btn btn-primary prof-fr" data-action="prof-play">🎮 같이 하기</button><button class="btn btn-ghost prof-fr on" data-action="prof-friend">👥 친구예요 ✓ <small>누르면 끊기</small></button>' : '<button class="btn btn-primary prof-fr" data-action="prof-friend">👥 친구 추가</button>'}`;
+    ${c.me
+      ? ''
+      : c.friend
+        ? '<button class="btn btn-primary prof-fr" data-action="prof-play">🎮 같이 하기</button><button class="btn btn-ghost prof-fr on" data-action="prof-friend">👥 친구예요 ✓ <small>누르면 끊기</small></button>'
+        : c.asked
+          ? '<button class="btn btn-primary prof-fr" data-action="prof-accept">✅ 친구 요청 수락</button><button class="btn btn-ghost prof-fr" data-action="prof-reject">거절</button>'
+          : c.sent
+            ? '<button class="btn btn-ghost prof-fr on" data-action="prof-friend">📨 요청 보냄 <small>누르면 취소</small></button>'
+            : '<button class="btn btn-primary prof-fr" data-action="prof-friend">👥 친구 요청</button>'}`;
   $('#modal-prof .prof-sheet').setAttribute('style', profBgStyle(it && it.b));
 }
 // 🎮 같이 하기 (2026-11-28 사용자 '친구랑 같이 게임도'): 친구 방을 만들고 방 코드를 친구에게 초대로 보냄
@@ -29134,9 +29204,12 @@ async function profFriend(btn) {
   }
   if (btn) btn.disabled = true;
   try {
-    const d = await state.api.friendEdit(c.friend ? { del: -1, u: c.username } : { add: { b: pf.b, u: c.username } });
-    c.friend = !c.friend && d.friend !== false;
-    toast(c.friend ? `👥 ${c.username} 님을 친구로 추가했어요` : '친구를 끊었어요', 1800);
+    const where = { b: pf.b, u: c.username, n: pf.n || 0 };
+    const d = await state.api.friendEdit(c.friend ? { del: -1, u: c.username } : c.sent ? { cancel: where } : { add: where });
+    const was = c.friend ? 'friend' : c.sent ? 'sent' : 'none';
+    c.friend = d.state === 'friend';
+    c.sent = d.state === 'sent';
+    toast(c.friend ? `👥 ${c.username} 님과 친구가 됐어요!` : c.sent ? `📨 ${c.username} 님에게 친구 요청을 보냈어요` : was === 'friend' ? '친구를 끊었어요' : '요청을 취소했어요', 2000);
     fr.at = 0;
     renderProf();
     if (!$('#screen-me').classList.contains('active')) return;
@@ -29144,6 +29217,51 @@ async function profFriend(btn) {
   } catch (e) {
     toast(e && e.message === 'full' ? `친구는 ${fr.max}명까지예요` : '지금은 안 돼요. 잠시 뒤에 다시 해 주세요', 2000);
     if (btn) btn.disabled = false;
+  }
+}
+/** 받은 친구 요청 수락 · 거절 */
+async function profAnswer(ok, btn) {
+  const c = pf.cur;
+  if (!c) return;
+  if (btn) btn.disabled = true;
+  try {
+    await state.api.friendEdit(ok ? { accept: c.username } : { reject: c.username });
+    c.asked = false;
+    c.friend = !!ok;
+    toast(ok ? `👥 ${c.username} 님과 친구가 됐어요!` : '요청을 거절했어요', 1800);
+    if (state.me && state.me.frReq) state.me.frReq = Math.max(0, state.me.frReq - 1);
+    refreshFrDot();
+    fr.at = 0;
+    renderProf();
+    if ($('#screen-me').classList.contains('active')) renderFriends(true);
+  } catch (e) {
+    toast(e && e.message === 'full' ? `친구는 ${fr.max}명까지예요` : '지금은 안 돼요. 잠시 뒤에 다시 해 주세요', 2000);
+    if (btn) btn.disabled = false;
+  }
+}
+/** 받은 친구 요청이 있으면 빨간 점 (내 프로필 동그라미 · 친구 탭) */
+function refreshFrDot() {
+  const n = (fr.reqs ? fr.reqs.length : 0) || (state.me && state.me.frReq) || 0;
+  const tab = $('.me-tabs [data-t="friends"]');
+  if (tab) tab.classList.toggle('has-dot', n > 0);
+  const d = $('#gear-dot2');
+  if (d && n > 0) d.hidden = false;
+}
+// 🔎 닉네임으로 친구 찾기 (찾기 누를 때만 요청 1번)
+async function friendSearch() {
+  const q = $('#fr-q').value.trim();
+  const box = $('#fr-found');
+  if (!q) return void (box.innerHTML = '');
+  if (!serverOn()) return toast('서버에 연결되면 찾을 수 있어요', 1800);
+  box.innerHTML = '<p class="sr-empty">찾는 중…</p>';
+  try {
+    const d = await state.api.friendSearch(q);
+    fr.found = d.list || [];
+    box.innerHTML = fr.found.length
+      ? fr.found.map((c, i) => `<button class="sr-row fr-row" data-ffound="${i}"><span class="r">🔎</span>${avatarHtml(c.av, c.username, 'av-sm')}<span class="n">${escapeHtml(c.username)}${cleanIntro(c.intro)?.t ? `<small>${escapeHtml(cleanIntro(c.intro).t)}</small>` : ''}</span><span class="s">${c.friend ? '<small>친구 ✓</small>' : fmt(c.score || 0)}</span></button>`).join('')
+      : '<p class="sr-empty">그 닉네임은 없어요</p>';
+  } catch (e) {
+    box.innerHTML = `<p class="sr-empty">${e && e.status === 429 ? '너무 자주 찾았어요. 잠시 뒤에 다시' : '지금은 못 찾아요'}</p>`;
   }
 }
 async function renderFriends(force) {
@@ -29156,6 +29274,9 @@ async function renderFriends(force) {
       const d = await state.api.friends();
       setTimeout(() => checkInvite(d.invite), 300);
       fr.list = d.list || [];
+      fr.reqs = d.reqs || [];
+      if (state.me) state.me.frReq = fr.reqs.length;
+      refreshFrDot();
       fr.max = d.max || 30;
       fr.at = Date.now();
     } catch {
@@ -29164,8 +29285,13 @@ async function renderFriends(force) {
   }
   const others = fr.list.filter((c) => !c.me);
   $('#fr-count').textContent = `${others.length}/${fr.max}`;
+  const rq = fr.reqs || [];
+  $('#fr-reqs').innerHTML = rq.length
+    ? `<p class="fr-head">📨 받은 친구 요청 <small>${rq.length}</small></p>` +
+      rq.map((c, i) => `<div class="sr-row fr-row fr-req"><span class="r">📨</span>${avatarHtml(c.av, c.username, 'av-sm')}<span class="n" data-freq="${i}">${escapeHtml(c.username)}</span><span class="s fr-req-btns"><button class="btn btn-primary" data-frok="${i}">수락</button><button class="btn btn-ghost" data-frno="${i}">거절</button></span></div>`).join('')
+    : '';
   if (!others.length) {
-    box.innerHTML = '<p class="sr-empty">아직 친구가 없어요<br><small>시즌 2 랭킹에서 프로필을 누르고 「친구 추가」</small></p><button class="btn btn-ghost" data-action="s2-rank">🏆 시즌 2 랭킹 보기</button>';
+    box.innerHTML = '<p class="sr-empty">아직 친구가 없어요<br><small>위에서 닉네임으로 찾거나, 랭킹에서 프로필을 누르고 「친구 요청」</small></p><button class="btn btn-ghost" data-action="s2-rank">🏆 시즌 2 랭킹 보기</button>';
     return;
   }
   box.innerHTML = fr.list
@@ -29176,9 +29302,23 @@ async function renderFriends(force) {
     .join('');
 }
 document.addEventListener('click', (e) => {
-  const t = e.target.closest && e.target.closest('[data-pu],[data-fr],.sr-mine');
+  const t = e.target.closest && e.target.closest('[data-pu],[data-fr],[data-ffound],[data-freq],[data-frok],[data-frno],.sr-mine');
   if (!t) return;
-  if (t.dataset.fr != null) {
+  if (t.dataset.ffound != null) {
+    const c = fr.found && fr.found[Number(t.dataset.ffound)];
+    if (c) openProfile('name', c.username, c.n);
+  } else if (t.dataset.freq != null || t.dataset.frok != null || t.dataset.frno != null) {
+    const c = fr.reqs && fr.reqs[Number(t.dataset.freq ?? t.dataset.frok ?? t.dataset.frno)];
+    if (!c) return;
+    pf.cur = { ...c, asked: true };
+    pf.b = 'req';
+    if (t.dataset.frok != null) profAnswer(true, t);
+    else if (t.dataset.frno != null) profAnswer(false, t);
+    else {
+      renderProf();
+      openModal('modal-prof');
+    }
+  } else if (t.dataset.fr != null) {
     const c = fr.list && fr.list[Number(t.dataset.fr)];
     if (!c) return;
     if (c.me) return meTab('profile');
@@ -29186,8 +29326,162 @@ document.addEventListener('click', (e) => {
     pf.b = 'fr';
     renderProf();
     openModal('modal-prof');
-  } else if (t.dataset.pu) openProfile(sr.tab === 'total' ? 'tiles' : tileId(sr.song), t.dataset.pu);
+  } else if (t.dataset.pu) {
+    e.stopPropagation();
+    openProfile(t.dataset.pb || (sr.tab === 'total' ? 'tiles' : tileId(sr.song)), t.dataset.pu);
+  }
   else if (meHasAcct()) openMe();
+});
+
+// ----- 💬 채팅 (2026-11-28 사용자 '채팅 18:00~20시까지만') -----
+//   열린 시간에만, 이 화면을 보고 있을 때만 5초(조용하면 10초)마다 새 글을 물어봄 · 3분 동안 안 만지면 멈춤(자리 비움)
+//   보내기는 로그인(카카오·구글)한 계정만 · 연락처·링크는 서버가 막고 욕은 별표 · 글 누르면 🚩 신고
+const ch = { last: 0, timer: 0, newAt: 0, touchedAt: 0, msgs: new Map(), every: 5000, open: false, sending: false };
+function chatSub() {
+  const w = chatWindow(Date.now());
+  const el = $('#h2-chat-sub');
+  if (el) el.textContent = w.open ? '● 지금 열림!' : '매일 저녁 6시~8시';
+  $('.h2-chat')?.classList.toggle('live', w.open);
+}
+function openChat() {
+  show('screen-chat');
+  ch.touchedAt = Date.now();
+  ch.newAt = Date.now();
+  $('#chat-idle').hidden = true;
+  const can = meHasAcct() && !rankLocked();
+  $('#chat-in').placeholder = can ? `메시지 (${CHAT_MAX}자)` : '로그인하면 채팅할 수 있어요';
+  chatDraw();
+  chatPoll();
+}
+function chatWake() {
+  ch.touchedAt = Date.now();
+  $('#chat-idle').hidden = true;
+  chatPoll();
+}
+function chatActive() {
+  return $('#screen-chat').classList.contains('active') && !document.hidden;
+}
+function chatClosedHtml(next) {
+  const mins = Math.max(0, Math.round((next - Date.now()) / 60000));
+  const left = mins >= 60 ? `${Math.floor(mins / 60)}시간 ${mins % 60}분` : `${mins}분`;
+  return `<div class="chat-closed"><b>💬 채팅은 매일 저녁 6시~8시에 열려요</b><small>${left} 뒤에 열려요</small></div>`;
+}
+async function chatPoll() {
+  clearTimeout(ch.timer);
+  if (!chatActive()) return;
+  if (Date.now() - ch.touchedAt > 3 * 60_000) {
+    $('#chat-idle').hidden = false;
+    return;
+  }
+  if (!serverOn()) {
+    $('#chat-list').innerHTML = '<p class="sr-empty">서버에 연결되면 채팅할 수 있어요</p>';
+    return;
+  }
+  try {
+    const d = await state.api.chat(ch.last);
+    if (!d.open) {
+      ch.open = false;
+      $('#chat-live').textContent = '';
+      $('#chat-list').innerHTML = chatClosedHtml(d.next || chatWindow(Date.now()).next);
+      $('#chat-form').classList.add('off');
+      // 10분 안에 열리면 그때 한 번 더 물어봄
+      const wait = (d.next || 0) - Date.now();
+      if (wait > 0 && wait < 10 * 60_000) ch.timer = setTimeout(chatPoll, wait + 1500);
+      return;
+    }
+    if (!ch.open) $('#chat-list').innerHTML = '';
+    ch.open = true;
+    $('#chat-form').classList.remove('off');
+    $('#chat-live').textContent = '● LIVE';
+    ch.every = d.every || 5000;
+    const fresh = (d.msgs || []).filter((x) => !ch.msgs.has(x.id));
+    for (const x of d.msgs || []) {
+      ch.msgs.set(x.id, x);
+      ch.last = Math.max(ch.last, x.id);
+    }
+    if (fresh.length) {
+      ch.newAt = Date.now();
+      chatDraw();
+    } else if (!ch.msgs.size) chatDraw();
+  } catch {}
+  const gap = Date.now() - ch.newAt > 30_000 ? Math.max(ch.every, 10_000) : ch.every;
+  ch.timer = setTimeout(chatPoll, gap);
+}
+function chatDraw() {
+  const box = $('#chat-list');
+  if (!ch.open) return;
+  const near = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  const list = [...ch.msgs.values()].sort((a, b) => a.id - b.id).slice(-100);
+  if (ch.msgs.size > 150) ch.msgs = new Map(list.map((x) => [x.id, x]));
+  const hm = (t) => new Date(t).toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Seoul' });
+  box.innerHTML = list.length
+    ? list
+        .map((x) => `<div class="chat-msg ${x.mine ? 'mine' : ''}" data-cid="${x.id}">${x.mine ? '' : `<button class="chat-av" data-pb="chat:${x.id}" data-pu="${escapeHtml(x.name)}">${avatarHtml(x.av, x.name, 'av-sm')}</button>`}<div class="chat-b">${x.mine ? '' : `<button class="chat-name" data-pb="chat:${x.id}" data-pu="${escapeHtml(x.name)}">${escapeHtml(x.name)}</button>`}<p>${escapeHtml(x.text)}</p><small>${hm(x.at)}${x.mine ? '' : ` <button class="chat-rep" data-crep="${x.id}">🚩 신고</button>`}</small></div></div>`)
+        .join('')
+    : '<p class="sr-empty">아직 아무도 안 썼어요. 첫 인사를 남겨 보세요!</p>';
+  if (near || ch.drawnOnce !== true) box.scrollTop = box.scrollHeight;
+  ch.drawnOnce = true;
+}
+async function chatSend(e) {
+  if (e) e.preventDefault();
+  ch.touchedAt = Date.now();
+  if (!meHasAcct()) return askNickname(true);
+  if (rankLocked()) return askLogin();
+  const inp = $('#chat-in');
+  const text = inp.value.trim();
+  if (!text || ch.sending) return;
+  ch.sending = true;
+  try {
+    const d = await state.api.chatSend(text);
+    inp.value = '';
+    if (d.msg) {
+      ch.msgs.set(d.msg.id, d.msg);
+      ch.newAt = Date.now();
+      chatDraw();
+      $('#chat-list').scrollTop = $('#chat-list').scrollHeight;
+    }
+  } catch (err) {
+    const why = (err && err.message) || '';
+    if (why === 'login_required') askLogin();
+    else
+      toast(
+        { contact: '🔒 연락처·링크·아이디는 보낼 수 없어요', long: `${CHAT_MAX}자까지만 보낼 수 있어요`, slow: '조금 천천히 보내 주세요', muted: '신고가 쌓여서 오늘은 채팅을 쓸 수 없어요', empty: '' }[why] ?? '지금은 못 보내요',
+        2200
+      );
+  } finally {
+    ch.sending = false;
+  }
+}
+document.addEventListener('submit', (e) => {
+  if (e.target && e.target.id === 'chat-form') chatSend(e);
+});
+document.addEventListener('click', async (e) => {
+  const r = e.target.closest && e.target.closest('[data-crep]');
+  if (r) {
+    if (!meHasAcct() || rankLocked()) return toast('로그인한 사람만 신고할 수 있어요', 1800);
+    r.disabled = true;
+    try {
+      await state.api.chatReport(Number(r.dataset.crep));
+      toast('🚩 신고했어요. 3번 쌓이면 가려져요', 2000);
+    } catch {
+      toast('지금은 신고가 안 돼요', 1800);
+    }
+    return;
+  }
+  const m = e.target.closest && e.target.closest('.chat-msg');
+  if (m) m.classList.toggle('sel');
+});
+['touchstart', 'scroll', 'input', 'keydown'].forEach((ev) =>
+  document.addEventListener(
+    ev,
+    (e) => {
+      if (e.target && e.target.closest && e.target.closest('#screen-chat')) ch.touchedAt = Date.now();
+    },
+    { passive: true, capture: true }
+  )
+);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && $('#screen-chat').classList.contains('active')) chatPoll();
 });
 
 function openMe(tab = 'profile') {
@@ -29683,6 +29977,11 @@ const ACTIONS = {
   'close-prof': () => closeModal('modal-prof'),
   'prof-friend': (el) => profFriend(el),
   'prof-play': (el) => profPlay(el),
+  'prof-accept': (el) => profAnswer(true, el),
+  'prof-reject': (el) => profAnswer(false, el),
+  'fr-search': () => friendSearch(),
+  'chat-open': () => openChat(),
+  'chat-wake': () => chatWake(),
   'invite-go': () => inviteGo(),
   'invite-later': () => {
     if (inv.cur) save('invSeen', inv.cur.at);
@@ -30261,7 +30560,10 @@ async function boot() {
   } catch {
     state.me = { verified: false };
   }
-  setTimeout(() => checkInvite(state.me && state.me.invite), 1800);
+  setTimeout(() => {
+    checkInvite(state.me && state.me.invite);
+    refreshFrDot();
+  }, 1800);
   refreshTitle();
   refreshNewsDot();
   refreshMoveBtn();

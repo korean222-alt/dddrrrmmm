@@ -35,6 +35,7 @@ import { makeReelCover } from './cover.js';
 import { barEnergy, detectBeat, monoOf, songChart } from './beatsync.js';
 import { seasonLeftText, BOARD_LABEL, seasonAt } from './season.js';
 import { AVATARS, avatarHtml, cleanAvatar, cleanIntro, INTRO_MAX, PROF_BGS, profBg, profBgStyle } from './avatars.js';
+import { chatWindow, CHAT_MAX } from './chat.js';
 import { TILE_SONGS, TILE_DIFF, TILE_RPS, DIFF_SPEEDS, buildLap, tileSong, tileId, tileClosed, lapStars, tileLap, mapTileLap, MAP_TILE_LAPS, hasPplus, tileLevel } from './tiles.js';
 import { TileGame } from './tilegame.js';
 import { noteTilePlay, noteDrum, questView, claimQuest, claimCommunity, communityClaimed, attView, noteAttendance } from './s2claims.js';
@@ -3193,7 +3194,7 @@ function renderMaps() {
       const liked = !!likes[m.id];
       return `<div class="map-card ${m.kind === 'tiles' ? 'tiles' : ''}" data-id="${m.id}">
         <div class="map-info"><h4><em class="map-kind">${m.kind === 'tiles' ? '🎹 타일' : '🥁 드럼'}</em>${escapeHtml(m.name)}</h4>
-          <p>${escapeHtml(m.nick || '익명')} · ${Math.round(m.bpm)} BPM · ${m.bars}마디 · ${m.kind === 'tiles' ? TL_DIFF_WORDS[m.diff] || '' : DIFFICULTY_WORDS[m.diff] || ''}</p>
+          <p>${m.nick ? `<button type="button" class="map-by" data-pb="map:${escapeHtml(m.id)}" data-pu="${escapeHtml(m.nick)}">${escapeHtml(m.nick)}</button>` : '익명'} · ${Math.round(m.bpm)} BPM · ${m.bars}마디 · ${m.kind === 'tiles' ? TL_DIFF_WORDS[m.diff] || '' : DIFFICULTY_WORDS[m.diff] || ''}</p>
           <p class="map-meta">▶ ${fmt(m.plays)} · ❤ ${fmt(m.likes)}</p></div>
         <div class="map-btns">
           <button class="btn btn-primary map-play" type="button" data-map-act="play">▶ 치기</button>
@@ -7721,6 +7722,7 @@ function meHasAcct() {
   return !!(state.me && state.me.guest && state.me.player && state.me.player.username);
 }
 function refreshMeChip() {
+  chatSub();
   const el = $('#h2-me-av');
   if (!el) return;
   const pl = state.me && state.me.player;
@@ -7773,16 +7775,17 @@ const fr = { list: null, at: 0, max: 30 };
 function serverOn() {
   return !!(state.api && state.api.mode === 'server' && state.api.profile);
 }
-async function openProfile(b, u) {
+async function openProfile(b, u, n) {
   if (!u) return;
-  if (meHasAcct() && u === state.me.player.username) return openMe();
+  if (meHasAcct() && u === state.me.player.username && b !== 'name') return openMe();
   if (!serverOn()) return toast('서버에 연결되면 볼 수 있어요', 1800);
   pf.cur = null;
   pf.b = b;
+  pf.n = Number(n) || 0;
   $('#prof-body').innerHTML = '<p class="sr-empty">불러오는 중…</p>';
   openModal('modal-prof');
   try {
-    const d = await state.api.profile(b, u);
+    const d = await state.api.profile(b, u, pf.n);
     if (pf.b !== b) return;
     pf.cur = d.p;
     renderProf();
@@ -7797,7 +7800,15 @@ function renderProf() {
   const rank = c.rank ? (String(c.rank).endsWith('+') ? `${c.rank.replace('+', '')}등 밖` : `${c.rank}등`) : '-';
   $('#prof-body').innerHTML = `<div class="prof-top"><span class="prof-av">${avatarHtml(c.av, c.username, 'av-lg')}</span><h2>${escapeHtml(c.username)}</h2>${it ? `<p class="me-intro-line">${introHtml(it)}</p>` : '<p class="prof-none">아직 소개가 없어요</p>'}</div>
     <div class="me-stats prof-stats"><div><small>시즌 2 순위</small><b>${rank}</b></div><div><small>타일 총합</small><b>${fmt(c.score || 0)}</b></div><div><small>친 곡</small><b>${c.n || 0}곡</b></div></div>
-    ${c.me ? '' : c.friend ? '<button class="btn btn-primary prof-fr" data-action="prof-play">🎮 같이 하기</button><button class="btn btn-ghost prof-fr on" data-action="prof-friend">👥 친구예요 ✓ <small>누르면 끊기</small></button>' : '<button class="btn btn-primary prof-fr" data-action="prof-friend">👥 친구 추가</button>'}`;
+    ${c.me
+      ? ''
+      : c.friend
+        ? '<button class="btn btn-primary prof-fr" data-action="prof-play">🎮 같이 하기</button><button class="btn btn-ghost prof-fr on" data-action="prof-friend">👥 친구예요 ✓ <small>누르면 끊기</small></button>'
+        : c.asked
+          ? '<button class="btn btn-primary prof-fr" data-action="prof-accept">✅ 친구 요청 수락</button><button class="btn btn-ghost prof-fr" data-action="prof-reject">거절</button>'
+          : c.sent
+            ? '<button class="btn btn-ghost prof-fr on" data-action="prof-friend">📨 요청 보냄 <small>누르면 취소</small></button>'
+            : '<button class="btn btn-primary prof-fr" data-action="prof-friend">👥 친구 요청</button>'}`;
   $('#modal-prof .prof-sheet').setAttribute('style', profBgStyle(it && it.b));
 }
 // 🎮 같이 하기 (2026-11-28 사용자 '친구랑 같이 게임도'): 친구 방을 만들고 방 코드를 친구에게 초대로 보냄
@@ -7855,9 +7866,12 @@ async function profFriend(btn) {
   }
   if (btn) btn.disabled = true;
   try {
-    const d = await state.api.friendEdit(c.friend ? { del: -1, u: c.username } : { add: { b: pf.b, u: c.username } });
-    c.friend = !c.friend && d.friend !== false;
-    toast(c.friend ? `👥 ${c.username} 님을 친구로 추가했어요` : '친구를 끊었어요', 1800);
+    const where = { b: pf.b, u: c.username, n: pf.n || 0 };
+    const d = await state.api.friendEdit(c.friend ? { del: -1, u: c.username } : c.sent ? { cancel: where } : { add: where });
+    const was = c.friend ? 'friend' : c.sent ? 'sent' : 'none';
+    c.friend = d.state === 'friend';
+    c.sent = d.state === 'sent';
+    toast(c.friend ? `👥 ${c.username} 님과 친구가 됐어요!` : c.sent ? `📨 ${c.username} 님에게 친구 요청을 보냈어요` : was === 'friend' ? '친구를 끊었어요' : '요청을 취소했어요', 2000);
     fr.at = 0;
     renderProf();
     if (!$('#screen-me').classList.contains('active')) return;
@@ -7865,6 +7879,51 @@ async function profFriend(btn) {
   } catch (e) {
     toast(e && e.message === 'full' ? `친구는 ${fr.max}명까지예요` : '지금은 안 돼요. 잠시 뒤에 다시 해 주세요', 2000);
     if (btn) btn.disabled = false;
+  }
+}
+/** 받은 친구 요청 수락 · 거절 */
+async function profAnswer(ok, btn) {
+  const c = pf.cur;
+  if (!c) return;
+  if (btn) btn.disabled = true;
+  try {
+    await state.api.friendEdit(ok ? { accept: c.username } : { reject: c.username });
+    c.asked = false;
+    c.friend = !!ok;
+    toast(ok ? `👥 ${c.username} 님과 친구가 됐어요!` : '요청을 거절했어요', 1800);
+    if (state.me && state.me.frReq) state.me.frReq = Math.max(0, state.me.frReq - 1);
+    refreshFrDot();
+    fr.at = 0;
+    renderProf();
+    if ($('#screen-me').classList.contains('active')) renderFriends(true);
+  } catch (e) {
+    toast(e && e.message === 'full' ? `친구는 ${fr.max}명까지예요` : '지금은 안 돼요. 잠시 뒤에 다시 해 주세요', 2000);
+    if (btn) btn.disabled = false;
+  }
+}
+/** 받은 친구 요청이 있으면 빨간 점 (내 프로필 동그라미 · 친구 탭) */
+function refreshFrDot() {
+  const n = (fr.reqs ? fr.reqs.length : 0) || (state.me && state.me.frReq) || 0;
+  const tab = $('.me-tabs [data-t="friends"]');
+  if (tab) tab.classList.toggle('has-dot', n > 0);
+  const d = $('#gear-dot2');
+  if (d && n > 0) d.hidden = false;
+}
+// 🔎 닉네임으로 친구 찾기 (찾기 누를 때만 요청 1번)
+async function friendSearch() {
+  const q = $('#fr-q').value.trim();
+  const box = $('#fr-found');
+  if (!q) return void (box.innerHTML = '');
+  if (!serverOn()) return toast('서버에 연결되면 찾을 수 있어요', 1800);
+  box.innerHTML = '<p class="sr-empty">찾는 중…</p>';
+  try {
+    const d = await state.api.friendSearch(q);
+    fr.found = d.list || [];
+    box.innerHTML = fr.found.length
+      ? fr.found.map((c, i) => `<button class="sr-row fr-row" data-ffound="${i}"><span class="r">🔎</span>${avatarHtml(c.av, c.username, 'av-sm')}<span class="n">${escapeHtml(c.username)}${cleanIntro(c.intro)?.t ? `<small>${escapeHtml(cleanIntro(c.intro).t)}</small>` : ''}</span><span class="s">${c.friend ? '<small>친구 ✓</small>' : fmt(c.score || 0)}</span></button>`).join('')
+      : '<p class="sr-empty">그 닉네임은 없어요</p>';
+  } catch (e) {
+    box.innerHTML = `<p class="sr-empty">${e && e.status === 429 ? '너무 자주 찾았어요. 잠시 뒤에 다시' : '지금은 못 찾아요'}</p>`;
   }
 }
 async function renderFriends(force) {
@@ -7877,6 +7936,9 @@ async function renderFriends(force) {
       const d = await state.api.friends();
       setTimeout(() => checkInvite(d.invite), 300);
       fr.list = d.list || [];
+      fr.reqs = d.reqs || [];
+      if (state.me) state.me.frReq = fr.reqs.length;
+      refreshFrDot();
       fr.max = d.max || 30;
       fr.at = Date.now();
     } catch {
@@ -7885,8 +7947,13 @@ async function renderFriends(force) {
   }
   const others = fr.list.filter((c) => !c.me);
   $('#fr-count').textContent = `${others.length}/${fr.max}`;
+  const rq = fr.reqs || [];
+  $('#fr-reqs').innerHTML = rq.length
+    ? `<p class="fr-head">📨 받은 친구 요청 <small>${rq.length}</small></p>` +
+      rq.map((c, i) => `<div class="sr-row fr-row fr-req"><span class="r">📨</span>${avatarHtml(c.av, c.username, 'av-sm')}<span class="n" data-freq="${i}">${escapeHtml(c.username)}</span><span class="s fr-req-btns"><button class="btn btn-primary" data-frok="${i}">수락</button><button class="btn btn-ghost" data-frno="${i}">거절</button></span></div>`).join('')
+    : '';
   if (!others.length) {
-    box.innerHTML = '<p class="sr-empty">아직 친구가 없어요<br><small>시즌 2 랭킹에서 프로필을 누르고 「친구 추가」</small></p><button class="btn btn-ghost" data-action="s2-rank">🏆 시즌 2 랭킹 보기</button>';
+    box.innerHTML = '<p class="sr-empty">아직 친구가 없어요<br><small>위에서 닉네임으로 찾거나, 랭킹에서 프로필을 누르고 「친구 요청」</small></p><button class="btn btn-ghost" data-action="s2-rank">🏆 시즌 2 랭킹 보기</button>';
     return;
   }
   box.innerHTML = fr.list
@@ -7897,9 +7964,23 @@ async function renderFriends(force) {
     .join('');
 }
 document.addEventListener('click', (e) => {
-  const t = e.target.closest && e.target.closest('[data-pu],[data-fr],.sr-mine');
+  const t = e.target.closest && e.target.closest('[data-pu],[data-fr],[data-ffound],[data-freq],[data-frok],[data-frno],.sr-mine');
   if (!t) return;
-  if (t.dataset.fr != null) {
+  if (t.dataset.ffound != null) {
+    const c = fr.found && fr.found[Number(t.dataset.ffound)];
+    if (c) openProfile('name', c.username, c.n);
+  } else if (t.dataset.freq != null || t.dataset.frok != null || t.dataset.frno != null) {
+    const c = fr.reqs && fr.reqs[Number(t.dataset.freq ?? t.dataset.frok ?? t.dataset.frno)];
+    if (!c) return;
+    pf.cur = { ...c, asked: true };
+    pf.b = 'req';
+    if (t.dataset.frok != null) profAnswer(true, t);
+    else if (t.dataset.frno != null) profAnswer(false, t);
+    else {
+      renderProf();
+      openModal('modal-prof');
+    }
+  } else if (t.dataset.fr != null) {
     const c = fr.list && fr.list[Number(t.dataset.fr)];
     if (!c) return;
     if (c.me) return meTab('profile');
@@ -7907,8 +7988,162 @@ document.addEventListener('click', (e) => {
     pf.b = 'fr';
     renderProf();
     openModal('modal-prof');
-  } else if (t.dataset.pu) openProfile(sr.tab === 'total' ? 'tiles' : tileId(sr.song), t.dataset.pu);
+  } else if (t.dataset.pu) {
+    e.stopPropagation();
+    openProfile(t.dataset.pb || (sr.tab === 'total' ? 'tiles' : tileId(sr.song)), t.dataset.pu);
+  }
   else if (meHasAcct()) openMe();
+});
+
+// ----- 💬 채팅 (2026-11-28 사용자 '채팅 18:00~20시까지만') -----
+//   열린 시간에만, 이 화면을 보고 있을 때만 5초(조용하면 10초)마다 새 글을 물어봄 · 3분 동안 안 만지면 멈춤(자리 비움)
+//   보내기는 로그인(카카오·구글)한 계정만 · 연락처·링크는 서버가 막고 욕은 별표 · 글 누르면 🚩 신고
+const ch = { last: 0, timer: 0, newAt: 0, touchedAt: 0, msgs: new Map(), every: 5000, open: false, sending: false };
+function chatSub() {
+  const w = chatWindow(Date.now());
+  const el = $('#h2-chat-sub');
+  if (el) el.textContent = w.open ? '● 지금 열림!' : '매일 저녁 6시~8시';
+  $('.h2-chat')?.classList.toggle('live', w.open);
+}
+function openChat() {
+  show('screen-chat');
+  ch.touchedAt = Date.now();
+  ch.newAt = Date.now();
+  $('#chat-idle').hidden = true;
+  const can = meHasAcct() && !rankLocked();
+  $('#chat-in').placeholder = can ? `메시지 (${CHAT_MAX}자)` : '로그인하면 채팅할 수 있어요';
+  chatDraw();
+  chatPoll();
+}
+function chatWake() {
+  ch.touchedAt = Date.now();
+  $('#chat-idle').hidden = true;
+  chatPoll();
+}
+function chatActive() {
+  return $('#screen-chat').classList.contains('active') && !document.hidden;
+}
+function chatClosedHtml(next) {
+  const mins = Math.max(0, Math.round((next - Date.now()) / 60000));
+  const left = mins >= 60 ? `${Math.floor(mins / 60)}시간 ${mins % 60}분` : `${mins}분`;
+  return `<div class="chat-closed"><b>💬 채팅은 매일 저녁 6시~8시에 열려요</b><small>${left} 뒤에 열려요</small></div>`;
+}
+async function chatPoll() {
+  clearTimeout(ch.timer);
+  if (!chatActive()) return;
+  if (Date.now() - ch.touchedAt > 3 * 60_000) {
+    $('#chat-idle').hidden = false;
+    return;
+  }
+  if (!serverOn()) {
+    $('#chat-list').innerHTML = '<p class="sr-empty">서버에 연결되면 채팅할 수 있어요</p>';
+    return;
+  }
+  try {
+    const d = await state.api.chat(ch.last);
+    if (!d.open) {
+      ch.open = false;
+      $('#chat-live').textContent = '';
+      $('#chat-list').innerHTML = chatClosedHtml(d.next || chatWindow(Date.now()).next);
+      $('#chat-form').classList.add('off');
+      // 10분 안에 열리면 그때 한 번 더 물어봄
+      const wait = (d.next || 0) - Date.now();
+      if (wait > 0 && wait < 10 * 60_000) ch.timer = setTimeout(chatPoll, wait + 1500);
+      return;
+    }
+    if (!ch.open) $('#chat-list').innerHTML = '';
+    ch.open = true;
+    $('#chat-form').classList.remove('off');
+    $('#chat-live').textContent = '● LIVE';
+    ch.every = d.every || 5000;
+    const fresh = (d.msgs || []).filter((x) => !ch.msgs.has(x.id));
+    for (const x of d.msgs || []) {
+      ch.msgs.set(x.id, x);
+      ch.last = Math.max(ch.last, x.id);
+    }
+    if (fresh.length) {
+      ch.newAt = Date.now();
+      chatDraw();
+    } else if (!ch.msgs.size) chatDraw();
+  } catch {}
+  const gap = Date.now() - ch.newAt > 30_000 ? Math.max(ch.every, 10_000) : ch.every;
+  ch.timer = setTimeout(chatPoll, gap);
+}
+function chatDraw() {
+  const box = $('#chat-list');
+  if (!ch.open) return;
+  const near = box.scrollHeight - box.scrollTop - box.clientHeight < 80;
+  const list = [...ch.msgs.values()].sort((a, b) => a.id - b.id).slice(-100);
+  if (ch.msgs.size > 150) ch.msgs = new Map(list.map((x) => [x.id, x]));
+  const hm = (t) => new Date(t).toLocaleTimeString('ko-KR', { hour: 'numeric', minute: '2-digit', timeZone: 'Asia/Seoul' });
+  box.innerHTML = list.length
+    ? list
+        .map((x) => `<div class="chat-msg ${x.mine ? 'mine' : ''}" data-cid="${x.id}">${x.mine ? '' : `<button class="chat-av" data-pb="chat:${x.id}" data-pu="${escapeHtml(x.name)}">${avatarHtml(x.av, x.name, 'av-sm')}</button>`}<div class="chat-b">${x.mine ? '' : `<button class="chat-name" data-pb="chat:${x.id}" data-pu="${escapeHtml(x.name)}">${escapeHtml(x.name)}</button>`}<p>${escapeHtml(x.text)}</p><small>${hm(x.at)}${x.mine ? '' : ` <button class="chat-rep" data-crep="${x.id}">🚩 신고</button>`}</small></div></div>`)
+        .join('')
+    : '<p class="sr-empty">아직 아무도 안 썼어요. 첫 인사를 남겨 보세요!</p>';
+  if (near || ch.drawnOnce !== true) box.scrollTop = box.scrollHeight;
+  ch.drawnOnce = true;
+}
+async function chatSend(e) {
+  if (e) e.preventDefault();
+  ch.touchedAt = Date.now();
+  if (!meHasAcct()) return askNickname(true);
+  if (rankLocked()) return askLogin();
+  const inp = $('#chat-in');
+  const text = inp.value.trim();
+  if (!text || ch.sending) return;
+  ch.sending = true;
+  try {
+    const d = await state.api.chatSend(text);
+    inp.value = '';
+    if (d.msg) {
+      ch.msgs.set(d.msg.id, d.msg);
+      ch.newAt = Date.now();
+      chatDraw();
+      $('#chat-list').scrollTop = $('#chat-list').scrollHeight;
+    }
+  } catch (err) {
+    const why = (err && err.message) || '';
+    if (why === 'login_required') askLogin();
+    else
+      toast(
+        { contact: '🔒 연락처·링크·아이디는 보낼 수 없어요', long: `${CHAT_MAX}자까지만 보낼 수 있어요`, slow: '조금 천천히 보내 주세요', muted: '신고가 쌓여서 오늘은 채팅을 쓸 수 없어요', empty: '' }[why] ?? '지금은 못 보내요',
+        2200
+      );
+  } finally {
+    ch.sending = false;
+  }
+}
+document.addEventListener('submit', (e) => {
+  if (e.target && e.target.id === 'chat-form') chatSend(e);
+});
+document.addEventListener('click', async (e) => {
+  const r = e.target.closest && e.target.closest('[data-crep]');
+  if (r) {
+    if (!meHasAcct() || rankLocked()) return toast('로그인한 사람만 신고할 수 있어요', 1800);
+    r.disabled = true;
+    try {
+      await state.api.chatReport(Number(r.dataset.crep));
+      toast('🚩 신고했어요. 3번 쌓이면 가려져요', 2000);
+    } catch {
+      toast('지금은 신고가 안 돼요', 1800);
+    }
+    return;
+  }
+  const m = e.target.closest && e.target.closest('.chat-msg');
+  if (m) m.classList.toggle('sel');
+});
+['touchstart', 'scroll', 'input', 'keydown'].forEach((ev) =>
+  document.addEventListener(
+    ev,
+    (e) => {
+      if (e.target && e.target.closest && e.target.closest('#screen-chat')) ch.touchedAt = Date.now();
+    },
+    { passive: true, capture: true }
+  )
+);
+document.addEventListener('visibilitychange', () => {
+  if (!document.hidden && $('#screen-chat').classList.contains('active')) chatPoll();
 });
 
 function openMe(tab = 'profile') {
@@ -8404,6 +8639,11 @@ const ACTIONS = {
   'close-prof': () => closeModal('modal-prof'),
   'prof-friend': (el) => profFriend(el),
   'prof-play': (el) => profPlay(el),
+  'prof-accept': (el) => profAnswer(true, el),
+  'prof-reject': (el) => profAnswer(false, el),
+  'fr-search': () => friendSearch(),
+  'chat-open': () => openChat(),
+  'chat-wake': () => chatWake(),
   'invite-go': () => inviteGo(),
   'invite-later': () => {
     if (inv.cur) save('invSeen', inv.cur.at);
@@ -8982,7 +9222,10 @@ async function boot() {
   } catch {
     state.me = { verified: false };
   }
-  setTimeout(() => checkInvite(state.me && state.me.invite), 1800);
+  setTimeout(() => {
+    checkInvite(state.me && state.me.invite);
+    refreshFrDot();
+  }, 1800);
   refreshTitle();
   refreshNewsDot();
   refreshMoveBtn();

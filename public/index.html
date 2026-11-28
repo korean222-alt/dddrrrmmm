@@ -17,7 +17,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fredoka:wght@600;700&family=Jua&display=swap" />
-  <link rel="stylesheet" href="css/style.css?v=a4da516e42" />
+  <link rel="stylesheet" href="css/style.css?v=7106f7fbc2" />
 </head>
 <body>
   <div id="app">
@@ -96,6 +96,7 @@
           <button class="h2-big h2-multi" data-action="room-open"><span class="h2-big-ico" data-icon="swords"></span><b>멀티</b><small>친구·랜덤 대결</small></button>
           <button class="h2-big h2-maps" data-action="maps-open"><span class="h2-big-ico" data-icon="piano"></span><b>유저 맵</b><small>다 같이 만든 곡</small></button>
         </div>
+        <button class="h2-chat" data-action="chat-open"><b>💬 채팅</b><small id="h2-chat-sub">매일 저녁 6시~8시</small></button>
         <footer class="title-foot" id="title-foot2"></footer>
       </div>
     </section>
@@ -195,10 +196,28 @@
         </div>
         <!-- 👥 친구 탭 (2026-11-28) -->
         <div class="me-body" data-p="friends" hidden>
+          <form class="fr-search" onsubmit="return false"><input id="fr-q" maxlength="20" placeholder="🔎 닉네임으로 친구 찾기" autocomplete="off" enterkeyhint="search" /><button class="btn btn-primary" data-action="fr-search">찾기</button></form>
+          <div class="sr-list" id="fr-found"></div>
+          <div class="sr-list" id="fr-reqs"></div>
           <p class="fr-head">👥 친구 순위 <small>시즌 2 타일 총합 · <span id="fr-count">0/30</span></small></p>
           <div class="sr-list" id="fr-list"></div>
-          <p class="me-soon">랭킹에서 프로필을 누르면 친구로 추가할 수 있어요</p>
+          <p class="me-soon">친구 요청을 상대가 수락하면 친구가 돼요 · 랭킹·유저 맵·채팅에서 프로필을 눌러도 돼요</p>
         </div>
+      </div>
+    </section>
+
+    <!-- 💬 채팅 (2026-11-28 사용자 '채팅 18:00~20시까지만') -->
+    <section id="screen-chat" class="screen" aria-label="채팅">
+      <header class="bar">
+        <button class="icon-btn" data-action="home" aria-label="뒤로"><span data-icon="back"></span></button>
+        <h2>💬 채팅 <span class="chat-live" id="chat-live"></span></h2>
+        <span class="bar-gap"></span>
+      </header>
+      <div class="chat-wrap">
+        <p class="chat-rule">저녁 6~8시 · 욕설·연락처 ✕ · 신고 3번이면 가려져요</p>
+        <div class="chat-list" id="chat-list"></div>
+        <button class="chat-idle" id="chat-idle" data-action="chat-wake" hidden>😴 자리 비움 · 눌러서 계속 보기</button>
+        <form class="chat-form" id="chat-form"><input id="chat-in" maxlength="80" placeholder="메시지 (80자)" autocomplete="off" enterkeyhint="send" /><button class="btn btn-primary" type="submit">보내기</button></form>
       </div>
     </section>
 
@@ -1543,6 +1562,6 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="js/app.js?v=75e6ecc3b7" defer></script>
+  <script src="js/app.js?v=cddfab0f37" defer></script>
 </body>
 </html>

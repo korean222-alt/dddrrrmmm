@@ -317,6 +317,46 @@ export class JsonStore {
   seasonRankOf(season, board, igsid) {
     return this._seasonAll(season, board).find((r) => r.igsid === igsid) || null;
   }
+  // ---------- 💬 채팅 · 👥 닉네임 찾기 (2026-11-28) ----------
+  _chat() {
+    return (this.data.chat ||= { seq: 0, rows: [] });
+  }
+  chatAdd(m) {
+    const c = this._chat();
+    const id = ++c.seq;
+    c.rows.push({ id, at: m.at, igsid: m.igsid, name: m.name || '', av: m.av || null, text: m.text, rep: 0, hid: 0 });
+    this._save();
+    return id;
+  }
+  chatSince(after, from, limit = 60) {
+    return this._chat().rows.filter((r) => r.id > (Number(after) || 0) && r.at >= from && !r.hid).slice(-limit).map((r) => ({ ...r }));
+  }
+  chatGet(id) {
+    const r = this._chat().rows.find((x) => x.id === Number(id));
+    return r ? { ...r } : null;
+  }
+  chatReport(id, n = 3) {
+    const r = this._chat().rows.find((x) => x.id === Number(id));
+    if (!r) return null;
+    r.rep++;
+    if (r.rep >= n) r.hid = 1;
+    this._save();
+    return { ...r };
+  }
+  chatPurge(before) {
+    const c = this._chat();
+    c.rows = c.rows.filter((r) => r.at >= before);
+    this._save();
+  }
+  findByName(q, { exact = false, limit = 10 } = {}) {
+    q = String(q || '').trim().slice(0, 20);
+    if (!q) return [];
+    return Object.values(this.data.players)
+      .filter((p) => p.username && !p.hiddenAt && (exact ? p.username === q : p.username.startsWith(q)))
+      .sort((a, b) => (exact ? 0 : a.username < b.username ? -1 : a.username > b.username ? 1 : 0) || (a.igsid < b.igsid ? -1 : 1))
+      .slice(0, limit)
+      .map((p) => ({ igsid: p.igsid, username: p.username }));
+  }
   /** 👥 친구 카드 (pgstore 와 같은 모양) */
   friendCards(season, ids) {
     const out = [];
